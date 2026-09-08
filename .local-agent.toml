@@ -1,0 +1,20 @@
+# The agent's own repository, so it can be pointed at itself.
+[repo]
+name = "local-code-agent"
+build_dir = "build"
+run_dir = ".local-agent/runs"
+default_profile = "python"
+skills_dir = ".github/skills"
+
+[profiles.python]
+configure = []
+build = ["python3", "-c", "import compileall,sys; sys.exit(0 if compileall.compile_dir('src', quiet=1) else 1)"]
+test = ["python3", "devtools/minipytest.py", "tests"]
+
+[policy]
+allow_build = true
+allow_test = true
+allow_patch = false
+allow_commit = false
+command_timeout_seconds = 600
+max_tool_calls = 40

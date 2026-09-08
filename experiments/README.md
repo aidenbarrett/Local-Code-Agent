@@ -1,0 +1,48 @@
+# Experiments
+
+One directory per experiment. Each is self-contained and each is frozen the
+moment its data lands.
+
+```
+<date>-<model>-<what-was-varied>/
+    README.md     what this run was, how to read the files, what makes it comparable
+    findings.md   the analysis: what it showed, what it did not, what to do next
+    data/         the raw evaluator output, one file per cell
+```
+
+Directory names are `YYYY-MM-DD` of the run, the model, and the thing that was
+varied. Sorting by name sorts by date.
+
+## Rules
+
+**Data is never edited in place.** Not to fix a typo, not to correct a field
+that later turned out wrong, not to tidy a path. If something in a frozen file
+is wrong or stale, that is recorded in the directory's `README.md` and the file
+is left alone. A dataset that gets touched after collection is not evidence any
+more.
+
+**A new run gets a new directory.** Never a new file in an existing one.
+
+**Findings live beside their data.** There is no separate analysis folder,
+because an analysis separated from the run it describes eventually gets
+attached to the wrong one.
+
+## What makes two runs comparable
+
+Every row in every file carries its own provenance. Two things decide whether
+numbers from different runs may be put in the same table:
+
+| Field | Meaning if it differs |
+|---|---|
+| `base_prompt_sha256` | **different experiment.** The model-facing contract changed. Never pool these, whatever else matches. |
+| `source_sha256` | the instrument changed. Possibly recoverable by re-scoring with `devtools/rescore.py`, but only when the rows recorded enough evidence, which it decides per row and refuses to guess. |
+
+Everything else, model, quant, runtime version, sampler, context budget,
+offered tools and tool schema hash, is recorded per row so a difference can be
+found rather than argued about.
+
+## Index
+
+| Experiment | Model | Cells | Headline |
+|---|---|---|---|
+| [`2026-09-08-30b-three-conditions`](2026-09-08-30b-three-conditions/) | Qwen3-Coder-30B on CPU | control, narrow, skill, plus one skill repeat | Restricting the tool set took verified completion from 3/10 to 8/10. Adding the written procedure on top changed it by zero. |

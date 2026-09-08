@@ -1,0 +1,31 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# CMake build trees inside the fixture, and the agent's own run journal
+fixtures/cpp_sandbox/build/
+.local-agent/
+.local-agent-build-ok
+.local-agent-configured-profile
+
+# Working run output. Datasets that are kept live under results/<run>/ and are
+# committed deliberately; anything matching these patterns is scratch.
+evals*.json
+run*.json
+slice3-out/
+qualify-*.json
+!results/**/*.json
+
+# Model weights never go in the repository
+models/
+*.gguf
+
+# PACKAGE.json is a build artifact, written by devtools/stamp_package.py and
+# injected into the zip by scripts/package.sh. It names the commit it was built
+# from, so tracking it would make it name its own parent. Datasets are
+# reconciled against the copy inside the package, not against the repository.
+PACKAGE.json

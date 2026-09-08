@@ -1,0 +1,28 @@
+{
+  "managed_files": [
+    "src/ring_buffer.cpp",
+    "src/text_util.cpp",
+    "tests/test_slow.cpp"
+  ],
+  "scenarios": {
+    "clean": [],
+    "compile_error": [
+      "src/ring_buffer.cpp"
+    ],
+    "link_error": [
+      "src/ring_buffer.cpp"
+    ],
+    "test_failure": [
+      "src/ring_buffer.cpp"
+    ],
+    "crash": [
+      "src/text_util.cpp"
+    ],
+    "timeout": [
+      "tests/test_slow.cpp"
+    ],
+    "warning_storm": [
+      "src/text_util.cpp"
+    ]
+  }
+}

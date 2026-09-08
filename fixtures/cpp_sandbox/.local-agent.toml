@@ -1,0 +1,25 @@
+[repo]
+name = "cpp-sandbox"
+build_dir = "build"
+run_dir = ".local-agent/runs"
+default_profile = "debug"
+skills_dir = ".github/skills"
+
+[profiles.debug]
+configure = ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"]
+build = ["cmake", "--build", "build", "--parallel", "4"]
+test = ["ctest", "--test-dir", "build", "--output-on-failure"]
+
+[profiles.release]
+configure = ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=RelWithDebInfo"]
+build = ["cmake", "--build", "build", "--parallel", "4"]
+test = ["ctest", "--test-dir", "build", "--output-on-failure"]
+
+[policy]
+allow_build = true
+allow_test = true
+allow_patch = true
+allow_commit = false
+command_timeout_seconds = 300
+max_tool_calls = 30
+max_repeat_calls = 3

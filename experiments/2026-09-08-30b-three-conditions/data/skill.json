@@ -1,0 +1,3067 @@
+{
+  "label": "slice3-nuc-llama-30b-skill",
+  "rehearsal": false,
+  "endpoint": "http://127.0.0.1:8080/v1",
+  "model": "qwen3-coder-30b",
+  "device": "CPU",
+  "model_identity": {
+    "model": "qwen3-coder-30b",
+    "device": "CPU",
+    "runtime": "llamacpp",
+    "runtime_version": "b10816-427291b5b",
+    "quant": "UD-Q4_K_XL",
+    "tool_parser": "jinja-template",
+    "thinking": false,
+    "context_budget_tokens": 12000,
+    "max_tool_result_tokens": 1500,
+    "temperature": 0.2,
+    "top_k": 40,
+    "top_p": 0.95,
+    "min_p": 0.05,
+    "connect_timeout_s": 10.0,
+    "read_timeout_s": 480.0,
+    "request_deadline_s": 900.0,
+    "stall_tok_s": 1.0,
+    "stall_window_s": 60.0,
+    "stream": true,
+    "sdk": "openai",
+    "sdk_version": "3.8.0",
+    "http_stack": "httpx2"
+  },
+  "package": {
+    "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+    "package_dirty": false,
+    "package_source": "stamp",
+    "package_built_at": "2026-09-07T14:22:32Z",
+    "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+    "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+  },
+  "context_budget_tokens": 12000,
+  "cheap_profile": null,
+  "condition": "skill",
+  "catalogue": false,
+  "approval_mode": "auto",
+  "tiered": false,
+  "kill_threshold": 0.6,
+  "complete": true,
+  "stopped_early": false,
+  "overall": 1.0,
+  "tasks_without_escalation": 8,
+  "tasks_routed": 10,
+  "ledger": {
+    "model_capability_rate": 0.8,
+    "end_to_end_rate": 0.8,
+    "environment_availability": 1.0,
+    "cheap_calls_discarded": 0,
+    "tasks": 10,
+    "tasks_submitted": 10,
+    "excluded": 0,
+    "oracle_tampered": 0,
+    "oracle_tampered_cases": [],
+    "invalid_runs": 0,
+    "errors": [],
+    "invalid_cases": [],
+    "blocked": 0,
+    "blocked_cases": [],
+    "tiered": false,
+    "scope_violations": 0,
+    "scope_violation_cases": [],
+    "precondition_failures": 0,
+    "invented_tool_calls": 0,
+    "tool_not_allowed_calls": 0,
+    "attempted": 10,
+    "cheap_only_tasks": 10,
+    "cheap_only_success": 8,
+    "escalated_tasks": 0,
+    "escalated_success": 0,
+    "single_tier_tasks": 0,
+    "local_success": 8,
+    "cheap_alone_rate": 0.8,
+    "local_success_rate": 0.8,
+    "cloud_required_rate": 0.2,
+    "calls_by_tier": {
+      "cheap": 82,
+      "strong": 0
+    },
+    "cheap_call_share": 1.0,
+    "median_seconds_cheap_only": 132.2,
+    "median_seconds_escalated": null,
+    "escalations": []
+  },
+  "diagnostic_quality_score": 1.0,
+  "diagnostic_capability_rate": 1.0,
+  "diagnostic_score": 1.0,
+  "rows": [
+    {
+      "case": "clean-build",
+      "scenario": "clean",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "build-and-test",
+      "narrowed_by": "build-and-test",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "structured",
+      "score": 1.0,
+      "weight": 1.0,
+      "checks": {
+        "did not halt": true,
+        "was efficient": true,
+        "reported success": true
+      },
+      "required_checks": {
+        "full build passed": true,
+        "full test run passed": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "success"
+      ],
+      "claim_ok": true,
+      "tool_calls": 5,
+      "tools_used": [
+        "repo_info",
+        "configure_project",
+        "build_target",
+        "list_tests",
+        "run_test"
+      ],
+      "history": [
+        {
+          "name": "repo_info",
+          "arguments": {},
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "Repository 'cpp-sandbox' with 2 build profile(s).",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "configure_project",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "configure (debug) succeeded in 0.5s",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "build_target",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "build (debug) succeeded in 0.7s with 0 warning(s)",
+          "proof": "full_build_pass",
+          "evidence": {}
+        },
+        {
+          "name": "list_tests",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "4 test(s) registered",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "all tests passed (4 test(s)) in 0.0s",
+          "proof": "full_test_pass",
+          "evidence": {
+            "totals": {
+              "failed": 0,
+              "total": 4,
+              "passed": 4
+            },
+            "stale_sources": [],
+            "ran_nothing": false,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        }
+      ],
+      "claim": "success",
+      "cited_evidence": [
+        "build_target:2",
+        "run_test:5"
+      ],
+      "cited_correctly": false,
+      "cited_unknown": [
+        "run_test:5"
+      ],
+      "citation_schemes": {
+        "index": 1,
+        "ordinal": 0,
+        "ambiguous": 0,
+        "unknown": 1,
+        "chosen": "index"
+      },
+      "verified": true,
+      "verification_attempted": true,
+      "mutation_epoch": 0,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "build_target",
+        "configure_project",
+        "list_tests",
+        "read_file",
+        "read_log_chunk",
+        "repo_info",
+        "run_test",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "829af1b652023968",
+      "precondition": {
+        "precondition": "none",
+        "ok": true
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 56.4,
+      "metrics": {
+        "llm_calls": 6,
+        "llm_seconds": 55.14,
+        "tool_seconds": 1.22,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 56.37,
+        "prompt_tokens": 17008,
+        "completion_tokens": 182,
+        "cached_prompt_tokens": 14866,
+        "cache_hit_ratio": 0.874,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 6.817,
+        "max_ttft_s": 10.014,
+        "median_prefill_tok_s": 51.322,
+        "median_decode_tok_s": 16.43,
+        "compactions": 0,
+        "context_peak_tokens": 2511,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 37805.3,
+        "server_predicted_ms_total": 16545.8
+      },
+      "routing": {
+        "skill": "build-and-test",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "pass",
+        "tests": "pass",
+        "ok": true,
+        "detail": "all tests passed (4 test(s)) in 0.0s"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": true,
+      "answer": "The project was successfully built and all tests (ring_buffer, text_util, fd_owner, slow) passed in the debug profile.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/clean-build-0.json",
+      "error": null,
+      "attempt": 0
+    },
+    {
+      "case": "compile-error-locate",
+      "scenario": "compile_error",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "diagnose-build-failure",
+      "narrowed_by": "diagnose-build-failure",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "structured",
+      "score": 1.0,
+      "weight": 1.0,
+      "checks": {
+        "named the file": true,
+        "named the symbol": true,
+        "cited the line": true,
+        "did not halt": true,
+        "was efficient": true
+      },
+      "required_checks": {
+        "observed the build fail": true,
+        "did not modify the repository": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "diagnosis"
+      ],
+      "claim_ok": true,
+      "tool_calls": 6,
+      "tools_used": [
+        "build_target",
+        "read_file",
+        "read_file",
+        "search_text",
+        "read_file",
+        "search_text"
+      ],
+      "history": [
+        {
+          "name": "build_target",
+          "arguments": {},
+          "execution": "ok",
+          "domain": "fail",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 2,
+          "summary": "build (debug) FAILED with 2 compiler error(s) and 0 link error(s)",
+          "proof": "observed_build_fail",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/home/aiden/local-agent-evals/cpp_sandbox/src/ring_buffer.cpp",
+            "start_line": 1,
+            "end_line": 30
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "/home/aiden/local-agent-evals/cpp_sandbox/src/ring_buffer.cpp lines 1-30 of 43",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/home/aiden/local-agent-evals/cpp_sandbox/src/ring_buffer.hpp"
+          },
+          "execution": "error",
+          "domain": "unknown",
+          "reason": "not_found",
+          "ok": false,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "'/home/aiden/local-agent-evals/cpp_sandbox/src/ring_buffer.hpp' is not a file",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "ring_buffer",
+            "glob": "*.hpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "1 match(es) for 'ring_buffer' in *.hpp",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/home/aiden/local-agent-evals/cpp_sandbox/include/sandbox/ring_buffer.hpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "/home/aiden/local-agent-evals/cpp_sandbox/include/sandbox/ring_buffer.hpp lines 1-33 of 33",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "count",
+            "path": "/home/aiden/local-agent-evals/cpp_sandbox/src/ring_buffer.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "6 match(es) for 'count'",
+          "proof": "no_current_proof",
+          "evidence": {}
+        }
+      ],
+      "claim": "diagnosis",
+      "cited_evidence": [
+        "build_target:1",
+        "read_file:2",
+        "read_file:3",
+        "search_text:3"
+      ],
+      "cited_correctly": false,
+      "cited_unknown": [
+        "search_text:3"
+      ],
+      "citation_schemes": {
+        "index": 2,
+        "ordinal": 3,
+        "ambiguous": 0,
+        "unknown": 1,
+        "chosen": "ordinal"
+      },
+      "verified": false,
+      "verification_attempted": true,
+      "mutation_epoch": 0,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "build_target",
+        "find_definition",
+        "read_file",
+        "read_log_chunk",
+        "search_text",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "c21935ce6e5cd069",
+      "precondition": {
+        "precondition": "none",
+        "ok": true
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 129.3,
+      "metrics": {
+        "llm_calls": 7,
+        "llm_seconds": 128.34,
+        "tool_seconds": 0.89,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 129.24,
+        "prompt_tokens": 23394,
+        "completion_tokens": 612,
+        "cached_prompt_tokens": 19634,
+        "cache_hit_ratio": 0.839,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 8.695,
+        "max_ttft_s": 22.245,
+        "median_prefill_tok_s": 48.115,
+        "median_decode_tok_s": 10.759,
+        "compactions": 0,
+        "context_peak_tokens": 3162,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 64301.1,
+        "server_predicted_ms_total": 63686.0
+      },
+      "routing": {
+        "skill": "diagnose-build-failure",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "fail",
+        "tests": null,
+        "ok": false,
+        "detail": "build (debug) FAILED with 2 compiler error(s) and 0 link error(s)"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": true,
+      "answer": "The build failed due to a typo in ring_buffer.cpp line 13 where 'count' is used instead of 'count_' (the member variable declared in the header). This causes an undeclared identifier error. The second error is a syntax error caused by the first error's cascading effect.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/compile-error-locate-0.json",
+      "error": null,
+      "attempt": 0
+    },
+    {
+      "case": "compile-error-fix",
+      "scenario": "compile_error",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "fix-build-failure",
+      "narrowed_by": "fix-build-failure",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "structured",
+      "score": 1.0,
+      "weight": 2.0,
+      "checks": {
+        "proposed a patch": true,
+        "named what was wrong": true,
+        "did not halt": true,
+        "was efficient": true
+      },
+      "required_checks": {
+        "applied a patch": true,
+        "full build passed after the last edit": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "success"
+      ],
+      "claim_ok": true,
+      "tool_calls": 13,
+      "tools_used": [
+        "build_target",
+        "read_file",
+        "read_file",
+        "search_text",
+        "read_file",
+        "propose_patch",
+        "propose_patch",
+        "apply_patch",
+        "apply_patch",
+        "read_file",
+        "propose_patch",
+        "apply_patch",
+        "build_target"
+      ],
+      "history": [
+        {
+          "name": "build_target",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "fail",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 2,
+          "summary": "build (debug) FAILED with 2 compiler error(s) and 0 link error(s)",
+          "proof": "observed_build_fail",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/ring_buffer.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "src/ring_buffer.cpp lines 1-43 of 43",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/sandbox/ring_buffer.hpp"
+          },
+          "execution": "error",
+          "domain": "unknown",
+          "reason": "not_found",
+          "ok": false,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "'src/sandbox/ring_buffer.hpp' is not a file",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "ring_buffer",
+            "glob": "*.hpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "1 match(es) for 'ring_buffer' in *.hpp",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "include/sandbox/ring_buffer.hpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "include/sandbox/ring_buffer.hpp lines 1-33 of 33",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "propose_patch",
+          "arguments": {
+            "path": "src/ring_buffer.cpp",
+            "find": "bool RingBuffer::push(int value) {\n    if (full()) {\n        return false;\n    }\n    slots_[tail_] = value;\n    tail_ = (tail_ + 1) % slots_.size();\n    ++count;\n    return true;\n}",
+            "replace": "bool RingBuffer::push(int value) {\n    if (full()) {\n        return false;\n    }\n    slots_[tail_] = value;\n    tail_ = (tail_ + 1) % slots_.size();\n    ++count_;\n    return true;\n}",
+            "rationale": "The member variable is named count_ (as seen in the header file), but the code was using count. This is a typo that needs to be fixed to match the declared member variable."
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "patch 052ba2a9 proposed for src/ring_buffer.cpp (nothing written yet)",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "propose_patch",
+          "arguments": {
+            "path": "src/ring_buffer.cpp",
+            "find": "bool RingBuffer::empty() const { return count_ == 0 }",
+            "replace": "bool RingBuffer::empty() const { return count_ == 0; }",
+            "rationale": "There's a missing semicolon at the end of the function declaration. C++ requires semicolons to terminate statements."
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "patch ea6c9c7e proposed for src/ring_buffer.cpp (nothing written yet)",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "apply_patch",
+          "arguments": {
+            "patch_id": "052ba2a9"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "applied patch 052ba2a9 to src/ring_buffer.cpp",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "apply_patch",
+          "arguments": {
+            "patch_id": "ea6c9c7e"
+          },
+          "execution": "error",
+          "domain": "unknown",
+          "reason": "bad_arguments",
+          "ok": false,
+          "epoch": 1,
+          "exit_code": null,
+          "summary": "src/ring_buffer.cpp changed since patch ea6c9c7e was proposed. Re-read the file and propose again.",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/ring_buffer.cpp",
+            "start_line": 25,
+            "end_line": 30
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 1,
+          "exit_code": null,
+          "summary": "src/ring_buffer.cpp lines 25-30 of 43",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "propose_patch",
+          "arguments": {
+            "path": "src/ring_buffer.cpp",
+            "find": "bool RingBuffer::empty() const { return count_ == 0 }",
+            "replace": "bool RingBuffer::empty() const { return count_ == 0; }",
+            "rationale": "There's a missing semicolon at the end of the function declaration. C++ requires semicolons to terminate statements."
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 1,
+          "exit_code": null,
+          "summary": "patch fcd3f37e proposed for src/ring_buffer.cpp (nothing written yet)",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "apply_patch",
+          "arguments": {
+            "patch_id": "fcd3f37e"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 1,
+          "exit_code": null,
+          "summary": "applied patch fcd3f37e to src/ring_buffer.cpp",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "build_target",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 2,
+          "exit_code": 0,
+          "summary": "build (debug) succeeded in 0.6s with 0 warning(s)",
+          "proof": "full_build_pass",
+          "evidence": {}
+        }
+      ],
+      "claim": "success",
+      "cited_evidence": [
+        ">build_target:1",
+        ">build_target:3"
+      ],
+      "cited_correctly": false,
+      "cited_unknown": [
+        ">build_target:1",
+        ">build_target:3"
+      ],
+      "citation_schemes": {
+        "index": 0,
+        "ordinal": 0,
+        "ambiguous": 0,
+        "unknown": 2,
+        "chosen": "none"
+      },
+      "verified": true,
+      "verification_attempted": true,
+      "mutation_epoch": 2,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "apply_patch",
+        "build_target",
+        "find_definition",
+        "propose_patch",
+        "read_file",
+        "read_log_chunk",
+        "search_text",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "e500b006aa41dea9",
+      "precondition": {
+        "precondition": "none",
+        "ok": true
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 235.7,
+      "metrics": {
+        "llm_calls": 14,
+        "llm_seconds": 234.23,
+        "tool_seconds": 1.45,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 235.69,
+        "prompt_tokens": 68227,
+        "completion_tokens": 1056,
+        "cached_prompt_tokens": 63320,
+        "cache_hit_ratio": 0.928,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 6.378,
+        "max_ttft_s": 18.645,
+        "median_prefill_tok_s": 33.844,
+        "median_decode_tok_s": 9.485,
+        "compactions": 0,
+        "context_peak_tokens": 4758,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 104798.5,
+        "server_predicted_ms_total": 128621.4
+      },
+      "routing": {
+        "skill": "fix-build-failure",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "pass",
+        "tests": "pass",
+        "ok": true,
+        "detail": "all tests passed (4 test(s)) in 0.0s"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": true,
+      "answer": "Fixed two compilation errors in src/ring_buffer.cpp:\n1. Fixed typo: changed `count` to `count_` on line 13 to match the declared member variable\n2. Added missing semicolon on line 27 for the empty() function declaration\n\nThe build now succeeds with 0 errors and 0 warnings.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/compile-error-fix-0.json",
+      "error": null,
+      "attempt": 0
+    },
+    {
+      "case": "link-error",
+      "scenario": "link_error",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "diagnose-build-failure",
+      "narrowed_by": "diagnose-build-failure",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "structured",
+      "score": 1.0,
+      "weight": 1.0,
+      "checks": {
+        "named the symbol": true,
+        "named the right file": true,
+        "did not halt": true
+      },
+      "required_checks": {
+        "observed the build fail": true,
+        "did not modify the repository": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "diagnosis"
+      ],
+      "claim_ok": true,
+      "tool_calls": 6,
+      "tools_used": [
+        "build_target",
+        "read_file",
+        "search_text",
+        "search_text",
+        "read_file",
+        "read_file"
+      ],
+      "history": [
+        {
+          "name": "build_target",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "fail",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 2,
+          "summary": "build (debug) FAILED with 0 compiler error(s) and 1 link error(s)",
+          "proof": "observed_build_fail",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "tests/test_ring_buffer.cpp",
+            "start_line": 20,
+            "end_line": 30
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "tests/test_ring_buffer.cpp lines 20-29 of 29",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "sandbox::checksum"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "1 match(es) for 'sandbox::checksum'",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "checksum"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "2 match(es) for 'checksum'",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "include/sandbox/ring_buffer.hpp",
+            "start_line": 25,
+            "end_line": 35
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "include/sandbox/ring_buffer.hpp lines 25-33 of 33",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/ring_buffer.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "src/ring_buffer.cpp lines 1-35 of 35",
+          "proof": "no_current_proof",
+          "evidence": {}
+        }
+      ],
+      "claim": "diagnosis",
+      "cited_evidence": [
+        "build_target:1",
+        "read_file:2",
+        "read_file:3",
+        "read_file:4"
+      ],
+      "cited_correctly": false,
+      "cited_unknown": [
+        "read_file:4"
+      ],
+      "citation_schemes": {
+        "index": 1,
+        "ordinal": 3,
+        "ambiguous": 0,
+        "unknown": 1,
+        "chosen": "ordinal"
+      },
+      "verified": false,
+      "verification_attempted": true,
+      "mutation_epoch": 0,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "build_target",
+        "find_definition",
+        "read_file",
+        "read_log_chunk",
+        "search_text",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "c21935ce6e5cd069",
+      "precondition": {
+        "precondition": "none",
+        "ok": true
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 117.7,
+      "metrics": {
+        "llm_calls": 7,
+        "llm_seconds": 116.47,
+        "tool_seconds": 1.25,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 117.72,
+        "prompt_tokens": 22824,
+        "completion_tokens": 755,
+        "cached_prompt_tokens": 20823,
+        "cache_hit_ratio": 0.912,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 4.323,
+        "max_ttft_s": 13.185,
+        "median_prefill_tok_s": 47.65,
+        "median_decode_tok_s": 10.356,
+        "compactions": 0,
+        "context_peak_tokens": 3141,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 39033.4,
+        "server_predicted_ms_total": 76936.2
+      },
+      "routing": {
+        "skill": "diagnose-build-failure",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "fail",
+        "tests": null,
+        "ok": false,
+        "detail": "build (debug) FAILED with 0 compiler error(s) and 1 link error(s)"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": true,
+      "answer": "The build fails because the function `sandbox::checksum` is declared in `include/sandbox/ring_buffer.hpp` on line 31 but is not defined anywhere in the source files. The linker cannot find an implementation for this function, causing an undefined reference error when `test_ring_buffer.cpp` tries to use it on line 25.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/link-error-0.json",
+      "error": null,
+      "attempt": 0
+    },
+    {
+      "case": "test-failure-diagnose",
+      "scenario": "test_failure",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "diagnose-test-failure",
+      "narrowed_by": "diagnose-test-failure",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "structured",
+      "score": 1.0,
+      "weight": 2.0,
+      "checks": {
+        "named the test": true,
+        "identified the predicate": true,
+        "did not halt": true
+      },
+      "required_checks": {
+        "reproduced the failure": true,
+        "did not modify the repository": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "diagnosis"
+      ],
+      "claim_ok": true,
+      "tool_calls": 7,
+      "tools_used": [
+        "run_test",
+        "read_file",
+        "read_file",
+        "search_text",
+        "read_file",
+        "read_file",
+        "read_log_chunk"
+      ],
+      "history": [
+        {
+          "name": "run_test",
+          "arguments": {
+            "name_filter": "ring_buffer"
+          },
+          "execution": "ok",
+          "domain": "fail",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 8,
+          "summary": "1 test(s) FAILED: ring_buffer",
+          "proof": "observed_test_fail",
+          "evidence": {
+            "totals": {
+              "failed": 1,
+              "total": 1,
+              "passed": 0
+            },
+            "stale_sources": [],
+            "ran_nothing": false,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "tests/test_ring_buffer.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "tests/test_ring_buffer.cpp lines 1-29 of 29",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/ring_buffer.hpp"
+          },
+          "execution": "error",
+          "domain": "unknown",
+          "reason": "not_found",
+          "ok": false,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "'src/ring_buffer.hpp' is not a file",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "RingBuffer",
+            "glob": "*.hpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "2 match(es) for 'RingBuffer' in *.hpp",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "include/sandbox/ring_buffer.hpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "include/sandbox/ring_buffer.hpp lines 1-33 of 33",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/ring_buffer.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "src/ring_buffer.cpp lines 1-43 of 43",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_log_chunk",
+          "arguments": {
+            "path": ".local-agent/runs/20260908-131802-5c916b/combined.log",
+            "start_line": 1,
+            "end_line": 20
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": ".local-agent/runs/20260908-131802-5c916b/combined.log lines 1-14",
+          "proof": "no_current_proof",
+          "evidence": {}
+        }
+      ],
+      "claim": "diagnosis",
+      "cited_evidence": [
+        "run_test:1",
+        "read_file:1",
+        "read_file:2",
+        "read_file:3",
+        "read_log_chunk:1"
+      ],
+      "cited_correctly": true,
+      "cited_unknown": [],
+      "citation_schemes": {
+        "index": 2,
+        "ordinal": 5,
+        "ambiguous": 0,
+        "unknown": 0,
+        "chosen": "ordinal"
+      },
+      "verified": false,
+      "verification_attempted": true,
+      "mutation_epoch": 0,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "find_definition",
+        "git_diff",
+        "read_file",
+        "read_log_chunk",
+        "run_test",
+        "search_text",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "fccf4152d038444d",
+      "precondition": {
+        "precondition": "built",
+        "ok": true,
+        "seconds": 1.01,
+        "tests_registered": 4
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 145.6,
+      "metrics": {
+        "llm_calls": 8,
+        "llm_seconds": 145.55,
+        "tool_seconds": 0.08,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 145.64,
+        "prompt_tokens": 28832,
+        "completion_tokens": 748,
+        "cached_prompt_tokens": 25853,
+        "cache_hit_ratio": 0.897,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 8.29,
+        "max_ttft_s": 12.154,
+        "median_prefill_tok_s": 47.308,
+        "median_decode_tok_s": 10.31,
+        "compactions": 0,
+        "context_peak_tokens": 3470,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 59775.5,
+        "server_predicted_ms_total": 85185.0
+      },
+      "routing": {
+        "skill": "diagnose-test-failure",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "pass",
+        "tests": "fail",
+        "ok": false,
+        "detail": "1 test(s) FAILED: ring_buffer"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": true,
+      "answer": "The ring_buffer test fails because the `full()` method in `src/ring_buffer.cpp` line 29 has incorrect logic. It returns `true` when `count_ + 1 == slots_.size()` instead of `count_ == slots_.size()`. This causes the buffer to be considered full one element early, so `push(3)` fails when it should succeed for a buffer with capacity 3.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/test-failure-diagnose-0.json",
+      "error": null,
+      "attempt": 0
+    },
+    {
+      "case": "test-failure-fix",
+      "scenario": "test_failure",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "fix-test-failure",
+      "narrowed_by": "fix-test-failure",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "structured",
+      "score": 1.0,
+      "weight": 2.0,
+      "checks": {
+        "explained the fix": true,
+        "did not halt": true,
+        "was efficient": true
+      },
+      "required_checks": {
+        "applied a patch": true,
+        "rebuilt after editing": true,
+        "full test run passed after the last edit": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "success"
+      ],
+      "claim_ok": true,
+      "tool_calls": 10,
+      "tools_used": [
+        "run_test",
+        "read_file",
+        "read_file",
+        "search_text",
+        "read_file",
+        "read_file",
+        "propose_patch",
+        "apply_patch",
+        "build_target",
+        "run_test"
+      ],
+      "history": [
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "fail",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 8,
+          "summary": "1 test(s) FAILED: ring_buffer",
+          "proof": "observed_test_fail",
+          "evidence": {
+            "totals": {
+              "failed": 1,
+              "total": 4,
+              "passed": 3
+            },
+            "stale_sources": [],
+            "ran_nothing": false,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "tests/test_ring_buffer.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "tests/test_ring_buffer.cpp lines 1-29 of 29",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/ring_buffer.hpp"
+          },
+          "execution": "error",
+          "domain": "unknown",
+          "reason": "not_found",
+          "ok": false,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "'src/ring_buffer.hpp' is not a file",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "RingBuffer"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "10 match(es) for 'RingBuffer'",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "include/sandbox/ring_buffer.hpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "include/sandbox/ring_buffer.hpp lines 1-33 of 33",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/ring_buffer.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "src/ring_buffer.cpp lines 1-43 of 43",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "propose_patch",
+          "arguments": {
+            "path": "src/ring_buffer.cpp",
+            "find": "bool RingBuffer::full() const { return count_ + 1 == slots_.size(); }",
+            "replace": "bool RingBuffer::full() const { return count_ == slots_.size(); }",
+            "rationale": "The ring buffer is full when the number of elements (count_) equals the capacity (slots_.size()). The current implementation incorrectly checks count_ + 1 == slots_.size(), which would only be true when there's one more element than the capacity, which is impossible in a properly functioning ring buffer. This causes push() to fail when it should succeed, and vice versa."
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "patch 100289f9 proposed for src/ring_buffer.cpp (nothing written yet)",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "apply_patch",
+          "arguments": {
+            "patch_id": "100289f9"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "applied patch 100289f9 to src/ring_buffer.cpp",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "build_target",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 1,
+          "exit_code": 0,
+          "summary": "build (debug) succeeded in 0.3s with 0 warning(s)",
+          "proof": "full_build_pass",
+          "evidence": {}
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 1,
+          "exit_code": 0,
+          "summary": "all tests passed (4 test(s)) in 0.0s",
+          "proof": "full_test_pass",
+          "evidence": {
+            "totals": {
+              "failed": 0,
+              "total": 4,
+              "passed": 4
+            },
+            "stale_sources": [],
+            "ran_nothing": false,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        }
+      ],
+      "claim": "success",
+      "cited_evidence": [
+        ">=build_target:1",
+        "run_test:3"
+      ],
+      "cited_correctly": false,
+      "cited_unknown": [
+        ">=build_target:1",
+        "run_test:3"
+      ],
+      "citation_schemes": {
+        "index": 0,
+        "ordinal": 0,
+        "ambiguous": 0,
+        "unknown": 2,
+        "chosen": "none"
+      },
+      "verified": true,
+      "verification_attempted": true,
+      "mutation_epoch": 1,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "apply_patch",
+        "build_target",
+        "configure_project",
+        "find_definition",
+        "git_diff",
+        "propose_patch",
+        "read_file",
+        "read_log_chunk",
+        "run_test",
+        "search_text",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "e951aaa1c08f75a1",
+      "precondition": {
+        "precondition": "built",
+        "ok": true,
+        "seconds": 1.0,
+        "tests_registered": 4
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 192.2,
+      "metrics": {
+        "llm_calls": 11,
+        "llm_seconds": 191.76,
+        "tool_seconds": 0.45,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 192.22,
+        "prompt_tokens": 53892,
+        "completion_tokens": 759,
+        "cached_prompt_tokens": 49470,
+        "cache_hit_ratio": 0.918,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 9.367,
+        "max_ttft_s": 13.396,
+        "median_prefill_tok_s": 42.183,
+        "median_decode_tok_s": 9.929,
+        "compactions": 0,
+        "context_peak_tokens": 4683,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 97901.1,
+        "server_predicted_ms_total": 92902.5
+      },
+      "routing": {
+        "skill": "fix-test-failure",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "pass",
+        "tests": "pass",
+        "ok": true,
+        "detail": "all tests passed (4 test(s)) in 0.0s"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": true,
+      "answer": "Fixed the ring_buffer test failure by correcting the `full()` method implementation. The bug was in `src/ring_buffer.cpp` line 29 where `count_ + 1 == slots_.size()` was incorrectly checking if the buffer was full. The correct condition is `count_ == slots_.size()` since a ring buffer is full when its element count equals its capacity. After applying this fix and rebuilding, all tests now pass.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/test-failure-fix-0.json",
+      "error": null,
+      "attempt": 0
+    },
+    {
+      "case": "segfault",
+      "scenario": "crash",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "diagnose-test-failure",
+      "narrowed_by": "diagnose-test-failure",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "structured",
+      "score": 1.0,
+      "weight": 1.0,
+      "checks": {
+        "named the test": true,
+        "identified the cause": true,
+        "did not halt": true
+      },
+      "required_checks": {
+        "reproduced the crash": true,
+        "did not modify the repository": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "diagnosis"
+      ],
+      "claim_ok": true,
+      "tool_calls": 8,
+      "tools_used": [
+        "run_test",
+        "run_test",
+        "run_test",
+        "read_log_chunk",
+        "search_text",
+        "read_file",
+        "read_file",
+        "git_diff"
+      ],
+      "history": [
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": ".*[Ss]egfault.*"
+          },
+          "execution": "ok",
+          "domain": "unknown",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "ctest ran 0 tests and exited 0: no test matched '.*[Ss]egfault.*'. Nothing was verified. Use list_tests to see the names that exist.",
+          "proof": "no_current_proof",
+          "evidence": {
+            "totals": {},
+            "stale_sources": [],
+            "ran_nothing": true,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": ".*[Ss]egfault.*"
+          },
+          "execution": "ok",
+          "domain": "unknown",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "ctest ran 0 tests and exited 0: no test matched '.*[Ss]egfault.*'. Nothing was verified. Use list_tests to see the names that exist.",
+          "proof": "no_current_proof",
+          "evidence": {
+            "totals": {},
+            "stale_sources": [],
+            "ran_nothing": true,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": ".*",
+            "rerun_failed": true
+          },
+          "execution": "ok",
+          "domain": "fail",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 8,
+          "summary": "1 test(s) FAILED: text_util",
+          "proof": "observed_test_fail",
+          "evidence": {
+            "totals": {
+              "failed": 1,
+              "total": 4,
+              "passed": 3
+            },
+            "stale_sources": [],
+            "ran_nothing": false,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "read_log_chunk",
+          "arguments": {
+            "path": ".local-agent/runs/20260908-132404-cab5ae/combined.log",
+            "start_line": 10,
+            "end_line": 25
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": ".local-agent/runs/20260908-132404-cab5ae/combined.log lines 10-19",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "text_util"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "5 match(es) for 'text_util'",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "tests/test_text_util.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "tests/test_text_util.cpp lines 1-19 of 19",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/text_util.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "src/text_util.cpp lines 1-51 of 51",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "git_diff",
+          "arguments": {
+            "staged": false
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "diff over 1 file(s)",
+          "proof": "no_current_proof",
+          "evidence": {}
+        }
+      ],
+      "claim": "diagnosis",
+      "cited_evidence": [
+        "run_test:3",
+        "read_file:4",
+        "read_file:5",
+        "git_diff:1"
+      ],
+      "cited_correctly": false,
+      "cited_unknown": [
+        "read_file:4",
+        "read_file:5"
+      ],
+      "citation_schemes": {
+        "index": 1,
+        "ordinal": 2,
+        "ambiguous": 0,
+        "unknown": 2,
+        "chosen": "ordinal"
+      },
+      "verified": false,
+      "verification_attempted": true,
+      "mutation_epoch": 0,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "find_definition",
+        "git_diff",
+        "read_file",
+        "read_log_chunk",
+        "run_test",
+        "search_text",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "fccf4152d038444d",
+      "precondition": {
+        "precondition": "built",
+        "ok": true,
+        "seconds": 1.03,
+        "tests_registered": 4
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 135.1,
+      "metrics": {
+        "llm_calls": 9,
+        "llm_seconds": 134.94,
+        "tool_seconds": 0.12,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 135.07,
+        "prompt_tokens": 34898,
+        "completion_tokens": 575,
+        "cached_prompt_tokens": 31320,
+        "cache_hit_ratio": 0.897,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 7.438,
+        "max_ttft_s": 16.519,
+        "median_prefill_tok_s": 42.664,
+        "median_decode_tok_s": 12.413,
+        "compactions": 0,
+        "context_peak_tokens": 3838,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 71152.4,
+        "server_predicted_ms_total": 63084.3
+      },
+      "routing": {
+        "skill": "diagnose-test-failure",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "pass",
+        "tests": "fail",
+        "ok": false,
+        "detail": "1 test(s) FAILED: text_util"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": true,
+      "answer": "The test 'text_util' crashes due to a null pointer dereference in the trim function. The crash occurs at line 38 in src/text_util.cpp where *broken is dereferenced. This is a bug in the code under test, not the test itself. The test calls sandbox::trim(\"   \") which triggers the problematic code path that was added deliberately.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/segfault-0.json",
+      "error": null,
+      "attempt": 0
+    },
+    {
+      "case": "timeout",
+      "scenario": "timeout",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "diagnose-test-failure",
+      "narrowed_by": "diagnose-test-failure",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "structured",
+      "score": 1.0,
+      "weight": 1.0,
+      "checks": {
+        "named the test": true,
+        "identified the cause": true,
+        "did not halt": true
+      },
+      "required_checks": {
+        "reproduced the timeout": true,
+        "did not modify the repository": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "diagnosis"
+      ],
+      "claim_ok": true,
+      "tool_calls": 12,
+      "tools_used": [
+        "run_test",
+        "run_test",
+        "run_test",
+        "run_test",
+        "run_test",
+        "run_test",
+        "run_test",
+        "read_log_chunk",
+        "search_text",
+        "read_file",
+        "run_test",
+        "git_diff"
+      ],
+      "history": [
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": ".*timeout.*"
+          },
+          "execution": "ok",
+          "domain": "unknown",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "ctest ran 0 tests and exited 0: no test matched '.*timeout.*'. Nothing was verified. Use list_tests to see the names that exist.",
+          "proof": "no_current_proof",
+          "evidence": {
+            "totals": {},
+            "stale_sources": [],
+            "ran_nothing": true,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": ".*timeout.*"
+          },
+          "execution": "ok",
+          "domain": "unknown",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "ctest ran 0 tests and exited 0: no test matched '.*timeout.*'. Nothing was verified. Use list_tests to see the names that exist.",
+          "proof": "no_current_proof",
+          "evidence": {
+            "totals": {},
+            "stale_sources": [],
+            "ran_nothing": true,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": "timeout"
+          },
+          "execution": "ok",
+          "domain": "unknown",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "ctest ran 0 tests and exited 0: no test matched 'timeout'. Nothing was verified. Use list_tests to see the names that exist.",
+          "proof": "no_current_proof",
+          "evidence": {
+            "totals": {},
+            "stale_sources": [],
+            "ran_nothing": true,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": "TestTimeout"
+          },
+          "execution": "ok",
+          "domain": "unknown",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "ctest ran 0 tests and exited 0: no test matched 'TestTimeout'. Nothing was verified. Use list_tests to see the names that exist.",
+          "proof": "no_current_proof",
+          "evidence": {
+            "totals": {},
+            "stale_sources": [],
+            "ran_nothing": true,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": ".*Test.*"
+          },
+          "execution": "ok",
+          "domain": "unknown",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "ctest ran 0 tests and exited 0: no test matched '.*Test.*'. Nothing was verified. Use list_tests to see the names that exist.",
+          "proof": "no_current_proof",
+          "evidence": {
+            "totals": {},
+            "stale_sources": [],
+            "ran_nothing": true,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": "Test"
+          },
+          "execution": "ok",
+          "domain": "unknown",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 0,
+          "summary": "ctest ran 0 tests and exited 0: no test matched 'Test'. Nothing was verified. Use list_tests to see the names that exist.",
+          "proof": "no_current_proof",
+          "evidence": {
+            "totals": {},
+            "stale_sources": [],
+            "ran_nothing": true,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "rerun_failed": true
+          },
+          "execution": "ok",
+          "domain": "fail",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 8,
+          "summary": "1 test(s) FAILED: slow",
+          "proof": "observed_test_fail",
+          "evidence": {
+            "totals": {
+              "failed": 1,
+              "total": 4,
+              "passed": 3
+            },
+            "stale_sources": [],
+            "ran_nothing": false,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "read_log_chunk",
+          "arguments": {
+            "path": ".local-agent/runs/20260908-132652-4f662a/combined.log",
+            "start_line": 10,
+            "end_line": 25
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": ".local-agent/runs/20260908-132652-4f662a/combined.log lines 10-19",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "slow",
+            "glob": "*.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "1 match(es) for 'slow' in *.cpp",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "tests/test_slow.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "tests/test_slow.cpp lines 1-13 of 13",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "run_test",
+          "arguments": {
+            "profile": "debug",
+            "name_filter": "slow"
+          },
+          "execution": "ok",
+          "domain": "fail",
+          "reason": null,
+          "ok": false,
+          "epoch": 0,
+          "exit_code": 8,
+          "summary": "1 test(s) FAILED: slow",
+          "proof": "observed_test_fail",
+          "evidence": {
+            "totals": {
+              "failed": 1,
+              "total": 1,
+              "passed": 0
+            },
+            "stale_sources": [],
+            "ran_nothing": false,
+            "no_build_record": false,
+            "build_profile_mismatch": false,
+            "profile_mismatch": false,
+            "built_profile": "debug"
+          }
+        },
+        {
+          "name": "git_diff",
+          "arguments": {
+            "staged": false
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "diff over 1 file(s)",
+          "proof": "no_current_proof",
+          "evidence": {}
+        }
+      ],
+      "claim": "diagnosis",
+      "cited_evidence": [
+        "run_test:10",
+        "read_file:4",
+        "git_diff:1"
+      ],
+      "cited_correctly": false,
+      "cited_unknown": [
+        "run_test:10",
+        "read_file:4",
+        "git_diff:1"
+      ],
+      "citation_schemes": {
+        "index": 1,
+        "ordinal": 1,
+        "ambiguous": 2,
+        "unknown": 1,
+        "chosen": "none"
+      },
+      "verified": false,
+      "verification_attempted": true,
+      "mutation_epoch": 0,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "find_definition",
+        "git_diff",
+        "read_file",
+        "read_log_chunk",
+        "run_test",
+        "search_text",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "fccf4152d038444d",
+      "precondition": {
+        "precondition": "built",
+        "ok": true,
+        "seconds": 0.99,
+        "tests_registered": 4
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 184.4,
+      "metrics": {
+        "llm_calls": 13,
+        "llm_seconds": 174.1,
+        "tool_seconds": 10.24,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 184.35,
+        "prompt_tokens": 58127,
+        "completion_tokens": 715,
+        "cached_prompt_tokens": 54140,
+        "cache_hit_ratio": 0.931,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 7.079,
+        "max_ttft_s": 14.022,
+        "median_prefill_tok_s": 40.723,
+        "median_decode_tok_s": 11.401,
+        "compactions": 0,
+        "context_peak_tokens": 4750,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 88653.0,
+        "server_predicted_ms_total": 84673.4
+      },
+      "routing": {
+        "skill": "diagnose-test-failure",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "pass",
+        "tests": "fail",
+        "ok": false,
+        "detail": "1 test(s) FAILED: slow"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": true,
+      "answer": "The test named \"slow\" never finishes due to an infinite loop in tests/test_slow.cpp. The loop uses an unsigned char variable that wraps around from 255 to 0, causing the condition `i < 300` to always be true. This is a bug in the test code itself.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/timeout-0.json",
+      "error": null,
+      "attempt": 0
+    },
+    {
+      "case": "navigation",
+      "scenario": "clean",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "repo-navigation",
+      "narrowed_by": "repo-navigation",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "structured",
+      "score": 1.0,
+      "weight": 1.0,
+      "checks": {
+        "named the header": true,
+        "described the behaviour": true,
+        "did not build": true,
+        "was efficient": true
+      },
+      "required_checks": {
+        "read or searched the repository": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "success"
+      ],
+      "claim_ok": false,
+      "tool_calls": 4,
+      "tools_used": [
+        "search_text",
+        "read_file",
+        "read_file",
+        "search_text"
+      ],
+      "history": [
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "class RingBuffer"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "1 match(es) for 'class RingBuffer'",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "include/sandbox/ring_buffer.hpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "include/sandbox/ring_buffer.hpp lines 1-33 of 33",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/ring_buffer.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "src/ring_buffer.cpp lines 1-43 of 43",
+          "proof": "no_current_proof",
+          "evidence": {}
+        },
+        {
+          "name": "search_text",
+          "arguments": {
+            "pattern": "push.*full",
+            "glob": "*.cpp"
+          },
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "1 match(es) for 'push.*full' in *.cpp",
+          "proof": "no_current_proof",
+          "evidence": {}
+        }
+      ],
+      "claim": "diagnosis",
+      "cited_evidence": [],
+      "cited_correctly": true,
+      "cited_unknown": [],
+      "citation_schemes": {
+        "index": 0,
+        "ordinal": 0,
+        "ambiguous": 0,
+        "unknown": 0,
+        "chosen": "none"
+      },
+      "verified": false,
+      "verification_attempted": false,
+      "mutation_epoch": 0,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "find_definition",
+        "list_files",
+        "read_file",
+        "repo_info",
+        "search_text",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "7fb3102bc960cea0",
+      "precondition": {
+        "precondition": "none",
+        "ok": true
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 54.9,
+      "metrics": {
+        "llm_calls": 5,
+        "llm_seconds": 54.78,
+        "tool_seconds": 0.11,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 54.9,
+        "prompt_tokens": 12362,
+        "completion_tokens": 325,
+        "cached_prompt_tokens": 10832,
+        "cache_hit_ratio": 0.876,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 5.496,
+        "max_ttft_s": 10.332,
+        "median_prefill_tok_s": 53.974,
+        "median_decode_tok_s": 16.203,
+        "compactions": 0,
+        "context_peak_tokens": 1971,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 25943.8,
+        "server_predicted_ms_total": 28342.6
+      },
+      "routing": {
+        "skill": "repo-navigation",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "pass",
+        "tests": "pass",
+        "ok": true,
+        "detail": "all tests passed (4 test(s)) in 0.0s"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": false,
+      "answer": "The RingBuffer class is defined in include/sandbox/ring_buffer.hpp at line 10. When pushing to a full buffer, the push operation returns false, rejecting the push. This is confirmed in tests/test_ring_buffer.cpp at line 16 and implemented in src/ring_buffer.cpp lines 7-15.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/navigation-0.json",
+      "error": null,
+      "attempt": 0
+    },
+    {
+      "case": "review-restraint",
+      "scenario": "clean",
+      "condition": "skill",
+      "catalogue": false,
+      "skill": "git-review",
+      "narrowed_by": "git-review",
+      "tiered": false,
+      "escalated": false,
+      "submission_mode": "prose",
+      "score": 1.0,
+      "weight": 1.0,
+      "checks": {
+        "did not invent findings": true,
+        "did not halt": true,
+        "was efficient": true
+      },
+      "required_checks": {
+        "inspected the working tree": true,
+        "did not modify the repository": true
+      },
+      "required_ok": true,
+      "expected_claim": [
+        "success"
+      ],
+      "claim_ok": false,
+      "tool_calls": 1,
+      "tools_used": [
+        "git_status"
+      ],
+      "history": [
+        {
+          "name": "git_status",
+          "arguments": {},
+          "execution": "ok",
+          "domain": "pass",
+          "reason": null,
+          "ok": true,
+          "epoch": 0,
+          "exit_code": null,
+          "summary": "0 changed file(s), 0 untracked, on master",
+          "proof": "no_current_proof",
+          "evidence": {}
+        }
+      ],
+      "claim": null,
+      "cited_evidence": [],
+      "cited_correctly": null,
+      "cited_unknown": [],
+      "citation_schemes": {},
+      "verified": false,
+      "verification_attempted": false,
+      "mutation_epoch": 0,
+      "scope_violation": false,
+      "forbidden_calls": [],
+      "forbidden_attempts": [],
+      "offered_tools": [
+        "git_branch_info",
+        "git_diff",
+        "git_log",
+        "git_show",
+        "git_status",
+        "read_file",
+        "search_text",
+        "submit_answer"
+      ],
+      "tool_schema_hash": "4f2aa82886ac8066",
+      "precondition": {
+        "precondition": "none",
+        "ok": true
+      },
+      "invented_tool_calls": [],
+      "tool_not_allowed_calls": [],
+      "halt_reason": null,
+      "elapsed_s": 14.7,
+      "metrics": {
+        "llm_calls": 2,
+        "llm_seconds": 14.67,
+        "tool_seconds": 0.0,
+        "overhead_seconds": 0.01,
+        "wall_seconds": 14.68,
+        "prompt_tokens": 4167,
+        "completion_tokens": 74,
+        "cached_prompt_tokens": 3645,
+        "cache_hit_ratio": 0.875,
+        "cache_reported_by_server": true,
+        "median_ttft_s": 4.766,
+        "max_ttft_s": 6.922,
+        "median_prefill_tok_s": 53.333,
+        "median_decode_tok_s": 22.02,
+        "compactions": 0,
+        "context_peak_tokens": 1029,
+        "tiers": null,
+        "model_identity": {
+          "model": "qwen3-coder-30b",
+          "device": "CPU",
+          "runtime": "llamacpp",
+          "runtime_version": "b10816-427291b5b",
+          "quant": "UD-Q4_K_XL",
+          "tool_parser": "jinja-template",
+          "thinking": false,
+          "context_budget_tokens": 12000,
+          "max_tool_result_tokens": 1500,
+          "temperature": 0.2,
+          "top_k": 40,
+          "top_p": 0.95,
+          "min_p": 0.05,
+          "connect_timeout_s": 10.0,
+          "read_timeout_s": 480.0,
+          "request_deadline_s": 900.0,
+          "stall_tok_s": 1.0,
+          "stall_window_s": 60.0,
+          "stream": true,
+          "sdk": "openai",
+          "sdk_version": "3.8.0",
+          "http_stack": "httpx2",
+          "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+          "package_dirty": false,
+          "package_source": "stamp",
+          "package_built_at": "2026-09-07T14:22:32Z",
+          "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+          "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+        },
+        "thinking_requested": false,
+        "thinking_control_accepted": true,
+        "thinking_effective": "off",
+        "thinking_policy_honoured": true,
+        "expected_runtime_version": "b10816-427291b5b",
+        "fingerprints_observed": [
+          "b10816-427291b5b"
+        ],
+        "identity_mismatch": false,
+        "server_prompt_ms_total": 8826.1,
+        "server_predicted_ms_total": 5680.0
+      },
+      "routing": {
+        "skill": "git-review",
+        "first_tier": "cheap",
+        "final_tier": "cheap",
+        "escalated": false,
+        "escalation_reason": null,
+        "available_tiers": [],
+        "skill_score": 1.0,
+        "skill_confident": true,
+        "discarded_cheap_calls": 0
+      },
+      "outcome": "pass",
+      "halt_cause": null,
+      "validity": "valid",
+      "oracle_tampered": false,
+      "oracle_tamper": null,
+      "eval_verification": {
+        "configure": "pass",
+        "build": "pass",
+        "tests": "pass",
+        "ok": true,
+        "detail": "all tests passed (4 test(s)) in 0.0s"
+      },
+      "verification_disagreement": false,
+      "counted": true,
+      "succeeded": false,
+      "answer": "There are no uncommitted changes to review. The repository is currently on the `master` branch with no modified or untracked files. If you have made changes and they are not showing up, please ensure you have staged them with `git add` or check if they are in a different branch.",
+      "transcript": "/home/aiden/slice3-out/slice3-nuc-llama-30b-skill-transcripts/review-restraint-0.json",
+      "error": null,
+      "attempt": 0
+    }
+  ]
+}
