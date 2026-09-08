@@ -169,7 +169,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.transcript:
         dump_transcript(result, Path(args.transcript))
         print(f"\ntranscript: {args.transcript}")
-    return 0 if result.ok else 1
+    # Process status is an automation contract, not merely "the loop did not
+    # crash". FAIL and BLOCKED must be non-zero for VS Code/Jenkins callers.
+    return 0 if result.outcome.succeeded else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
