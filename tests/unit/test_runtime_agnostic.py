@@ -38,7 +38,7 @@ def _stats() -> CallStats:
 def _orch(root: Path, client, **kwargs):
     repo = load_repo_config(root)
     registry, _, _ = build_registry(repo)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     return Orchestrator(repo, registry, client, skills, **kwargs)
 
 
@@ -48,7 +48,7 @@ def _orch(root: Path, client, **kwargs):
 def test_no_orchestration_layer_mentions_a_runtime():
     """Static proof, so this cannot rot the next time somebody is in a hurry."""
     offenders = []
-    for path in sorted((REPO / "src" / "local_agent").rglob("*.py")):
+    for path in sorted((REPO / "local_agent").rglob("*.py")):
         if path.name in ALLOWED or "__pycache__" in str(path):
             continue
         lowered = path.read_text(encoding="utf-8").lower()
@@ -61,7 +61,7 @@ def test_no_orchestration_layer_mentions_a_runtime():
 def test_no_module_branches_on_a_runtime_value():
     """Even in the allowed files, nothing may switch behaviour on the runtime."""
     for name in ("client.py", "models.py"):
-        source = (REPO / "src" / "local_agent" / "llm" / name).read_text()
+        source = (REPO / "local_agent" / "llm" / name).read_text()
         tree = ast.parse(source)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Compare):

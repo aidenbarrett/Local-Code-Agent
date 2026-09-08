@@ -18,27 +18,30 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-_ROOT = Path(__file__).resolve().parent.parent.parent
+# local_agent/provenance.py -> local_agent/ -> repository root. The package
+# sits at the top level rather than under a src/ wrapper, so this is two
+# parents, not three.
+_ROOT = Path(__file__).resolve().parent.parent
 
 # Everything that can change what the agent does. Not the tests, not the docs:
 # a change to those does not change a measured number, and including them would
 # make the hash churn for reasons nobody cares about.
 _HASHED = (
-    ("src/local_agent", "*.py"),
-    (".github/skills", "SKILL.md"),
-    ("tests/evals", "*.py"),
-    ("fixtures/cpp_sandbox", "*"),
+    ("local_agent", "*.py"),
+    ("skills", "SKILL.md"),
+    ("evaluation", "*.py"),
+    ("benchmark_fixture/cpp_project", "*"),
     # The qualification gate decides whether a run is allowed to start, and the
     # runbook script decides what runs at all. A change to either changes the
-    # experiment. Leaving devtools out meant an edit to qualify.py produced a
+    # experiment. Leaving measurement out meant an edit to qualify.py produced a
     # package with an unchanged hash, which is the one failure mode this hash
     # exists to prevent.
-    ("devtools", "*.py"),
-    ("devtools", "*.sh"),
+    ("measurement", "*.py"),
+    ("measurement", "*.sh"),
 )
 
 # Files at the repository root that decide what gets installed. pyproject.toml
-# names the dependencies and the entry points, and slice3.sh runs
+# names the dependencies and the entry points, and run_experiment.sh runs
 # `pip install -e .[dev]`, so editing it changes what executes while leaving
 # every hashed directory untouched. It did not move the hash. It does now.
 _HASHED_FILES = ("pyproject.toml",)

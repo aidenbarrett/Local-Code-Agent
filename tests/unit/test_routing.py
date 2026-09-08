@@ -38,7 +38,7 @@ def _tiered(cheap_turns, strong_turns) -> TieredClient:
 def _orch(root: Path, client, **kwargs):
     repo = load_repo_config(root)
     registry, _, _ = build_registry(repo)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     return Orchestrator(repo, registry, client, skills, **kwargs)
 
 
@@ -51,7 +51,7 @@ def test_every_skill_starts_cheap_and_earns_the_strong_tier():
     Hard-wiring `diagnose-build-failure` to the strong tier would assume the
     answer to the question the POC exists to ask.
     """
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     for name in skills.names():
         skill = skills.get(name)
         assert skill.tier == CHEAP, f"{name} is hard-wired to {skill.tier}"
@@ -64,7 +64,7 @@ def test_every_skill_starts_cheap_and_earns_the_strong_tier():
 
 
 def test_skills_that_need_evidence_say_so():
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     needs = {n for n in skills.names() if skills.get(n).verification_required}
     assert needs == {
         "build-and-test", "diagnose-build-failure", "diagnose-test-failure",

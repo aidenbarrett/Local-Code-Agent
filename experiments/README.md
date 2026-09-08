@@ -35,11 +35,26 @@ numbers from different runs may be put in the same table:
 | Field | Meaning if it differs |
 |---|---|
 | `base_prompt_sha256` | **different experiment.** The model-facing contract changed. Never pool these, whatever else matches. |
-| `source_sha256` | the instrument changed. Possibly recoverable by re-scoring with `devtools/rescore.py`, but only when the rows recorded enough evidence, which it decides per row and refuses to guess. |
+| `source_sha256` | the instrument changed. Possibly recoverable by re-scoring with `measurement/rescore_dataset.py`, but only when the rows recorded enough evidence, which it decides per row and refuses to guess. |
 
 Everything else, model, quant, runtime version, sampler, context budget,
 offered tools and tool schema hash, is recorded per row so a difference can be
 found rather than argued about.
+
+## Reproducing an instrument hash
+
+`source_sha256` hashes file contents, not git history, so it can be recomputed
+from any checkout. Directory renames change it by design. The tree that
+produced each dataset is tagged:
+
+| Dataset | `source_sha256` | Tag |
+|---|---|---|
+| `2026-09-08-30b-three-conditions` | `08d5e0fe...` | `instrument-08d5e0fe` |
+
+```bash
+git checkout instrument-08d5e0fe
+python -c "import sys; sys.path.insert(0,'src'); from local_agent import provenance; print(provenance.source_sha256())"
+```
 
 ## Index
 

@@ -42,7 +42,7 @@ def test_destructive_git_is_not_a_tool_at_all():
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
-    repo = load_repo_config(REPO / "fixtures" / "cpp_sandbox")
+    repo = load_repo_config(REPO / "benchmark_fixture" / "cpp_project")
     registry, _, _ = build_registry(repo)
     forbidden = {"git_push", "git_reset", "git_clean", "git_checkout", "run_shell",
                  "git_rebase", "git_merge", "git_bisect"}
@@ -70,7 +70,7 @@ def test_frontmatter_folded_scalar_and_list():
 
 
 def test_skills_discovered_with_required_frontmatter():
-    library = SkillLibrary.discover(REPO / ".github" / "skills")
+    library = SkillLibrary.discover(REPO / "skills")
     assert len(library) >= 6
     for name in library.names():
         skill = library.get(name)
@@ -80,13 +80,13 @@ def test_skills_discovered_with_required_frontmatter():
 
 
 def test_catalogue_is_cheap():
-    library = SkillLibrary.discover(REPO / ".github" / "skills")
+    library = SkillLibrary.discover(REPO / "skills")
     # Roughly 100 tokens per skill is the disclosure budget.
     assert len(library.catalogue()) / 4 < 100 * len(library)
 
 
 def test_routing_picks_the_obvious_skill():
-    library = SkillLibrary.discover(REPO / ".github" / "skills")
+    library = SkillLibrary.discover(REPO / "skills")
     cases = {
         "the build is failing with an undefined reference": "diagnose-build-failure",
         "why is the ring_buffer test failing": "diagnose-test-failure",
@@ -102,9 +102,9 @@ def test_declared_tools_all_exist():
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
-    repo = load_repo_config(REPO / "fixtures" / "cpp_sandbox")
+    repo = load_repo_config(REPO / "benchmark_fixture" / "cpp_project")
     registry, _, _ = build_registry(repo)
-    library = SkillLibrary.discover(REPO / ".github" / "skills")
+    library = SkillLibrary.discover(REPO / "skills")
     for name in library.names():
         skill = library.get(name)
         assert skill is not None

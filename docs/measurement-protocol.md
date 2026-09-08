@@ -75,7 +75,7 @@ so it can never be graded as one.
 ## Before any of this: qualify the server
 
 ```bash
-python devtools/qualify.py --profile ptl-npu-8b --json qualify-npu.json
+python measurement/qualify_server.py --profile ptl-npu-8b --json qualify-npu.json
 ```
 
 Reachability, streaming TTFT, usage fields, whether `cached_tokens` exists at
@@ -92,10 +92,10 @@ numbers, because you will be measuring the plumbing.
 One command per machine, then one command to compare:
 
 ```bash
-python devtools/run_suite.py --profile nuc-cpu-30b \
+python measurement/run_benchmark_suite.py --profile nuc-cpu-30b \
     --label "Qwen3-Coder 30B INT4, CPU" --memory-note "DDR4-3200 dual channel, 64 GB" \
     --outdir results/nuc-ddr4
-python devtools/compare_evals.py results/*/evals.json --markdown comparison.md
+python measurement/compare_datasets.py results/*/evals.json --markdown comparison.md
 ```
 
 `run_suite.py` does everything below in order and writes one directory you can
@@ -146,7 +146,7 @@ completed task is in the report.
 ### 1. Prove the harness before blaming the model
 
 ```bash
-python tests/evals/run_evals.py --rehearse --out rehearsal.json
+python evaluation/run_evaluation.py --rehearse --out rehearsal.json
 ```
 
 No model server, no network. If this does not complete cleanly, the problem is
@@ -156,7 +156,7 @@ evening of chasing the wrong thing.
 ### 2. Hardware characterisation
 
 ```bash
-python devtools/bench_model.py --profile nuc-cpu-30b \
+python measurement/benchmark_model.py --profile nuc-cpu-30b \
     --repeats 5 --out bench-nuc-ddr4.json --markdown bench-nuc-ddr4.md
 ```
 
@@ -167,7 +167,7 @@ costs, which is why the orchestrator counts them.
 ### 3. Behaviour
 
 ```bash
-python tests/evals/run_evals.py --profile nuc-cpu-30b --repeat 3 \
+python evaluation/run_evaluation.py --profile nuc-cpu-30b --repeat 3 \
     --label "Qwen3-Coder 30B INT4, CPU, DDR4-3200" --out evals-nuc.json
 ```
 
@@ -177,7 +177,7 @@ temperature, and a single run tells you nothing about variance.
 ### 4. The artefact
 
 ```bash
-python devtools/compare_evals.py evals-nuc.json evals-npu.json \
+python measurement/compare_datasets.py evals-nuc.json evals-npu.json \
     --markdown comparison.md --json comparison.json
 ```
 
@@ -197,7 +197,7 @@ turns to answer one git query has completed one task, and reporting it as six
 cheap-tier wins would flatter the small model for being chatty.
 
 A task counts as completed when the loop finished cleanly and the answer scored
-at or above `SUCCESS_THRESHOLD` (0.75, fixed in `eval_cases.py` before any data
+at or above `SUCCESS_THRESHOLD` (0.75, fixed in `task_contracts.py` before any data
 existed). A run that finishes tidily with the wrong answer is not a success.
 
 ### BLOCKED comes out of the denominator
@@ -213,7 +213,7 @@ diagnosis skill it is the evidence.
 
 ## How the verdict is decided
 
-Set before any data was collected, in `tests/evals/eval_cases.py`:
+Set before any data was collected, in `evaluation/task_contracts.py`:
 
 - **Diagnostic subset**: `compile-error-locate`, `compile-error-fix`,
   `test-failure-diagnose`, `segfault`. These four require the model to read

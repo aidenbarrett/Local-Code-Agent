@@ -33,7 +33,7 @@ def _pieces(root: Path):
 
 def _run(root: Path, turns, skill: str, approval=None):
     repo, registry, _ = _pieces(root)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     orch = Orchestrator(repo, registry, ScriptedClient(turns), skills,
                         approval=approval or (lambda *a: True))
     return orch.run("task under test", skill_name=skill)

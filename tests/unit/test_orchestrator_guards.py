@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 def _orch(root: Path, turns, approval=None):
     repo = load_repo_config(root)
     registry, _, _ = build_registry(repo)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     client = ScriptedClient(turns)
     return (
         Orchestrator(repo, registry, client, skills, approval=approval),
@@ -169,7 +169,7 @@ def test_compaction_is_recorded_and_warned_about(sandbox):
     turns = [fat_tool_turn(i) for i in range(1, 8)] + [ChatResponse(content="done")]
     repo = load_repo_config(sandbox.root)
     registry, _, _ = build_registry(repo)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     orch = Orchestrator(
         repo, registry, ScriptedClient(turns), skills, context_budget_tokens=900
     )

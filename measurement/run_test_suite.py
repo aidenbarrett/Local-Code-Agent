@@ -7,8 +7,8 @@ function discovery, fixtures (including fixtures depending on fixtures and
 generator fixtures), `tmp_path`, `monkeypatch`, `pytest.raises`,
 `pytest.mark.parametrize`, `pytest.mark.skipif` and module-level `pytestmark`.
 
-    python devtools/minipytest.py tests
-    python devtools/minipytest.py tests/unit -k policy
+    python measurement/run_test_suite.py tests
+    python measurement/run_test_suite.py tests/unit -k policy
 """
 
 from __future__ import annotations
@@ -47,8 +47,8 @@ class _MarkDecorator:
         self.kwargs = kwargs
 
     def __call__(self, fn: Callable) -> Callable:
-        marks = getattr(fn, "_minipytest_marks", [])
-        fn._minipytest_marks = [*marks, self]  # type: ignore[attr-defined]
+        marks = getattr(fn, "_run_test_suite_marks", [])
+        fn._run_test_suite_marks = [*marks, self]  # type: ignore[attr-defined]
         return fn
 
 
@@ -62,7 +62,7 @@ class _MarkFactory:
 
 def _fixture(*dargs: Any, **dkwargs: Any):
     def wrap(fn: Callable) -> Callable:
-        fn._minipytest_fixture = True  # type: ignore[attr-defined]
+        fn._run_test_suite_fixture = True  # type: ignore[attr-defined]
         return fn
 
     if dargs and callable(dargs[0]):
@@ -155,7 +155,7 @@ def _collect_fixtures(module: types.ModuleType) -> dict[str, Callable]:
     return {
         name: obj
         for name, obj in vars(module).items()
-        if callable(obj) and getattr(obj, "_minipytest_fixture", False)
+        if callable(obj) and getattr(obj, "_run_test_suite_fixture", False)
     }
 
 
@@ -165,7 +165,7 @@ def _resolve(name: str, fixtures: dict[str, Callable], cache: dict[str, Any]):
         yield cache[name]
         return
     if name == "tmp_path":
-        path = Path(tempfile.mkdtemp(prefix="minipytest-"))
+        path = Path(tempfile.mkdtemp(prefix="run_test_suite-"))
         cache[name] = path
         try:
             yield path
@@ -213,7 +213,7 @@ def _resolve_many(names: list[str], fixtures: dict[str, Callable], cache: dict[s
 
 
 def _marks_of(fn: Callable, module: types.ModuleType) -> list[_MarkDecorator]:
-    marks = list(getattr(fn, "_minipytest_marks", []))
+    marks = list(getattr(fn, "_run_test_suite_marks", []))
     module_marks = getattr(module, "pytestmark", [])
     if isinstance(module_marks, _MarkDecorator):
         module_marks = [module_marks]
@@ -267,7 +267,7 @@ def run(paths: list[Path], keyword: str | None, verbose: bool) -> int:
     failures: list[tuple[str, str]] = []
 
     for file in files:
-        module = _load_module(file, f"minipytest_{file.stem}_{id(file)}")
+        module = _load_module(file, f"run_test_suite_{file.stem}_{id(file)}")
         fixtures = {**conftest_fixtures, **_collect_fixtures(module)}
         tests = [
             (name, obj)

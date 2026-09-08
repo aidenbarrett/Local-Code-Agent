@@ -374,7 +374,7 @@ class RepoConfig:
     profiles: dict[str, BuildProfile]
     default_profile: str
     policy: Policy
-    skills_dir: str = ".github/skills"
+    skills_dir: str = "skills"
 
     def profile(self, name: str | None = None) -> BuildProfile:
         key = name or self.default_profile
@@ -434,7 +434,7 @@ def load_repo_config(root: Path) -> RepoConfig:
         run_dir=repo.get("run_dir", ".local-agent/runs"),
         profiles=profiles,
         default_profile=default_profile,
-        skills_dir=repo.get("skills_dir", ".github/skills"),
+        skills_dir=repo.get("skills_dir", "skills"),
         policy=Policy(
             allow_build=bool(pol.get("allow_build", True)),
             allow_test=bool(pol.get("allow_test", True)),

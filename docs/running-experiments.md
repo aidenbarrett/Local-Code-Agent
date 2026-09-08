@@ -30,7 +30,7 @@ Copy the two files across from Windows Downloads into your Linux home. Adjust
 
 ```bash
 cp /mnt/c/Users/<you>/Downloads/local-code-agent.zip ~/
-cp /mnt/c/Users/<you>/Downloads/slice3.sh ~/
+cp /mnt/c/Users/<you>/Downloads/run_experiment.sh ~/
 ```
 
 The launcher must be the one from this package. It checks itself against the
@@ -54,9 +54,9 @@ lost, fix the server and start again.
 One sitting. This order. Do not restart the server between them.
 
 ```bash
-CONDITION=control bash ~/slice3.sh ~/local-code-agent.zip nuc-llama-30b
-CONDITION=narrow  bash ~/slice3.sh ~/local-code-agent.zip nuc-llama-30b
-CONDITION=skill   bash ~/slice3.sh ~/local-code-agent.zip nuc-llama-30b
+CONDITION=control bash ~/run_experiment.sh ~/local-code-agent.zip nuc-llama-30b
+CONDITION=narrow  bash ~/run_experiment.sh ~/local-code-agent.zip nuc-llama-30b
+CONDITION=skill   bash ~/run_experiment.sh ~/local-code-agent.zip nuc-llama-30b
 ```
 
 Roughly an hour for control, less for the other two. Control has no procedure,
@@ -79,10 +79,10 @@ state is fair across the three without you doing anything.
 The launcher stops at the first failing gate and prints which one. It also
 prints this, and it means it:
 
-> No run happened. Any probe or suite JSON already in ~/slice3-out is from an
+> No run happened. Any probe or suite JSON already in ~/experiment-runs is from an
 > EARLIER run. Do not send it as this run.
 
-Send the console output. Send nothing from `~/slice3-out`. A stale file sent as
+Send the console output. Send nothing from `~/experiment-runs`. A stale file sent as
 a fresh result is worse than no result, because it looks like data.
 
 ---
@@ -92,19 +92,19 @@ a fresh result is worse than no result, because it looks like data.
 Per condition:
 
 ```
-~/slice3-out/slice3-nuc-llama-30b-control.json
-~/slice3-out/slice3-nuc-llama-30b-control-transcripts/
-~/slice3-out/slice3-nuc-llama-30b-narrow.json
-~/slice3-out/slice3-nuc-llama-30b-narrow-transcripts/
-~/slice3-out/slice3-nuc-llama-30b-skill.json
-~/slice3-out/slice3-nuc-llama-30b-skill-transcripts/
-~/slice3-out/qualify-nuc-llama-30b.json
+~/experiment-runs/nuc-llama-30b-control.json
+~/experiment-runs/nuc-llama-30b-control-transcripts/
+~/experiment-runs/nuc-llama-30b-narrow.json
+~/experiment-runs/nuc-llama-30b-narrow-transcripts/
+~/experiment-runs/nuc-llama-30b-skill.json
+~/experiment-runs/nuc-llama-30b-skill-transcripts/
+~/experiment-runs/qualify-nuc-llama-30b.json
 ```
 
 To get them somewhere you can attach them:
 
 ```bash
-cp -r ~/slice3-out /mnt/c/Users/<you>/Downloads/
+cp -r ~/experiment-runs /mnt/c/Users/<you>/Downloads/
 ```
 
 Plus the console output of all three runs if you still have it.

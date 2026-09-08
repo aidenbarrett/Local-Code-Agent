@@ -31,10 +31,10 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Build the fixture repository
-        run: python fixtures/generate_sandbox.py
+        run: python benchmark_fixture/generate_project.py
 
       - name: Test suite
-        run: python devtools/minipytest.py tests
+        run: python measurement/run_test_suite.py tests
 
       # Provenance is load-bearing: every dataset is reconciled against these
       # hashes, so a change that alters them without anyone noticing is how a
@@ -42,7 +42,7 @@ jobs:
       - name: Package identity
         run: |
           python - <<'PY'
-          import sys; sys.path.insert(0, "src")
+          import sys; sys.path.insert(0, ".")
           from local_agent import provenance as p
           print("source_sha256      ", p.source_sha256())
           print("base_prompt_sha256 ", p.base_prompt_sha256())

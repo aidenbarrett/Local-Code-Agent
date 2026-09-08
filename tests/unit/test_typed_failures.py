@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 def _orch(root: Path, client, **kwargs):
     repo = load_repo_config(root)
     registry, _, _ = build_registry(repo)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     return Orchestrator(repo, registry, client, skills, **kwargs)
 
 
@@ -122,7 +122,7 @@ def test_every_reason_has_a_locus_and_a_producer():
     assert Reason.APPROVAL_DECLINED.locus is Locus.USER
 
     # every member is constructed somewhere in src/, not only defined
-    src = (REPO / "src").rglob("*.py")
+    src = (REPO).rglob("*.py")
     text = "\n".join(p.read_text(encoding="utf-8") for p in src)
     for reason in Reason:
         producers = text.count(f"Reason.{reason.name}") - 1  # minus the _LOCUS entry

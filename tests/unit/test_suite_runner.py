@@ -7,15 +7,15 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO / "devtools"))
-sys.path.insert(0, str(REPO / "tests" / "evals"))
+sys.path.insert(0, str(REPO / "measurement"))
+sys.path.insert(0, str(REPO / "evaluation"))
 
 
 # ---------------------------------------------------------------- telemetry
 
 
 def test_monitor_never_raises_and_always_reports():
-    from telemetry import HostMonitor
+    from machine_telemetry import HostMonitor
 
     with HostMonitor(interval_s=0.05) as monitor:
         # Burn a little CPU so there is something to sample.
@@ -34,14 +34,14 @@ def test_monitor_never_raises_and_always_reports():
 
 
 def test_missing_counters_produce_a_note_not_a_crash(monkeypatch):
-    import telemetry
+    import machine_telemetry
 
-    monkeypatch.setattr(telemetry, "_psutil", lambda: None)
-    monkeypatch.setattr(telemetry, "_rapl_domains", lambda: [])
-    monkeypatch.setattr(telemetry, "_proc_cpu_times", lambda: None)
-    monkeypatch.setattr(telemetry, "_proc_mem_used_gb", lambda: None)
+    monkeypatch.setattr(machine_telemetry, "_psutil", lambda: None)
+    monkeypatch.setattr(machine_telemetry, "_rapl_domains", lambda: [])
+    monkeypatch.setattr(machine_telemetry, "_proc_cpu_times", lambda: None)
+    monkeypatch.setattr(machine_telemetry, "_proc_mem_used_gb", lambda: None)
 
-    with telemetry.HostMonitor(interval_s=0.05) as monitor:
+    with machine_telemetry.HostMonitor(interval_s=0.05) as monitor:
         time.sleep(0.12)
 
     report = monitor.report
@@ -52,15 +52,15 @@ def test_missing_counters_produce_a_note_not_a_crash(monkeypatch):
 
 
 def test_energy_is_reported_when_counters_are_present(monkeypatch, tmp_path):
-    import telemetry
+    import machine_telemetry
 
     counter = tmp_path / "energy_uj"
     name = tmp_path / "name"
     name.write_text("package-0")
     counter.write_text("1000000")
 
-    monkeypatch.setattr(telemetry, "_rapl_domains", lambda: [("package-0", counter)])
-    with telemetry.HostMonitor(interval_s=0.05) as monitor:
+    monkeypatch.setattr(machine_telemetry, "_rapl_domains", lambda: [("package-0", counter)])
+    with machine_telemetry.HostMonitor(interval_s=0.05) as monitor:
         counter.write_text("4000000")  # 3 J consumed
         time.sleep(0.12)
 
@@ -69,12 +69,12 @@ def test_energy_is_reported_when_counters_are_present(monkeypatch, tmp_path):
 
 
 def test_wrapped_energy_counter_is_discarded(monkeypatch, tmp_path):
-    import telemetry
+    import machine_telemetry
 
     counter = tmp_path / "energy_uj"
     counter.write_text("9000000")
-    monkeypatch.setattr(telemetry, "_rapl_domains", lambda: [("package-0", counter)])
-    with telemetry.HostMonitor(interval_s=0.05) as monitor:
+    monkeypatch.setattr(machine_telemetry, "_rapl_domains", lambda: [("package-0", counter)])
+    with machine_telemetry.HostMonitor(interval_s=0.05) as monitor:
         counter.write_text("10")  # counter wrapped: the reading is unusable
         time.sleep(0.12)
 
@@ -86,7 +86,7 @@ def test_wrapped_energy_counter_is_discarded(monkeypatch, tmp_path):
 
 
 def _payload(diag_score: float, ttft: float, energy: float | None = 900.0) -> dict:
-    from eval_cases import CASES
+    from task_contracts import CASES
 
     rows = [
         {
@@ -137,7 +137,7 @@ def _payload(diag_score: float, ttft: float, energy: float | None = 900.0) -> di
 
 
 def test_verdict_kills_a_low_scorer():
-    from run_suite import build_verdict
+    from run_benchmark_suite import build_verdict
 
     payload = _payload(0.3, 2.0)
     verdict = build_verdict(payload["evals"], payload["benchmark"], 0.6, 10.0)
@@ -146,7 +146,7 @@ def test_verdict_kills_a_low_scorer():
 
 
 def test_verdict_separates_accurate_but_slow():
-    from run_suite import build_verdict
+    from run_benchmark_suite import build_verdict
 
     payload = _payload(0.9, 25.0)
     verdict = build_verdict(payload["evals"], payload["benchmark"], 0.6, 10.0)
@@ -155,7 +155,7 @@ def test_verdict_separates_accurate_but_slow():
 
 
 def test_verdict_passes_a_fast_accurate_configuration():
-    from run_suite import build_verdict
+    from run_benchmark_suite import build_verdict
 
     payload = _payload(0.9, 2.0)
     verdict = build_verdict(payload["evals"], payload["benchmark"], 0.6, 10.0)
@@ -163,7 +163,7 @@ def test_verdict_passes_a_fast_accurate_configuration():
 
 
 def test_report_renders_with_energy():
-    from run_suite import render_suite
+    from run_benchmark_suite import render_suite
 
     text = render_suite(_payload(0.9, 2.0))
     assert "energy per completed task" in text
@@ -174,7 +174,7 @@ def test_report_renders_with_energy():
 
 
 def test_report_renders_without_energy_counters():
-    from run_suite import render_suite
+    from run_benchmark_suite import render_suite
 
     text = render_suite(_payload(0.9, 2.0, energy=None))
     assert "energy per completed task" not in text

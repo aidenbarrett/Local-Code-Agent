@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-SANDBOX = REPO / "fixtures" / "cpp_sandbox"
+SANDBOX = REPO / "benchmark_fixture" / "cpp_project"
 
-sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO))
 
 
 def _apply(root: Path, scenario: str) -> None:
@@ -25,7 +25,7 @@ def _apply(root: Path, scenario: str) -> None:
 @pytest.fixture
 def sandbox(tmp_path: Path):
     """A private copy of the C++ torture repo, with a scenario switch."""
-    dest = tmp_path / "cpp_sandbox"
+    dest = tmp_path / "cpp_project"
     shutil.copytree(
         SANDBOX,
         dest,
@@ -59,5 +59,5 @@ def loaded(sandbox):
     # Skills live in the agent repo, not in the sandbox under test.
     repo = load_repo_config(sandbox.root)
     registry, ctx, store = build_registry(repo)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     return sandbox, repo, registry, store, skills

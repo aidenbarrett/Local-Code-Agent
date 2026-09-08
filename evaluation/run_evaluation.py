@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run the eval suite against a live model server.
 
-    python tests/evals/run_evals.py --profile nuc-cpu-30b
-    python tests/evals/run_evals.py --profile ptl-npu-8b --repeat 3
-    python tests/evals/run_evals.py --base-url http://127.0.0.1:8000/v3 --model Qwen3-8B
+    python evaluation/run_evaluation.py --profile nuc-cpu-30b
+    python evaluation/run_evaluation.py --profile ptl-npu-8b --repeat 3
+    python evaluation/run_evaluation.py --base-url http://127.0.0.1:8000/v3 --model Qwen3-8B
 
 Records wall-clock time and tool-call count per case as well as the score, so
 "the 8B is nearly as good" can be checked rather than believed.
@@ -22,11 +22,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO / "src"))
+# evaluation/run_evaluation.py -> evaluation/ -> repository root.
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from eval_cases import (  # noqa: E402
+from task_contracts import (  # noqa: E402
     CASES,
     DIAGNOSTIC_CASES,
     KILL_THRESHOLD,
@@ -47,9 +48,9 @@ from local_agent.llm.models import CallStats, ChatResponse, ToolCall  # noqa: E4
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.tools import build_registry  # noqa: E402
 
-import oracle  # noqa: E402  (tests/evals/oracle.py)
+import oracle  # noqa: E402  (evaluation/oracle.py)
 
-SANDBOX = REPO / "fixtures" / "cpp_sandbox"
+SANDBOX = REPO / "benchmark_fixture" / "cpp_project"
 
 
 class RehearsalClient:
@@ -132,7 +133,7 @@ def prepare(workdir: Path, scenario: str) -> tuple[Path, Path]:
     outside, so `git_diff` still shows the injected defect and nothing shows
     where it came from.
     """
-    root = workdir / "cpp_sandbox"
+    root = workdir / "cpp_project"
     if root.exists():
         shutil.rmtree(root)
     shutil.copytree(
@@ -378,7 +379,7 @@ def run_case(
         root, oracle_dir = prepare(workdir, case.scenario)
         repo = load_repo_config(root)
         registry, _, _ = build_registry(repo)
-        skills = SkillLibrary.discover(REPO / ".github" / "skills")
+        skills = SkillLibrary.discover(REPO / "skills")
     except Exception as exc:
         # The harness, not the model, failed. Say so, and keep going.
         import traceback
@@ -410,7 +411,7 @@ def run_case(
         # experiment, which would make the contrast meaningless while looking
         # entirely normal in the output.
         #
-        # It has never been reachable from slice3.sh, which passes no --cheap.
+        # It has never been reachable from run_experiment.sh, which passes no --cheap.
         # "Never reached" is not the same as "cannot be reached", and this is
         # the measurement, so it is now the latter.
         if condition != "skill":

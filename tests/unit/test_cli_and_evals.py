@@ -8,7 +8,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 
 
 def _cli(sandbox_root: Path, *args: str) -> subprocess.CompletedProcess:
-    env = {"PYTHONPATH": str(REPO / "src"), "PATH": "/usr/bin:/bin:/usr/local/bin"}
+    env = {"PYTHONPATH": str(REPO), "PATH": "/usr/bin:/bin:/usr/local/bin"}
     return subprocess.run(
         [sys.executable, "-m", "local_agent.cli", "--repo", str(sandbox_root), *args],
         capture_output=True,
@@ -51,8 +51,8 @@ def test_cli_doctor_reports_unreachable_server_without_crashing(sandbox):
 
 
 def test_eval_checks_grade_a_synthetic_run():
-    sys.path.insert(0, str(REPO / "tests" / "evals"))
-    from eval_cases import CASES, answer_mentions, at_most_calls, succeeded
+    sys.path.insert(0, str(REPO / "evaluation"))
+    from task_contracts import CASES, answer_mentions, at_most_calls, succeeded
 
     from local_agent.agent.orchestrator import RunResult
     from local_agent.agent.state import AgentState, ToolCallRecord
@@ -73,8 +73,8 @@ def test_eval_checks_grade_a_synthetic_run():
 
 
 def test_eval_harness_prepares_a_scenario(tmp_path):
-    sys.path.insert(0, str(REPO / "tests" / "evals"))
-    from run_evals import prepare
+    sys.path.insert(0, str(REPO / "evaluation"))
+    from run_evaluation import prepare
 
     root, oracle_dir = prepare(tmp_path, "test_failure")
     assert (root / "src" / "ring_buffer.cpp").read_text().count("count_ + 1") == 1

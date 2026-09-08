@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Slice 3: the first time a real model drives the real orchestrator.
+# Run one condition of the experiment, end to end, gating every step.
 #
 # Runs INSIDE WSL2 Ubuntu (Window B). The llama-server runs on Windows
 # (Window A) and is reached at 127.0.0.1:8080 through mirrored networking.
 #
-#   bash slice3.sh /mnt/c/Users/<you>/Downloads/local-code-agent.zip nuc-llama-30b
+#   bash run_experiment.sh /mnt/c/Users/<you>/Downloads/local-code-agent.zip nuc-llama-30b
 #
 # Controlled probe of one case (decision 12), transcript captured:
-#   bash slice3.sh <zip> nuc-llama-30b test-failure-diagnose
+#   bash run_experiment.sh <zip> nuc-llama-30b test-failure-diagnose
 #
 # One cell of the mechanism experiment:
-#   CONDITION=control bash slice3.sh <zip> nuc-llama-30b
-#   CONDITION=narrow  bash slice3.sh <zip> nuc-llama-30b
-#   CONDITION=skill   bash slice3.sh <zip> nuc-llama-30b
+#   CONDITION=control bash run_experiment.sh <zip> nuc-llama-30b
+#   CONDITION=narrow  bash run_experiment.sh <zip> nuc-llama-30b
+#   CONDITION=skill   bash run_experiment.sh <zip> nuc-llama-30b
 #
 # Each step is a gate. The script stops at the first one that fails and says
 # which. Nothing here is clever; it is the blueprint's slice 3 typed out.
@@ -35,7 +35,7 @@ case "$CONDITION" in skill|narrow|control) ;; *)
     echo "CONDITION must be skill, narrow or control (got '$CONDITION')"; exit 1 ;;
 esac
 DEST="$HOME/local-code-agent"
-OUT="$HOME/slice3-out"
+OUT="$HOME/experiment-runs"
 mkdir -p "$OUT"
 
 step() { printf '\n===== %s =====\n' "$1"; }
@@ -81,10 +81,10 @@ echo "unpacked: $(find src -name '*.py' | wc -l) source files"
 # has drifted from the one inside the zip, the JSON would report the package
 # hash while a different experiment actually ran.
 me="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-if [ -f "$DEST/devtools/slice3.sh" ] && [ "$me" != "$DEST/devtools/slice3.sh" ]; then
-    if ! cmp -s "$me" "$DEST/devtools/slice3.sh"; then
+if [ -f "$DEST/measurement/run_experiment.sh" ] && [ "$me" != "$DEST/measurement/run_experiment.sh" ]; then
+    if ! cmp -s "$me" "$DEST/measurement/run_experiment.sh"; then
         printf '\nSTALE LAUNCHER: %s differs from the one in the package.\n' "$me"
-        printf 'Copy it out and rerun:\n  cp %s ~/slice3.sh\n' "$DEST/devtools/slice3.sh"
+        printf 'Copy it out and rerun:\n  cp %s ~/run_experiment.sh\n' "$DEST/measurement/run_experiment.sh"
         exit 1
     fi
     echo "launcher matches the package"
@@ -109,7 +109,7 @@ if command -v pytest >/dev/null 2>&1; then
     pytest -q >"$testlog" 2>&1; rc=$?
     tail -3 "$testlog"
 else
-    python devtools/minipytest.py tests >"$testlog" 2>&1; rc=$?
+    python measurement/run_test_suite.py tests >"$testlog" 2>&1; rc=$?
     tail -1 "$testlog"
 fi
 if [ "$rc" -ne 0 ]; then
@@ -127,16 +127,16 @@ echo "/v1/models: $(curl -sS http://127.0.0.1:8080/v1/models | python -c 'import
 
 # --- 5. doctor ----------------------------------------------------------------
 step "5. doctor ($PROFILE)"
-local-agent --repo fixtures/cpp_sandbox --profile "$PROFILE" doctor || fail "doctor: the profile's model alias is not what the server is serving"
+local-agent --repo benchmark_fixture/cpp_project --profile "$PROFILE" doctor || fail "doctor: the profile's model alias is not what the server is serving"
 
 # --- 6. qualification: no suite on an unqualified profile --------------------
 step "6. qualify ($PROFILE)"
-python devtools/qualify.py --profile "$PROFILE" --json "$OUT/qualify-$PROFILE.json" \
+python measurement/qualify_server.py --profile "$PROFILE" --json "$OUT/qualify-$PROFILE.json" \
     --dump-dir "$OUT/qualify-failures" || fail "qualification. Fix these before running the suite."
 
 # --- 7. the run ---------------------------------------------------------------
 # Every condition is named, including skill. It used to be the empty suffix,
-# so CONDITION=skill wrote slice3-<profile>.json, which is the exact filename
+# so CONDITION=skill wrote <profile>.json, which was the exact filename
 # of the historical frozen dataset, and the rm below would have deleted it
 # before the run started. A filename must never be able to masquerade as, or
 # destroy, a dataset from a different prompt generation.
@@ -146,7 +146,7 @@ COND_FLAG="--condition $CONDITION"
 if [ -n "$CASE" ]; then
     RUN="probe-$CASE-$PROFILE$COND"
 else
-    RUN="slice3-$PROFILE$COND"
+    RUN="$PROFILE$COND"
 fi
 
 # Stale results are worse than no results. If a gate above stops the script, or
@@ -165,7 +165,7 @@ rm -rf "$OUT/$RUN.json" "$OUT/$RUN-transcripts" "$OUT/$RUN.log"
 if [ -n "$CASE" ]; then
     step "7. CONTROLLED PROBE ($PROFILE, case $CASE, once)"
     echo "Transcript lands in $OUT/$RUN-transcripts/ whatever the outcome."
-    python tests/evals/run_evals.py --profile "$PROFILE" --label "$RUN" --case "$CASE" $COND_FLAG \
+    python evaluation/run_evaluation.py --profile "$PROFILE" --label "$RUN" --case "$CASE" $COND_FLAG \
         --out "$OUT/$RUN.json" --workdir "$HOME/local-agent-evals" \
         2>&1 | tee "$OUT/$RUN.log"
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "the probe exited non-zero; see $OUT/$RUN.log"
@@ -174,7 +174,7 @@ else
     echo "Allow an hour on the 30B. The measured full suite was 22 minutes with"
     echo "skills and 38 without, because the control takes more turns."
     echo "Output: $OUT/$RUN.json"
-    python tests/evals/run_evals.py --profile "$PROFILE" --label "$RUN" $COND_FLAG \
+    python evaluation/run_evaluation.py --profile "$PROFILE" --label "$RUN" $COND_FLAG \
         --out "$OUT/$RUN.json" --workdir "$HOME/local-agent-evals" \
         2>&1 | tee "$OUT/$RUN.log"
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "the run exited non-zero; see $OUT/$RUN.log"

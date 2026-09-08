@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 def _orch(root: Path, client, **kwargs):
     repo = load_repo_config(root)
     registry, _, _ = build_registry(repo)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     return Orchestrator(repo, registry, client, skills, approval=lambda *a: True, **kwargs)
 
 
@@ -198,14 +198,14 @@ def test_configure_alone_is_not_verification(sandbox):
 
 
 def test_diagnose_skill_has_no_patch_tools_and_fix_skill_does():
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     assert "propose_patch" not in skills.get("diagnose-build-failure").tools
     assert "apply_patch" not in skills.get("diagnose-build-failure").tools
     assert {"propose_patch", "apply_patch"} <= set(skills.get("fix-build-failure").tools)
 
 
 def test_router_sends_fix_tasks_to_fix_and_locate_tasks_to_diagnose():
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     cases = {
         "Fix the compilation errors in this repository, then prove the build succeeds.": "fix-build-failure",
         "The build is broken. Find the first compiler error and explain the cause.": "diagnose-build-failure",
@@ -374,8 +374,8 @@ def test_every_eval_case_declares_its_own_success_contract():
     """
     import dataclasses
     import sys
-    sys.path.insert(0, str(REPO / "tests" / "evals"))
-    from eval_cases import CASES, EvalCase
+    sys.path.insert(0, str(REPO / "evaluation"))
+    from task_contracts import CASES, EvalCase
 
     fields = {f.name: f for f in dataclasses.fields(EvalCase)}
     contract = fields["verification_required"]
@@ -395,10 +395,10 @@ def test_the_case_contract_matches_the_skill_it_pins():
     written rather than on the NUC an hour later.
     """
     import sys
-    sys.path.insert(0, str(REPO / "tests" / "evals"))
-    from eval_cases import CASES
+    sys.path.insert(0, str(REPO / "evaluation"))
+    from task_contracts import CASES
 
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     for case in CASES:
         if not case.skill:
             continue

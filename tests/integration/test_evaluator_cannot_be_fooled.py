@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO / "tests" / "evals"))
+sys.path.insert(0, str(REPO / "evaluation"))
 
 from local_agent.config import ModelConfig  # noqa: E402
 from local_agent.llm.client import ScriptedClient, tool_call  # noqa: E402
@@ -36,7 +36,7 @@ REPL = "bool RingBuffer::full() const { return count_ == slots_.size(); }"
 
 
 def _case(name):
-    from eval_cases import CASES
+    from task_contracts import CASES
     return next(c for c in CASES if c.name == name)
 
 
@@ -52,7 +52,7 @@ def _plan(*steps):
 
 
 def _run(name, client, tmp_path, **kw):
-    from run_evals import run_case
+    from run_evaluation import run_case
     return run_case(_case(name), ModelConfig(), tmp_path, auto_approve=True,
                     client=client, **kw)
 
@@ -188,8 +188,8 @@ def test_a_failed_forbidden_edit_is_still_a_scope_violation(tmp_path):
     # test-failure-fix does not forbid patching, so construct the forbidden
     # case explicitly instead.
     import dataclasses
-    from eval_cases import MUTATING_TOOLS
-    from run_evals import run_case
+    from task_contracts import MUTATING_TOOLS
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     case = dataclasses.replace(_case("test-failure-fix"), forbidden_tools=MUTATING_TOOLS)
@@ -292,7 +292,7 @@ def test_the_finishing_protocol_is_in_every_condition(tmp_path):
     claim nobody told it to make, and when the orchestrator later nudged it for
     one, the control paid an extra turn that would have read as a skill
     advantage in calls and wall time."""
-    from run_evals import run_case
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     seen = {}
@@ -326,7 +326,7 @@ def test_no_skill_body_teaches_the_reporting_protocol(tmp_path):
     """
     from local_agent.agent.context import SYSTEM_PROMPT
 
-    skills = sorted((REPO / ".github" / "skills").glob("*/SKILL.md"))
+    skills = sorted((REPO / "skills").glob("*/SKILL.md"))
     assert skills, "no skills found"
     for path in skills:
         body = path.read_text()
@@ -345,7 +345,7 @@ def test_ctest_cannot_clear_the_stale_warning_without_a_build(tmp_path):
     the newest mtime anywhere under build/, editing a source and then running
     the tests twice made the warning vanish with nothing recompiled: the test
     runner's own timestamp was being read as evidence of a build."""
-    from run_evals import establish, prepare
+    from run_evaluation import establish, prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -401,9 +401,9 @@ def test_the_rescorer_does_not_inherit_the_old_verdict():
     on it means a row the old rules wrongly failed can never be shown to pass,
     which is exactly the navigation and review-restraint case that started
     all of this."""
-    sys.path.insert(0, str(REPO / "devtools"))
+    sys.path.insert(0, str(REPO / "measurement"))
     import importlib
-    rescore = importlib.import_module("rescore")
+    rescore = importlib.import_module("rescore_dataset")
 
     row = {
         "case": "navigation", "outcome": "fail", "succeeded": False, "score": 0.8,
@@ -427,9 +427,9 @@ def test_a_row_without_structured_evidence_is_only_partially_replayable():
     """Rows from before the evidence fields existed let a check see an empty
     dict and conclude "absent, therefore fine". Unknown is not the same as
     passed, and the artifact has to say which it is."""
-    sys.path.insert(0, str(REPO / "devtools"))
+    sys.path.insert(0, str(REPO / "measurement"))
     import importlib
-    rescore = importlib.import_module("rescore")
+    rescore = importlib.import_module("rescore_dataset")
 
     row = {
         "case": "test-failure-fix", "outcome": "pass", "succeeded": True, "score": 1.0,
@@ -459,7 +459,7 @@ def test_an_unrelated_targeted_build_cannot_clear_a_stale_source(tmp_path):
     A targeted build cannot support that, and refreshing it after
     `build_target(target="test_text_util")` made an unrelated stale test binary
     look fresh: the tool lying to the agent about what it is running."""
-    from run_evals import prepare
+    from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -492,7 +492,7 @@ def test_the_profile_label_matches_the_configured_tree(tmp_path):
     CMakeCache.txt was absent, so `build_target(profile="release")` on a tree
     configured for debug printed "build (release) succeeded" over a Debug
     cache."""
-    from run_evals import prepare
+    from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -512,7 +512,7 @@ def test_the_profile_label_matches_the_configured_tree(tmp_path):
 
 
 def test_a_test_run_cannot_verify_a_profile_the_tree_is_not_configured_for(tmp_path):
-    from run_evals import prepare
+    from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -597,7 +597,7 @@ def test_a_stale_full_suite_pass_is_not_typed_as_a_pass(tmp_path):
     orchestrator had already recorded `state.verified = True`. Two definitions
     of proof, and the model saw the permissive one.
     """
-    from run_evals import prepare
+    from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
     from local_agent.verification import ProofKind, classify_proof
@@ -638,7 +638,7 @@ def test_configuring_a_profile_does_not_verify_the_previous_profiles_binaries(tm
     and the result came back ok=True, domain=PASS, stale_sources=[], labelled
     release. Every gate was satisfied and nothing had been built.
     """
-    from run_evals import prepare
+    from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -693,7 +693,7 @@ def test_a_cache_with_no_profile_marker_is_treated_as_unknown_provenance(tmp_pat
     with a human's build tree, a tree left by an older package, or a deleted
     marker, and a request for release then compiled against whatever the cache
     held and labelled the result release."""
-    from run_evals import prepare
+    from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
     from local_agent.tools.testing import PROFILE_STAMP
@@ -720,8 +720,8 @@ def test_the_runtime_and_the_evaluator_agree_on_what_proof_is(tmp_path):
     question the same way on every shape either of them has ever disagreed on.
     """
     import sys as _sys
-    _sys.path.insert(0, str(REPO / "tests" / "evals"))
-    from eval_cases import _whole_suite_passed, full_build_passed_after_edits
+    _sys.path.insert(0, str(REPO / "evaluation"))
+    from task_contracts import _whole_suite_passed, full_build_passed_after_edits
     from local_agent.agent.orchestrator import _satisfies_verification
     from local_agent.agent.state import ToolCallRecord
     from local_agent.verification import classify_record
@@ -782,8 +782,8 @@ def test_a_new_dataset_records_everything_the_rescorer_needs(tmp_path):
     This pins the two lists together so that only ever happens on purpose.
     """
     import importlib
-    sys.path.insert(0, str(REPO / "devtools"))
-    rescore = importlib.import_module("rescore")
+    sys.path.insert(0, str(REPO / "measurement"))
+    rescore = importlib.import_module("rescore_dataset")
 
     row = _run("clean-build", _plan(
         ("configure_project", {}),
@@ -798,7 +798,7 @@ def test_a_new_dataset_records_everything_the_rescorer_needs(tmp_path):
     for call in tests:
         missing = [k for k in rescore.EVIDENCE_DEPENDENT["run_test"]
                    if k not in call["evidence"]]
-        assert not missing, f"run_evals does not persist {missing}"
+        assert not missing, f"run_evaluation does not persist {missing}"
         assert call["proof"] == "full_test_pass"
 
     out = rescore.rescore_row(row)
@@ -831,7 +831,7 @@ def test_the_build_stamp_cannot_be_forged(tmp_path):
     Two locks, tested separately: writes into the build directory are refused,
     and the record is dated from its content so touching it proves nothing.
     """
-    from run_evals import prepare
+    from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
     from local_agent.tools.base import ProtectedPathError

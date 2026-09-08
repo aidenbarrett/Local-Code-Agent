@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent / "cpp_sandbox"
+ROOT = Path(__file__).resolve().parent / "cpp_project"
 
 FILES: dict[str, str] = {}
 SCENARIOS: dict[str, dict[str, str]] = {}
@@ -30,7 +30,7 @@ f(
     "CMakeLists.txt",
     """
 cmake_minimum_required(VERSION 3.20)
-project(cpp_sandbox CXX)
+project(cpp_project CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -387,7 +387,7 @@ name = "cpp-sandbox"
 build_dir = "build"
 run_dir = ".local-agent/runs"
 default_profile = "debug"
-skills_dir = ".github/skills"
+skills_dir = "skills"
 
 [profiles.debug]
 configure = ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"]

@@ -40,7 +40,7 @@ a reproduction.
 
 ## One classifier, four consumers
 
-`src/local_agent/verification.py` turns `(tool, arguments, execution, domain,
+`local_agent/verification.py` turns `(tool, arguments, execution, domain,
 evidence)` into a `ProofKind`:
 
 ```
@@ -162,7 +162,7 @@ single statement the smoke run makes about the instrument.
 
 ## Replay
 
-`devtools/rescore.py` re-scores a frozen dataset without re-running it. It
+`measurement/rescore_dataset.py` re-scores a frozen dataset without re-running it. It
 reads only, and emits a derived artifact carrying the source dataset hash and
 the evaluator identity.
 

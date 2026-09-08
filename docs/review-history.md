@@ -99,7 +99,7 @@ stricter than the runtime's, and the two had drifted.
 - **The orchestrator accepted `rerun_failed` while the evaluator rejected it.**
 - **A CMake cache with no profile marker was taken on trust.**
 
-Closed by extracting `src/local_agent/verification.py`: one classifier, taking
+Closed by extracting `local_agent/verification.py`: one classifier, taking
 primitives, consumed by the orchestrator, the evaluator, the re-scorer and the
 tests. A table-driven test runs both predicates over fifteen call shapes,
 including every shape they have ever disagreed on, and asserts they agree.
@@ -180,7 +180,7 @@ the toolset is right.
 
 **A false claim of re-scoring.** I stated that a no-skill dataset had been
 re-scored under the new evaluator. It had not; the re-scorer had been run
-against a different frozen dataset. Publicly retracted, and `devtools/rescore.py`
+against a different frozen dataset. Publicly retracted, and `measurement/rescore_dataset.py`
 was built as the auditable replacement so the claim can never again rest on
 recollection.
 

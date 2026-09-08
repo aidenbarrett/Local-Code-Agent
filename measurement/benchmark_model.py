@@ -15,9 +15,9 @@ and nothing else:
 Then it projects those into "seconds per agent turn" and "seconds per task",
 which is the number anyone at work will actually ask you about.
 
-    python devtools/bench_model.py --profile nuc-cpu-30b --out bench-nuc.json
-    python devtools/bench_model.py --profile ptl-npu-8b  --out bench-npu.json
-    python devtools/bench_model.py --base-url http://127.0.0.1:8000/v3 --model X
+    python measurement/benchmark_model.py --profile nuc-cpu-30b --out bench-nuc.json
+    python measurement/benchmark_model.py --profile ptl-npu-8b  --out bench-npu.json
+    python measurement/benchmark_model.py --base-url http://127.0.0.1:8000/v3 --model X
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO))
 
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402

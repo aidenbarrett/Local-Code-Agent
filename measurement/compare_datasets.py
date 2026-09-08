@@ -8,7 +8,7 @@ questions and refuses to answer any others:
   2. what does it cost in wall clock         (median seconds, TTFT)
   3. is it a daily driver or a batch tool    (against a threshold set in advance)
 
-    python devtools/compare_evals.py evals-30b-cpu.json evals-8b-npu.json \\
+    python measurement/compare_datasets.py evals-30b-cpu.json evals-8b-npu.json \\
         --markdown comparison.md
 """
 
@@ -22,11 +22,11 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "tests" / "evals"))
-sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO / "evaluation"))
+sys.path.insert(0, str(REPO))
 
 try:
-    from eval_cases import DIAGNOSTIC_CASES, KILL_THRESHOLD
+    from task_contracts import DIAGNOSTIC_CASES, KILL_THRESHOLD
 except Exception:  # pragma: no cover - keeps the script standalone
     DIAGNOSTIC_CASES = {
         "compile-error-locate", "compile-error-fix",
@@ -188,7 +188,7 @@ def render(report: dict[str, Any], runs: list[dict[str, Any]]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("runs", nargs="+", help="evals*.json files from run_evals.py")
+    parser.add_argument("runs", nargs="+", help="evals*.json files from run_evaluation.py")
     parser.add_argument("--markdown", help="write the report here as well as stdout")
     parser.add_argument("--json", dest="json_out", help="write the structured comparison")
     args = parser.parse_args()

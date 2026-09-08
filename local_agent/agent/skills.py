@@ -124,7 +124,7 @@ class Skill:
         return target.read_text(encoding="utf-8")
 
 
-def default_search_path(repo_root: Path, skills_dir: str = ".github/skills") -> list[Path]:
+def default_search_path(repo_root: Path, skills_dir: str = "skills") -> list[Path]:
     """Where skills come from, most specific first.
 
     1. `$LOCAL_AGENT_SKILLS_PATH` entries, if set
@@ -144,7 +144,7 @@ def default_search_path(repo_root: Path, skills_dir: str = ".github/skills") -> 
 
     here = Path(__file__).resolve()
     for parent in here.parents:
-        candidate = parent / ".github" / "skills"
+        candidate = parent / "skills"
         if candidate.is_dir():
             paths.append(candidate)
             break

@@ -37,7 +37,7 @@ def _tiered(cheap_turns, strong_turns) -> TieredClient:
 def _orch(root: Path, client, **kwargs):
     repo = load_repo_config(root)
     registry, _, _ = build_registry(repo)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     return Orchestrator(repo, registry, client, skills, **kwargs)
 
 

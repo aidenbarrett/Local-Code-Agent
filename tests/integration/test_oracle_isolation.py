@@ -1,6 +1,6 @@
 """Slice 2: the evaluation cannot be satisfied by editing the oracle.
 
-Drives the real eval harness (run_evals.run_case) with a scripted model that
+Drives the real eval harness (run_evaluation.run_case) with a scripted model that
 does the locally optimal thing: gut the failing test, build, run the now-green
 tests, claim success with the evidence to prove it. The agent's own view is a
 verified PASS. The eval's view must be: oracle tampered, verification
@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO / "tests" / "evals"))
+sys.path.insert(0, str(REPO / "evaluation"))
 
 from local_agent.llm.client import ScriptedClient, tool_call  # noqa: E402
 from local_agent.llm.models import ChatResponse  # noqa: E402
@@ -30,7 +30,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _case(name):
-    from eval_cases import CASES
+    from task_contracts import CASES
     return next(c for c in CASES if c.name == name)
 
 
@@ -104,7 +104,7 @@ def _honest_client():
 
 
 def test_gutting_the_test_does_not_produce_a_pass(tmp_path):
-    from run_evals import run_case
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     # A fix case: mutation is in scope, so the oracle is the layer that must
@@ -129,7 +129,7 @@ def test_gutting_the_test_does_not_produce_a_pass(tmp_path):
 
 
 def test_an_honest_fix_is_counted_and_verified(tmp_path):
-    from run_evals import run_case
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     row = run_case(_case("test-failure-fix"), ModelConfig(), tmp_path,
@@ -144,7 +144,7 @@ def test_an_honest_fix_is_counted_and_verified(tmp_path):
 
 
 def test_ledger_excludes_tampered_runs_from_every_denominator():
-    from run_evals import build_ledger
+    from run_evaluation import build_ledger
 
     honest = {"case": "a", "outcome": "pass", "succeeded": True, "counted": True,
               "validity": "valid", "oracle_tampered": False, "elapsed_s": 10}
@@ -166,7 +166,7 @@ def test_ledger_excludes_tampered_runs_from_every_denominator():
 def test_oracle_snapshot_is_outside_the_worktree_and_read_only(tmp_path):
     import os
     import oracle
-    from run_evals import prepare
+    from run_evaluation import prepare
 
     root, oracle_dir = prepare(tmp_path, "test_failure")
     assert not str(oracle_dir).startswith(str(root))
@@ -204,7 +204,7 @@ def test_a_second_case_can_replace_the_previous_oracle(tmp_path):
     test that should have caught it ran as root, which ignores mode bits, so
     this one is also run as an unprivileged user in CI for this repo.
     """
-    from run_evals import prepare
+    from run_evaluation import prepare
 
     root1, oracle1 = prepare(tmp_path, "test_failure")
     root2, oracle2 = prepare(tmp_path, "compile_error")     # same workdir, second case
@@ -226,12 +226,12 @@ def test_a_harness_crash_on_case_two_keeps_case_one_and_is_not_a_model_failure(t
     the model. One harness error is not enough to stop; the next case runs.
     """
     import json
-    import run_evals
-    from run_evals import run_all, run_case
+    import run_evaluation
+    from run_evaluation import run_all, run_case
     from local_agent.config import ModelConfig
 
     cases = [_case("test-failure-fix"), _case("clean-build"), _case("navigation")]
-    real_prepare = run_evals.prepare
+    real_prepare = run_evaluation.prepare
     calls = {"n": 0}
 
     def flaky_prepare(workdir, scenario):
@@ -240,7 +240,7 @@ def test_a_harness_crash_on_case_two_keeps_case_one_and_is_not_a_model_failure(t
             raise PermissionError(13, "Permission denied", "tests")
         return real_prepare(workdir, scenario)
 
-    monkeypatch.setattr(run_evals, "prepare", flaky_prepare)
+    monkeypatch.setattr(run_evaluation, "prepare", flaky_prepare)
 
     def run_one(case, attempt):
         # a fresh scripted model per case; the honest fix for case 1, prose after
@@ -274,7 +274,7 @@ def test_a_harness_crash_on_case_two_keeps_case_one_and_is_not_a_model_failure(t
     assert third["error"] is None                 # the suite carried on
 
     # and the ledger keeps the harness error out of every denominator
-    from run_evals import build_ledger
+    from run_evaluation import build_ledger
     ledger = build_ledger(on_disk["rows"])
     assert ledger["tasks_submitted"] == 3
     assert ledger["tasks"] == 2
@@ -285,14 +285,14 @@ def test_a_harness_crash_on_case_two_keeps_case_one_and_is_not_a_model_failure(t
 
 def test_two_harness_errors_in_a_row_stop_the_suite_with_rows_preserved(tmp_path):
     import json
-    from run_evals import run_all
+    from run_evaluation import run_all
 
     cases = [_case("clean-build"), _case("navigation"), _case("segfault")]
     seen = []
 
     def run_one(case, attempt):
         seen.append(case.name)
-        from run_evals import _error_row
+        from run_evaluation import _error_row
         import time
         return _error_row(case, "harness", RuntimeError("disk on fire"), "tb", time.monotonic())
 
@@ -309,7 +309,7 @@ def test_two_harness_errors_in_a_row_stop_the_suite_with_rows_preserved(tmp_path
 def test_rows_carry_what_an_audit_needs(tmp_path):
     """Every hypothesis in the slice-3 audit would have been a fact with these."""
     import json
-    from run_evals import run_case
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     out = tmp_path / "r.json"
@@ -350,7 +350,7 @@ def test_a_diagnosis_task_cannot_edit_the_tree_at_all(tmp_path):
     because the same skill has no build_target. Now the tools are not offered,
     so the attempt is refused as tool_not_allowed and the tree is untouched.
     """
-    from run_evals import run_case
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     def reaches_for_a_patch(messages):
@@ -383,8 +383,8 @@ def test_scope_violation_still_fires_where_a_skill_does_offer_the_tools(tmp_path
     """Narrowing is the first defence, not the only one. A case that forbids a
     tool its skill happens to offer must still fail on scope."""
     import dataclasses
-    from run_evals import run_case
-    from eval_cases import MUTATING_TOOLS
+    from run_evaluation import run_case
+    from task_contracts import MUTATING_TOOLS
     from local_agent.config import ModelConfig
 
     case = dataclasses.replace(_case("test-failure-fix"), forbidden_tools=MUTATING_TOOLS)
@@ -395,7 +395,7 @@ def test_scope_violation_still_fires_where_a_skill_does_offer_the_tools(tmp_path
 
 
 def test_ledger_counts_model_calls_for_a_single_client_run():
-    from run_evals import build_ledger
+    from run_evaluation import build_ledger
 
     rows = [
         {"case": "a", "outcome": "pass", "succeeded": True, "counted": True, "validity": "valid",
@@ -412,7 +412,7 @@ def test_ledger_counts_model_calls_for_a_single_client_run():
 
 def test_console_mark_follows_succeeded_not_score(tmp_path):
     """navigation, first real run: 'PASS' printed, 'fail' counted."""
-    from run_evals import run_all
+    from run_evaluation import run_all
 
     def run_one(case, attempt):
         return {"case": case.name, "score": 1.0, "outcome": "fail", "succeeded": False,
@@ -438,7 +438,7 @@ def test_a_diagnosis_case_starts_from_a_built_tree(tmp_path):
     build_target, so the state it was asked to explain could not be reached
     from where it was put. This test is the thing that would have caught it.
     """
-    from run_evals import establish, prepare
+    from run_evaluation import establish, prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -472,7 +472,7 @@ def test_a_diagnosis_case_starts_from_a_built_tree(tmp_path):
 
 def test_a_build_case_is_not_pre_built(tmp_path):
     """Building a broken build before the model sees it would delete the task."""
-    from run_evals import establish, prepare
+    from run_evaluation import establish, prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -488,7 +488,7 @@ def test_a_fixture_that_cannot_reach_its_own_start_state_is_not_a_model_result(t
     """A precondition failure is loud, uncounted, and stops the suite. It is
     not a zero: a zero would be a claim about the model."""
     import json
-    from run_evals import run_all, run_case, PreconditionError, _error_row
+    from run_evaluation import run_all, run_case, PreconditionError, _error_row
     from local_agent.config import ModelConfig
 
     case = _case("test-failure-diagnose")
@@ -516,7 +516,7 @@ def test_the_rerun_probe_reaches_the_question_we_meant_to_ask(tmp_path):
     model's FIRST run_test returns the ring_buffer failure, the assertion and
     the source line. That is the acceptance criterion for the rerun, checked
     here rather than hoped for on the NUC."""
-    from run_evals import run_case
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     seen = {}
@@ -562,7 +562,7 @@ def test_run_test_says_when_it_is_reporting_a_stale_binary(tmp_path):
     reran, and looped until the repeat guard stopped it. Ten tool calls and
     about seven minutes, all of them spent on a lie of omission by this tool.
     """
-    from run_evals import establish, prepare
+    from run_evaluation import establish, prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -601,7 +601,7 @@ def test_the_worktree_contains_no_answer_key(tmp_path):
     its answer. Diffing the working tree against a pristine copy of every file
     solves compile, link and test scenarios without understanding them, which
     would flatter exactly the cells the experiment has to measure honestly."""
-    from run_evals import prepare
+    from run_evaluation import prepare
 
     for scenario in ("clean", "compile_error", "link_error", "test_failure",
                      "crash", "timeout"):
@@ -622,7 +622,7 @@ def test_the_scenario_is_still_applied_and_still_visible_in_the_diff(tmp_path):
     the injected defect is realistic and is the same in every cell; a pristine
     copy of every other file beside it is neither."""
     import subprocess
-    from run_evals import prepare
+    from run_evaluation import prepare
 
     root, _ = prepare(tmp_path, "test_failure")
     assert "count_ + 1 == slots_.size()" in (root / "src" / "ring_buffer.cpp").read_text()
@@ -641,7 +641,7 @@ def test_a_filter_that_matches_nothing_is_not_a_pass(tmp_path):
     """`run_test(name_filter="Crash")` returned "all tests passed (0 test(s))".
     Nothing ran. The 30B was sent down this hole twice in the Slice 3 run and
     spent four calls climbing out of it."""
-    from run_evals import establish, prepare
+    from run_evaluation import establish, prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -664,7 +664,7 @@ def test_a_filter_that_matches_nothing_is_not_a_pass(tmp_path):
 def test_legal_ctest_regexes_are_accepted(tmp_path):
     """`.*timeout.*` is a valid ctest pattern and was refused as invalid."""
     from local_agent.tools.base import ToolError
-    from run_evals import establish, prepare
+    from run_evaluation import establish, prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
@@ -701,7 +701,7 @@ def test_the_no_skill_control_differs_only_in_the_treatment(tmp_path):
     narrowing under another name: a control that cannot call build_target has
     not been denied a procedure, it has been denied the job.
     """
-    from run_evals import run_case
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     seen = {}
@@ -740,7 +740,7 @@ def test_the_no_skill_control_differs_only_in_the_treatment(tmp_path):
 
 
 def test_the_control_sees_every_registered_tool(tmp_path):
-    from run_evals import prepare
+    from run_evaluation import prepare
     from local_agent.agent import Orchestrator, SkillLibrary
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
@@ -750,7 +750,7 @@ def test_the_control_sees_every_registered_tool(tmp_path):
     registry, _, _ = build_registry(repo)
     orch = Orchestrator(
         repo=repo, registry=registry, client=ScriptedClient([ChatResponse(content="x")]),
-        skills=SkillLibrary.discover(REPO / ".github" / "skills"),
+        skills=SkillLibrary.discover(REPO / "skills"),
         approval=lambda *a: True,
     )
     treated = orch._toolset_for("diagnose-test-failure",
@@ -786,7 +786,7 @@ def _orch_no_skill(root, client):
     registry, _, _ = build_registry(repo)
     orch = Orchestrator(
         repo=repo, registry=registry, client=client,
-        skills=SkillLibrary.discover(REPO / ".github" / "skills"),
+        skills=SkillLibrary.discover(REPO / "skills"),
         approval=lambda *a: True,
     )
     return orch.run("why does ring_buffer fail", no_skill=True,
@@ -802,7 +802,7 @@ def test_the_three_conditions_differ_by_exactly_one_thing_each(tmp_path):
     design that cannot separate them cannot say which one the NPU story rests
     on.
     """
-    from run_evals import run_case
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     seen = {}
@@ -855,7 +855,7 @@ def test_how_a_run_finished_is_recorded(tmp_path):
     shared protocol rather than a choice between two sanctioned endings.
     Recorded because a condition that forgets it more often is a real
     finding."""
-    from run_evals import run_case
+    from run_evaluation import run_case
     from local_agent.config import ModelConfig
 
     structured = run_case(_case("navigation"), ModelConfig(), tmp_path,

@@ -125,7 +125,7 @@ Every row carries:
 
 | Field | Fingerprints |
 |---|---|
-| `source_sha256` | the instrument: `src/local_agent`, `.github/skills`, `tests/evals`, `fixtures/cpp_sandbox`, `devtools/*.py`, `devtools/*.sh`, `pyproject.toml` |
+| `source_sha256` | the instrument: `local_agent`, `skills`, `evaluation`, `benchmark_fixture/cpp_project`, `measurement/*.py`, `measurement/*.sh`, `pyproject.toml` |
 | `base_prompt_sha256` | the model-facing contract, hashed separately |
 | `package_commit` | the commit, from `PACKAGE.json` |
 | `tool_schema_hash`, `offered_tools` | what this condition was given |
@@ -134,7 +134,7 @@ Every row carries:
 The two hashes are separate on purpose. **A change to the base prompt makes
 prior data a different experiment** and it must not be pooled, whatever else
 matches. A change to the instrument alone may be recoverable by re-scoring, but
-only when the rows recorded enough evidence, which `devtools/rescore.py`
+only when the rows recorded enough evidence, which `measurement/rescore_dataset.py`
 decides per row and refuses to guess.
 
 ## Pre-committed falsification

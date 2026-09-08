@@ -8,7 +8,7 @@ Order matters here. Every step is a gate: if it fails, you stop and fix that,
 rather than carrying an unproven assumption into the next one.
 
 The one thing worth repeating from the plan: **the agent works today with no
-model at all.** `python devtools/minipytest.py tests` exercises the whole state
+model at all.** `python measurement/run_test_suite.py tests` exercises the whole state
 machine, the policy engine, every tool and a real `cmake`/`ctest` build using a
 scripted client. So model bring-up is a separate problem from agent bring-up,
 and you can fail at one without being blocked on the other.
@@ -24,8 +24,8 @@ py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 
-python fixtures\generate_sandbox.py
-python devtools\minipytest.py tests
+python fixtures\generate_project.py
+python measurement\run_test_suite.py tests
 ```
 
 Expect 77 passed. If cmake or ctest is missing, the integration tests skip and
@@ -34,8 +34,8 @@ the rest still run.
 Then rehearse the whole measurement pipeline with no model at all:
 
 ```powershell
-python tests\evals\run_evals.py --rehearse --out rehearsal.json
-python devtools\compare_evals.py rehearsal.json
+python tests\evals\run_evaluation.py --rehearse --out rehearsal.json
+python measurement\compare_evals.py rehearsal.json
 ```
 
 The scores are meaningless (there is no model), but if this completes you know
@@ -132,7 +132,7 @@ Four of those flags matter more than they look:
 Then qualify it:
 
 ```powershell
-python devtools\qualify.py --profile nuc-llama-30b `
+python measurement\qualify.py --profile nuc-llama-30b `
   --json qualify-llama-30b.json `
   --dump-dir qualify-dumps
 ```
@@ -178,7 +178,7 @@ The model card shows OVMS with GPU and direct GenAI with CPU. Treat it as a
 test.
 
 ```powershell
-local-agent --repo fixtures\cpp_sandbox --base-url http://127.0.0.1:8000/v3 `
+local-agent --repo fixtures\cpp_project --base-url http://127.0.0.1:8000/v3 `
   --model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov doctor
 ```
 
@@ -194,11 +194,11 @@ agent development are different problems and there is no reason to couple them.
 ## Stage 3: first real agent run
 
 ```powershell
-cd fixtures\cpp_sandbox
+cd fixtures\cpp_project
 python scripts\apply_scenario.py compile_error
 cd ..\..
 
-local-agent --repo fixtures\cpp_sandbox --profile nuc-cpu-30b `
+local-agent --repo fixtures\cpp_project --profile nuc-cpu-30b `
   run "the build is broken, find the first compiler error and explain it" `
   --transcript run1.json
 ```
@@ -214,7 +214,7 @@ you are looking for:
 Then characterise the hardware before you characterise the model:
 
 ```powershell
-python devtools\bench_model.py --profile nuc-cpu-30b --repeats 5 `
+python measurement\bench_model.py --profile nuc-cpu-30b --repeats 5 `
   --out bench-nuc-ddr4.json --markdown bench-nuc-ddr4.md
 ```
 
@@ -227,7 +227,7 @@ fixing that is worth more than any other optimisation available to you.
 Then turn the task into a number:
 
 ```powershell
-python tests\evals\run_evals.py --profile nuc-cpu-30b --repeat 3 `
+python tests\evals\run_evaluation.py --profile nuc-cpu-30b --repeat 3 `
   --label "Qwen3-Coder 30B INT4, CPU, DDR4-3200" --out evals-nuc.json
 ```
 
@@ -297,7 +297,7 @@ ovms.exe --rest_port 18000 `
   --task text_generation
 
 local-agent --profile ptl-npu-8b doctor
-python devtools\run_suite.py --profile ptl-npu-8b `
+python measurement\run_suite.py --profile ptl-npu-8b `
   --label "Qwen3-8B INT4-CW, NPU" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-npu
 ```
@@ -313,15 +313,15 @@ ovms.exe --rest_port 18001 `
   --target_device GPU `
   --task text_generation
 
-python devtools\run_suite.py --profile ptl-gpu-30b `
+python measurement\run_suite.py --profile ptl-gpu-30b `
   --label "Qwen3-Coder 30B INT4, Arc B390" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-gpu
 
-python devtools\run_suite.py --profile ptl-cpu-30b `
+python measurement\run_suite.py --profile ptl-cpu-30b `
   --label "Qwen3-Coder 30B INT4, CPU" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-cpu
 
-python devtools\compare_evals.py results\*\evals.json --markdown comparison.md
+python measurement\compare_evals.py results\*\evals.json --markdown comparison.md
 ```
 
 The NPU will not win on latency against a 122 TOPS iGPU and it does not need
@@ -335,7 +335,7 @@ With both servers up, run the deployment you would actually ship: cheap skills
 on the NPU, hard ones on the iGPU, escalation when the small model fails.
 
 ```powershell
-python devtools\run_suite.py --profile ptl-gpu-30b --cheap-profile ptl-npu-8b `
+python measurement\run_suite.py --profile ptl-gpu-30b --cheap-profile ptl-npu-8b `
   --label "Two-tier: 8B on NPU, 30B on B390" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-tiered
 ```
@@ -382,7 +382,7 @@ mistake: three weeks optimising something that does not exist yet.
 
 ## Stage 5: the editor
 
-`src/local_agent/rpc/stdio.py` is already the seam. A VS Code extension spawns
+`local_agent/rpc/stdio.py` is already the seam. A VS Code extension spawns
 `python -m local_agent.rpc.stdio`, writes one JSON object per line, and renders
 the `tool`, `observe` and `approval_required` events. The extension holds no
 logic, which is the point: a bug can never be "only in the extension".
@@ -400,7 +400,7 @@ layer is exactly two things, and both live inside the work repository rather
 than here:
 
 1. its `.local-agent.toml`, holding the real build and test invocations
-2. its `.github/skills/`, holding skills that override the bundled ones by name
+2. its `skills/`, holding skills that override the bundled ones by name
 
 That separation is not tidiness. It is what keeps this project something you
 can talk about.

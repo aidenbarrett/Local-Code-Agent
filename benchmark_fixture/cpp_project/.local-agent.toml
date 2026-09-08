@@ -3,7 +3,7 @@ name = "cpp-sandbox"
 build_dir = "build"
 run_dir = ".local-agent/runs"
 default_profile = "debug"
-skills_dir = ".github/skills"
+skills_dir = "skills"
 
 [profiles.debug]
 configure = ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"]

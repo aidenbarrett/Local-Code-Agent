@@ -12,8 +12,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO / "devtools"))
-sys.path.insert(0, str(REPO / "tests" / "evals"))
+sys.path.insert(0, str(REPO / "measurement"))
+sys.path.insert(0, str(REPO / "evaluation"))
 
 from local_agent.llm.models import CallStats, ChatResponse  # noqa: E402
 
@@ -58,7 +58,7 @@ class FakeModel:
 
 
 def test_benchmark_recovers_the_rates_it_was_given():
-    from bench_model import render_markdown, run_benchmark, summarise
+    from benchmark_model import render_markdown, run_benchmark, summarise
 
     model = FakeModel(prefill_rate=500.0, decode_rate=10.0)
     result = run_benchmark(
@@ -90,7 +90,7 @@ def test_benchmark_recovers_the_rates_it_was_given():
 
 
 def test_benchmark_detects_a_prefix_cache_hit():
-    from bench_model import run_benchmark, summarise
+    from benchmark_model import run_benchmark, summarise
 
     summary = summarise(
         run_benchmark(
@@ -112,7 +112,7 @@ def test_benchmark_detects_a_prefix_cache_hit():
 
 
 def test_warmup_is_excluded_from_the_statistics():
-    from bench_model import run_benchmark, summarise
+    from benchmark_model import run_benchmark, summarise
 
     result = run_benchmark(
         FakeModel(),
@@ -129,7 +129,7 @@ def test_warmup_is_excluded_from_the_statistics():
 
 def _fake_eval_file(tmp_path: Path, label: str, score: float, seconds: float,
                     ttft: float) -> Path:
-    from eval_cases import CASES
+    from task_contracts import CASES
 
     rows = []
     for case in CASES:
@@ -168,7 +168,7 @@ def _fake_eval_file(tmp_path: Path, label: str, score: float, seconds: float,
 
 
 def test_comparison_calls_a_low_scorer_dead(tmp_path):
-    from compare_evals import compare, load, render
+    from compare_datasets import compare, load, render
 
     good = load(_fake_eval_file(tmp_path, "cpu-30b", 0.95, 60.0, 4.0))
     bad = load(_fake_eval_file(tmp_path, "npu-8b", 0.3, 20.0, 1.2))
@@ -185,7 +185,7 @@ def test_comparison_calls_a_low_scorer_dead(tmp_path):
 
 
 def test_comparison_separates_accurate_but_slow_from_usable(tmp_path):
-    from compare_evals import compare, load
+    from compare_datasets import compare, load
 
     slow = load(_fake_eval_file(tmp_path, "cpu-slow", 0.9, 300.0, 25.0))
     quick = load(_fake_eval_file(tmp_path, "npu-quick", 0.9, 40.0, 1.5))
@@ -196,8 +196,8 @@ def test_comparison_separates_accurate_but_slow_from_usable(tmp_path):
 
 
 def test_comparison_covers_every_case_from_both_runs(tmp_path):
-    from compare_evals import compare, load
-    from eval_cases import CASES
+    from compare_datasets import compare, load
+    from task_contracts import CASES
 
     a = load(_fake_eval_file(tmp_path, "a", 1.0, 10.0, 1.0))
     b = load(_fake_eval_file(tmp_path, "b", 0.5, 10.0, 1.0))
@@ -233,7 +233,7 @@ def _row(case, outcome, score, seconds, cheap_calls, strong_calls):
 
 
 def test_ledger_counts_tasks_not_model_calls():
-    from run_evals import build_ledger
+    from run_evaluation import build_ledger
 
     rows = [
         _row("a", "pass", 1.0, 10.0, 6, 0),          # chatty but one task
@@ -259,7 +259,7 @@ def test_ledger_counts_tasks_not_model_calls():
 
 
 def test_blocked_tasks_never_count_against_the_model():
-    from run_evals import build_ledger
+    from run_evaluation import build_ledger
 
     ledger = build_ledger([
         _row("a", "pass", 1.0, 5.0, 2, 0),
@@ -273,7 +273,7 @@ def test_blocked_tasks_never_count_against_the_model():
 
 
 def test_ledger_renders_without_escalations():
-    from run_evals import build_ledger, render_ledger
+    from run_evaluation import build_ledger, render_ledger
 
     text = render_ledger(build_ledger([_row("a", "pass", 1.0, 5.0, 2, 0)]))
     assert "Cheap tier alone" in text
@@ -337,14 +337,14 @@ def _schemas():
     from local_agent.tools import build_registry
 
     registry, _, _ = build_registry(
-        load_repo_config(_P(REPO / "fixtures" / "cpp_sandbox"))
+        load_repo_config(_P(REPO / "benchmark_fixture" / "cpp_project"))
     )
     return registry.schemas(["git_status", "read_file", "build_target", "submit_answer"])
 
 
 def test_qualification_passes_a_conformant_server():
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     q = run_qualification(ConformantServer(), MODEL_PRESETS["ptl-npu-8b"],
                           _schemas(), [1000, 4000])
@@ -358,7 +358,7 @@ def test_qualification_passes_a_conformant_server():
 def test_qualification_catches_a_context_cliff():
     """The exact NPU failure mode: garbage output instead of an error."""
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     q = run_qualification(ConformantServer(garble_above_tokens=1500),
                           MODEL_PRESETS["ptl-npu-8b"], _schemas(),
@@ -373,7 +373,7 @@ def test_qualification_catches_a_context_cliff():
 def test_an_agent_capable_profile_that_cannot_call_tools_fails():
     """Not a downgrade to "unsupported optional feature". A failure."""
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     class NoToolServer(ConformantServer):
         def chat(self, messages, tools=None, max_tokens=None):
@@ -393,7 +393,7 @@ def test_an_agent_capable_profile_that_cannot_call_tools_fails():
 
 def test_qualification_records_the_configuration_identity():
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     cfg = MODEL_PRESETS["nuc-llama-30b"]
     run_qualification(ConformantServer(), cfg, _schemas(), [1000])
@@ -424,7 +424,7 @@ class ThinkingServer(ConformantServer):
 def test_qualification_fails_when_the_thinking_policy_is_not_honoured():
     """Asked for thinking off, got thinking on. Every number after this is suspect."""
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     q = run_qualification(ThinkingServer(accepted=True, thinks=True),
                           MODEL_PRESETS["nuc-llama-30b"], _schemas(), [1000])
@@ -437,7 +437,7 @@ def test_qualification_fails_when_the_thinking_policy_is_not_honoured():
 
 def test_a_rejected_thinking_control_is_visible_not_swallowed():
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     q = run_qualification(ThinkingServer(accepted=False, thinks=True),
                           MODEL_PRESETS["nuc-llama-30b"], _schemas(), [1000])
@@ -449,7 +449,7 @@ def test_a_rejected_thinking_control_is_visible_not_swallowed():
 
 def test_an_honoured_thinking_policy_passes():
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     q = run_qualification(ThinkingServer(accepted=True, thinks=False),
                           MODEL_PRESETS["nuc-llama-30b"], _schemas(), [1000])
@@ -475,7 +475,7 @@ class FingerprintServer(ConformantServer):
 
 def test_qualification_checks_the_runtime_fingerprint_against_the_profile():
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     cfg = MODEL_PRESETS["nuc-llama-30b"]          # claims b10816-427291b5b
     q = run_qualification(FingerprintServer("b10816-427291b5b"), cfg, _schemas(), [1000])
@@ -505,7 +505,7 @@ class AlreadyWarmServer(ConformantServer):
 def test_a_cold_probe_that_was_already_cached_does_not_pass():
     """1.6x on a warm-versus-warmer comparison is not a validated cache."""
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     q = run_qualification(AlreadyWarmServer(), MODEL_PRESETS["nuc-llama-30b"], _schemas(), [1000])
     checks = {c.name: c for c in q.checks}
@@ -525,7 +525,7 @@ def test_a_warm_tool_header_is_not_a_cold_probe_failure():
     and says nothing about whether the body under test was cached.
     """
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     class WarmHeaderServer(ConformantServer):
         """Caches a fixed-size header for any request that carries tools, and
@@ -556,7 +556,7 @@ def test_a_warm_tool_header_is_not_a_cold_probe_failure():
 
 
 def test_cache_verdict_uses_counts_first_and_timing_second():
-    from qualify import _cache_verdict
+    from qualify_server import _cache_verdict
 
     class S:  # minimal stand-in for a ChatResponse
         def __init__(self, cached, prompt, ttft):
@@ -582,7 +582,7 @@ def test_cache_verdict_uses_counts_first_and_timing_second():
 
 def test_qualification_catches_tools_breaking_the_prefix_cache():
     from local_agent.config import MODEL_PRESETS
-    from qualify import run_qualification
+    from qualify_server import run_qualification
 
     q = run_qualification(ConformantServer(cache_with_tools=False),
                           MODEL_PRESETS["ptl-npu-8b"], _schemas(), [1000])

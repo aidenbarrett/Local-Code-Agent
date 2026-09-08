@@ -6,26 +6,26 @@ __pycache__/
 dist/
 build/
 
-# CMake build trees inside the fixture, and the agent's own run journal
-fixtures/cpp_sandbox/build/
+# The CMake build tree inside the C++ project, and the agent's own run journal
+# and build-provenance stamps.
+benchmark_fixture/cpp_project/build/
 .local-agent/
 .local-agent-build-ok
 .local-agent-configured-profile
 
-# Working run output. Datasets that are kept live under results/<run>/ and are
-# committed deliberately; anything matching these patterns is scratch.
-evals*.json
-run*.json
-slice3-out/
+# Scratch output from a run in progress. Datasets that are kept live under
+# experiments/<run>/data/ and are committed deliberately, so they are exempt.
+experiment-runs/
 qualify-*.json
-!results/**/*.json
+results.json
+!experiments/**/*.json
 
-# Model weights never go in the repository
+# Model weights are never committed.
 models/
 *.gguf
 
-# PACKAGE.json is a build artifact, written by devtools/stamp_package.py and
-# injected into the zip by scripts/package.sh. It names the commit it was built
-# from, so tracking it would make it name its own parent. Datasets are
-# reconciled against the copy inside the package, not against the repository.
+# PACKAGE.json is a build artifact. scripts/stamp_package.py writes it and
+# scripts/build_release_package.sh injects it into the archive. It names the
+# commit it was built from, so tracking it would make it name its own parent.
+# Datasets are reconciled against the copy inside the release archive.
 PACKAGE.json

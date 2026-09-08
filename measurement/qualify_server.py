@@ -5,8 +5,8 @@ Not the eval suite. A nasty little conformance pass that checks every
 assumption this project makes about the server, one at a time, so that when the
 real suite misbehaves you already know which assumptions held.
 
-    python devtools/qualify.py --profile ptl-npu-8b
-    python devtools/qualify.py --profile ptl-gpu-30b --json qualify-gpu.json
+    python measurement/qualify_server.py --profile ptl-npu-8b
+    python measurement/qualify_server.py --profile ptl-gpu-30b --json qualify-gpu.json
 
 Each check reports PASS, FAIL or SKIP with the observed value. Nothing here is
 graded on model intelligence. It is all protocol and plumbing.
@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO))
 
 from local_agent.config import MODEL_PRESETS, ModelConfig, load_repo_config  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient, sdk_identity  # noqa: E402
@@ -496,7 +496,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=sorted(MODEL_PRESETS))
     parser.add_argument("--base-url")
     parser.add_argument("--model")
-    parser.add_argument("--repo", default=str(REPO / "fixtures" / "cpp_sandbox"))
+    parser.add_argument("--repo", default=str(REPO / "benchmark_fixture" / "cpp_project"))
     parser.add_argument("--context-probes", default="1000,4000,8000,12000,15000")
     parser.add_argument("--json", dest="json_out")
     parser.add_argument(

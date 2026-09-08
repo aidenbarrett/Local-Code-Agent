@@ -20,7 +20,7 @@ dev = [
 local-agent = "local_agent.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["local_agent*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

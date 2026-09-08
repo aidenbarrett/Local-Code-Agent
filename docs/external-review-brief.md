@@ -135,8 +135,8 @@ conditions, so the skill text cannot coach the answer format.
 
 Every row carries:
 
-- `source_sha256`: hashes `src/local_agent`, `.github/skills`, `tests/evals`,
-  `fixtures/cpp_sandbox`, `devtools/*.py`, `devtools/*.sh`, `pyproject.toml`.
+- `source_sha256`: hashes `local_agent`, `skills`, `evaluation`,
+  `benchmark_fixture/cpp_project`, `measurement/*.py`, `measurement/*.sh`, `pyproject.toml`.
   Current: `a4c9b14e52a50ef4bac71eb21e3c2f9b800851030a1556058e9edac33b3237a6`
 - `base_prompt_sha256`: the model-facing contract, hashed separately, because
   the prompt can change without the evaluator changing and the two have
@@ -151,7 +151,7 @@ fixed, so it is an **upper bound on the no-skill cell and nothing else**. It
 has never been row-level re-scored. Treat any argument that leans on it as
 unsupported.
 
-`devtools/rescore.py` exists to re-score frozen datasets without re-running
+`measurement/rescore_dataset.py` exists to re-score frozen datasets without re-running
 them. It reads only, emits a derived artifact carrying `source_dataset_sha256`
 and the evaluator identity, and marks each row `fully` / `partially` /
 `not_replayable`. A partially replayable row yields a **provisional** score

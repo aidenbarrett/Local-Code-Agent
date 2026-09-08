@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Re-score a completed dataset under the current evaluator. Never in place.
 
-    python devtools/rescore.py --dataset run.json --out run.rescored.json
+    python measurement/rescore_dataset.py --dataset run.json --out run.rescored.json
 
 A tightened evaluator raises an obvious question about every number collected
 under the old one, and the honest way to answer it is to run the new rules over
@@ -30,10 +30,10 @@ import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "tests" / "evals"))
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "evaluation"))
 
-from eval_cases import CASES, SUCCESS_THRESHOLD  # noqa: E402
+from task_contracts import CASES, SUCCESS_THRESHOLD  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 
 BY_NAME = {c.name: c for c in CASES}

@@ -661,27 +661,27 @@ def test_the_source_hash_ignores_generated_state():
     import local_agent.provenance as prov
 
     before = source_sha256()
-    junk = prov._ROOT / "fixtures" / "cpp_sandbox" / ".local-agent" / "runs" / "x"
+    junk = prov._ROOT / "benchmark_fixture" / "cpp_project" / ".local-agent" / "runs" / "x"
     junk.mkdir(parents=True, exist_ok=True)
     try:
         (junk / "combined.log").write_text("noise")
         assert source_sha256() == before
     finally:
         import shutil
-        shutil.rmtree(prov._ROOT / "fixtures" / "cpp_sandbox" / ".local-agent",
+        shutil.rmtree(prov._ROOT / "benchmark_fixture" / "cpp_project" / ".local-agent",
                       ignore_errors=True)
 
 
 def test_the_source_hash_covers_everything_that_can_change_a_result():
     """An edit to the qualification gate once produced an identical hash,
-    because devtools was not hashed. The gate decides whether a run starts."""
+    because measurement was not hashed. The gate decides whether a run starts."""
     from local_agent.provenance import _files
 
     rels = {str(p).split("local-code-agent/")[-1] for p in _files()}
-    for expected in ("devtools/qualify.py", "devtools/slice3.sh",
-                     "tests/evals/run_evals.py", "tests/evals/eval_cases.py",
-                     "src/local_agent/agent/orchestrator.py",
-                     ".github/skills/diagnose-test-failure/SKILL.md"):
+    for expected in ("measurement/qualify_server.py", "measurement/run_experiment.sh",
+                     "evaluation/run_evaluation.py", "evaluation/task_contracts.py",
+                     "local_agent/agent/orchestrator.py",
+                     "skills/diagnose-test-failure/SKILL.md"):
         assert any(r.endswith(expected) for r in rels), expected
 
 

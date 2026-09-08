@@ -8,7 +8,7 @@ unproven. Two answers to "was this proved" is worse than either answer.
 
 So the rules live here, once, in a function that takes primitives. The tool
 layer has `ToolResult`, the orchestrator has `ToolResult`, the evaluator has
-`ToolCallRecord` rows off a finished run, and `devtools/rescore.py` has JSON
+`ToolCallRecord` rows off a finished run, and `measurement/rescore_dataset.py` has JSON
 read back off disk. None of those types can see each other, and all four can
 call this.
 

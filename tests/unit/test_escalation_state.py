@@ -36,7 +36,7 @@ def _orch(root: Path, cheap_turns, strong_turns, **kwargs):
     journal = MutationJournal()
     repo = load_repo_config(root)
     registry, _, _ = build_registry(repo, journal=journal)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     client = TieredClient(
         {CHEAP: ScriptedClient(cheap_turns), STRONG: ScriptedClient(strong_turns)},
         default_tier=STRONG,
@@ -230,7 +230,7 @@ def test_no_journal_means_no_crash(sandbox):
     """Journalling is optional; the orchestrator must work without it."""
     repo = load_repo_config(sandbox.root)
     registry, _, _ = build_registry(repo)
-    skills = SkillLibrary.discover(REPO / ".github" / "skills")
+    skills = SkillLibrary.discover(REPO / "skills")
     client = TieredClient(
         {CHEAP: ScriptedClient([ChatResponse(content="  ", stats=_stats())]),
          STRONG: ScriptedClient([ChatResponse(content="Fine.", stats=_stats())])},

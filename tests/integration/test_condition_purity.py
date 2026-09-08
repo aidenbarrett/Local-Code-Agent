@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO / "tests" / "evals"))
+sys.path.insert(0, str(REPO / "evaluation"))
 
 from local_agent.config import ModelConfig  # noqa: E402
 from local_agent.llm.client import ScriptedClient, tool_call  # noqa: E402
@@ -34,7 +34,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _case(name):
-    from eval_cases import CASES
+    from task_contracts import CASES
     return next(c for c in CASES if c.name == name)
 
 
@@ -56,7 +56,7 @@ def _finish_immediately():
 
 
 def _opening_request(case_name, condition, tmp_path):
-    from run_evals import run_case
+    from run_evaluation import run_case
     client = _finish_immediately()
     run_case(_case(case_name), ModelConfig(), tmp_path / condition,
              auto_approve=True, client=client, condition=condition,
@@ -140,7 +140,7 @@ def test_the_skill_body_never_reaches_narrow(tmp_path):
     """The one leak that would quietly destroy `skill - narrow`."""
     from local_agent.agent.skills import SkillLibrary
 
-    library = SkillLibrary.discover_many([REPO / ".github" / "skills"])
+    library = SkillLibrary.discover_many([REPO / "skills"])
     body = library.get("diagnose-test-failure").body
     distinctive = [line.strip() for line in body.splitlines()
                    if len(line.strip()) > 40][:5]
@@ -183,7 +183,7 @@ def test_the_mechanism_conditions_refuse_a_tiered_client(tmp_path):
 
     Never reachable from the launcher, which passes no --cheap. Now not
     reachable at all."""
-    from run_evals import run_case
+    from run_evaluation import run_case
 
     for condition in ("control", "narrow"):
         with pytest.raises(SystemExit) as excinfo:
@@ -204,7 +204,7 @@ def test_every_honest_workflow_is_accepted(tmp_path):
     is a legitimate way to finish, and each must produce a proof the evaluator
     accepts.
     """
-    from run_evals import prepare
+    from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
     from local_agent.verification import ProofKind, classify_proof
@@ -389,7 +389,7 @@ def test_proof_does_not_survive_a_later_edit(tmp_path):
     off the transcript.
     """
     import json as _json
-    from run_evals import run_case
+    from run_evaluation import run_case
 
     FIND = "bool RingBuffer::full() const { return count_ + 1 == slots_.size(); }"
     REPL = "bool RingBuffer::full() const { return count_ == slots_.size(); }"

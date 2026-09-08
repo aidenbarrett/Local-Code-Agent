@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One command, one artefact: the whole benchmark for one configuration.
 
-    python devtools/run_suite.py --profile nuc-cpu-30b \
+    python measurement/run_benchmark_suite.py --profile nuc-cpu-30b \
         --label "Qwen3-Coder 30B INT4, CPU, DDR4-3200 NUC12" \
         --outdir results/nuc-ddr4
 
@@ -33,12 +33,12 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "src"))
-sys.path.insert(0, str(REPO / "devtools"))
-sys.path.insert(0, str(REPO / "tests" / "evals"))
+sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "measurement"))
+sys.path.insert(0, str(REPO / "evaluation"))
 
-from bench_model import render_markdown, run_benchmark, summarise  # noqa: E402
-from telemetry import HostMonitor  # noqa: E402
+from benchmark_model import render_markdown, run_benchmark, summarise  # noqa: E402
+from machine_telemetry import HostMonitor  # noqa: E402
 
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
@@ -77,13 +77,13 @@ class OfflineModel:
         )
 
 
-def _run_evals(
+def _run_evaluation(
     outdir: Path, profile: str | None, base_url: str, model: str, label: str,
     repeat: int, rehearse: bool, cheap_profile: str | None = None,
 ) -> dict[str, Any]:
     out = outdir / ("rehearsal.json" if rehearse else "evals.json")
     cmd = [
-        sys.executable, str(REPO / "tests" / "evals" / "run_evals.py"),
+        sys.executable, str(REPO / "evaluation" / "run_evaluation.py"),
         "--out", str(out),
         "--repeat", str(repeat),
         "--workdir", str(outdir / "work"),
@@ -349,8 +349,8 @@ def main() -> int:
     parser.add_argument("--sample-interval", type=float, default=1.0)
     args = parser.parse_args()
 
-    from compare_evals import INTERACTIVE_TURN_SECONDS
-    from eval_cases import DIAGNOSTIC_CASES, KILL_THRESHOLD
+    from compare_datasets import INTERACTIVE_TURN_SECONDS
+    from task_contracts import DIAGNOSTIC_CASES, KILL_THRESHOLD
 
     cfg = MODEL_PRESETS.get(args.profile, ModelConfig()) if args.profile else ModelConfig.from_env()
     if args.base_url:
@@ -369,7 +369,7 @@ def main() -> int:
 
     if not args.skip_rehearsal:
         print("[1/4] rehearsal with no model")
-        rehearsal = _run_evals(outdir, None, "", "", "REHEARSAL", 1, rehearse=True)
+        rehearsal = _run_evaluation(outdir, None, "", "", "REHEARSAL", 1, rehearse=True)
         if rehearsal.get("failed"):
             print("      rehearsal FAILED, so the harness is broken, not the model:")
             print(rehearsal["log"][-2000:])
@@ -418,7 +418,7 @@ def main() -> int:
 
     print("[3/4] behaviour on the eval cases")
     with HostMonitor(args.sample_interval) as eval_monitor:
-        evals = _run_evals(
+        evals = _run_evaluation(
             outdir, args.profile, cfg.base_url, cfg.model, label, args.repeat,
             rehearse=args.rehearse_all, cheap_profile=args.cheap_profile,
         )
