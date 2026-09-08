@@ -22,6 +22,26 @@ local-agent = "local_agent.cli:main"
 [tool.setuptools.packages.find]
 include = ["local_agent*"]
 
+# NOT distributable as a wheel yet, and this is deliberate rather than an
+# oversight.
+#
+# The eight skills live at the top level in `skills/`, outside the Python
+# package, because in this experiment they are the treatment and burying them
+# inside the package would hide the thing being measured. The cost is that a
+# built wheel carries `local_agent` and no skills, so `default_search_path()`
+# would walk up from an installed package and find none of the built-in ones.
+#
+# That is fine for how this is actually used: an editable install from a
+# checkout, or the release archive, both of which carry the whole tree.
+# Before anyone publishes a wheel, the skills have to move under
+# `local_agent/` as package data, and this must be verified rather than
+# assumed:
+#
+#     python -m build
+#     python -m venv /tmp/wheel-check
+#     /tmp/wheel-check/bin/pip install dist/*.whl
+#     /tmp/wheel-check/bin/local-agent --repo <a repo> skills   # must list 8
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

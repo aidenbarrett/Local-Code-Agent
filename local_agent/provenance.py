@@ -28,7 +28,19 @@ _ROOT = Path(__file__).resolve().parent.parent
 # make the hash churn for reasons nobody cares about.
 _HASHED = (
     ("local_agent", "*.py"),
-    ("skills", "SKILL.md"),
+    # Every file under a skill, not just its SKILL.md.
+    #
+    # A skill may carry `references/` that the agent loads on demand through
+    # `Skill.reference()`, and the list of available reference names is injected
+    # into the skill message the model sees. So editing
+    # `skills/build-and-test/references/failure-taxonomy.md` changes what the
+    # model can be told, and adding or removing a reference changes what the
+    # model IS told, while a SKILL.md-only hash records neither.
+    #
+    # This gap predates the move out of `.github/`: the old entry had the same
+    # shape. It is fixed here, in a new generation, and no dataset collected
+    # under the previous hash is reinterpreted because of it.
+    ("skills", "*"),
     ("evaluation", "*.py"),
     ("benchmark_fixture/cpp_project", "*"),
     # The qualification gate decides whether a run is allowed to start, and the

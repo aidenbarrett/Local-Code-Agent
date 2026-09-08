@@ -75,7 +75,7 @@ unzip -q "$ZIP" -d "$tmp" || fail "unzip"
 mv "$tmp/local-code-agent" "$DEST" || fail "unexpected zip layout"
 rm -rf "$tmp"
 cd "$DEST" || fail "cd"
-echo "unpacked: $(find src -name '*.py' | wc -l) source files"
+echo "unpacked: $(find local_agent -name '*.py' | wc -l) source files"
 
 # This script was copied out of a previous package and lives in $HOME. If it
 # has drifted from the one inside the zip, the JSON would report the package
