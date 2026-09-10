@@ -218,6 +218,7 @@ def test_full_loop_diagnoses_and_fixes_a_build_break(sandbox):
     result = _run(sandbox.root, turns, "fix-build-failure")
     assert result.state.halt_reason is None
     assert result.state.verified is True
-    assert result.state.changed_files == ["src/ring_buffer.cpp"]
+    # The state stores native filesystem spelling (POSIX '/' vs Windows '\\').
+    assert [Path(path).as_posix() for path in result.state.changed_files] == ["src/ring_buffer.cpp"]
     assert "build" in format_report(result).lower()
     assert (sandbox.root / "build").is_dir()
