@@ -4,7 +4,18 @@
 #include <cstdio>
 #include <vector>
 
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#endif
+
 int main() {
+#ifdef _MSC_VER
+    // CTest must remain non-interactive.  The MSVC debug CRT otherwise opens a
+    // modal assertion dialog, which hangs unattended test and agent runs.
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+
     sandbox::RingBuffer buffer(3);
     assert(buffer.empty());
     assert(buffer.capacity() == 3);
