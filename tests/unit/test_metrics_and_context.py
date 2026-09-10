@@ -697,6 +697,80 @@ def test_the_model_facing_contract_has_its_own_fingerprint():
     assert ident["base_prompt_sha256"] != ident["source_sha256"]
 
 
+def test_the_fingerprint_covers_more_than_the_system_prompt():
+    """It used to hash SYSTEM_PROMPT and nothing else, and two model-facing
+    changes slipped under it: every tool result gained an `evidence_id` field,
+    and the answer contract narrowed to canonical ids only. A dataset from that
+    tree advertised comparability it did not have.
+
+    "The base prompt" is not one string. It is everything the model is handed
+    and everything its answer is measured against.
+    """
+    import hashlib
+
+    from local_agent.agent.context import SYSTEM_PROMPT
+    from local_agent.provenance import base_prompt_sha256
+
+    fingerprint = base_prompt_sha256()
+    assert fingerprint != "unavailable-no-source", \
+        "source has to be readable for this number to mean anything"
+    assert fingerprint != hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(), \
+        "hashing the prompt alone is the defect, not the fix"
+
+
+def test_the_fingerprint_moves_when_any_covered_surface_moves(monkeypatch):
+    """Each covered surface is pinned individually, so removing one from the
+    hash fails here rather than silently shrinking what the number promises."""
+    from local_agent.agent import context as ctxmod
+    from local_agent.agent.contracts import Orchestrator
+    from local_agent.provenance import base_prompt_sha256
+
+    before = base_prompt_sha256()
+
+    monkeypatch.setattr(ctxmod, "SYSTEM_PROMPT", ctxmod.SYSTEM_PROMPT + "\n")
+    assert base_prompt_sha256() != before, "the system prompt is not covered"
+    monkeypatch.undo()
+
+    # The source of each function is hashed, so a genuinely different function
+    # object in its place is the closest honest stand-in for an edit.
+    for owner, attr, label in (
+        (ctxmod, "build_system_message", "what the model is told"),
+        (ctxmod, "build_skill_message", "the skill message"),
+        (ctxmod, "tool_result_message", "the shape of every tool result"),
+        (Orchestrator, "_execute", "the tool result payload"),
+        (Orchestrator, "_accept_answer", "the answer contract"),
+    ):
+        def replacement(*args, **kwargs):  # noqa: ANN002, ANN003
+            raise NotImplementedError("a different function body")
+
+        monkeypatch.setattr(owner, attr, replacement)
+        assert base_prompt_sha256() != before, f"{label} is not covered ({attr})"
+        monkeypatch.undo()
+
+    assert base_prompt_sha256() == before, "and nothing leaked between cases"
+
+
+def test_tool_schemas_are_recorded_per_row_and_not_in_the_fingerprint():
+    """Tool names, descriptions and schemas are model-facing, and are
+    deliberately outside this number.
+
+    They are the independent variable: they differ by condition on purpose, so
+    one per-run value cannot describe them without lying about one of the arms.
+    Every row carries `tool_schema_hash` over the exact toolset that row was
+    offered, which is the honest place for it. This test exists so nobody
+    "fixes" the omission later without reading why it is there.
+    """
+    import inspect
+
+    from local_agent import provenance
+
+    source = inspect.getsource(provenance.base_prompt_sha256)
+    assert "tool_schema_hash" in source, \
+        "the reason for the omission has to travel with the code"
+    assert "registry" not in source.split('"""')[2], \
+        "the registry must not creep into the per-run fingerprint"
+
+
 def test_the_finishing_protocol_is_in_the_shared_prompt():
     """Not in the skills. It is infrastructure, and teaching it only in the
     treatment made the control unable to satisfy a contract nobody gave it."""
@@ -704,3 +778,61 @@ def test_the_finishing_protocol_is_in_the_shared_prompt():
 
     assert "submit_answer" in SYSTEM_PROMPT
     assert "reply in prose" not in SYSTEM_PROMPT
+
+
+def test_the_instrument_declaration_is_outside_the_hashed_surface(tmp_path):
+    """INSTRUMENT.json declares the hashes CI checks, so it must not be hashed
+    itself. If it were, every update to it would invalidate the value it just
+    declared and the check could never be satisfied.
+
+    Same for `.github/`. CI configuration decides what runs in CI, not what the
+    agent does, and folding it in would make the instrument hash churn on
+    changes that cannot move a measured number.
+
+    Proved by editing both and showing the hash does not move, rather than by
+    reading `_HASHED` and trusting it.
+    """
+    import json
+    from pathlib import Path
+
+    from local_agent import provenance
+
+    root = Path(provenance.__file__).resolve().parent.parent
+    declaration = root / "INSTRUMENT.json"
+    workflow = root / ".github" / "workflows" / "tests.yml"
+    assert declaration.is_file(), "the declaration CI checks against has to exist"
+
+    before = provenance.source_sha256()
+    originals = {p: p.read_bytes() for p in (declaration, workflow) if p.is_file()}
+    try:
+        for path, blob in originals.items():
+            path.write_bytes(blob + b"\n# scratch\n")
+            assert provenance.source_sha256() == before, \
+                f"{path.name} is inside the hashed surface and must not be"
+    finally:
+        for path, blob in originals.items():
+            path.write_bytes(blob)
+    assert provenance.source_sha256() == before
+
+
+def test_the_declared_identity_matches_this_tree():
+    """The same comparison CI makes, run locally, so drift is caught before a
+    push rather than by a red build afterwards.
+
+    A failure here is not a bug to work around. Either the change was meant, in
+    which case update INSTRUMENT.json in the same commit and say what generation
+    it opens, or it was not, in which case something altered measured behaviour
+    by accident.
+    """
+    import json
+    from pathlib import Path
+
+    from local_agent import provenance
+
+    root = Path(provenance.__file__).resolve().parent.parent
+    declared = json.loads((root / "INSTRUMENT.json").read_text())
+
+    assert declared["source_sha256"] == provenance.source_sha256(), \
+        "source_sha256 has drifted from INSTRUMENT.json"
+    assert declared["base_prompt_sha256"] == provenance.base_prompt_sha256(), \
+        "base_prompt_sha256 has drifted from INSTRUMENT.json, which ends a generation"

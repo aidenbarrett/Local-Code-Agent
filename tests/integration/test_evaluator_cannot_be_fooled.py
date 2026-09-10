@@ -406,8 +406,14 @@ def test_the_rescorer_does_not_inherit_the_old_verdict():
     rescore = importlib.import_module("rescore_dataset")
 
     row = {
+        # `claim` was "success" here, matching navigation's old contract. That
+        # contract failed 9/9 across three conditions in the 2026-09-08 batch
+        # and was wrong: asking where a class lives is explaining, not achieving
+        # something a tool result proves. The fixture follows the corrected
+        # contract. What the test is actually about, that a row the old rules
+        # failed can still be shown to pass, is unchanged.
         "case": "navigation", "outcome": "fail", "succeeded": False, "score": 0.8,
-        "mutation_epoch": 0, "claim": "success", "tool_calls": 1,
+        "mutation_epoch": 0, "claim": "diagnosis", "tool_calls": 1,
         "halt_reason": None,
         "answer": "RingBuffer is declared in include/sandbox/ring_buffer.hpp and "
                   "push on a full buffer returns false.",
@@ -878,3 +884,91 @@ def test_the_build_stamp_cannot_be_forged(tmp_path):
     # And a real build still restores it.
     assert registry.get("build_target").handler().ok
     assert registry.get("run_test").handler().ok
+
+
+def test_an_observed_failure_retracts_a_standing_proof(tmp_path):
+    """The seventh round, and this one the instrument caught on itself.
+
+    `repeat-02/03-control/link-error` in the 2026-09-08 batch built clean, then
+    ran a suite that came back 1 failed of 4, kept `verified = True` and claimed
+    success. The evaluator's independent oracle re-verified the tree, disagreed,
+    and the batch's integrity check failed on that one row out of ninety.
+
+    The cause was that proof was retractable only by mutation. `state.verified`
+    was set by a FULL_BUILD_PASS and nothing but `note_mutation()` ever cleared
+    it, so an observed failure on the SAME tree left it standing. `verified`
+    therefore meant "something built", not "the tree is proven", and it backed a
+    false claim of success.
+
+    No patching here on purpose. The test_failure scenario compiles perfectly
+    well and fails at run time, which is the cheapest reproduction there is:
+    build, then test, then submit.
+    """
+    def client(messages):
+        n = len([m for m in messages if m.get("role") == "tool"])
+        if n == 0:
+            return ChatResponse(tool_calls=[tool_call("build_target", {}, "c0")])
+        if n == 1:
+            return ChatResponse(tool_calls=[tool_call("run_test", {}, "c1")])
+        return ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "built clean, calling it done"}, "c2")])
+
+    from run_evaluation import run_case
+
+    row = run_case(_case("test-failure-fix"), ModelConfig(), tmp_path / "retract",
+                   auto_approve=True, client=ScriptedClient([client] * 6),
+                   condition="skill", catalogue=False)
+
+    history = row["history"]
+    assert any(h["proof"] == "full_build_pass" for h in history), \
+        "the build really did pass, which is what used to set the flag"
+    assert any(h["proof"] == "observed_test_fail" for h in history), \
+        "and the suite really did fail afterwards"
+
+    assert row["verified"] is False, \
+        "a build pass followed by a test failure is not proof of anything"
+    assert row["verification_attempted"] is True, \
+        "the agent did try; the answer was no. That is not the same as not trying"
+    assert row["succeeded"] is False
+
+    # The disagreement flag is the cross-check that caught this in the first
+    # place. It must now be quiet on the very shape that tripped it.
+    assert row["verification_disagreement"] is False
+    assert row["eval_verification"]["ok"] is False
+
+
+def test_a_targeted_failure_also_retracts(tmp_path):
+    """Narrowing weakens a pass and never weakens a failure.
+
+    `run_test(name_filter=...)` passing proves nothing about the tree, and is
+    typed TARGETED_TEST_PASS for exactly that reason. The mirror image is not
+    symmetric: one named test failing means the tree is red, whatever a full
+    suite said earlier. This pins the asymmetry so a later tidy-up cannot make
+    retraction depend on running everything.
+    """
+    from local_agent.verification import (
+        CONTRADICTS_CURRENT_TREE, ProofKind, classify_proof,
+    )
+
+    filtered_failure = classify_proof(
+        name="run_test", arguments={"name_filter": "ring_buffer"},
+        execution="ok", domain="fail",
+        evidence={"totals": {"failed": 1, "total": 1, "passed": 0}},
+    )
+    assert filtered_failure is ProofKind.OBSERVED_TEST_FAIL
+    assert filtered_failure in CONTRADICTS_CURRENT_TREE
+
+    # A build that fails to compile is the same kind of statement.
+    assert classify_proof(
+        name="build_target", arguments={}, execution="ok", domain="fail",
+    ) in CONTRADICTS_CURRENT_TREE
+
+    # And the two sets cannot overlap, now or after any future edit.
+    from local_agent.verification import CURRENT_TREE_PROOFS
+    assert not (CURRENT_TREE_PROOFS & CONTRADICTS_CURRENT_TREE)
+
+    # Our own runner killing a build is not a build failure, so it retracts
+    # nothing. Only an observation about the code counts.
+    assert classify_proof(
+        name="build_target", arguments={}, execution="blocked", domain="unknown",
+    ) not in CONTRADICTS_CURRENT_TREE

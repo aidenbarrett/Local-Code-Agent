@@ -757,8 +757,26 @@ def test_the_control_sees_every_registered_tool(tmp_path):
                                 orch.skills.get("diagnose-test-failure"))
     control = orch._toolset_for(None, None, no_skill=True)
 
-    assert set(control) == set(registry.names())
-    assert set(treated) < set(control), "the treatment must be the narrower world"
+    # Every registered tool, with one named exception, and the exception is a
+    # correction rather than a convenience.
+    #
+    # `read_skill_reference` reads a reference belonging to the ACTIVE skill.
+    # Control has no active skill, so the handler raises TOOL_NOT_ALLOWED every
+    # single time. Offering it to control handed that arm a tool the treatments
+    # do not have and that cannot succeed, and charged a tool call to discover
+    # it. On this case set that landed on 9 of the 10 cases, moving
+    # `narrow - control`, the primary contrast, in narrow's favour.
+    #
+    # "The control sees every registered tool" was the right instinct and the
+    # wrong rule. A control denied the tools has been denied the job; a control
+    # handed a tool that can only fail has been handed a trap. The rule is every
+    # registered tool that is usable without a skill behind it.
+    from local_agent.agent.contracts import REFERENCE_TOOL
+
+    assert set(control) == set(registry.names()) - {REFERENCE_TOOL}
+    assert REFERENCE_TOOL not in control
+    assert set(treated) < set(control) | {REFERENCE_TOOL}, \
+        "the treatment must be the narrower world"
     assert "build_target" in control and "build_target" not in treated
 
 

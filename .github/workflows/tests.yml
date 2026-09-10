@@ -39,11 +39,50 @@ jobs:
       # Provenance is load-bearing: every dataset is reconciled against these
       # hashes, so a change that alters them without anyone noticing is how a
       # dataset silently stops matching the package that produced it.
-      - name: Package identity
+      #
+      # This step used to print the two values and exit zero, which meant a
+      # green run said nothing whatsoever about instrument identity. It now
+      # compares them against the declaration in INSTRUMENT.json and fails on a
+      # mismatch, so a change to measured behaviour cannot land unless somebody
+      # updates that file deliberately in the same commit.
+      - name: Instrument identity matches INSTRUMENT.json
         run: |
           python - <<'PY'
-          import sys; sys.path.insert(0, ".")
+          import json, sys
+          sys.path.insert(0, ".")
           from local_agent import provenance as p
-          print("source_sha256      ", p.source_sha256())
-          print("base_prompt_sha256 ", p.base_prompt_sha256())
+
+          declared = json.load(open("INSTRUMENT.json"))
+          actual = {
+              "source_sha256": p.source_sha256(),
+              "base_prompt_sha256": p.base_prompt_sha256(),
+          }
+
+          drift = []
+          for key, value in actual.items():
+              print(f"{key:<20} {value}")
+              if declared[key] != value:
+                  drift.append((key, declared[key], value))
+
+          if not drift:
+              print(f"\nmatches INSTRUMENT.json, generation {declared['generation']}")
+              sys.exit(0)
+
+          print("\nINSTRUMENT DRIFT\n")
+          for key, want, got in drift:
+              print(f"  {key}")
+              print(f"    declared  {want}")
+              print(f"    computed  {got}")
+          print()
+          if any(key == "base_prompt_sha256" for key, _, _ in drift):
+              print("base_prompt_sha256 moved. That ENDS A GENERATION: what the")
+              print("model is told, or what its answer is judged by, has changed,")
+              print("and datasets do not cross that boundary in either direction.")
+              print("Increment 'generation' in INSTRUMENT.json and record what")
+              print("changed in the Generations table in docs/experiment-design.md.")
+          else:
+              print("source_sha256 moved. If the change is not model-facing the")
+              print("generation stands; update source_sha256 in INSTRUMENT.json in")
+              print("this commit and say what changed.")
+          sys.exit(1)
           PY

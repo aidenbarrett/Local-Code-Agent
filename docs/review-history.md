@@ -190,3 +190,64 @@ would have reported four disagreements where there were none: those rows failed
 "did not modify the repository", a case contract, not a proof question.
 `verified` and `required_ok` answer different questions and are allowed to
 differ. Corrected before the number was quoted.
+
+## Round 7: the instrument caught itself
+
+Not a reviewer this time. The batch wrapper's own integrity check failed one row
+out of ninety, and the row was right to fail.
+
+`repeat-02/03-control/link-error` recorded `verified = True`. The evaluator's
+independent oracle re-verified the tree and returned `tests: fail, 1 test(s)
+FAILED: ring_buffer`. The history explains it: the agent patched, built clean,
+then ran the suite and got 1 failed of 4, and claimed success.
+
+`state.verified` was set by a `FULL_BUILD_PASS` and the only thing that ever
+cleared it was `note_mutation()`. So proof was retractable by editing the tree
+and by nothing else, and an observed failure on the same tree left the flag
+standing. `verified` meant "something built", not "the tree is proven".
+
+Fixed by making proof retractable by contradiction:
+`CONTRADICTS_CURRENT_TREE = {OBSERVED_BUILD_FAIL, OBSERVED_TEST_FAIL}` clears
+`verified` on the current epoch. `verification_attempted` is deliberately not
+cleared; the agent did try and the answer was no.
+
+A targeted failure counts. Narrowing weakens a pass and never weakens a failure,
+which is the same asymmetry `classify_proof` already applies when it types a
+filtered failure as a real observation.
+
+The point worth keeping: no reviewer found this. The cross-check between the
+runtime's proof and the evaluator's independent verification found it, on real
+data, on the seventh outing. That cross-check exists because round 4 built it.
+
+## Round 8: three defects in the contracts layer
+
+From the review of PR #1, plus two structural faults the three-repeat batch made
+visible.
+
+**Control was handed a tool that could only fail.** `read_skill_reference` was
+registered unconditionally and control's toolset was a snapshot of the whole
+registry, so control carried it on 9 of the 10 cases. With no active skill it
+raises `TOOL_NOT_ALLOWED` every time, so control paid a tool call to discover
+that a tool the treatments did not have was useless. That biases
+`narrow - control`, the primary contrast, by an unbounded amount. Same defect
+class as round 5, new location.
+
+**`base_prompt_sha256` fingerprinted the system prompt only.** Tool result
+payloads gained `evidence_id` and the answer contract narrowed to canonical ids,
+both model-facing, both invisible to the hash. Same hole as the skills hashing
+gap, new location. It now covers the prompt, the message builders, the tool
+result shape and the answer contract, and explicitly not the tool schemas, which
+are the independent variable and are recorded per row.
+
+**`navigation` demanded a claim it refused to require evidence for.** It failed
+9/9 in generation 1, every condition, every repeat, on the same line: the agent
+claimed `diagnosis` and the contract wanted `success`. The taxonomy the model is
+handed defines `success` as achieved and proved by a tool result, while the case
+sets `verification_required=False`. The agents were right and the contract was
+wrong. A structural test now refuses any case that pairs `SUCCESS_ONLY` with no
+verification requirement.
+
+`review-restraint` is exempt from that test on purpose, and named in it. Its
+three arms disagreed with each other rather than converging, so the correct
+claim type there is a live design question, not a settled defect. Leaving it
+visible in an exemption set beats resolving it quietly.

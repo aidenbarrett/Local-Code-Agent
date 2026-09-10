@@ -1,0 +1,9 @@
+{
+  "batch_id": "slice3-nuc-llama-30b-20260908T144500Z-r3",
+  "resumed_at_utc": "2026-09-08T17:36:25Z",
+  "reason": "original wrapper failed after repeat 1 control completed; SQLite expected_claim list was bound directly instead of serialised",
+  "resume_script_sha256": "1dd8bdfd19056f26bbb5517d4da1a8609e881c7c9a88e582fd806e7b05633444",
+  "package_sha256_verified": "3ac58c9815fe555f3475395edb6aa1674476c064ed0c1088c1f77580405071f4",
+  "launcher_sha256_verified": "db30a15d996fb9dccc73dd6be2d9fdf4d1e9c37b21bb0883c550d03cda2ea0e3",
+  "resume_policy": "recover complete archived cells; run only missing cells; preserve original balanced order"
+}

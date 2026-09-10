@@ -1,0 +1,17 @@
+{
+  "batch_id": "slice3-nuc-llama-30b-20260908T144500Z-r3",
+  "started_at_utc": "2026-09-08T14:45:00Z",
+  "profile": "nuc-llama-30b",
+  "repeats": 3,
+  "order_mode": "balanced",
+  "condition_definition": {
+    "control": "no skill body, full registered toolset",
+    "narrow": "no skill body, task-specific restricted toolset",
+    "skill": "skill body present, same task-specific toolset as narrow"
+  },
+  "package_sha256": "3ac58c9815fe555f3475395edb6aa1674476c064ed0c1088c1f77580405071f4",
+  "launcher_sha256": "db30a15d996fb9dccc73dd6be2d9fdf4d1e9c37b21bb0883c550d03cda2ea0e3",
+  "wrapper_sha256": "46b87d68a8865a8a9d56187d8c90bc9c96e68e70e2249e8cd8fb064c2518370b",
+  "launcher_path": "/home/aiden/slice3.sh",
+  "package_path": "/home/aiden/local-code-agent.zip"
+}

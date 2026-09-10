@@ -27,6 +27,7 @@ from ..llm.router import CHEAP, STRONG, RoutingPlan, TieredClient, tier_for_skil
 from ..tools import TOOLSETS, UNIVERSAL_TOOLS, ToolRegistry
 from ..tools.base import BlockedError, Reason, Risk, ToolError, ToolResult
 from ..verification import (
+    CONTRADICTS_CURRENT_TREE,
     CURRENT_TREE_PROOFS,
     VERIFYING_TOOLS,
     ProofKind,
@@ -841,6 +842,14 @@ class Orchestrator:
             # keeping two conditions in step is exactly the drift this whole
             # change exists to remove.
             state.verified = True
+            state.note_evidence(f"{call.name}: {result.summary}")
+        if proof in CONTRADICTS_CURRENT_TREE:
+            # Proof is retractable by contradiction, not only by mutation. An
+            # observed build or test failure is a statement about the tree as it
+            # stands now, so it clears any proof standing over the same epoch.
+            # `verification_attempted` is deliberately not cleared: the agent did
+            # try, and the answer was no.
+            state.verified = False
             state.note_evidence(f"{call.name}: {result.summary}")
         if not result.ok:
             state.note_evidence(f"{call.name}: {result.summary}")

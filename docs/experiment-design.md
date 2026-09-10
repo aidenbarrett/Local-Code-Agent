@@ -137,6 +137,102 @@ matches. A change to the instrument alone may be recoverable by re-scoring, but
 only when the rows recorded enough evidence, which `measurement/rescore_dataset.py`
 decides per row and refuses to guess.
 
+### What `base_prompt_sha256` actually covers
+
+It hashed `SYSTEM_PROMPT` and nothing else, and that was too narrow. Two changes
+landed that altered what the model sees and how its answer is judged while the
+number sat still: every tool result payload gained an `evidence_id` field, and
+the answer contract went from resolving several citation schemes to accepting
+canonical `name:index` ids only. A dataset collected from that tree would have
+advertised comparability with the 2026-09-08 run and not had it.
+
+It now covers `SYSTEM_PROMPT`, the functions that build the system and skill
+messages, the shape of every tool result the model reads back, and the answer
+contract that decides whether a submission is accepted.
+
+Tool names, descriptions and JSON schemas are model-facing and are deliberately
+**outside** this number. They are the independent variable: they differ by
+condition on purpose, so one per-run value cannot describe them without lying
+about one of the arms. Every row carries `tool_schema_hash` over the exact
+toolset that row was offered.
+
+## Generations
+
+A generation is a span over which datasets may be pooled. It ends when the
+model-facing contract changes. Data does not cross a generation boundary,
+forwards or backwards.
+
+| Generation | `source_sha256` | `base_prompt_sha256` | Datasets |
+|---|---|---|---|
+| 1 | `08d5e0fe...` | `37f98409...` | `2026-09-08-30b-three-conditions`, `2026-09-08-30b-three-conditions-x3` |
+| 2 | see the tag | see the tag | none yet |
+
+**Generation 2 opens with four changes, and three of them are model-facing.**
+
+1. **The answer contract narrowed to canonical evidence ids**, and every tool
+   result now carries the `evidence_id` the model is expected to cite. That is a
+   coherent design, because a canonical id is now one the model has actually
+   been given, and it is a contract change rather than a bug fix. It is declared
+   here rather than absorbed. The two audit tests that encoded the previous
+   contract were re-based deliberately, not deleted as stale.
+2. **The control condition no longer receives `read_skill_reference`.** With no
+   active skill the tool can only fail, so control was carrying a tool the
+   treatments lacked that cost a call to discover. It reached 9 of the 10 cases
+   and moved `narrow - control`, the primary contrast, by an amount nobody can
+   bound.
+3. **`navigation` expects `diagnosis` rather than `success`.** Across all three
+   conditions and all three repeats of generation 1, the same claim mismatch
+   appeared 9/9 times, which points hard at a contract defect rather than a
+   condition-specific model failure. The case now
+   passes its required gate everywhere and discriminates only through its
+   weighted checks, which is a ceiling where it used to be a floor; whether it
+   earns its place in the pilot is still open.
+4. **An observed build or test failure retracts a standing proof.** Not
+   model-facing, so it does not by itself end a generation, but it is in this
+   cut. Proof was retractable only by mutation, so a build that passed followed
+   by a suite that failed left `verified` standing over a red tree.
+
+Generation 1 data stays exactly where it is and is not re-scored under these
+rules. The 30B has to be re-run on generation 2 before any 8B result can be
+compared with it.
+
+### Pre-registered prediction for the generation 2 baseline
+
+Written before the baseline is run, so it is a check and not an explanation
+after the fact.
+
+**The corrected `navigation` contract should raise all three 30B arms by roughly
+one task in ten relative to generation 1, for no reason connected to the model.**
+In generation 1 the case failed 9/9 across every condition and repeat, so it sat
+at the floor for everybody. Under generation 2 its required gate is satisfiable
+in every condition, and every generation 1 run already met the one required
+check it still has, which is that the agent read or searched the repository. So
+the expected movement is close to +0.1 on control, narrow and skill alike.
+
+What this predicts, and what would be surprising:
+
+- **Expected.** All three arms up by about 0.1. The contrasts, `narrow - control`
+  and `skill - narrow`, barely move, because a constant added to all three
+  cancels in a difference.
+- **Surprising, and worth investigating rather than reporting.** One arm gaining
+  materially more than the others on this case, or a contrast moving by more than
+  the noise already seen across the three repeats.
+
+Nothing about the generation 2 fix is expected to change the narrowing result.
+The defects it closes are a control-side tool leak that postdates all generation
+1 data and never touched it, a proof rule that affected one row in ninety, and a
+case contract that was failing every arm equally.
+
+### The generation 1 control leak did not touch generation 1 data
+
+Recorded here because the change list above can be read as an admission that
+control was carrying a broken tool while the headline numbers were collected.
+It was not. `read_skill_reference` arrived with the contracts layer after every
+generation 1 row was written and is fixed before any row was collected under it.
+Verified against the rows: every control row in both generation 1 datasets was
+offered exactly 20 tools, and the union of every tool offered across all
+conditions and rows is those same 20.
+
 ## Pre-committed falsification
 
 Written before the data existed. These adjudicate the **main matrix**, not the
@@ -167,7 +263,50 @@ because narrow already sits at 8/10 and the two remaining failures are terminal
 claim errors rather than engineering. See
 [`experiments/2026-09-08-30b-three-conditions/findings.md`](../experiments/2026-09-08-30b-three-conditions/findings.md).
 
+Three repeats of the same three conditions followed, and changed the reading of
+the procedure contrast. The observed `narrow -> skill` difference was not
+literally zero in the repeated batch, but it remains small and unresolved, and
+three repeats of the same ten tasks are not independent evidence of a population
+effect. What the repeats did buy is structure: the near-zero aggregate is
+`link-error` at +3 rows against `review-restraint` at -2, and with one repeat
+those two were indistinguishable from noise. See
+[`experiments/2026-09-08-30b-three-conditions-x3/findings.md`](../experiments/2026-09-08-30b-three-conditions-x3/findings.md).
+
+### What the narrowing result actually says
+
+Worth stating narrowly, because the loose version does not survive contact with
+the row data. The claim is **not** that a smaller action space makes the model
+reason better. It is:
+
+> Narrowing the allowed action space prevented off-contract repository mutation
+> and the claim errors that followed from it.
+
+The mechanism is measured rather than inferred. Scope violations ran at 11 of 30
+control rows and 0 of 59 treatment rows. On `compile-error-locate`, `link-error`
+and `test-failure-diagnose`, control patched the repository on all three repeats
+of a task that asked only for a diagnosis, and then claimed `success`. Twice
+more on `segfault`. Control solves plenty of these cases; it fails by doing work
+it was not asked to do and misreporting what it did.
+
+That gives the pilot a falsifiable prediction rather than a slogan: **the
+narrowing effect should shrink towards zero on tasks where the full toolset
+offers nothing off-contract to reach for.** The pilot should therefore contain
+both kinds deliberately, tasks where the full registry holds a tempting
+off-contract action and tasks where it does not. If narrowing helps only the
+first kind, the mechanism is isolated. If it helps both equally, this
+explanation is wrong and the effect is something else.
+
+`link-error` is worth stating precisely, because it is the clearest thing in the
+data and it is a smaller claim than it looks. Narrow and skill were offered
+byte-identical tool payloads. Narrow answered `failure` three times out of
+three; skill answered `diagnosis` three times out of three, in half the calls.
+The procedure was not teaching the model to link C++. It was telling the model
+what kind of answer the task wanted.
+
 The next dataset is a 15 to 20 task pilot across both models and all three
 conditions, with three binding requirements taken from that result: tasks where
 procedure can add something narrowing cannot, claim accuracy scored separately
 from capability, and a difficulty spread that the narrow condition also fails.
+
+Before any of that, generation 2 has to be baselined: the 30B re-run on the new
+instrument, because generation 1 data cannot be compared across the boundary.

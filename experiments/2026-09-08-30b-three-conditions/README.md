@@ -24,6 +24,31 @@ model               qwen3-coder-30b, UD-Q4_K_XL
 runtime             llama.cpp b10816-427291b5b, CPU
 ```
 
+### The generation 2 control-leak defect postdates this data
+
+`docs/experiment-design.md` records that generation 2 stopped the control
+condition receiving `read_skill_reference`. Read on its own, that change list
+makes the narrowing result here look contaminated. **It is not.** The defect
+did not exist when this data was collected.
+
+`read_skill_reference` arrived with the contracts layer in PR #1, which merged
+after every row in this directory was written, and was fixed before any row was
+collected under it. So it existed on `main` for a window in which no data was
+taken.
+
+Checked against the rows rather than against commit dates. Every control row in
+both generation 1 datasets was offered exactly 20 tools, and the union of every
+tool offered across all conditions and all rows is those same 20:
+
+```
+read_skill_reference in any offered toolset:  never
+tools offered to control:                     20, on every control row
+union of every tool ever offered:             20
+```
+
+The per-case toolset table below shows the same thing case by case. No figure in
+this directory is inflated by that defect.
+
 ### The commit pointer was rewritten
 
 `package_commit` in these files reads `c92a242b88c67bc0080018791df04fc9b69c0f3e`.

@@ -61,3 +61,4 @@ python -c "import sys; sys.path.insert(0,'src'); from local_agent import provena
 | Experiment | Model | Cells | Headline |
 |---|---|---|---|
 | [`2026-09-08-30b-three-conditions`](2026-09-08-30b-three-conditions/) | Qwen3-Coder-30B on CPU | control, narrow, skill, plus one skill repeat | Restricting the tool set took verified completion from 3/10 to 8/10. Adding the written procedure on top changed it by zero. |
+| [`2026-09-08-30b-three-conditions-x3`](2026-09-08-30b-three-conditions-x3/) | Qwen3-Coder-30B on CPU | three repeats of all three conditions, balanced order | Narrowing 9/30 to 22/30, repeated in every repeat. The mechanism is off-contract action: 11 of 30 control rows were scope violations against 0 of 59 treatment rows. The narrow to skill difference stays small and unresolved. |
