@@ -11,6 +11,7 @@ Needs cmake, a C++ compiler and ctest, like the other integration tests.
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -464,9 +465,16 @@ def test_a_diagnosis_case_starts_from_a_built_tree(tmp_path):
     assert any(f["name"] == "ring_buffer" for f in hot.data["failed"])
     # The three things the diagnosis question presupposes, in the model's
     # first tool result: which test, what it did, and where to look.
+    #
+    # "Where to look" is the source file and a line number, NOT one particular
+    # line number. Pinning the literal `test_ring_buffer.cpp:14` made this fail
+    # the moment the portable assertion macro moved the call site down the file,
+    # which is a change in fixture layout and not in what the model is told.
+    # The invariant is unchanged: the first tool result still has to name the
+    # file and point at a line inside it.
     assert "ring_buffer" in hot.summary
     assertion = hot.data["assertions"][0]["text"]
-    assert "test_ring_buffer.cpp:14" in assertion
+    assert re.search(r"test_ring_buffer\.cpp:\d+", assertion), assertion
     assert "buffer.push(3)" in assertion
 
 
@@ -542,7 +550,9 @@ def test_the_rerun_probe_reaches_the_question_we_meant_to_ask(tmp_path):
     body = seen["first_tool_result"]
     assert "not configured or not built" not in body
     assert "ring_buffer" in body
-    assert "test_ring_buffer.cpp:14" in body
+    # The file and a line, not one specific line. See the note in
+    # test_a_diagnosis_case_starts_from_a_built_tree.
+    assert re.search(r"test_ring_buffer\.cpp:\d+", body), body
     assert "buffer.push(3)" in body
     assert row["tool_calls"] == 1
     assert row["required_checks"]["reproduced the failure"] is True
