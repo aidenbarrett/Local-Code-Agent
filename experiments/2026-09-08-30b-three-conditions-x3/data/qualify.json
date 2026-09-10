@@ -1,0 +1,177 @@
+{
+  "endpoint": "http://127.0.0.1:8080/v1",
+  "identity": {
+    "model": "qwen3-coder-30b",
+    "device": "CPU",
+    "runtime": "llamacpp",
+    "runtime_version": "b10816-427291b5b",
+    "quant": "UD-Q4_K_XL",
+    "tool_parser": "jinja-template",
+    "thinking": false,
+    "context_budget_tokens": 12000,
+    "max_tool_result_tokens": 1500,
+    "temperature": 0.2,
+    "top_k": 40,
+    "top_p": 0.95,
+    "min_p": 0.05,
+    "connect_timeout_s": 10.0,
+    "read_timeout_s": 480.0,
+    "request_deadline_s": 900.0,
+    "stall_tok_s": 1.0,
+    "stall_window_s": 60.0,
+    "stream": true,
+    "sdk": "openai",
+    "sdk_version": "3.8.0",
+    "http_stack": "httpx2",
+    "package_commit": "c92a242b88c67bc0080018791df04fc9b69c0f3e",
+    "package_dirty": false,
+    "package_source": "stamp",
+    "package_built_at": "2026-09-07T14:22:32Z",
+    "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+    "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+  },
+  "checks": [
+    {
+      "name": "server reachable",
+      "status": "PASS",
+      "detail": "serves qwen3-coder-30b",
+      "served": [
+        "qwen3-coder-30b"
+      ]
+    },
+    {
+      "name": "warm-up call",
+      "status": "PASS",
+      "detail": "0.4s (discarded)"
+    },
+    {
+      "name": "unary chat",
+      "status": "PASS",
+      "detail": "0.1s, 'ready'"
+    },
+    {
+      "name": "streaming gives TTFT",
+      "status": "PASS",
+      "detail": "ttft 0.25s, decode 16.5 tok/s",
+      "ttft_s": 0.25471279399971536
+    },
+    {
+      "name": "thinking control accepted",
+      "status": "PASS",
+      "detail": "server accepted chat_template_kwargs (enable_thinking=False)",
+      "thinking_requested": false,
+      "thinking_control_accepted": true
+    },
+    {
+      "name": "thinking policy honoured",
+      "status": "PASS",
+      "detail": "requested off, observed off",
+      "thinking_requested": false,
+      "thinking_effective": "off"
+    },
+    {
+      "name": "thinking mode",
+      "status": "PASS",
+      "detail": "no reasoning emitted (config: thinking=False)"
+    },
+    {
+      "name": "terse instruction followed",
+      "status": "PASS",
+      "detail": "answered 'READY'"
+    },
+    {
+      "name": "runtime fingerprint matches profile",
+      "status": "PASS",
+      "detail": "server b10816-427291b5b, profile b10816-427291b5b",
+      "observed": "b10816-427291b5b",
+      "claimed": "b10816-427291b5b"
+    },
+    {
+      "name": "server-side timings reported",
+      "status": "PASS",
+      "detail": "prompt 250 ms, predicted 4212 ms, cache_n 3"
+    },
+    {
+      "name": "sampler sent explicitly",
+      "status": "PASS",
+      "detail": "temperature 0.2, top_k 40, top_p 0.95, min_p 0.05 (in identity)",
+      "temperature": 0.2,
+      "top_k": 40,
+      "top_p": 0.95,
+      "min_p": 0.05
+    },
+    {
+      "name": "usage reported",
+      "status": "PASS",
+      "detail": "prompt 17, completion 70"
+    },
+    {
+      "name": "cached_tokens reported",
+      "status": "PASS",
+      "detail": "3 cached",
+      "cached": 3
+    },
+    {
+      "name": "tool call round trip (streaming)",
+      "status": "PASS",
+      "detail": "called git_status with {}",
+      "tool": "git_status"
+    },
+    {
+      "name": "structured finish",
+      "status": "PASS",
+      "detail": "claim=diagnosis"
+    },
+    {
+      "name": "prefix cache, no tools",
+      "status": "PASS",
+      "detail": "cached 21/1992 cold (header 46), 1991/1992 warm; 27.72s cold vs 0.09s warm (299.2x)",
+      "speedup": 299.16,
+      "cold_cached": 21,
+      "hot_cached": 1991,
+      "prompt_tokens": 1992,
+      "shared_prefix_tokens": 46,
+      "cold_cached_beyond_prefix": 0
+    },
+    {
+      "name": "prefix cache, with tools",
+      "status": "PASS",
+      "detail": "cached 753/2722 cold (header 780), 2721/2722 warm; 30.56s cold vs 0.11s warm (275.8x)",
+      "speedup": 275.85,
+      "cold_cached": 753,
+      "hot_cached": 2721,
+      "prompt_tokens": 2722,
+      "shared_prefix_tokens": 780,
+      "cold_cached_beyond_prefix": 0
+    },
+    {
+      "name": "tool schema serialisation stable",
+      "status": "PASS",
+      "detail": "sha bb39cb9da54cad6c"
+    },
+    {
+      "name": "context 1000 tokens",
+      "status": "PASS",
+      "detail": "coherent (694 prompt tokens)",
+      "prompt_tokens": 694
+    },
+    {
+      "name": "context 4000 tokens",
+      "status": "PASS",
+      "detail": "coherent (2624 prompt tokens)",
+      "prompt_tokens": 2624
+    },
+    {
+      "name": "context 8000 tokens",
+      "status": "PASS",
+      "detail": "coherent (5220 prompt tokens)",
+      "prompt_tokens": 5220
+    },
+    {
+      "name": "context 12000 tokens",
+      "status": "PASS",
+      "detail": "coherent (7798 prompt tokens)",
+      "prompt_tokens": 7798
+    }
+  ]
+}
