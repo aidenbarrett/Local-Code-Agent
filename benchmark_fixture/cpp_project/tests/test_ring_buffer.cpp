@@ -6,7 +6,8 @@
 #define LCA_ASSERT(expr)                                                        \
     do {                                                                        \
         if (!(expr)) {                                                          \
-            std::fprintf(stderr, "Assertion %s failed.\n", #expr);             \
+            std::fprintf(stderr, "%s:%d: Assertion %s failed.\n",              \
+                         __FILE__, __LINE__, #expr);                            \
             return 1;                                                           \
         }                                                                       \
     } while (0)
