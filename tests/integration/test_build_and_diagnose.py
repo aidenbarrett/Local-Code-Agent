@@ -48,7 +48,9 @@ def test_clean_build_and_test(loaded):
 
     tests = registry.get("run_test").handler()
     assert tests.ok, tests.summary
-    assert tests.data["totals"]["failed"] == 0
+    # The failed-test list is the stable contract. Some CTest versions omit the
+    # aggregate summary line on a completely clean run, leaving totals sparse.
+    assert tests.data["failed"] == []
 
 
 def test_compile_error_is_reduced_to_diagnostics(loaded):
