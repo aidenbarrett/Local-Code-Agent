@@ -1,10 +1,8 @@
 #include "sandbox/ring_buffer.hpp"
 
-#include <cassert>
 #include <cstdio>
 #include <vector>
 
-#ifdef _MSC_VER
 #define LCA_ASSERT(expr)                                                        \
     do {                                                                        \
         if (!(expr)) {                                                          \
@@ -12,9 +10,6 @@
             return 1;                                                           \
         }                                                                       \
     } while (0)
-#else
-#define LCA_ASSERT(expr) assert(expr)
-#endif
 
 int main() {
     sandbox::RingBuffer buffer(3);
