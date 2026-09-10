@@ -697,6 +697,80 @@ def test_the_model_facing_contract_has_its_own_fingerprint():
     assert ident["base_prompt_sha256"] != ident["source_sha256"]
 
 
+def test_the_fingerprint_covers_more_than_the_system_prompt():
+    """It used to hash SYSTEM_PROMPT and nothing else, and two model-facing
+    changes slipped under it: every tool result gained an `evidence_id` field,
+    and the answer contract narrowed to canonical ids only. A dataset from that
+    tree advertised comparability it did not have.
+
+    "The base prompt" is not one string. It is everything the model is handed
+    and everything its answer is measured against.
+    """
+    import hashlib
+
+    from local_agent.agent.context import SYSTEM_PROMPT
+    from local_agent.provenance import base_prompt_sha256
+
+    fingerprint = base_prompt_sha256()
+    assert fingerprint != "unavailable-no-source", \
+        "source has to be readable for this number to mean anything"
+    assert fingerprint != hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(), \
+        "hashing the prompt alone is the defect, not the fix"
+
+
+def test_the_fingerprint_moves_when_any_covered_surface_moves(monkeypatch):
+    """Each covered surface is pinned individually, so removing one from the
+    hash fails here rather than silently shrinking what the number promises."""
+    from local_agent.agent import context as ctxmod
+    from local_agent.agent.contracts import Orchestrator
+    from local_agent.provenance import base_prompt_sha256
+
+    before = base_prompt_sha256()
+
+    monkeypatch.setattr(ctxmod, "SYSTEM_PROMPT", ctxmod.SYSTEM_PROMPT + "\n")
+    assert base_prompt_sha256() != before, "the system prompt is not covered"
+    monkeypatch.undo()
+
+    # The source of each function is hashed, so a genuinely different function
+    # object in its place is the closest honest stand-in for an edit.
+    for owner, attr, label in (
+        (ctxmod, "build_system_message", "what the model is told"),
+        (ctxmod, "build_skill_message", "the skill message"),
+        (ctxmod, "tool_result_message", "the shape of every tool result"),
+        (Orchestrator, "_execute", "the tool result payload"),
+        (Orchestrator, "_accept_answer", "the answer contract"),
+    ):
+        def replacement(*args, **kwargs):  # noqa: ANN002, ANN003
+            raise NotImplementedError("a different function body")
+
+        monkeypatch.setattr(owner, attr, replacement)
+        assert base_prompt_sha256() != before, f"{label} is not covered ({attr})"
+        monkeypatch.undo()
+
+    assert base_prompt_sha256() == before, "and nothing leaked between cases"
+
+
+def test_tool_schemas_are_recorded_per_row_and_not_in_the_fingerprint():
+    """Tool names, descriptions and schemas are model-facing, and are
+    deliberately outside this number.
+
+    They are the independent variable: they differ by condition on purpose, so
+    one per-run value cannot describe them without lying about one of the arms.
+    Every row carries `tool_schema_hash` over the exact toolset that row was
+    offered, which is the honest place for it. This test exists so nobody
+    "fixes" the omission later without reading why it is there.
+    """
+    import inspect
+
+    from local_agent import provenance
+
+    source = inspect.getsource(provenance.base_prompt_sha256)
+    assert "tool_schema_hash" in source, \
+        "the reason for the omission has to travel with the code"
+    assert "registry" not in source.split('"""')[2], \
+        "the registry must not creep into the per-run fingerprint"
+
+
 def test_the_finishing_protocol_is_in_the_shared_prompt():
     """Not in the skills. It is infrastructure, and teaching it only in the
     treatment made the control unable to satisfy a contract nobody gave it."""

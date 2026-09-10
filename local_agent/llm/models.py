@@ -1,8 +1,8 @@
 """Transport-neutral message types and per-call measurements.
 
-The agent talks to these. Whether the bytes came from OVMS on a CPU in
-Falcarragh or an NPU on a Panther Lake box behind an SSH tunnel is not the
-agent's business.
+The agent talks to these. Whether the bytes came from OVMS on a CPU under the
+desk or an NPU on a Panther Lake box behind an SSH tunnel is not the agent's
+business.
 """
 
 from __future__ import annotations

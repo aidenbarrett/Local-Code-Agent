@@ -430,3 +430,69 @@ def test_proof_does_not_survive_a_later_edit(tmp_path):
         "and then mutated again, which is the point"
     assert row["required_checks"]["full test run passed after the last edit"] is False
     assert row["succeeded"] is False
+
+
+def test_control_is_never_offered_a_tool_that_cannot_work_in_control(tmp_path):
+    """The defect the fifth round closed, found again in a new place.
+
+    `read_skill_reference` was registered unconditionally, and control's toolset
+    was a snapshot of the whole registry, so control carried it on every case.
+    With no active skill it raises TOOL_NOT_ALLOWED every time, so control was
+    offered a tool the treatments lacked AND that could only fail, paying a call
+    to find out. Measured on this case set before the fix: control 21 tools,
+    narrow and skill 7 to 9, and `read_skill_reference` present in control on 9
+    of the 10 cases.
+
+    The general rule, which is what this test actually enforces: no tool may
+    appear in control that is unavailable to narrow unless it is genuinely
+    usable in control. Extra breadth in control is the design. Extra breadth
+    that can only fail is a thumb on the primary contrast.
+    """
+    from local_agent.agent.contracts import REFERENCE_TOOL
+    from task_contracts import CASES
+
+    offending = []
+    for case in CASES:
+        _, control_tools = _opening_request(case.name, "control", tmp_path / f"c-{case.name}")
+        _, narrow_tools = _opening_request(case.name, "narrow", tmp_path / f"n-{case.name}")
+        control_names = {t["function"]["name"] for t in control_tools}
+        narrow_names = {t["function"]["name"] for t in narrow_tools}
+        if REFERENCE_TOOL in control_names:
+            offending.append((case.name, sorted(control_names - narrow_names)))
+
+    assert not offending, (
+        "control was offered the skill-reference tool, which can never succeed "
+        f"without an active skill: {offending}"
+    )
+
+
+def test_a_success_claim_is_never_demanded_without_verification(tmp_path):
+    """A structural rule, added after `navigation` failed 9/9 for a reason that
+    had nothing to do with the model.
+
+    The taxonomy the model is handed says `success` means "the goal was achieved
+    and a tool result proves it". A case that sets `verification_required=False`
+    has decided there is no proof to have, so demanding `success` asks for a
+    claim the contract itself refuses to require evidence for. Every condition
+    in the 2026-09-08 batch answered `diagnosis` to navigation, nine times out
+    of nine, and every one of them was right.
+
+    `review-restraint` is exempt on purpose and not because it is fine. Its
+    three arms disagreed with each other rather than converging, so the correct
+    claim type there is a live design question rather than a settled defect, and
+    it is being left visible here instead of quietly resolved. Removing it from
+    this set is a decision somebody has to make on the record.
+    """
+    from task_contracts import CASES
+
+    open_questions = {"review-restraint"}
+    wrong = [
+        c.name for c in CASES
+        if "success" in c.expected_claim
+        and not c.verification_required
+        and c.name not in open_questions
+    ]
+    assert not wrong, (
+        "these cases demand a claim of success while requiring no proof of it: "
+        f"{wrong}"
+    )

@@ -129,7 +129,21 @@ class Orchestrator(_BaseOrchestrator):
         self, name: str | None, skill: Any, no_skill: bool = False
     ) -> list[str]:
         if no_skill:
-            return sorted(self.registry.names())
+            # The reference tool is excluded on purpose, and this is a
+            # measurement fix rather than tidiness.
+            #
+            # With no active skill `_read_skill_reference` raises
+            # TOOL_NOT_ALLOWED every time, so offering it to the control
+            # condition hands that arm a tool the treatments do not have AND
+            # that can never succeed, charging a tool call to find out. On this
+            # case set that landed on 9 of 10 cases, biasing `narrow - control`,
+            # the primary contrast, in narrow's favour by an amount nobody can
+            # bound.
+            #
+            # A tool with no active skill behind it is not part of the registry
+            # a control arm is supposed to represent. The skill branch below
+            # still offers it exactly when a skill advertises references.
+            return sorted(n for n in self.registry.names() if n != REFERENCE_TOOL)
 
         if skill is not None:
             # A skill declaration is a security boundary. Unknown names are a

@@ -427,7 +427,26 @@ CASES: list[EvalCase] = [
             "read or searched the repository": observed_any(
                 "search_text", "find_definition", "read_file"),
         },
-        expected_claim=SUCCESS_ONLY,
+        # Was SUCCESS_ONLY, and that was wrong. Over nine cells of the
+        # 2026-09-08 batch this case failed 9/9: across all three conditions and
+        # all three repeats, the same claim mismatch appeared every time, the
+        # agent claiming `diagnosis` where the contract demanded `success`. That
+        # points hard at a contract defect rather than a condition-specific
+        # model failure.
+        #
+        # The taxonomy the model is given says `success` is "the goal was
+        # achieved and a tool result proves it". This case sets
+        # verification_required=False, so there is no proof to have, and asking
+        # a question about the code is explaining rather than achieving. Under
+        # the instrument's own definitions the agents were right and the
+        # contract was wrong.
+        #
+        # This makes navigation pass its required gate in every condition, so it
+        # discriminates only through the weighted checks below, where
+        # `was efficient` still separates control from the treatments. That is a
+        # ceiling where it used to be a floor. Whether the case earns its place
+        # at all is a pilot-design question, deliberately not settled here.
+        expected_claim=DIAGNOSIS_ONLY,
         scenario="clean",
         task="Where is the RingBuffer class defined, and what happens when you push to a full buffer?",
         skill="repo-navigation",

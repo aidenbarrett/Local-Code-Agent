@@ -56,6 +56,25 @@ class ProofKind(str, Enum):
 #: The proof kinds that entitle anything to say the current tree is good.
 CURRENT_TREE_PROOFS = frozenset({ProofKind.FULL_BUILD_PASS, ProofKind.FULL_TEST_PASS})
 
+#: The proof kinds that say the current tree is NOT good, and therefore retract
+#: any proof standing over the same tree.
+#:
+#: Without this, proof was retractable only by mutation, and a build that passed
+#: followed by a suite that failed left `verified` standing. That is not a
+#: hypothetical: repeat-02/03-control/link-error in the 2026-09-08 batch built
+#: clean, then ran a suite that came back 1 failed of 4, kept `verified = True`
+#: and backed a claim of success on a red tree. The evaluator's independent
+#: oracle caught it and the batch's integrity check failed on that one row.
+#:
+#: A targeted failure counts. `run_test(name_filter="ring_buffer")` failing means
+#: the tree is red whatever an earlier full pass said, so narrowing weakens a
+#: pass but never weakens a failure. That asymmetry is the same one
+#: `classify_proof` already applies when it types a filtered failure as a real
+#: observation.
+CONTRADICTS_CURRENT_TREE = frozenset(
+    {ProofKind.OBSERVED_BUILD_FAIL, ProofKind.OBSERVED_TEST_FAIL}
+)
+
 #: Evidence keys that invalidate a PASS. Each is set by `run_test` alongside a
 #: domain of UNKNOWN, so this is belt and braces: a future tool that forgets to
 #: downgrade the domain still cannot produce a proof through this function.
