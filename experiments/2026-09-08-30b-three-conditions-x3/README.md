@@ -39,6 +39,42 @@ They are repeated runs of the same ten fixtures, not independent tasks.
 `findings.md` reports this dataset alone and gives combined descriptive figures
 separately.
 
+Two properties of any combined figure, recorded here so nobody has to rediscover
+them:
+
+- **The arms are unbalanced.** Combined it is 4 control cells, 4 narrow and 5
+  skill, because the smoke ran an unplanned second skill cell.
+- **The designs differ.** The smoke ran a fixed order, control then narrow then
+  skill, in one sitting. This batch rotated the order every repeat. Combined,
+  control is over-represented in early positions, and the server holds a prefix
+  cache across a cell and was never restarted. That is a small systematic rather
+  than a large one, and it is the reason combined numbers are described as
+  descriptive rather than as an estimate of anything.
+
+### The generation 2 control-leak defect postdates this data
+
+`docs/experiment-design.md` records that generation 2 stopped the control
+condition receiving `read_skill_reference`. Read on its own, that change list
+makes the narrowing result here look contaminated. **It is not.** The defect
+did not exist when this data was collected.
+
+`read_skill_reference` arrived with the contracts layer in PR #1, which merged
+after every row in this directory was written, and was fixed before any row was
+collected under it. So it existed on `main` for a window in which no data was
+taken.
+
+Checked against the rows rather than against commit dates. Every control row in
+both generation 1 datasets was offered exactly 20 tools, and the union of every
+tool offered across all conditions and all rows is those same 20:
+
+```
+read_skill_reference in any offered toolset:  never
+tools offered to control:                     20, on every control row
+union of every tool ever offered:             20
+```
+
+No figure in this directory is inflated by that defect.
+
 ## Known issues in this data, recorded rather than corrected
 
 Per the rules in [`../README.md`](../README.md), raw collected data under

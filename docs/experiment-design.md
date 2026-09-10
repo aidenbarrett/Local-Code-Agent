@@ -196,6 +196,43 @@ Generation 1 data stays exactly where it is and is not re-scored under these
 rules. The 30B has to be re-run on generation 2 before any 8B result can be
 compared with it.
 
+### Pre-registered prediction for the generation 2 baseline
+
+Written before the baseline is run, so it is a check and not an explanation
+after the fact.
+
+**The corrected `navigation` contract should raise all three 30B arms by roughly
+one task in ten relative to generation 1, for no reason connected to the model.**
+In generation 1 the case failed 9/9 across every condition and repeat, so it sat
+at the floor for everybody. Under generation 2 its required gate is satisfiable
+in every condition, and every generation 1 run already met the one required
+check it still has, which is that the agent read or searched the repository. So
+the expected movement is close to +0.1 on control, narrow and skill alike.
+
+What this predicts, and what would be surprising:
+
+- **Expected.** All three arms up by about 0.1. The contrasts, `narrow - control`
+  and `skill - narrow`, barely move, because a constant added to all three
+  cancels in a difference.
+- **Surprising, and worth investigating rather than reporting.** One arm gaining
+  materially more than the others on this case, or a contrast moving by more than
+  the noise already seen across the three repeats.
+
+Nothing about the generation 2 fix is expected to change the narrowing result.
+The defects it closes are a control-side tool leak that postdates all generation
+1 data and never touched it, a proof rule that affected one row in ninety, and a
+case contract that was failing every arm equally.
+
+### The generation 1 control leak did not touch generation 1 data
+
+Recorded here because the change list above can be read as an admission that
+control was carrying a broken tool while the headline numbers were collected.
+It was not. `read_skill_reference` arrived with the contracts layer after every
+generation 1 row was written and is fixed before any row was collected under it.
+Verified against the rows: every control row in both generation 1 datasets was
+offered exactly 20 tools, and the union of every tool offered across all
+conditions and rows is those same 20.
+
 ## Pre-committed falsification
 
 Written before the data existed. These adjudicate the **main matrix**, not the
@@ -234,6 +271,30 @@ effect. What the repeats did buy is structure: the near-zero aggregate is
 `link-error` at +3 rows against `review-restraint` at -2, and with one repeat
 those two were indistinguishable from noise. See
 [`experiments/2026-09-08-30b-three-conditions-x3/findings.md`](../experiments/2026-09-08-30b-three-conditions-x3/findings.md).
+
+### What the narrowing result actually says
+
+Worth stating narrowly, because the loose version does not survive contact with
+the row data. The claim is **not** that a smaller action space makes the model
+reason better. It is:
+
+> Narrowing the allowed action space prevented off-contract repository mutation
+> and the claim errors that followed from it.
+
+The mechanism is measured rather than inferred. Scope violations ran at 11 of 30
+control rows and 0 of 59 treatment rows. On `compile-error-locate`, `link-error`
+and `test-failure-diagnose`, control patched the repository on all three repeats
+of a task that asked only for a diagnosis, and then claimed `success`. Twice
+more on `segfault`. Control solves plenty of these cases; it fails by doing work
+it was not asked to do and misreporting what it did.
+
+That gives the pilot a falsifiable prediction rather than a slogan: **the
+narrowing effect should shrink towards zero on tasks where the full toolset
+offers nothing off-contract to reach for.** The pilot should therefore contain
+both kinds deliberately, tasks where the full registry holds a tempting
+off-contract action and tasks where it does not. If narrowing helps only the
+first kind, the mechanism is isolated. If it helps both equally, this
+explanation is wrong and the effect is something else.
 
 `link-error` is worth stating precisely, because it is the clearest thing in the
 data and it is a smaller claim than it looks. Narrow and skill were offered

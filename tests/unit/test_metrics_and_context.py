@@ -778,3 +778,61 @@ def test_the_finishing_protocol_is_in_the_shared_prompt():
 
     assert "submit_answer" in SYSTEM_PROMPT
     assert "reply in prose" not in SYSTEM_PROMPT
+
+
+def test_the_instrument_declaration_is_outside_the_hashed_surface(tmp_path):
+    """INSTRUMENT.json declares the hashes CI checks, so it must not be hashed
+    itself. If it were, every update to it would invalidate the value it just
+    declared and the check could never be satisfied.
+
+    Same for `.github/`. CI configuration decides what runs in CI, not what the
+    agent does, and folding it in would make the instrument hash churn on
+    changes that cannot move a measured number.
+
+    Proved by editing both and showing the hash does not move, rather than by
+    reading `_HASHED` and trusting it.
+    """
+    import json
+    from pathlib import Path
+
+    from local_agent import provenance
+
+    root = Path(provenance.__file__).resolve().parent.parent
+    declaration = root / "INSTRUMENT.json"
+    workflow = root / ".github" / "workflows" / "tests.yml"
+    assert declaration.is_file(), "the declaration CI checks against has to exist"
+
+    before = provenance.source_sha256()
+    originals = {p: p.read_bytes() for p in (declaration, workflow) if p.is_file()}
+    try:
+        for path, blob in originals.items():
+            path.write_bytes(blob + b"\n# scratch\n")
+            assert provenance.source_sha256() == before, \
+                f"{path.name} is inside the hashed surface and must not be"
+    finally:
+        for path, blob in originals.items():
+            path.write_bytes(blob)
+    assert provenance.source_sha256() == before
+
+
+def test_the_declared_identity_matches_this_tree():
+    """The same comparison CI makes, run locally, so drift is caught before a
+    push rather than by a red build afterwards.
+
+    A failure here is not a bug to work around. Either the change was meant, in
+    which case update INSTRUMENT.json in the same commit and say what generation
+    it opens, or it was not, in which case something altered measured behaviour
+    by accident.
+    """
+    import json
+    from pathlib import Path
+
+    from local_agent import provenance
+
+    root = Path(provenance.__file__).resolve().parent.parent
+    declared = json.loads((root / "INSTRUMENT.json").read_text())
+
+    assert declared["source_sha256"] == provenance.source_sha256(), \
+        "source_sha256 has drifted from INSTRUMENT.json"
+    assert declared["base_prompt_sha256"] == provenance.base_prompt_sha256(), \
+        "base_prompt_sha256 has drifted from INSTRUMENT.json, which ends a generation"

@@ -34,8 +34,14 @@ One row is missing from skill repeat 2: `compile-error-locate` came back
 `INVALID_SERVER_UNAVAILABLE` and is excluded from its denominator rather than
 counted as a failure, which is what that validity type is for.
 
-This replicates the smoke run's shape. Restricting the tool set is the effect.
-Nothing here changes that.
+This replicates the smoke run's shape. Restricting the tool set is the effect,
+and section 5 below identifies the mechanism: control's losses are off-contract
+actions and the claim errors that follow them, not an inability to do the work.
+
+Stated carefully, because the loose version does not survive the row data: this
+is not evidence that a smaller action space makes the model reason better. It is
+evidence that narrowing prevented off-contract repository mutation and the claim
+errors that came with it.
 
 ## What three repeats bought that one did not
 
@@ -207,10 +213,19 @@ signal for nine observations; `review-restraint` at 0/3 versus 2/3 is five
 observations pretending to be a finding. Treat the first as real and the second
 as a flag.
 
-## Pooled with the smoke run
+## Combined with the smoke run
 
-Same `source_sha256` and `base_prompt_sha256`, so the two may be put in one
-table:
+Same `source_sha256` and `base_prompt_sha256`, so the two are
+instrument-compatible and can be put in one table as repeated observations of
+the same ten fixtures. Not as independent tasks, and not as an estimate of a
+population effect.
+
+Two caveats travel with any combined figure. The arms are unbalanced, 4 control
+cells against 4 narrow and 5 skill, because the smoke ran an unplanned second
+skill cell. And the designs differ: the smoke ran a fixed order in one sitting
+while this batch rotated the order every repeat, so combined, control is
+over-represented in early positions against a prefix cache that was never
+cleared. Descriptive only.
 
 | condition | cells | pooled |
 |---|---|---|

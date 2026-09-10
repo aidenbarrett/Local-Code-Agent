@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "The declared identity of the instrument on this branch. CI recomputes both",
+    "hashes from the working tree and fails when either differs from the values",
+    "below, so a change that alters measured behaviour cannot land without",
+    "somebody editing this file in the same commit and saying what generation it",
+    "opens.",
+    "",
+    "This file is deliberately OUTSIDE the hashed surface. It sits at the",
+    "repository root, and provenance._HASHED_FILES contains only pyproject.toml,",
+    "so editing it does not move the number it declares. If it were hashed, every",
+    "update would invalidate itself. A test pins that.",
+    "",
+    "It enforces identity from the commit that introduces it onwards. It is not",
+    "present in the tree that instrument-d60b6285 tags, and it does not make that",
+    "tag self-checking. The tag does not need it: source_sha256 hashes file",
+    "contents rather than git history, so anyone can check out the tag and",
+    "recompute the value independently."
+  ],
+
+  "generation": 2,
+  "opened_by": "2ed08ac6b742abe2f7ffae58ccbacc55856ab71e",
+  "tag": "instrument-d60b6285",
+  "previous_generation": {
+    "generation": 1,
+    "tag": "instrument-08d5e0fe",
+    "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
+    "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+  },
+
+  "source_sha256": "d60b6285daafe9c7105e444b074e0c0d64fef3acbc69083de22dd6a4d334cfbc",
+  "base_prompt_sha256": "f1fb88236b18c2aa21d396a91cdc878274005cb47d687b1442811c6a740f1559",
+
+  "how_to_recompute": "python -c \"import sys; sys.path.insert(0,'.'); from local_agent import provenance as p; print(p.source_sha256()); print(p.base_prompt_sha256())\"",
+
+  "when_this_changes": [
+    "source_sha256 moves for any change to hashed source. Update this file in",
+    "the same commit. If the change is not model-facing, the generation does not",
+    "change and datasets may still be re-scored across it, subject to",
+    "measurement/rescore_dataset.py deciding per row.",
+    "",
+    "base_prompt_sha256 moves only when what the model is told, or what its",
+    "answer is judged by, changes. That ENDS A GENERATION. Increment",
+    "'generation', move 'previous_generation' down, and record what changed in",
+    "the Generations table in docs/experiment-design.md. Data does not cross the",
+    "boundary in either direction."
+  ]
+}
