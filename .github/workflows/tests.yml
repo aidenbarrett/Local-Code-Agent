@@ -103,13 +103,14 @@ jobs:
           actual = {
               "source_sha256": p.source_sha256(),
               "base_prompt_sha256": p.base_prompt_sha256(),
+              "outcome_contract_sha256": p.outcome_contract_sha256(),
           }
 
           drift = []
           for key, value in actual.items():
-              print(f"{key:<20} {value}")
-              if declared[key] != value:
-                  drift.append((key, declared[key], value))
+              print(f"{key:<24} {value}")
+              if declared.get(key) != value:
+                  drift.append((key, declared.get(key), value))
 
           if not drift:
               print(f"\nmatches INSTRUMENT.json, generation {declared['generation']}")
@@ -121,15 +122,17 @@ jobs:
               print(f"    declared  {want}")
               print(f"    computed  {got}")
           print()
-          if any(key == "base_prompt_sha256" for key, _, _ in drift):
-              print("base_prompt_sha256 moved. That ENDS A GENERATION: what the")
-              print("model is told, or what its answer is judged by, has changed,")
-              print("and datasets do not cross that boundary in either direction.")
-              print("Increment 'generation' in INSTRUMENT.json and record what")
-              print("changed in the Generations table in docs/experiment-design.md.")
+          generation_axes = {"base_prompt_sha256", "outcome_contract_sha256"}
+          if any(key in generation_axes for key, _, _ in drift):
+              print("A model-facing or outcome-facing contract moved. That ENDS")
+              print("A GENERATION: either what the model sees/submits or what the")
+              print("evaluator calls correct changed. Data does not cross that")
+              print("boundary as confirmatory evidence in either direction.")
+              print("Increment 'generation' in INSTRUMENT.json and record the")
+              print("change in docs/experiment-design.md.")
           else:
-              print("source_sha256 moved. If the change is not model-facing the")
-              print("generation stands; update source_sha256 in INSTRUMENT.json in")
-              print("this commit and say what changed.")
+              print("source_sha256 moved without a contract-axis move. Update the")
+              print("source hash in INSTRUMENT.json; whether archived rows can be")
+              print("re-scored is decided from their retained evidence, not guessed.")
           sys.exit(1)
           PY
