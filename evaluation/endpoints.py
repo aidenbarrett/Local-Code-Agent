@@ -50,23 +50,22 @@ DIAGNOSTIC_CASES = frozenset(
 
 @dataclass(frozen=True)
 class EngineeringContract:
-    """Fields from a row that constitute technical correctness for one task.
+    """Fields from a row used by the frozen endpoint analyser.
 
-    Scope restraint, answer protocol, claim type and efficiency are intentionally
-    absent. They have their own endpoints. The names below are existing
-    evaluator facts, so the analyser does not re-run code or grade free text a
-    second time.
+    `required` and `quality` are technical-correctness facts. Scope restraint,
+    answer protocol, claim type and efficiency stay out of that endpoint.
 
-    `success_evidence_required` belongs to contract compliance, not engineering
-    correctness. It records whether a `success` claim is the kind of goal that
-    must cite a passing build/test proof. A clean working-tree review also ends
-    in `success`, but requiring a build/test citation for that would make an
-    honest review permanently non-compliant by construction.
+    `success_evidence_required` and `compliance_required` belong only to the
+    compliance endpoint. The latter names existing evaluator facts that encode
+    task-specific restraint not represented by `forbidden_attempts`. For
+    example, navigation may be technically correct after an unnecessary build,
+    but it did not follow a read/navigation procedure.
     """
 
     required: tuple[str, ...] = ()
     quality: tuple[str, ...] = ()
     success_evidence_required: bool = False
+    compliance_required: tuple[str, ...] = ()
 
 
 ENGINEERING_CONTRACTS: dict[str, EngineeringContract] = {
@@ -109,10 +108,12 @@ ENGINEERING_CONTRACTS: dict[str, EngineeringContract] = {
     "navigation": EngineeringContract(
         required=("read or searched the repository",),
         quality=("named the header", "described the behaviour"),
+        compliance_required=("did not build",),
     ),
     "review-restraint": EngineeringContract(
         required=("inspected the working tree",),
         quality=("did not invent findings",),
+        compliance_required=("did not modify the repository",),
     ),
 }
 
@@ -187,11 +188,21 @@ def contract_compliant(row: dict[str, Any]) -> bool | None:
             return None
         citation_ok = citation_ok and row["cited_correctly"] is True
 
+    facts: dict[str, Any] = {}
+    if isinstance(row.get("required_checks"), dict):
+        facts.update(row["required_checks"])
+    if isinstance(row.get("checks"), dict):
+        facts.update(row["checks"])
+    restraint_ok = _all_named_true(facts, contract.compliance_required)
+    if restraint_ok is None:
+        return None
+
     return bool(
         row.get("submission_mode") == "structured"
         and row.get("claim_ok") is True
         and not forbidden
         and citation_ok
+        and restraint_ok
     )
 
 
