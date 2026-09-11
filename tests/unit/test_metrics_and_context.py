@@ -675,14 +675,25 @@ def test_the_source_hash_ignores_generated_state():
 def test_the_source_hash_covers_everything_that_can_change_a_result():
     """An edit to the qualification gate once produced an identical hash,
     because measurement was not hashed. The gate decides whether a run starts."""
-    from local_agent.provenance import _files
+    from local_agent.provenance import _ROOT, _files
 
-    rels = {str(p).split("local-code-agent/")[-1] for p in _files()}
+    # Relative POSIX paths, derived exactly the way source_sha256 derives them.
+    #
+    # This used to be `str(p).split("local-code-agent/")[-1]` compared with
+    # `endswith`, broken on Windows twice over: `str(Path)` yields backslashes
+    # so the split never matched, and the suffix literal had a forward slash so
+    # that never matched either. It also assumed the checkout directory is
+    # literally named `local-code-agent`, which is untrue on a CI runner.
+    #
+    # `endswith` was too loose besides: `x/evaluation/oracle.py` satisfied a
+    # check for `evaluation/oracle.py`. Exact membership is portable and
+    # stricter.
+    rels = {path.relative_to(_ROOT).as_posix() for path in _files()}
     for expected in ("measurement/qualify_server.py", "measurement/run_experiment.sh",
                      "evaluation/run_evaluation.py", "evaluation/task_contracts.py",
                      "local_agent/agent/orchestrator.py",
                      "skills/diagnose-test-failure/SKILL.md"):
-        assert any(r.endswith(expected) for r in rels), expected
+        assert expected in rels, f"{expected} is not in the hashed set"
 
 
 def test_the_model_facing_contract_has_its_own_fingerprint():
@@ -836,3 +847,22 @@ def test_the_declared_identity_matches_this_tree():
         "source_sha256 has drifted from INSTRUMENT.json"
     assert declared["base_prompt_sha256"] == provenance.base_prompt_sha256(), \
         "base_prompt_sha256 has drifted from INSTRUMENT.json, which ends a generation"
+
+
+def test_the_hashed_set_is_reported_as_portable_relative_paths():
+    """`source_sha256` hashes `relative_to(_ROOT).as_posix()`, so anything
+    asking which files are covered has to derive them the same way.
+
+    A coverage check that did string surgery on `str(Path)` and compared with
+    `endswith` passed on Linux and could never pass on Windows.
+    """
+    from local_agent.provenance import _ROOT, _files
+
+    rels = [path.relative_to(_ROOT).as_posix() for path in _files()]
+    assert rels, "the hashed set cannot be empty"
+    for rel in rels:
+        assert "\\" not in rel, f"{rel!r} is not a portable relative path"
+        assert not rel.startswith("/"), rel
+        assert ".." not in rel.split("/"), rel
+    for path in _files():
+        assert _ROOT in path.parents or path.parent == _ROOT, path

@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
+import stat
 import statistics
 import subprocess
 import sys
@@ -112,6 +114,76 @@ def _managed(source: Path) -> dict:
     return json.loads((source / "scenarios" / "manifest.json").read_text())
 
 
+def _clear_readonly_and_retry(func, path, exc: BaseException) -> None:
+    """Recover one failed removal, or re-raise. Takes an exception INSTANCE.
+
+    git marks everything under `.git/objects` read-only on purpose: the files
+    are content-addressed and immutable, so the bit is a statement about the
+    data rather than about permissions. On POSIX that changes nothing, because
+    unlinking needs write permission on the DIRECTORY, not on the file. On
+    Windows the read-only attribute blocks deletion outright, so a second
+    `prepare()` into the same workdir dies with
+
+        PermissionError: [WinError 5] Access is denied: '...\\.git\\objects\\...'
+
+    Three properties worth stating, because each was got wrong once:
+
+    * Only the path the OS actually refused is touched. This is not a
+      speculative walk chmodding a tree in advance.
+    * The existing mode is PRESERVED and the owner write bit added. Setting the
+      mode to `S_IWRITE` outright strips read and execute, which on POSIX makes
+      a directory untraversable and turns one failed unlink into a failed
+      subtree.
+    * Anything that is not a `PermissionError` is re-raised, so a genuinely
+      stuck tree still fails loudly rather than being quietly accepted and the
+      next case running against the previous case's repository.
+    """
+    if not isinstance(exc, PermissionError):
+        raise exc
+    try:
+        mode = os.lstat(path).st_mode
+    except OSError:
+        raise exc
+    if stat.S_ISLNK(mode):
+        # chmod would follow the link and modify something we were not asked to
+        # remove. A symlink that will not unlink is a directory problem.
+        raise exc
+    os.chmod(path, stat.S_IMODE(mode) | stat.S_IWUSR)
+    func(path)
+
+
+def _clear_readonly_and_retry_legacy(func, path, exc_info) -> None:
+    """The same recovery, for the pre-3.12 `shutil.rmtree(onerror=...)` shape.
+
+    `onerror` is handed a `sys.exc_info()` TUPLE; `onexc`, added in 3.12, is
+    handed the exception instance. This project supports Python 3.11, where only
+    `onerror` exists, so a single handler that assumes an instance is broken on
+    the minimum supported version: `isinstance(tuple, PermissionError)` is False,
+    and `raise <tuple>` then fails with
+
+        TypeError: exceptions must derive from BaseException
+
+    which is a worse failure than the one it was meant to repair. Two thin
+    adapters over one implementation, rather than a version check inside the
+    handler, so both shapes are nameable and both are testable.
+    """
+    _clear_readonly_and_retry(func, path, exc_info[1])
+
+
+def _remove_tree(path: Path) -> None:
+    """`shutil.rmtree` that can delete a worktree containing a git repository.
+
+    The evaluator owns these trees completely: it creates them, runs `git init`
+    inside them, and destroys them. Failing to destroy one is not hypothetical,
+    it is the first thing that happens when a case is prepared twice into the
+    same workdir on Windows.
+    """
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_clear_readonly_and_retry)
+    else:
+        shutil.rmtree(path, onerror=_clear_readonly_and_retry_legacy)
+
+
 def prepare(workdir: Path, scenario: str) -> tuple[Path, Path]:
     """A fresh worktree with the scenario applied, and the oracle taken from it.
 
@@ -136,7 +208,7 @@ def prepare(workdir: Path, scenario: str) -> tuple[Path, Path]:
     root = workdir / "cpp_project"
     _refuse_a_path_windows_cannot_build_in(root)
     if root.exists():
-        shutil.rmtree(root)
+        _remove_tree(root)
     shutil.copytree(
         SANDBOX, root,
         ignore=shutil.ignore_patterns("build", ".local-agent", "scenarios", "scripts"),
