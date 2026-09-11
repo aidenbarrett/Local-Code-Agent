@@ -58,10 +58,29 @@ def _finish_immediately():
 def _opening_request(case_name, condition, tmp_path):
     from run_evaluation import run_case
     client = _finish_immediately()
-    run_case(_case(case_name), ModelConfig(), tmp_path / condition,
-             auto_approve=True, client=client, condition=condition,
-             catalogue=False)
-    assert client.calls, "the client was never asked anything"
+    row = run_case(_case(case_name), ModelConfig(), tmp_path / condition,
+                   auto_approve=True, client=client, condition=condition,
+                   catalogue=False)
+    # `run_case` can return without the model ever being asked anything, on four
+    # paths: prepare() raised, establish() raised, the tiered-client guard
+    # exited, or orch.run() itself raised before its first request. All four
+    # build an `_error_row` carrying the exception, its traceback and a
+    # `validity` naming the stage, and this helper used to throw that row away
+    # and report only "the client was never asked anything".
+    #
+    # On Linux the assertion never fired, so nobody noticed it was useless. On
+    # Windows it fired and the diagnosis was already sitting in the row the
+    # harness had just returned: a worktree path CMake could not build in.
+    # Report the row.
+    if not client.calls:
+        raise AssertionError(
+            f"{case_name}/{condition}: the client was never asked anything. "
+            f"run_case returned before the model loop.\n"
+            f"  validity: {row.get('validity')}\n"
+            f"  error:    {row.get('error')}\n"
+            f"  precondition: {row.get('precondition')}\n"
+            f"  traceback:\n{row.get('traceback') or '(none recorded)'}"
+        )
     return client.calls[0], client.tool_schemas[0]
 
 
@@ -430,6 +449,37 @@ def test_proof_does_not_survive_a_later_edit(tmp_path):
         "and then mutated again, which is the point"
     assert row["required_checks"]["full test run passed after the last edit"] is False
     assert row["succeeded"] is False
+
+
+def test_a_case_that_cannot_start_reports_why(tmp_path, monkeypatch):
+    """The purity sweep runs twenty cases through `run_case`. When one of them
+    cannot reach the model, the sweep has to say which stage failed and what the
+    exception was, not "the client was never asked anything".
+
+    That message cost a ten minute Windows run to produce a fact the harness had
+    already captured and handed back: CMake could not configure inside the deep
+    worktree pytest had given it. `run_case` builds an `_error_row` with the
+    exception, the traceback and a `validity` naming the stage; this pins that
+    the helper reads it.
+
+    Forced through a failing `establish` rather than a platform quirk, so it
+    tests the reporting path on every OS.
+    """
+    import run_evaluation
+
+    def refuse(case, registry):
+        raise run_evaluation.PreconditionError("configure failed: configure (debug) FAILED in 4.9s")
+
+    monkeypatch.setattr(run_evaluation, "establish", refuse)
+
+    with pytest.raises(AssertionError) as excinfo:
+        _opening_request("test-failure-diagnose", "control", tmp_path)
+
+    message = str(excinfo.value)
+    assert "test-failure-diagnose/control" in message
+    assert "invalid_precondition_error" in message, message
+    assert "configure failed" in message, message
+    assert "PreconditionError" in message, message
 
 
 def test_control_is_never_offered_a_tool_that_cannot_work_in_control(tmp_path):
