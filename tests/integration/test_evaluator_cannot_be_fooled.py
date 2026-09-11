@@ -1068,21 +1068,49 @@ def test_recovery_preserves_the_existing_mode(tmp_path):
     `os.chmod(path, stat.S_IWRITE)` sets the mode to 0o200, destroying read and
     execute. On POSIX that turns one unrecoverable file into an untraversable
     directory and a failed subtree.
+
+    The assertion is written as a subset relation rather than an exact mode,
+    because Windows does not represent the owner, group and other write bits
+    independently. `os.chmod` there toggles one read-only attribute, so a 0o444
+    file that becomes writable is reported as 0o666, not 0o644. An exact check
+    demanded POSIX granularity from an OS that does not have it.
+
+    Worth being explicit about what each platform can prove here, because the
+    two are not equal. On POSIX the subset relation still catches the dangerous
+    regression: reverting to `S_IWRITE` yields 0o200, and `0o200 & 0o444` is
+    zero, so the assertion fails. On Windows it cannot catch it, because the bad
+    implementation also ends up reported as 0o666. POSIX carries that evidence,
+    which is why the exact check below is kept where the OS can express it
+    rather than dropped entirely.
+
+    This is not a Windows carve-out. The test runs on both platforms and
+    asserts the portable invariant on both; it additionally asserts exactness
+    where exactness is meaningful.
     """
     import os
     import stat
+    import sys as _sys
 
     import run_evaluation
 
     target = tmp_path / "object"
     target.write_text("content", encoding="utf-8")
     os.chmod(target, 0o444)
+    before = stat.S_IMODE(os.lstat(target).st_mode)
 
     run_evaluation._clear_readonly_and_retry(lambda _p: None, target,
                                              PermissionError(13, "Access is denied"))
 
-    assert stat.S_IMODE(os.lstat(target).st_mode) == 0o644, \
-        "the read bits must survive; only write is added"
+    after = stat.S_IMODE(os.lstat(target).st_mode)
+
+    assert after & before == before, \
+        f"recovery removed permission bits: {oct(before)} -> {oct(after)}"
+    assert after & stat.S_IWUSR, \
+        f"recovery must make the path owner-writable: {oct(after)}"
+
+    if _sys.platform != "win32":
+        assert after == before | stat.S_IWUSR, \
+            f"expected exactly {oct(before | stat.S_IWUSR)}, got {oct(after)}"
 
 
 def test_a_stuck_tree_still_fails_loudly(tmp_path):
