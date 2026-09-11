@@ -28,7 +28,7 @@
     "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
   },
 
-  "source_sha256": "101531e098f9ce706925c00d0ee6b011bae4982a44ea971df3e08b395e4543e7",
+  "source_sha256": "d477c5b5d2d30ec1059766e5b83d03d00dc0767bad301f5579d645e52d46372b",
   "base_prompt_sha256": "f1fb88236b18c2aa21d396a91cdc878274005cb47d687b1442811c6a740f1559",
 
   "how_to_recompute": "python -c \"import sys; sys.path.insert(0,'.'); from local_agent import provenance as p; print(p.source_sha256()); print(p.base_prompt_sha256())\"",
