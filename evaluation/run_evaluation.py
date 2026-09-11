@@ -134,6 +134,7 @@ def prepare(workdir: Path, scenario: str) -> tuple[Path, Path]:
     where it came from.
     """
     root = workdir / "cpp_project"
+    _refuse_a_path_windows_cannot_build_in(root)
     if root.exists():
         shutil.rmtree(root)
     shutil.copytree(
@@ -166,6 +167,45 @@ def prepare(workdir: Path, scenario: str) -> tuple[Path, Path]:
 
 class PreconditionError(RuntimeError):
     """The state the task presupposes could not be established."""
+
+
+# CMake nests its own tree under the worktree, and the Visual Studio generator
+# is the deepest of them: objects, dependency files and .tlog files land roughly
+# a hundred characters below the root, measured at 68 under the Makefile
+# generator. Windows still caps the tools involved at 260 characters, so a long
+# worktree leaves CMake nothing to work with and configure fails.
+#
+# Measured on the work laptop, the same run_case call twice:
+#
+#     worktree root 155 chars   configure (debug) FAILED in 4.9s
+#     worktree root  67 chars   built ok, 4 tests registered
+#
+# It surfaced as `PreconditionError: configure failed`, which points at CMake
+# and says nothing about paths, and cost an evening. 140 sits below the observed
+# failure and far above the observed success, and leaves CMake about 120.
+#
+# This refuses rather than relocates. Moving somebody's working directory out
+# from under them to a place they did not ask for is worse than telling them,
+# and the remedy is one flag.
+_WINDOWS_WORKTREE_BUDGET = 140
+
+
+def _refuse_a_path_windows_cannot_build_in(root: Path) -> None:
+    """No-op off Windows, where there is no limit and nothing to check."""
+    if sys.platform != "win32":
+        return
+    length = len(str(root.resolve()))
+    if length <= _WINDOWS_WORKTREE_BUDGET:
+        return
+    raise PreconditionError(
+        f"the worktree path is {length} characters, and CMake needs about 120 "
+        f"more underneath it than Windows has left. Configure would fail here "
+        f"with an error that blames CMake.\n"
+        f"  {root}\n"
+        f"Run from a shorter directory, or point the output somewhere short. "
+        f"A worktree root under {_WINDOWS_WORKTREE_BUDGET} characters is known "
+        f"to build; 155 is known to fail."
+    )
 
 
 def establish(case: EvalCase, registry: Any) -> dict[str, Any]:

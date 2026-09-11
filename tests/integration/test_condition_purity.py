@@ -502,9 +502,13 @@ def test_control_is_never_offered_a_tool_that_cannot_work_in_control(tmp_path):
     from task_contracts import CASES
 
     offending = []
-    for case in CASES:
-        _, control_tools = _opening_request(case.name, "control", tmp_path / f"c-{case.name}")
-        _, narrow_tools = _opening_request(case.name, "narrow", tmp_path / f"n-{case.name}")
+    for index, case in enumerate(CASES):
+        # Numbered rather than named. Twenty worktrees need twenty distinct
+        # directories and nothing more; `c-test-failure-diagnose` spent
+        # twenty-three characters of a Windows path budget on something the
+        # failure message already carries.
+        _, control_tools = _opening_request(case.name, "control", tmp_path / f"c{index}")
+        _, narrow_tools = _opening_request(case.name, "narrow", tmp_path / f"n{index}")
         control_names = {t["function"]["name"] for t in control_tools}
         narrow_names = {t["function"]["name"] for t in narrow_tools}
         if REFERENCE_TOOL in control_names:
@@ -546,3 +550,95 @@ def test_a_success_claim_is_never_demanded_without_verification(tmp_path):
         "these cases demand a claim of success while requiring no proof of it: "
         f"{wrong}"
     )
+
+
+def test_a_worktree_windows_cannot_build_in_is_refused_by_name(tmp_path, monkeypatch):
+    """The Windows failure said `configure failed` and meant `path too long`.
+
+    CMake nests about a hundred characters under the worktree and Windows caps
+    the total at 260, so a long worktree leaves it nothing. The same run_case
+    call was measured both ways on the work laptop: a 155 character root failed
+    to configure, a 67 character one built and registered four tests.
+
+    Simulated rather than skipped off Windows, because the people who hit this
+    are not the people running the suite on Linux, and a guard nobody exercises
+    is a guard nobody can trust.
+    """
+    import sys as _sys
+
+    import run_evaluation
+
+    short = tmp_path / "s"
+    deep = tmp_path / ("d" * 200)
+
+    # Off Windows it does nothing at all, whatever the length.
+    monkeypatch.setattr(_sys, "platform", "linux")
+    run_evaluation._refuse_a_path_windows_cannot_build_in(deep)
+
+    monkeypatch.setattr(_sys, "platform", "win32")
+    run_evaluation._refuse_a_path_windows_cannot_build_in(short)
+
+    with pytest.raises(run_evaluation.PreconditionError) as excinfo:
+        run_evaluation._refuse_a_path_windows_cannot_build_in(deep)
+
+    message = str(excinfo.value)
+    assert "characters" in message
+    assert str(len(str(deep.resolve()))) in message, message
+    # It has to say what to do, not just that something is wrong.
+    assert "shorter" in message
+
+
+def test_the_windows_basetemp_is_short_and_unique(tmp_path, monkeypatch):
+    """Short fixes the path length. Unique stops two runs eating each other.
+
+    pytest empties its basetemp on startup, so a fixed `<temp>/lca` shared by
+    two concurrent invocations would have the second delete the first one's
+    worktrees mid-run. `mkdtemp` hands each invocation its own directory
+    atomically, under one parent that is the only thing anybody has to delete.
+    """
+    import importlib.util
+    import sys as _sys
+    import tempfile
+
+    # Loaded by path. conftest.py is not importable as a module under either
+    # runner, and the point of this test is the function, not the plumbing.
+    spec = importlib.util.spec_from_file_location(
+        "lca_conftest_under_test", REPO / "tests" / "conftest.py")
+    conftest = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(conftest)
+
+    class Config:
+        """One per simulated invocation. A shared Option instance would make two
+        runs look like one and hide the very collision this test is about."""
+
+        def __init__(self, basetemp=None):
+            self.option = type("Option", (), {"basetemp": basetemp})()
+
+    # POSIX: untouched, whatever else is true.
+    monkeypatch.setattr(_sys, "platform", "linux")
+    posix_config = Config()
+    conftest.pytest_configure(posix_config)
+    assert posix_config.option.basetemp is None
+
+    monkeypatch.setattr(_sys, "platform", "win32")
+    first, second = Config(), Config()
+    conftest.pytest_configure(first)
+    conftest.pytest_configure(second)
+    chosen = [first.option.basetemp, second.option.basetemp]
+
+    try:
+        assert chosen[0] != chosen[1], "two invocations must not share a basetemp"
+        parent = str(Path(tempfile.gettempdir()) / "lca")
+        for one in chosen:
+            assert one.startswith(parent), one
+            # Short enough that the worktree, the per-test directory and CMake's
+            # own tree all still fit inside MAX_PATH.
+            assert len(one) < 60, f"{one} is {len(one)} characters"
+    finally:
+        for one in chosen:
+            shutil.rmtree(one, ignore_errors=True)
+
+    # An explicit --basetemp wins, length and all.
+    asked = Config(basetemp="D:/somewhere/the/user/chose")
+    conftest.pytest_configure(asked)
+    assert asked.option.basetemp == "D:/somewhere/the/user/chose"
