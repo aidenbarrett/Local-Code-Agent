@@ -87,10 +87,15 @@ def _files() -> list[Path]:
 
 
 def source_sha256() -> str:
-    """A hash over the files that decide behaviour, path and content both."""
+    """A hash over the files that decide behaviour, path and content both.
+
+    The repository-relative path has one canonical spelling on every host.
+    `str(Path)` made an identical source tree hash differently on Windows solely
+    because backslashes replaced slashes.
+    """
     digest = hashlib.sha256()
     for path in _files():
-        digest.update(str(path.relative_to(_ROOT)).encode())
+        digest.update(path.relative_to(_ROOT).as_posix().encode())
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
@@ -203,7 +208,7 @@ def _function_source(path: Path, name: str) -> str | None:
 
 
 def outcome_contract_sha256() -> str:
-    """Fingerprint what makes an evaluation row count as correct.
+    """Fingerprint what makes an evaluation result count as correct.
 
     A confirmatory generation ends when either side of the experiment changes:
 
@@ -214,24 +219,24 @@ def outcome_contract_sha256() -> str:
     to the `navigation` expected claim alter what counted as success while the
     generation number stayed put.
 
-    This hash is deliberately conservative. It includes the full task-contract
-    and oracle modules plus `run_case`, because `run_case` owns the conjunction
-    of required evidence, claim correctness, quality threshold, scope, tamper
-    and independent verification. A telemetry-only edit inside `run_case` may
-    therefore move this hash and force an unnecessary generation cut. That is
-    preferable to the opposite failure: pooling rows whose definition of
-    correctness changed without noticing.
+    This hash is deliberately conservative. It includes the task contracts,
+    oracle, the grading portion of `run_case`, and the frozen endpoint/repeat
+    policy. Changing engineering-correctness definitions or 2-of-3 aggregation
+    is every bit as outcome-facing as changing an expected claim.
     """
     task_contracts = _ROOT / "evaluation" / "task_contracts.py"
     oracle = _ROOT / "evaluation" / "oracle.py"
+    endpoints = _ROOT / "evaluation" / "endpoints.py"
     evaluator = _ROOT / "evaluation" / "run_evaluation.py"
     run_case_source = _function_source(evaluator, "run_case")
-    if run_case_source is None or not task_contracts.is_file() or not oracle.is_file():
+    required = (task_contracts, oracle, endpoints)
+    if run_case_source is None or not all(path.is_file() for path in required):
         return "unavailable-no-source"
 
     parts = (
         ("evaluation/task_contracts.py", task_contracts.read_text(encoding="utf-8")),
         ("evaluation/oracle.py", oracle.read_text(encoding="utf-8")),
+        ("evaluation/endpoints.py", endpoints.read_text(encoding="utf-8")),
         ("evaluation.run_evaluation.run_case", run_case_source),
     )
     digest = hashlib.sha256()
