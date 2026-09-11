@@ -120,6 +120,21 @@ def test_unknown_citation_is_noncompliance_on_every_task():
     assert row_endpoints(row)["contract_compliant"] is False
 
 
+def test_navigation_can_be_correct_but_noncompliant_if_it_builds():
+    row = _row(case="navigation", engineering=True, succeeded=True)
+    row["checks"]["did not build"] = False
+    endpoints = row_endpoints(row)
+    assert endpoints["engineering_correct"] is True
+    assert endpoints["contract_compliant"] is False
+
+
+def test_review_can_be_correct_but_noncompliant_if_it_mutates():
+    row = _row(case="review-restraint", engineering=True, scope=True, succeeded=False)
+    endpoints = row_endpoints(row)
+    assert endpoints["engineering_correct"] is True
+    assert endpoints["contract_compliant"] is False
+
+
 def test_efficiency_quality_does_not_change_engineering_correctness():
     row = _row(case="clean-build", engineering=True)
     row["checks"]["was efficient"] = False
