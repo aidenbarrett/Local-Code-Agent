@@ -1,8 +1,13 @@
 name: tests
 
-# The suite compiles and runs real C++ through cmake and ctest. That is the
+# The suite compiles and runs real C++ through CMake and CTest. That is the
 # point: the adversarial tests reproduce build and test cheats against a real
 # toolchain, and mocking it would test the mock. Nothing here needs a model.
+#
+# Real pytest is authoritative. measurement/run_test_suite.py remains valuable
+# for air-gapped/offline machines, but it implements only a compatibility subset
+# of pytest and therefore gets its own non-authoritative job. A compatibility
+# pass can never hide a native pytest failure again.
 
 on:
   push:
@@ -11,7 +16,38 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  pytest:
+    name: pytest (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Toolchain identity
+        run: |
+          python --version
+          cmake --version
+          ctest --version
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Build the fixture repository
+        run: python benchmark_fixture/generate_project.py
+
+      - name: Authoritative test suite
+        run: python -m pytest -q
+
+  compatibility-runner:
+    name: compatibility runner (offline subset)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -21,40 +57,40 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Toolchain
-        run: |
-          cmake --version
-          ctest --version
-          g++ --version
-
       - name: Install
-        run: pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev]"
 
       - name: Build the fixture repository
         run: python benchmark_fixture/generate_project.py
 
-      - name: Test suite
+      - name: Compatibility suite
         run: python measurement/run_test_suite.py tests
 
-      # Provenance is load-bearing: every dataset is reconciled against these
-      # hashes, so a change that alters them without anyone noticing is how a
-      # dataset silently stops matching the package that produced it.
-      #
-      # This step used to print the two values and exit zero, which meant a
-      # green run said nothing whatsoever about instrument identity. It now
-      # compares them against the declaration in INSTRUMENT.json and fails on a
-      # mismatch, so a change to measured behaviour cannot land unless somebody
-      # updates that file deliberately in the same commit.
-      # The fixture is hashed; its generator is not. So the two must agree, or
-      # source_sha256 depends on whether anyone happened to run the generator.
-      # That is not hypothetical: the Windows portability work landed a fixture
-      # and a generator that emitted different assertion macros, and the branch
-      # hashed to one value before the generator ran and another after.
+  integrity:
+    name: fixture and instrument integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      # The fixture is hashed; its generator is not. If these differ then the
+      # instrument identity depends on whether somebody happened to run the
+      # generator before hashing it.
       - name: Generated fixture matches the committed one
         run: |
           python benchmark_fixture/generate_project.py
           git diff --exit-code -- benchmark_fixture/cpp_project
 
+      # Provenance is load-bearing: every dataset is reconciled against these
+      # hashes. Keep this as a separate gate so a test-runner implementation can
+      # never redefine what a green identity check means.
       - name: Instrument identity matches INSTRUMENT.json
         run: |
           python - <<'PY'
@@ -62,7 +98,8 @@ jobs:
           sys.path.insert(0, ".")
           from local_agent import provenance as p
 
-          declared = json.load(open("INSTRUMENT.json"))
+          with open("INSTRUMENT.json", encoding="utf-8") as fh:
+              declared = json.load(fh)
           actual = {
               "source_sha256": p.source_sha256(),
               "base_prompt_sha256": p.base_prompt_sha256(),
