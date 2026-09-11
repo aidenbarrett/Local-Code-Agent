@@ -28,7 +28,13 @@ _MSVC = re.compile(
 _LINK_PATTERNS = (
     re.compile(r"undefined reference to [`'\"](?P<symbol>[^`'\"]+)"),
     re.compile(r"undefined symbol:\s*(?P<symbol>\S+)"),
-    re.compile(r"error LNK2019: unresolved external symbol (?P<symbol>\S+)"),
+    # MSVC prints a C++ signature, often including spaces, return type and calling
+    # convention, followed by "referenced in function ...". Capturing only \S+
+    # reduced symbols such as `int sandbox::checksum(...)` to the useless `int`.
+    re.compile(
+        r"error LNK2019: unresolved external symbol (?P<symbol>.+?)"
+        r"(?: referenced in function|$)"
+    ),
     re.compile(r"ld: symbol\(s\) not found for (?P<symbol>\S+)"),
 )
 

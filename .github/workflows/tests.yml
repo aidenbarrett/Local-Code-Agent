@@ -45,6 +45,16 @@ jobs:
       # compares them against the declaration in INSTRUMENT.json and fails on a
       # mismatch, so a change to measured behaviour cannot land unless somebody
       # updates that file deliberately in the same commit.
+      # The fixture is hashed; its generator is not. So the two must agree, or
+      # source_sha256 depends on whether anyone happened to run the generator.
+      # That is not hypothetical: the Windows portability work landed a fixture
+      # and a generator that emitted different assertion macros, and the branch
+      # hashed to one value before the generator ran and another after.
+      - name: Generated fixture matches the committed one
+        run: |
+          python benchmark_fixture/generate_project.py
+          git diff --exit-code -- benchmark_fixture/cpp_project
+
       - name: Instrument identity matches INSTRUMENT.json
         run: |
           python - <<'PY'
