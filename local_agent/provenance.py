@@ -12,6 +12,7 @@ git metadata and a hand-edited file still reports honestly.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import subprocess
@@ -181,8 +182,69 @@ def base_prompt_sha256() -> str:
     return digest.hexdigest()
 
 
+def _function_source(path: Path, name: str) -> str | None:
+    """Return one top-level function exactly as written, without importing it.
+
+    `evaluation.run_evaluation` imports this module, so importing the evaluator
+    back from provenance would create a circular dependency. Parsing source
+    also means the identity still works in a package where evaluation is not on
+    sys.path.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+        tree = ast.parse(text)
+    except (OSError, SyntaxError):
+        return None
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            segment = ast.get_source_segment(text, node)
+            return segment if segment is not None else None
+    return None
+
+
+def outcome_contract_sha256() -> str:
+    """Fingerprint what makes an evaluation row count as correct.
+
+    A confirmatory generation ends when either side of the experiment changes:
+
+      * model-facing contract: what the model sees / must submit
+      * outcome-facing contract: what the evaluator calls correct
+
+    The previous generation rule only tracked the first axis. That let a change
+    to the `navigation` expected claim alter what counted as success while the
+    generation number stayed put.
+
+    This hash is deliberately conservative. It includes the full task-contract
+    and oracle modules plus `run_case`, because `run_case` owns the conjunction
+    of required evidence, claim correctness, quality threshold, scope, tamper
+    and independent verification. A telemetry-only edit inside `run_case` may
+    therefore move this hash and force an unnecessary generation cut. That is
+    preferable to the opposite failure: pooling rows whose definition of
+    correctness changed without noticing.
+    """
+    task_contracts = _ROOT / "evaluation" / "task_contracts.py"
+    oracle = _ROOT / "evaluation" / "oracle.py"
+    evaluator = _ROOT / "evaluation" / "run_evaluation.py"
+    run_case_source = _function_source(evaluator, "run_case")
+    if run_case_source is None or not task_contracts.is_file() or not oracle.is_file():
+        return "unavailable-no-source"
+
+    parts = (
+        ("evaluation/task_contracts.py", task_contracts.read_text(encoding="utf-8")),
+        ("evaluation/oracle.py", oracle.read_text(encoding="utf-8")),
+        ("evaluation.run_evaluation.run_case", run_case_source),
+    )
+    digest = hashlib.sha256()
+    for label, text in parts:
+        digest.update(label.encode())
+        digest.update(b"\0")
+        digest.update(text.encode())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def package_identity() -> dict[str, Any]:
-    """Commit, dirtiness and content hash. Quoted with every run."""
+    """Commit, dirtiness and content hashes. Quoted with every run."""
     stamp = _ROOT / "PACKAGE.json"
     out: dict[str, Any] = {"package_commit": None, "package_dirty": None,
                            "package_source": "unknown"}
@@ -201,4 +263,5 @@ def package_identity() -> dict[str, Any]:
         out.update(_from_git() or {})
     out["source_sha256"] = source_sha256()
     out["base_prompt_sha256"] = base_prompt_sha256()
+    out["outcome_contract_sha256"] = outcome_contract_sha256()
     return out
