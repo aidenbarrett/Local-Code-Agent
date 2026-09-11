@@ -86,10 +86,15 @@ def _files() -> list[Path]:
 
 
 def source_sha256() -> str:
-    """A hash over the files that decide behaviour, path and content both."""
+    """A hash over the files that decide behaviour, path and content both.
+
+    Paths are canonical POSIX-style repository paths on every host. Using
+    `str(Path)` made an identical tree hash differently on Windows solely
+    because path separators changed, defeating cross-platform provenance.
+    """
     digest = hashlib.sha256()
     for path in _files():
-        digest.update(str(path.relative_to(_ROOT)).encode())
+        digest.update(path.relative_to(_ROOT).as_posix().encode())
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
