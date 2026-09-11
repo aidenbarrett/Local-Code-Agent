@@ -48,7 +48,9 @@ def test_clean_build_and_test(loaded):
 
     tests = registry.get("run_test").handler()
     assert tests.ok, tests.summary
-    assert tests.data["totals"]["failed"] == 0
+    # The failed-test list is the stable contract. Some CTest versions omit the
+    # aggregate summary line on a completely clean run, leaving totals sparse.
+    assert tests.data["failed"] == []
 
 
 def test_compile_error_is_reduced_to_diagnostics(loaded):
@@ -216,6 +218,7 @@ def test_full_loop_diagnoses_and_fixes_a_build_break(sandbox):
     result = _run(sandbox.root, turns, "fix-build-failure")
     assert result.state.halt_reason is None
     assert result.state.verified is True
-    assert result.state.changed_files == ["src/ring_buffer.cpp"]
+    # The state stores native filesystem spelling (POSIX '/' vs Windows '\\').
+    assert [Path(path).as_posix() for path in result.state.changed_files] == ["src/ring_buffer.cpp"]
     assert "build" in format_report(result).lower()
     assert (sandbox.root / "build").is_dir()

@@ -23,6 +23,10 @@ test_ring_buffer.cpp:(.text+0x3c1): undefined reference to `sandbox::checksum(st
 collect2: error: ld returned 1 exit status
 """
 
+MSVC_LINK = r"""
+test_ring_buffer.obj : error LNK2019: unresolved external symbol "int __cdecl sandbox::checksum(class std::vector<int,class std::allocator<int> > const &)" (?checksum@sandbox@@YAHAEBV?$vector@HV?$allocator@H@std@@@std@@@Z) referenced in function main
+"""
+
 CTEST_FAIL = """
     Start 1: ring_buffer
 1/4 Test #1: ring_buffer ......................***Exception: SubprocessAborted  0.00 sec
@@ -78,6 +82,15 @@ def test_link_errors():
     assert report.errors == []
     assert len(report.link_errors) == 1
     assert "checksum" in report.link_errors[0]["symbol"]
+
+
+def test_msvc_link_error_keeps_full_symbol():
+    report = parse_build_log(MSVC_LINK)
+    assert len(report.link_errors) == 1
+    symbol = report.link_errors[0]["symbol"]
+    assert "checksum" in symbol
+    assert "sandbox::" in symbol
+    assert symbol != "int"
 
 
 def test_ctest_failure():
