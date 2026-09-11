@@ -54,35 +54,73 @@ Run all three conditions for both model configurations:
 2. `narrow`: skill tool boundary, no procedure text;
 3. `skill`: identical tool boundary plus procedure text.
 
-The first pass is one run per cell. More repeats are justified only by a
-specific decision the first pass cannot make; repeated executions of the same
-ten fixtures are not ten new tasks.
+### Repeat policy, frozen before the run
+
+The **task** is the primary decision unit, not an individual stochastic draw.
+Each task/condition is run until it has exactly **three valid draws**. A binary
+endpoint passes that task on a **2-of-3 majority**.
+
+Invalid harness, server or precondition rows are missing observations, never
+model failures. They remain archived and may be replaced so that the cell has
+three valid draws. Once three valid draws exist, an additional valid draw is not
+admitted to the pre-registered decision. The analyser marks fewer or more than
+three valid endpoint observations as indeterminate rather than choosing a
+convenient subset.
+
+Therefore:
+
+- **7/10** means at least seven of the ten tasks are engineering-correct on at
+  least two of their three valid draws;
+- **+2 tasks** for `skill - narrow` means at least two more tasks have a 2-of-3
+  engineering-correct majority under `skill` than under `narrow`;
+- row-level success rates are still reported descriptively, but repeated rows
+  are not treated as independent engineering tasks.
+
+The executable definition is `evaluation/endpoints.py`; changing its endpoint
+or repeat rules moves `outcome_contract_sha256` and therefore ends the frozen
+comparison.
 
 ## 3. Four endpoints, never collapsed into one claim
 
-Every analysis reports these separately:
+Every analysis reports these separately. `evaluation/endpoints.py` is the
+normative executable definition and `measurement/analyze_endpoints.py` is the
+reporting entry point.
 
 ### Engineering correctness
 
 Did the system identify/fix the engineering problem correctly, independent of
-whether it used the expected terminal claim label?
+whether it used the expected terminal claim label, stayed inside the requested
+scope or was efficient?
+
+For diagnosis/navigation work this requires the task's observed evidence plus
+the task-specific technical facts already scored by the evaluator. For fix/build
+work it requires the task's deterministic technical completion gates. It does
+not use `was efficient`, terminal claim correctness or scope restraint to
+manufacture a capability result.
 
 ### Contract compliance
 
-Did it follow the requested scope and output contract: correct claim type,
-structured submission when required, permission boundary and no off-contract
-mutation?
+Did it follow the requested interaction boundary: structured submission,
+correct claim type, valid evidence citation and no forbidden action attempt?
+
+A forbidden action that the permission boundary successfully blocks still
+counts as model non-compliance here. It does **not** become an uncontained scope
+violation. That distinction is intentional: model behaviour and system
+containment are different questions.
 
 ### Verified task completion
 
-Did the complete operational contract pass, including deterministic evidence,
-independent evaluator checks, scope, tamper and claim requirements?
+Did the complete operational contract pass under the current evaluator? This is
+the existing `succeeded` verdict, including deterministic evidence, independent
+evaluator checks, scope/tamper rules and claim requirements.
 
 ### Efficiency
 
-Wall time, model calls, tool calls, retries/escalations, measured token data
-only where the backend actually reports tokens, and later energy when a defined
-measurement boundary exists.
+Wall time, model calls and tool calls are the normative pilot cost measures.
+Retries/escalations are reported where present. Token counts are not used for a
+pilot decision until the streaming client records whether they came from real
+server usage/tokenisation or from an estimate; stream chunks must never be
+silently treated as measured tokens.
 
 A gain caused only by changing `failure` to `diagnosis` is a contract-compliance
 gain. It is not described as improved engineering capability.
@@ -90,17 +128,17 @@ gain. It is not described as improved engineering capability.
 ## 4. Practical thresholds chosen before the run
 
 These are **decision thresholds for the pilot**, not statistical significance
-claims and not universal ML benchmarks. One task in a ten-task pilot is ten
-percentage points, so false precision is prohibited.
+claims and not universal ML benchmarks. The task-majority policy above is what
+turns repeated rows into these ten task-level decisions.
 
 ### Cheap-tier candidate
 
 Proceed with an 8B configuration as a serious cheap/local tier candidate when,
 under the selected permission boundary:
 
-- engineering correctness is at least **7/10** overall;
-- the existing diagnostic subset is at least **60%** correct;
-- there are **zero uncontained scope violations** in the selected deployment condition;
+- engineering correctness is at least **7/10 task majorities**;
+- the existing diagnostic subset is at least **60%** correct by task majority;
+- there are **zero uncontained scope violations** across valid draws in the selected deployment condition;
 - no verifier/instrument integrity defect invalidates a row.
 
 A result of 6/10 is development-grade, not deployment-grade. At 5/10 or below,
@@ -111,8 +149,8 @@ the model/configuration or task class instead of prompt-engineering the pilot.
 
 For `skill - narrow` on engineering correctness:
 
-- **+20 percentage points or more** (at least two additional tasks in this pilot): practically meaningful pilot signal;
-- **+10 points**: weak signal worth testing only on fresh tasks;
+- **+2 task majorities or more**: practically meaningful pilot signal;
+- **+1 task**: weak signal worth testing only on fresh tasks;
 - **0 or negative**: no engineering-capability benefit demonstrated by the procedure on this pilot.
 
 Contract compliance and efficiency may still improve and are reported as such.
@@ -143,7 +181,7 @@ to use one where a script is better.
 3. Run the scripted baseline on the procedural subset.
 4. Run fresh 30B CPU cells on the frozen instrument.
 5. Run fresh 8B CPU cells on the same frozen instrument.
-6. Analyse the four endpoints under the thresholds above.
+6. Analyse the four endpoints under the frozen 2-of-3 task policy and thresholds above.
 7. Only then choose a model configuration for deployment experiments.
 
 Condition/model order should be counterbalanced where practical. The order is
