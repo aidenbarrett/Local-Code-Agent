@@ -1,0 +1,68 @@
+name: Phase2 deterministic rehearsal
+
+on:
+  push:
+    branches: [tmp/deterministic-checkout-verify]
+
+permissions:
+  contents: read
+
+jobs:
+  rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/phase2-evidence-contract
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install and generate fixture
+        run: |
+          python -m pip install -e ".[dev]"
+          python benchmark_fixture/generate_project.py
+      - name: Deterministic no-model rehearsal for all three conditions
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=f58f74a1adcf28f0ce7cb51c51b5f86186281f81
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$expected" ]; then
+            echo "phase2 head moved: expected $expected, got $actual"
+            exit 1
+          fi
+          mkdir -p /tmp/lca-rehearsal
+          for condition in control narrow skill; do
+            python evaluation/run_evaluation.py \
+              --rehearse --condition "$condition" \
+              --repeat 3 --max-attempts 5 \
+              --out "/tmp/lca-rehearsal/${condition}.json" \
+              --workdir "/tmp/lca-rehearsal/work-${condition}"
+          done
+          python measurement/analyze_endpoints.py \
+            /tmp/lca-rehearsal/control.json \
+            /tmp/lca-rehearsal/narrow.json \
+            /tmp/lca-rehearsal/skill.json \
+            --json /tmp/lca-rehearsal/analysis.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('/tmp/lca-rehearsal')
+          for condition in ('control','narrow','skill'):
+              payload = json.load(open(root / f'{condition}.json', encoding='utf-8'))
+              rows = payload['rows']
+              assert len(rows) == 30, (condition, len(rows))
+              assert all(row.get('attempt') in (0,1,2) for row in rows)
+              assert all(row.get('counted') is True for row in rows), condition
+          analysis = json.load(open(root / 'analysis.json', encoding='utf-8'))
+          assert analysis['policy']['valid_draws_per_task_condition'] == 3
+          assert analysis['policy']['max_attempts_per_task_condition'] == 5
+          for condition in ('control','narrow','skill'):
+              c = analysis['by_condition'][condition]
+              assert c['attempts_total'] == 30, (condition, c['attempts_total'])
+              assert c['invalid_attempts'] == 0, condition
+              assert c['protocol_violation_tasks'] == [], condition
+          print('DETERMINISTIC REHEARSAL PASS: 90 rows, 3 conditions, 3 valid draws per task, no protocol violations')
+          PY
