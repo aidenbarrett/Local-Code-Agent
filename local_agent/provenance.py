@@ -82,19 +82,33 @@ def _files() -> list[Path]:
         path = _ROOT / name
         if path.is_file():
             out.append(path)
-    return sorted(out)
+    # Ordered by the same canonical string the digest records, not by Path
+    # comparison. `PurePath.__lt__` compares the host flavour's normcase form,
+    # which on Windows is `str(path).lower()`: case-insensitive, and with
+    # backslash separators. So `cpp_project/README.md` sorts before
+    # `cpp_project/include/...` here and after it there, and the identical tree
+    # hashed two different ways. Sorting on the key that is actually hashed
+    # makes the order a property of the repository rather than of the host.
+    return sorted(out, key=_key)
+
+
+def _key(path: Path) -> str:
+    """The canonical repository path: what is hashed, and what orders it."""
+    return path.relative_to(_ROOT).as_posix()
 
 
 def source_sha256() -> str:
     """A hash over the files that decide behaviour, path and content both.
 
-    Paths are canonical POSIX-style repository paths on every host. Using
-    `str(Path)` made an identical tree hash differently on Windows solely
-    because path separators changed, defeating cross-platform provenance.
+    Paths are canonical POSIX-style repository paths on every host, and so is
+    the order they are visited in. Both mattered: using `str(Path)` as the key
+    made an identical tree hash differently on Windows because the separators
+    changed, and sorting `Path` objects made it hash differently again because
+    `PurePath` ordering is case-insensitive there.
     """
     digest = hashlib.sha256()
     for path in _files():
-        digest.update(path.relative_to(_ROOT).as_posix().encode())
+        digest.update(_key(path).encode())
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")

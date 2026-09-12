@@ -880,7 +880,8 @@ def test_no_hashed_file_has_windows_line_endings():
 
     By default it is not. Git for Windows ships `core.autocrlf=true`, which
     rewrites LF to CRLF on checkout, so an identical commit produced a different
-    identity there. Measured on this tree:
+    identity there. Measured at 5d729478, before the ordering fix that
+    followed, so these are historical numbers rather than the current identity:
 
         LF working tree    e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
         same tree as CRLF  6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
@@ -997,4 +998,75 @@ def test_the_generator_write_helper_emits_the_bytes_it_was_given(tmp_path):
     assert target.read_bytes() == content.encode("utf-8"), (
         "the generator must put the bytes of its source strings on disk, "
         "unmodified, on every host"
+    )
+
+
+def test_the_hashed_order_does_not_depend_on_the_host_path_flavour():
+    """The order files are visited in is part of the identity, so it has to be
+    a property of the repository rather than of the machine reading it.
+
+    `_files()` used to end in `sorted(out)`, sorting `Path` objects.
+    `PurePath.__lt__` compares the host flavour's normcase form: on POSIX that
+    is the string as written, on Windows it is `str(path).lower()` with
+    backslash separators, which is case-insensitive. So
+    `benchmark_fixture/cpp_project/README.md` sorts before
+    `benchmark_fixture/cpp_project/include/...` here and after it there, and the
+    identical tree produced two identities.
+
+    This was the third and last cause of the Windows identity failure, and it
+    is the one that could not be fixed outside the hash: `.gitattributes` makes
+    the checkout canonical and the generator's `_write_text` keeps it that way,
+    but neither touches iteration order. All three were confirmed together by
+    reproducing the observed CI value exactly, from Linux, on the tree at
+    5d729478 (so these four are historical: this commit changes provenance.py,
+    which is itself hashed, and INSTRUMENT.json carries the current value):
+
+        canonical order, LF       e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+        canonical order, CRLF     6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
+        Windows order,   LF       6c0b0cde2c9a8fd5fe1eb4eb34cdf314ee4fe68d545124271920d75e367cc734
+        Windows order,   CRLF     bd6ca03ea18c0c12ddf3ab190aac50bb36d6fdf2d2eaafa3d4c296dc905f0dc6  <- GitHub Actions run 50
+
+    The exact match also proves the hashed file SET is identical on both hosts,
+    which had been a competing hypothesis.
+
+    Sorting on `_key`, the same canonical string the digest records, removes the
+    dependency. This test states the invariant, checks it is still capable of
+    failing, and confirms the order is load-bearing rather than incidental.
+    """
+    import hashlib
+
+    from local_agent.provenance import _ROOT, _files, _key, source_sha256
+
+    rels = [_key(path) for path in _files()]
+    assert rels == sorted(rels), (
+        "the hashed set must be visited in canonical repository-path order, "
+        "not in whatever order this host compares Path objects in"
+    )
+
+    def digest_over(order):
+        out = hashlib.sha256()
+        for rel in order:
+            out.update(rel.encode())
+            out.update(b"\0")
+            out.update((_ROOT / rel).read_bytes())
+            out.update(b"\0")
+        return out.hexdigest()
+
+    assert digest_over(rels) == source_sha256(), \
+        "source_sha256 must be exactly the canonical-order digest"
+
+    # str(path).lower() with backslashes: what PurePath comparison does on
+    # Windows, reproduced here so the test fails on every host rather than only
+    # on the one that had the bug.
+    windows_order = sorted(rels, key=lambda rel: rel.replace("/", "\\").lower())
+
+    assert windows_order != rels, (
+        "no file pair in the hashed set is ordered differently by a "
+        "case-insensitive comparison any more, so this regression has stopped "
+        "discriminating. Restore a pair or delete the test; do not leave it "
+        "passing vacuously"
+    )
+    assert digest_over(windows_order) != source_sha256(), (
+        "the two orderings must produce different digests, or the invariant "
+        "above is not actually load-bearing"
     )
