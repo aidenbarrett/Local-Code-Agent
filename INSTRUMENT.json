@@ -2,20 +2,16 @@
   "_comment": [
     "The declared identity of the instrument on this branch. CI recomputes the",
     "source, model-facing and outcome-facing identities from the working tree",
-    "and fails when any differs from the values below, so a behavioural or",
-    "grading change cannot land without somebody editing this file deliberately.",
+    "and fails when any differs from the values below.",
     "",
-    "This file is deliberately OUTSIDE the hashed surface. It sits at the",
-    "repository root, and provenance._HASHED_FILES contains only pyproject.toml,",
-    "so editing it does not move the number it declares. If it were hashed, every",
-    "update would invalidate itself.",
+    "This file is deliberately outside the hashed surface so updating a",
+    "declaration does not invalidate itself.",
     "",
-    "Generation 2 has no collected dataset yet. outcome_contract_sha256 was",
-    "introduced while generation 2 was still being prepared, so declaring the",
-    "existing generation-2 outcome contract here does not create a generation-3",
-    "boundary. The first generation-2 model row must match all three identities."
+    "Generation 2 has no collected model rows yet. outcome_contract_sha256 and",
+    "the bounded repeat policy were frozen while generation 2 was still being",
+    "prepared, so this does not create a generation-3 boundary. The first",
+    "generation-2 model row must match all three identities."
   ],
-
   "generation": 2,
   "opened_by": "2ed08ac6b742abe2f7ffae58ccbacc55856ab71e",
   "tag": "instrument-d60b6285",
@@ -25,30 +21,16 @@
     "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
     "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
   },
-
-  "source_sha256": "44b1f53fabc83aa0d4c9bf5472174ac26c12df29a0c1f7de7a769f8b3eed94eb",
+  "source_sha256": "d0946a4d4f756c26492d5872a8e844fade9a19605d6955a0d01fe51350125b97",
   "base_prompt_sha256": "f1fb88236b18c2aa21d396a91cdc878274005cb47d687b1442811c6a740f1559",
-  "outcome_contract_sha256": "28cdd77907d942856aa2a2cae9ecc5ab788f75f7d757f0a19ecd1325520a0492",
-
+  "outcome_contract_sha256": "8eacb0115b8913c853ae9c277e0b8f84c7b853381b68d240630f1c00434ae27b",
   "how_to_recompute": "python -c \"import sys; sys.path.insert(0,'.'); from local_agent import provenance as p; print(p.source_sha256()); print(p.base_prompt_sha256()); print(p.outcome_contract_sha256())\"",
-
   "when_this_changes": [
-    "source_sha256 moves for any change to hashed source. Update this file in",
-    "the same commit. A source-only move does not automatically end a generation;",
-    "whether archived rows can be re-scored is decided from the evidence they",
-    "actually retained.",
+    "source_sha256 moves for any change to hashed source. Update this file in the same commit.",
+    "A source-only move does not automatically end a generation; archived rows are re-scored only when retained evidence supports it.",
     "",
-    "base_prompt_sha256 moves when the model-facing contract changes: what the",
-    "model sees or the submission contract it must satisfy.",
-    "",
-    "outcome_contract_sha256 moves when the outcome-facing contract changes:",
-    "task contracts, oracle semantics, or the evaluator logic that decides what",
-    "counts as success.",
-    "",
-    "Either contract-axis move ENDS A GENERATION once rows exist under the current",
-    "generation. Increment 'generation', preserve the previous identities, and",
-    "record the boundary in docs/experiment-design.md. Confirmatory data does not",
-    "cross that boundary. Archived evidence may still support explicitly versioned",
-    "re-scoring when measurement/rescore_dataset.py can do so without guessing."
+    "base_prompt_sha256 moves when the model-facing contract changes.",
+    "outcome_contract_sha256 moves when task contracts, oracle/evaluator semantics, endpoint definitions or bounded repeat policy change.",
+    "Once rows exist under a generation, either contract-axis move ends that generation for confirmatory comparison."
   ]
 }

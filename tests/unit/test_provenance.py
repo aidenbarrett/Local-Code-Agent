@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from local_agent import provenance
@@ -41,14 +42,39 @@ def test_outcome_contract_covers_tasks_oracle_grader_and_endpoint_policy():
     run_case = provenance._function_source(
         REPO / "evaluation" / "run_evaluation.py", "run_case"
     )
-    assert run_case is not None
+    run_all = provenance._function_source(
+        REPO / "evaluation" / "run_evaluation.py", "run_all"
+    )
+    assert run_case is not None and run_all is not None
     assert "required_ok" in run_case
     assert "claim_ok" in run_case
     assert "scope_violation" in run_case
     assert "verification_disagreement" in run_case
-    assert (REPO / "evaluation" / "task_contracts.py").is_file()
-    assert (REPO / "evaluation" / "oracle.py").is_file()
+    task_contracts = (REPO / "evaluation" / "task_contracts.py").read_text(encoding="utf-8")
+    oracle = (REPO / "evaluation" / "oracle.py").read_text(encoding="utf-8")
     endpoints = (REPO / "evaluation" / "endpoints.py").read_text(encoding="utf-8")
     assert "ENGINEERING_CONTRACTS" in endpoints
     assert "VALID_DRAWS_PER_TASK_CONDITION = 3" in endpoints
-    assert "MAJORITY_REQUIRED = 2" in endpoints
+    assert "MAX_ATTEMPTS_PER_TASK_CONDITION = 5" in endpoints
+
+    parts = [
+        ("evaluation/task_contracts.py", task_contracts),
+        ("evaluation/oracle.py", oracle),
+        ("evaluation/endpoints.py", endpoints),
+        ("evaluation.run_evaluation.run_case", run_case),
+        ("evaluation.run_evaluation.run_all", run_all),
+    ]
+
+    def digest(items):
+        out = hashlib.sha256()
+        for label, body in items:
+            out.update(label.encode())
+            out.update(b"\0")
+            out.update(body.encode())
+            out.update(b"\0")
+        return out.hexdigest()
+
+    assert digest(parts) == source
+    mutated = list(parts)
+    mutated[2] = (mutated[2][0], mutated[2][1] + "\n# endpoint-policy mutation\n")
+    assert digest(mutated) != source

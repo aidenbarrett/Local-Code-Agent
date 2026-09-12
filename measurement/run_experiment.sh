@@ -187,11 +187,12 @@ if [ -n "$CASE" ]; then
         2>&1 | tee "$OUT/$RUN.log"
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "the probe exited non-zero; see $OUT/$RUN.log"
 else
-    step "7. END-TO-END RUN ($PROFILE, 10 pilot cases, once each)"
+    step "7. END-TO-END RUN ($PROFILE, 10 pilot cases, 3 valid draws each; max 5 attempts)"
     echo "These ten tasks validate the comparison. They are not confirmatory evidence"
     echo "for a population-level procedure hypothesis; fresh held-out tasks do that."
     echo "Output: $OUT/$RUN.json"
     python evaluation/run_evaluation.py --profile "$PROFILE" --label "$RUN" $COND_FLAG \
+        --repeat 3 --max-attempts 5 \
         --out "$OUT/$RUN.json" --workdir "$HOME/local-agent-evals" \
         2>&1 | tee "$OUT/$RUN.log"
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "the run exited non-zero; see $OUT/$RUN.log"

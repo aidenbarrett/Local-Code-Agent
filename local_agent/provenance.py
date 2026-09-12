@@ -237,8 +237,10 @@ def outcome_contract_sha256() -> str:
     endpoints = _ROOT / "evaluation" / "endpoints.py"
     evaluator = _ROOT / "evaluation" / "run_evaluation.py"
     run_case_source = _function_source(evaluator, "run_case")
+    run_all_source = _function_source(evaluator, "run_all")
     required = (task_contracts, oracle, endpoints)
-    if run_case_source is None or not all(path.is_file() for path in required):
+    if (run_case_source is None or run_all_source is None
+            or not all(path.is_file() for path in required)):
         return "unavailable-no-source"
 
     parts = (
@@ -246,6 +248,7 @@ def outcome_contract_sha256() -> str:
         ("evaluation/oracle.py", oracle.read_text(encoding="utf-8")),
         ("evaluation/endpoints.py", endpoints.read_text(encoding="utf-8")),
         ("evaluation.run_evaluation.run_case", run_case_source),
+        ("evaluation.run_evaluation.run_all", run_all_source),
     )
     digest = hashlib.sha256()
     for label, text in parts:

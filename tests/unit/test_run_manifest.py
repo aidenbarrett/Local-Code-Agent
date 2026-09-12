@@ -73,6 +73,11 @@ def test_manifest_marks_actual_device_unobserved_when_not_measured(monkeypatch):
     assert payload["target"]["actual_device_source"] == "unobserved"
     assert payload["measurement_quality"]["actual_device"] == "unobserved"
     assert payload["tool_schema_archive"]
+    assert payload["instrument"]["declared"]["outcome_contract_sha256"]
+    assert (
+        payload["instrument"]["declared"]["outcome_contract_sha256"]
+        == payload["instrument"]["observed"]["outcome_contract_sha256"]
+    )
 
 
 def test_operator_declared_actual_device_is_labelled_as_such(monkeypatch):

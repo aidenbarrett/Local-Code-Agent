@@ -375,12 +375,19 @@ def run_all(
     out: Path,
     identity: dict,
     echo: Any = print,
+    max_attempts: int | None = None,
 ) -> tuple[list[dict], bool]:
     """The suite loop: run, checkpoint, decide whether to continue.
 
     Returns (rows, stopped_early). Every row is on disk before the next case
     starts, atomically, so a forty-minute run never loses its first thirty-nine.
     """
+    if repeat < 1:
+        raise ValueError("repeat must be at least 1")
+    if max_attempts is not None and max_attempts < repeat:
+        raise ValueError("max_attempts must be >= repeat")
+    attempt_limit = repeat if max_attempts is None else max_attempts
+
     rows: list[dict] = []
     consecutive_harness = 0
 
@@ -389,10 +396,13 @@ def run_all(
 
     checkpoint(final=False)
     for case in selected:
-        for attempt in range(repeat):
+        valid_draws = 0
+        for attempt in range(attempt_limit):
             row = run_one(case, attempt)
             row["attempt"] = attempt
             rows.append(row)
+            if row.get("counted") is True:
+                valid_draws += 1
             checkpoint(final=False)
 
             if row.get("error"):
@@ -443,6 +453,9 @@ def run_all(
                     return rows, True
             else:
                 consecutive_harness = 0
+
+            if max_attempts is not None and valid_draws >= repeat:
+                break
     return rows, False
 
 
@@ -919,6 +932,10 @@ def main() -> int:
     parser.add_argument("--model")
     parser.add_argument("--case", action="append", help="run only these cases")
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument(
+        "--max-attempts", type=int,
+        help="bounded replacement attempts per case; stop as soon as --repeat valid rows exist",
+    )
     # `action="store_true", default=True` could never be False. Approval mode
     # is part of the experiment's identity: these runs auto-approve on purpose,
     # so that an attempted out-of-scope mutation actually happens and can be
@@ -966,6 +983,8 @@ def main() -> int:
         help="run the harness with no model at all, to prove the pipeline works",
     )
     args = parser.parse_args()
+    if args.max_attempts is not None and args.max_attempts < args.repeat:
+        parser.error("--max-attempts must be >= --repeat")
 
     model = MODEL_PRESETS.get(args.profile, ModelConfig()) if args.profile else ModelConfig.from_env()
     if args.base_url:
@@ -1005,6 +1024,8 @@ def main() -> int:
         # routing metadata, not execution identity, and are meaningless here.
         "tiered": bool(args.cheap_profile),
         "kill_threshold": KILL_THRESHOLD,
+        "valid_draw_target": args.repeat,
+        "max_attempts_per_case": (args.max_attempts if args.max_attempts is not None else args.repeat),
     }
     cheap_cfg = MODEL_PRESETS[args.cheap_profile] if args.cheap_profile else None
     out_path = Path(args.out)
@@ -1019,6 +1040,7 @@ def main() -> int:
             catalogue=args.catalogue,
         ),
         out_path, identity,
+        max_attempts=args.max_attempts,
     )
 
     weighted = sum(r["score"] * r.get("weight", 1.0) for r in rows)

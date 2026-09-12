@@ -324,6 +324,7 @@ def capture_manifest(
                 "generation": instrument_declared.get("generation"),
                 "source_sha256": instrument_declared.get("source_sha256"),
                 "base_prompt_sha256": instrument_declared.get("base_prompt_sha256"),
+                "outcome_contract_sha256": instrument_declared.get("outcome_contract_sha256"),
             },
             "observed": package_identity(),
         },

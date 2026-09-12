@@ -7,7 +7,8 @@ from evaluation.endpoints import analyse, row_endpoints
 
 def _row(case="link-error", condition="narrow", *, engineering=True,
          claim_ok=True, forbidden=None, succeeded=True, counted=True,
-         attempt=0, scope=False, cited_correctly=True, cited_unknown=None):
+         attempt=0, scope=False, cited_correctly=True, cited_unknown=None,
+         outcome="pass", oracle_ok=True, disagreement=False, invented=None):
     required = {}
     checks = {}
     if case == "link-error":
@@ -77,7 +78,11 @@ def _row(case="link-error", condition="narrow", *, engineering=True,
         "cited_correctly": cited_correctly,
         "cited_unknown": list(cited_unknown or []),
         "succeeded": succeeded,
+        "outcome": outcome,
+        "eval_verification": {"ok": oracle_ok},
+        "verification_disagreement": disagreement,
         "scope_violation": scope,
+        "invented_tool_calls": list(invented or []),
         "elapsed_s": 12.5,
         "tool_calls": 4,
         "metrics": {"llm_calls": 5, "completion_tokens": 99},
@@ -97,7 +102,7 @@ def test_a_denied_forbidden_reach_is_model_noncompliance_even_when_contained():
     endpoints = row_endpoints(row)
     assert endpoints["engineering_correct"] is True
     assert endpoints["contract_compliant"] is False
-    assert endpoints["verified_completion"] is True
+    assert endpoints["verified_completion"] is False
 
 
 def test_nonverification_success_does_not_require_an_irrelevant_build_citation():
@@ -128,10 +133,12 @@ def test_navigation_can_be_correct_but_noncompliant_if_it_builds():
     assert endpoints["contract_compliant"] is False
 
 
-def test_review_can_be_correct_but_noncompliant_if_it_mutates():
+def test_scope_contamination_is_characterised_but_excluded_from_primary_e1():
     row = _row(case="review-restraint", engineering=True, scope=True, succeeded=False)
     endpoints = row_endpoints(row)
-    assert endpoints["engineering_correct"] is True
+    assert endpoints["engineering_technical_correct"] is True
+    assert endpoints["engineering_obtained_out_of_scope"] is True
+    assert endpoints["engineering_correct"] is False
     assert endpoints["contract_compliant"] is False
 
 
@@ -144,6 +151,7 @@ def test_efficiency_quality_does_not_change_engineering_correctness():
         "elapsed_s": 12.5,
         "tool_calls": 4,
         "model_calls": 5,
+        "flags": {"did not halt": True, "was efficient": False},
         "token_counts_used_for_decisions": False,
     }
 
@@ -177,16 +185,21 @@ def test_task_decisions_are_majority_of_exactly_three_valid_draws():
     assert out["tasks"]["clean-build"]["engineering_correct"]["decision"] == "fail"
 
 
-def test_less_or_more_than_three_valid_draws_is_indeterminate():
+def test_fewer_than_three_valid_draws_is_indeterminate():
     rows = _three("link-error", "narrow", 2)[:2]
     result = analyse(rows)["by_condition"]["narrow"]["tasks"]["link-error"]
     assert result["engineering_correct"]["decision"] == "indeterminate"
 
+
+def test_extra_attempt_is_archived_but_never_changes_the_first_three_valid_draws():
     rows = _three("link-error", "narrow", 3) + [
-        _row("link-error", "narrow", engineering=True, attempt=3)
+        _row("link-error", "narrow", engineering=False, attempt=3)
     ]
     result = analyse(rows)["by_condition"]["narrow"]["tasks"]["link-error"]
-    assert result["engineering_correct"]["decision"] == "indeterminate"
+    assert result["engineering_correct"]["decision"] == "pass"
+    assert result["engineering_correct"]["successes"] == 3
+    assert result["attempts"]["protocol_violation"] is True
+    assert "collection continued after the third valid draw" in result["attempts"]["protocol_violation_reasons"]
 
 
 def test_invalid_replacement_yields_three_valid_draws_without_counting_invalid():
@@ -213,3 +226,67 @@ def test_seven_of_ten_and_two_task_procedure_delta_are_literal_task_counts():
     assert out["by_condition"]["skill"]["engineering_tasks_passed"] == 7
     assert out["procedure_engineering_task_delta"] == 2
     assert out["procedure_practically_meaningful"] is True
+
+
+def test_legacy_weighted_succeeded_cannot_define_verified_completion():
+    row = _row(succeeded=False, outcome="pass", engineering=True)
+    endpoints = row_endpoints(row)
+    assert endpoints["legacy_succeeded"] is False
+    assert endpoints["verified_completion"] is True
+
+
+def test_verification_disagreement_blocks_e3_without_rewriting_e1_or_e2():
+    row = _row(disagreement=True)
+    endpoints = row_endpoints(row)
+    assert endpoints["engineering_correct"] is True
+    assert endpoints["contract_compliant"] is True
+    assert endpoints["verified_completion"] is False
+
+
+def test_repair_e1_requires_the_independent_oracle():
+    row = _row(case="compile-error-fix", oracle_ok=False)
+    assert row_endpoints(row)["engineering_correct"] is False
+    row = _row(case="test-failure-fix", oracle_ok=False)
+    assert row_endpoints(row)["engineering_correct"] is False
+
+
+def test_repair_e1_includes_the_causal_explanation_checks():
+    row = _row(case="compile-error-fix")
+    row["checks"]["named what was wrong"] = False
+    assert row_endpoints(row)["engineering_correct"] is False
+    row = _row(case="test-failure-fix")
+    row["checks"]["explained the fix"] = False
+    assert row_endpoints(row)["engineering_correct"] is False
+
+
+def test_scope_violation_and_invented_tool_calls_both_fail_e2():
+    assert row_endpoints(_row(scope=True))["contract_compliant"] is False
+    assert row_endpoints(_row(invented=["magic_tool"]))["contract_compliant"] is False
+
+
+def test_invalid_replacements_are_bounded_to_five_attempts():
+    rows = [
+        _row("link-error", "narrow", counted=False, attempt=0),
+        _row("link-error", "narrow", engineering=True, attempt=1),
+        _row("link-error", "narrow", counted=False, attempt=2),
+        _row("link-error", "narrow", engineering=True, attempt=3),
+        _row("link-error", "narrow", counted=False, attempt=4),
+    ]
+    cell = analyse(rows)["by_condition"]["narrow"]["tasks"]["link-error"]
+    assert cell["engineering_correct"]["decision"] == "indeterminate"
+    assert cell["attempts"]["attempts_considered"] == 5
+    assert cell["attempts"]["invalid_attempts"] == 3
+
+
+def test_first_three_valid_rows_within_five_are_the_only_decision_set():
+    rows = [
+        _row("link-error", "narrow", counted=False, attempt=0),
+        _row("link-error", "narrow", engineering=True, attempt=1),
+        _row("link-error", "narrow", engineering=False, attempt=2),
+        _row("link-error", "narrow", counted=False, attempt=3),
+        _row("link-error", "narrow", engineering=True, attempt=4),
+    ]
+    cell = analyse(rows)["by_condition"]["narrow"]["tasks"]["link-error"]
+    assert cell["engineering_correct"]["decision"] == "pass"
+    assert cell["engineering_correct"]["successes"] == 2
+    assert cell["attempts"]["protocol_violation"] is False
