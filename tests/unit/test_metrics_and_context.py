@@ -675,14 +675,25 @@ def test_the_source_hash_ignores_generated_state():
 def test_the_source_hash_covers_everything_that_can_change_a_result():
     """An edit to the qualification gate once produced an identical hash,
     because measurement was not hashed. The gate decides whether a run starts."""
-    from local_agent.provenance import _files
+    from local_agent.provenance import _ROOT, _files
 
-    rels = {str(p).split("local-code-agent/")[-1] for p in _files()}
+    # Relative POSIX paths, derived exactly the way source_sha256 derives them.
+    #
+    # This used to be `str(p).split("local-code-agent/")[-1]` compared with
+    # `endswith`, broken on Windows twice over: `str(Path)` yields backslashes
+    # so the split never matched, and the suffix literal had a forward slash so
+    # that never matched either. It also assumed the checkout directory is
+    # literally named `local-code-agent`, which is untrue on a CI runner.
+    #
+    # `endswith` was too loose besides: `x/evaluation/oracle.py` satisfied a
+    # check for `evaluation/oracle.py`. Exact membership is portable and
+    # stricter.
+    rels = {path.relative_to(_ROOT).as_posix() for path in _files()}
     for expected in ("measurement/qualify_server.py", "measurement/run_experiment.sh",
                      "evaluation/run_evaluation.py", "evaluation/task_contracts.py",
                      "local_agent/agent/orchestrator.py",
                      "skills/diagnose-test-failure/SKILL.md"):
-        assert any(r.endswith(expected) for r in rels), expected
+        assert expected in rels, f"{expected} is not in the hashed set"
 
 
 def test_the_model_facing_contract_has_its_own_fingerprint():
@@ -836,3 +847,226 @@ def test_the_declared_identity_matches_this_tree():
         "source_sha256 has drifted from INSTRUMENT.json"
     assert declared["base_prompt_sha256"] == provenance.base_prompt_sha256(), \
         "base_prompt_sha256 has drifted from INSTRUMENT.json, which ends a generation"
+
+
+def test_the_hashed_set_is_reported_as_portable_relative_paths():
+    """`source_sha256` hashes `relative_to(_ROOT).as_posix()`, so anything
+    asking which files are covered has to derive them the same way.
+
+    A coverage check that did string surgery on `str(Path)` and compared with
+    `endswith` passed on Linux and could never pass on Windows.
+    """
+    from local_agent.provenance import _ROOT, _files
+
+    rels = [path.relative_to(_ROOT).as_posix() for path in _files()]
+    assert rels, "the hashed set cannot be empty"
+    for rel in rels:
+        assert "\\" not in rel, f"{rel!r} is not a portable relative path"
+        assert not rel.startswith("/"), rel
+        assert ".." not in rel.split("/"), rel
+    for path in _files():
+        assert _ROOT in path.parents or path.parent == _ROOT, path
+
+
+def test_no_hashed_file_has_windows_line_endings():
+    """`source_sha256` hashes raw bytes, so the checkout has to be canonical.
+
+    This is the stronger of the two available designs and it is deliberate. A
+    hash that normalised line endings before hashing would be a hash of what we
+    chose to look at rather than of what is on disk, and it would quietly
+    forgive any future byte-level difference somebody decided was cosmetic.
+    Keeping the hash raw means the working tree has to be made deterministic
+    instead.
+
+    By default it is not. Git for Windows ships `core.autocrlf=true`, which
+    rewrites LF to CRLF on checkout, so an identical commit produced a different
+    identity there. Measured at 5d729478, before the ordering fix that
+    followed, so these are historical numbers rather than the current identity:
+
+        LF working tree    e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+        same tree as CRLF  6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
+
+    Root `.gitattributes` sets `* text=auto eol=lf`, which overrides
+    `core.autocrlf` on every host. This asserts the result rather than the
+    configuration, so it fails on a checkout that ignored the attributes, on a
+    file added later with CRLF committed into the blob, or on anybody who
+    decides to relax the attribute.
+
+    Every file in the hashed set is text: 76 of them, no NUL bytes, extensions
+    .cpp .hpp .py .sh .md .json .toml .txt and .gitignore. So a CRLF here is
+    always a line ending and never binary content that happens to contain 0x0D
+    0x0A.
+    """
+    from local_agent.provenance import _ROOT, _files
+
+    offenders = []
+    for path in _files():
+        blob = path.read_bytes()
+        if b"\r\n" in blob:
+            offenders.append(path.relative_to(_ROOT).as_posix())
+
+    assert not offenders, (
+        "CRLF in the hashed source surface, so this checkout cannot reproduce "
+        "the declared source_sha256: " + ", ".join(sorted(offenders))
+    )
+
+
+def test_the_repository_declares_canonical_line_endings():
+    """The attribute itself, pinned, because the test above only sees the
+    result. A checkout that happened to be clean would pass it while leaving the
+    next person on Windows to rediscover the problem.
+    """
+    from local_agent.provenance import _ROOT
+
+    attributes = _ROOT / ".gitattributes"
+    assert attributes.is_file(), "root .gitattributes is what makes the checkout deterministic"
+
+    directives = [
+        line.split("#", 1)[0].strip()
+        for line in attributes.read_text(encoding="utf-8").splitlines()
+    ]
+    assert "* text=auto eol=lf" in directives, \
+        "every text file must check out with LF regardless of core.autocrlf"
+
+
+def test_the_fixture_generator_writes_lf_on_every_host():
+    """`.gitattributes` makes the checkout canonical. It cannot make a later
+    write canonical, and the generator runs after checkout in every CI job.
+
+    `Path.write_text` opens in text mode, and text mode on Windows translates
+    "\\n" to "\\r\\n" on the way out. `benchmark_fixture/cpp_project` is inside
+    the hashed surface, so five unqualified writes rewrote 24 of the 76 hashed
+    files as CRLF on Windows and moved `source_sha256` every time the generator
+    ran there.
+
+    This asserts the funnel rather than the result, because the result is
+    invisible on Linux: `write_text` never translates here, so a missing keyword
+    passes locally and fails only on the host nobody develops on.
+    """
+    import ast
+
+    from local_agent.provenance import _ROOT
+
+    source = (_ROOT / "benchmark_fixture" / "generate_project.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "\r" not in source, (
+        "a CR in the generator source would survive newline='\\n', which "
+        "translates rather than normalises"
+    )
+
+    unqualified = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if name not in {"write_text", "open", "write_bytes"}:
+            continue
+        if "newline" not in {kw.arg for kw in node.keywords}:
+            unqualified.append(f"{name} at line {node.lineno}")
+
+    assert not unqualified, (
+        "every generated write must pin its line endings, or a Windows run of "
+        "the generator moves source_sha256: " + ", ".join(unqualified)
+    )
+
+
+def test_the_generator_write_helper_emits_the_bytes_it_was_given(tmp_path):
+    """The behaviour the AST check above only infers. Trivially true on Linux,
+    load-bearing on Windows, and cheap enough to state in both places.
+    """
+    import importlib.util
+    import sys
+
+    from local_agent.provenance import _ROOT
+
+    spec = importlib.util.spec_from_file_location(
+        "_generate_project_under_test",
+        _ROOT / "benchmark_fixture" / "generate_project.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        content = "one\ntwo\nthree\n"
+        target = tmp_path / "sample.txt"
+        module._write_text(target, content)
+    finally:
+        sys.modules.pop(spec.name, None)
+
+    assert target.read_bytes() == content.encode("utf-8"), (
+        "the generator must put the bytes of its source strings on disk, "
+        "unmodified, on every host"
+    )
+
+
+def test_the_hashed_order_does_not_depend_on_the_host_path_flavour():
+    """The order files are visited in is part of the identity, so it has to be
+    a property of the repository rather than of the machine reading it.
+
+    `_files()` used to end in `sorted(out)`, sorting `Path` objects.
+    `PurePath.__lt__` compares the host flavour's normcase form: on POSIX that
+    is the string as written, on Windows it is `str(path).lower()` with
+    backslash separators, which is case-insensitive. So
+    `benchmark_fixture/cpp_project/README.md` sorts before
+    `benchmark_fixture/cpp_project/include/...` here and after it there, and the
+    identical tree produced two identities.
+
+    This was the third and last cause of the Windows identity failure, and it
+    is the one that could not be fixed outside the hash: `.gitattributes` makes
+    the checkout canonical and the generator's `_write_text` keeps it that way,
+    but neither touches iteration order. All three were confirmed together by
+    reproducing the observed CI value exactly, from Linux, on the tree at
+    5d729478 (so these four are historical: this commit changes provenance.py,
+    which is itself hashed, and INSTRUMENT.json carries the current value):
+
+        canonical order, LF       e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+        canonical order, CRLF     6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
+        Windows order,   LF       6c0b0cde2c9a8fd5fe1eb4eb34cdf314ee4fe68d545124271920d75e367cc734
+        Windows order,   CRLF     bd6ca03ea18c0c12ddf3ab190aac50bb36d6fdf2d2eaafa3d4c296dc905f0dc6  <- GitHub Actions run 50
+
+    The exact match also proves the hashed file SET is identical on both hosts,
+    which had been a competing hypothesis.
+
+    Sorting on `_key`, the same canonical string the digest records, removes the
+    dependency. This test states the invariant, checks it is still capable of
+    failing, and confirms the order is load-bearing rather than incidental.
+    """
+    import hashlib
+
+    from local_agent.provenance import _ROOT, _files, _key, source_sha256
+
+    rels = [_key(path) for path in _files()]
+    assert rels == sorted(rels), (
+        "the hashed set must be visited in canonical repository-path order, "
+        "not in whatever order this host compares Path objects in"
+    )
+
+    def digest_over(order):
+        out = hashlib.sha256()
+        for rel in order:
+            out.update(rel.encode())
+            out.update(b"\0")
+            out.update((_ROOT / rel).read_bytes())
+            out.update(b"\0")
+        return out.hexdigest()
+
+    assert digest_over(rels) == source_sha256(), \
+        "source_sha256 must be exactly the canonical-order digest"
+
+    # str(path).lower() with backslashes: what PurePath comparison does on
+    # Windows, reproduced here so the test fails on every host rather than only
+    # on the one that had the bug.
+    windows_order = sorted(rels, key=lambda rel: rel.replace("/", "\\").lower())
+
+    assert windows_order != rels, (
+        "no file pair in the hashed set is ordered differently by a "
+        "case-insensitive comparison any more, so this regression has stopped "
+        "discriminating. Restore a pair or delete the test; do not leave it "
+        "passing vacuously"
+    )
+    assert digest_over(windows_order) != source_sha256(), (
+        "the two orderings must produce different digests, or the invariant "
+        "above is not actually load-bearing"
+    )

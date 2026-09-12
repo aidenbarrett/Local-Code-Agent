@@ -1,0 +1,29 @@
+# The working tree is the provenance surface.
+#
+# `source_sha256` hashes raw file bytes, deliberately: a hash that normalised
+# line endings before hashing would be a hash of what we decided to look at
+# rather than of what is on disk. The cost of that stronger property is that
+# the checkout has to be deterministic, and by default it is not. Git for
+# Windows ships `core.autocrlf=true`, which rewrites LF to CRLF on checkout, so
+# the identical commit produced a different identity there. Measured on the
+# tree at 5d729478, before the ordering fix that followed:
+#
+#     LF working tree    e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+#     same tree as CRLF  6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
+#
+# Those two numbers are historical, not the current identity. INSTRUMENT.json
+# is the only place that declares what this tree should hash to.
+#
+# So the fix belongs here rather than inside the hash. This overrides
+# core.autocrlf for every text file, on every host, and a test asserts that no
+# file in the hashed set has CRLF in the working tree.
+* text=auto eol=lf
+
+# Frozen experimental evidence. `text=auto` already leaves these alone because
+# git detects the NUL bytes, but a dataset is the last thing that should depend
+# on heuristics, so it is stated.
+*.sqlite3 binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.gz binary
