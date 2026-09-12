@@ -1,0 +1,274 @@
+From 8743e05a0b8585b9ceffe658dfa17bdefeb04e01 Mon Sep 17 00:00:00 2001
+From: Aiden Barrett <aidenbarrett101@gmail.com>
+Date: Sat, 12 Sep 2026 00:15:37 +0000
+Subject: [PATCH 4/4] Stop the hashed order depending on the host, and
+ reproduce bd6ca03 exactly
+
+The Windows identity failure had THREE causes, not two. The previous commit
+closes the two that move no identity. This closes the third, which cannot be
+closed outside the hash, and which is why that commit does not on its own turn
+Windows green.
+
+WHAT WAS WRONG
+
+  _files() ended in `sorted(out)`, sorting Path objects. `PurePath.__lt__`
+  compares the host flavour's normcase form. On POSIX that is the string as
+  written. On Windows it is `str(path).lower()`, with backslash separators and
+  case folded. So:
+
+      POSIX    .../cpp_project/CMakeLists.txt, README.md, include/sandbox/...
+      Windows  .../cpp_project/CMakeLists.txt, include/sandbox/..., README.md
+
+  'R' is 0x52 and sorts before 'i' 0x69; 'r' is 0x72 and sorts after it. The
+  identical tree, byte for byte, hashed two different ways depending on which
+  machine read it.
+
+  The earlier `.as_posix()` fix corrected the key each file contributes. It did
+  not correct the order the keys are contributed in, and the order is just as
+  load-bearing.
+
+THE PROOF, WHICH IS THE POINT
+
+  The observed CI value is now reproduced exactly rather than reasoned about.
+  Computed on the tree at 5d729478, from Linux, by applying each candidate
+  transformation to the real bytes:
+
+      canonical order, LF       e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+      canonical order, CRLF     6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
+      Windows order,   LF       6c0b0cde2c9a8fd5fe1eb4eb34cdf314ee4fe68d545124271920d75e367cc734
+      Windows order,   CRLF     bd6ca03ea18c0c12ddf3ab190aac50bb36d6fdf2d2eaafa3d4c296dc905f0dc6
+
+  The last one is GitHub Actions run 50, to all seven digits that were
+  reported. Three further things follow from an exact match that no amount of
+  argument would have given:
+
+  - The Windows hashed file SET is identical to the Linux one, 76 files. That
+    kills the competing hypothesis that rglob or _SKIP behaved differently
+    there, which was the other live explanation.
+  - The CRLF was tree-wide, not fixture-only. Both the checkout and the
+    generator were producing it, and the fixture-only and non-fixture-only
+    candidates (ca3777ac and 7dcbec8e) are excluded by measurement.
+  - `.gitattributes` plus the generator fix land on 6c0b0cde, not e16b2f01.
+    Necessary, and demonstrably not sufficient.
+
+  Four earlier candidate hashes, computed before the ordering cause was found,
+  all failed to match. Reporting a miss rather than shipping the nearest
+  plausible story is what turned this up.
+
+THE FIX
+
+  Sort on `_key`, the same canonical repository path the digest records. The
+  order becomes a property of the repository rather than of the host reading
+  it, and the sort key and the hashed key are now literally the same function,
+  so they cannot drift apart again.
+
+  One regression, which fails on every host rather than only the one that had
+  the bug. It asserts the invariant, asserts that source_sha256 is exactly the
+  canonical-order digest, asserts the tree still contains a pair the two
+  orderings disagree on (so the test cannot go vacuous without saying so), and
+  asserts the two orderings produce different digests (so the invariant is
+  load-bearing rather than decorative).
+
+WHY INSTRUMENT.json MOVES, AND WHY THAT IS NOT A GENERATION
+
+  provenance.py is inside the hashed surface, so any correct fix to it changes
+  source_sha256. There is no version of this that leaves the declared identity
+  alone; the alternative is leaving Windows unable to reproduce the instrument
+  at all.
+
+      source_sha256       e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+                       -> a7a1c268d82e969f821111322c3ea9064685e03d7e5e9f488461a81e5c563e9b
+
+      base_prompt_sha256  f1fb88236b18c2aa21d396a91cdc878274005cb47d687b1442811c6a740f1559
+                          UNCHANGED
+
+  base_prompt_sha256 is what ends a generation, and it has not moved: nothing
+  the model is told, and nothing its answer is judged by, changes here. The
+  generation stands at 2 and archived rows remain re-scorable across this
+  commit, subject to rescore_dataset.py per row as usual. Nothing is
+  reinterpreted and no frozen artifact is touched.
+
+  The change is provenance-only. It cannot alter a measured outcome; it alters
+  only which machines agree on what the instrument is.
+
+  Historical hashes quoted in .gitattributes and in the line-ending regression
+  are relabelled as historical in the same commit, so no stale number is left
+  sitting in the tree looking current.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01XUp32EsdQKFmZBv8ksfYv7
+---
+ .gitattributes                         |  6 ++-
+ INSTRUMENT.json                        |  2 +-
+ local_agent/provenance.py              | 24 +++++++--
+ tests/unit/test_metrics_and_context.py | 74 +++++++++++++++++++++++++-
+ 4 files changed, 98 insertions(+), 8 deletions(-)
+
+diff --git a/.gitattributes b/.gitattributes
+index 39c1783..f2e6224 100644
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -5,11 +5,15 @@
+ # rather than of what is on disk. The cost of that stronger property is that
+ # the checkout has to be deterministic, and by default it is not. Git for
+ # Windows ships `core.autocrlf=true`, which rewrites LF to CRLF on checkout, so
+-# the identical commit produced a different identity there. Measured:
++# the identical commit produced a different identity there. Measured on the
++# tree at 5d729478, before the ordering fix that followed:
+ #
+ #     LF working tree    e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+ #     same tree as CRLF  6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
+ #
++# Those two numbers are historical, not the current identity. INSTRUMENT.json
++# is the only place that declares what this tree should hash to.
++#
+ # So the fix belongs here rather than inside the hash. This overrides
+ # core.autocrlf for every text file, on every host, and a test asserts that no
+ # file in the hashed set has CRLF in the working tree.
+diff --git a/INSTRUMENT.json b/INSTRUMENT.json
+index 4b40716..3e56368 100644
+--- a/INSTRUMENT.json
++++ b/INSTRUMENT.json
+@@ -28,7 +28,7 @@
+     "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
+   },
+ 
+-  "source_sha256": "e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b",
++  "source_sha256": "a7a1c268d82e969f821111322c3ea9064685e03d7e5e9f488461a81e5c563e9b",
+   "base_prompt_sha256": "f1fb88236b18c2aa21d396a91cdc878274005cb47d687b1442811c6a740f1559",
+ 
+   "how_to_recompute": "python -c \"import sys; sys.path.insert(0,'.'); from local_agent import provenance as p; print(p.source_sha256()); print(p.base_prompt_sha256())\"",
+diff --git a/local_agent/provenance.py b/local_agent/provenance.py
+index a103ebf..59a1cd6 100644
+--- a/local_agent/provenance.py
++++ b/local_agent/provenance.py
+@@ -82,19 +82,33 @@ def _files() -> list[Path]:
+         path = _ROOT / name
+         if path.is_file():
+             out.append(path)
+-    return sorted(out)
++    # Ordered by the same canonical string the digest records, not by Path
++    # comparison. `PurePath.__lt__` compares the host flavour's normcase form,
++    # which on Windows is `str(path).lower()`: case-insensitive, and with
++    # backslash separators. So `cpp_project/README.md` sorts before
++    # `cpp_project/include/...` here and after it there, and the identical tree
++    # hashed two different ways. Sorting on the key that is actually hashed
++    # makes the order a property of the repository rather than of the host.
++    return sorted(out, key=_key)
++
++
++def _key(path: Path) -> str:
++    """The canonical repository path: what is hashed, and what orders it."""
++    return path.relative_to(_ROOT).as_posix()
+ 
+ 
+ def source_sha256() -> str:
+     """A hash over the files that decide behaviour, path and content both.
+ 
+-    Paths are canonical POSIX-style repository paths on every host. Using
+-    `str(Path)` made an identical tree hash differently on Windows solely
+-    because path separators changed, defeating cross-platform provenance.
++    Paths are canonical POSIX-style repository paths on every host, and so is
++    the order they are visited in. Both mattered: using `str(Path)` as the key
++    made an identical tree hash differently on Windows because the separators
++    changed, and sorting `Path` objects made it hash differently again because
++    `PurePath` ordering is case-insensitive there.
+     """
+     digest = hashlib.sha256()
+     for path in _files():
+-        digest.update(path.relative_to(_ROOT).as_posix().encode())
++        digest.update(_key(path).encode())
+         digest.update(b"\0")
+         digest.update(path.read_bytes())
+         digest.update(b"\0")
+diff --git a/tests/unit/test_metrics_and_context.py b/tests/unit/test_metrics_and_context.py
+index 3e2e113..4f4f6c6 100644
+--- a/tests/unit/test_metrics_and_context.py
++++ b/tests/unit/test_metrics_and_context.py
+@@ -880,7 +880,8 @@ def test_no_hashed_file_has_windows_line_endings():
+ 
+     By default it is not. Git for Windows ships `core.autocrlf=true`, which
+     rewrites LF to CRLF on checkout, so an identical commit produced a different
+-    identity there. Measured on this tree:
++    identity there. Measured at 5d729478, before the ordering fix that
++    followed, so these are historical numbers rather than the current identity:
+ 
+         LF working tree    e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+         same tree as CRLF  6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
+@@ -998,3 +999,74 @@ def test_the_generator_write_helper_emits_the_bytes_it_was_given(tmp_path):
+         "the generator must put the bytes of its source strings on disk, "
+         "unmodified, on every host"
+     )
++
++
++def test_the_hashed_order_does_not_depend_on_the_host_path_flavour():
++    """The order files are visited in is part of the identity, so it has to be
++    a property of the repository rather than of the machine reading it.
++
++    `_files()` used to end in `sorted(out)`, sorting `Path` objects.
++    `PurePath.__lt__` compares the host flavour's normcase form: on POSIX that
++    is the string as written, on Windows it is `str(path).lower()` with
++    backslash separators, which is case-insensitive. So
++    `benchmark_fixture/cpp_project/README.md` sorts before
++    `benchmark_fixture/cpp_project/include/...` here and after it there, and the
++    identical tree produced two identities.
++
++    This was the third and last cause of the Windows identity failure, and it
++    is the one that could not be fixed outside the hash: `.gitattributes` makes
++    the checkout canonical and the generator's `_write_text` keeps it that way,
++    but neither touches iteration order. All three were confirmed together by
++    reproducing the observed CI value exactly, from Linux, on the tree at
++    5d729478 (so these four are historical: this commit changes provenance.py,
++    which is itself hashed, and INSTRUMENT.json carries the current value):
++
++        canonical order, LF       e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
++        canonical order, CRLF     6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
++        Windows order,   LF       6c0b0cde2c9a8fd5fe1eb4eb34cdf314ee4fe68d545124271920d75e367cc734
++        Windows order,   CRLF     bd6ca03ea18c0c12ddf3ab190aac50bb36d6fdf2d2eaafa3d4c296dc905f0dc6  <- GitHub Actions run 50
++
++    The exact match also proves the hashed file SET is identical on both hosts,
++    which had been a competing hypothesis.
++
++    Sorting on `_key`, the same canonical string the digest records, removes the
++    dependency. This test states the invariant, checks it is still capable of
++    failing, and confirms the order is load-bearing rather than incidental.
++    """
++    import hashlib
++
++    from local_agent.provenance import _ROOT, _files, _key, source_sha256
++
++    rels = [_key(path) for path in _files()]
++    assert rels == sorted(rels), (
++        "the hashed set must be visited in canonical repository-path order, "
++        "not in whatever order this host compares Path objects in"
++    )
++
++    def digest_over(order):
++        out = hashlib.sha256()
++        for rel in order:
++            out.update(rel.encode())
++            out.update(b"\0")
++            out.update((_ROOT / rel).read_bytes())
++            out.update(b"\0")
++        return out.hexdigest()
++
++    assert digest_over(rels) == source_sha256(), \
++        "source_sha256 must be exactly the canonical-order digest"
++
++    # str(path).lower() with backslashes: what PurePath comparison does on
++    # Windows, reproduced here so the test fails on every host rather than only
++    # on the one that had the bug.
++    windows_order = sorted(rels, key=lambda rel: rel.replace("/", "\\").lower())
++
++    assert windows_order != rels, (
++        "no file pair in the hashed set is ordered differently by a "
++        "case-insensitive comparison any more, so this regression has stopped "
++        "discriminating. Restore a pair or delete the test; do not leave it "
++        "passing vacuously"
++    )
++    assert digest_over(windows_order) != source_sha256(), (
++        "the two orderings must produce different digests, or the invariant "
++        "above is not actually load-bearing"
++    )
+-- 
+2.43.0
