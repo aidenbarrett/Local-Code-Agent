@@ -1,0 +1,82 @@
+name: Phase2 reconcile onto main
+
+on:
+  push:
+    branches: [tmp/deterministic-checkout-verify]
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/phase2-evidence-contract
+          fetch-depth: 0
+      - name: Merge main, preserve phase-1 provenance fix, and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=786d8eed6ca94cffc7625bb6927561ef1fd07553
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$expected" ]; then
+            echo "phase2 head moved: expected $expected, got $actual"
+            exit 1
+          fi
+
+          git config user.name "aidenbarrett"
+          git config user.email "33842164+aidenbarrett@users.noreply.github.com"
+          git fetch origin main
+
+          set +e
+          git merge --no-commit --no-ff origin/main
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            printf 'conflicts: %s\n' "${conflicts[*]}"
+            if [ "${#conflicts[@]}" -ne 2 ] || \
+               [ "${conflicts[0]}" != "INSTRUMENT.json" ] || \
+               [ "${conflicts[1]}" != "local_agent/provenance.py" ]; then
+              echo "unexpected merge conflict set"
+              exit 1
+            fi
+          fi
+
+          # Phase 2 owns the new outcome-contract declaration and hashing logic.
+          # Keep those versions, then reapply the already-verified phase-1
+          # canonical ordering fix inside provenance.py.
+          git checkout --ours INSTRUMENT.json local_agent/provenance.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('local_agent/provenance.py')
+          text = p.read_text(encoding='utf-8')
+          old = '''    return sorted(out)\n\n\ndef source_sha256() -> str:\n'''
+          new = '''    # Ordered by the same canonical string the digest records. Path ordering\n    # is host-flavoured and is case-insensitive on Windows, so sorting Path\n    # objects directly made identical bytes hash differently across hosts.\n    return sorted(out, key=_key)\n\n\ndef _key(path: Path) -> str:\n    \"\"\"Canonical repository path used both for ordering and hashing.\"\"\"\n    return path.relative_to(_ROOT).as_posix()\n\n\ndef source_sha256() -> str:\n'''
+          if old not in text:
+              raise SystemExit('expected pre-phase1 _files tail not found')
+          text = text.replace(old, new, 1)
+          old_key = '        digest.update(path.relative_to(_ROOT).as_posix().encode())\n'
+          if old_key not in text:
+              raise SystemExit('expected provenance digest path expression not found')
+          text = text.replace(old_key, '        digest.update(_key(path).encode())\n', 1)
+          p.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+          git add INSTRUMENT.json local_agent/provenance.py
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "unresolved conflicts remain"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          grep -q 'return sorted(out, key=_key)' local_agent/provenance.py
+          grep -q 'evaluation/endpoints.py' local_agent/provenance.py
+          grep -q 'outcome_contract_sha256' local_agent/provenance.py
+          grep -q 'text=auto eol=lf' .gitattributes
+          grep -q 'newline="\\n"' benchmark_fixture/generate_project.py
+
+          git commit -m "Reconcile hardening phase 2 with verified phase 1"
+          git push origin HEAD:hardening/phase2-evidence-contract
