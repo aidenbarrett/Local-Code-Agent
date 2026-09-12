@@ -1,0 +1,92 @@
+name: Phase2 final contract patch
+
+on:
+  push:
+    branches: [tmp/deterministic-checkout-verify]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out driver
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/deterministic-checkout-verify
+          path: driver
+          fetch-depth: 1
+
+      - name: Check out phase2
+        uses: actions/checkout@v4
+        with:
+          ref: hardening/phase2-evidence-contract
+          path: repo
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply frozen endpoint and repeat semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=20c5931b8f758ff63a834d5dfd9cfce90ed00d6e
+          actual=$(git -C repo rev-parse HEAD)
+          if [ "$actual" != "$expected" ]; then
+            echo "phase2 head moved: expected $expected, got $actual"
+            exit 1
+          fi
+          python driver/tools/phase2_finalize.py repo
+
+      - name: Install reconciled branch
+        working-directory: repo
+        run: python -m pip install -e ".[dev]"
+
+      - name: Declare final generation-2 identities
+        run: python driver/tools/phase2_finalize.py repo --finalize-instrument
+
+      - name: Verify fixture, identities, targeted contracts, then full suite
+        shell: bash
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          python benchmark_fixture/generate_project.py
+          git diff --exit-code -- benchmark_fixture/cpp_project
+          python - <<'PY'
+          import json
+          from local_agent import provenance as p
+          declared = json.load(open('INSTRUMENT.json', encoding='utf-8'))
+          actual = {
+              'source_sha256': p.source_sha256(),
+              'base_prompt_sha256': p.base_prompt_sha256(),
+              'outcome_contract_sha256': p.outcome_contract_sha256(),
+          }
+          print(actual)
+          for key, value in actual.items():
+              assert declared[key] == value, (key, declared.get(key), value)
+          assert declared['generation'] == 2
+          PY
+          python -m pytest -q tests/unit/test_endpoint_analysis.py tests/unit/test_provenance.py tests/unit/test_run_manifest.py tests/unit/test_repeat_collection.py
+          python -m pytest -q
+
+      - name: Commit and push only after verification
+        shell: bash
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          git status --short
+          git diff --check
+          git config user.name "aidenbarrett"
+          git config user.email "33842164+aidenbarrett@users.noreply.github.com"
+          git add evaluation/endpoints.py evaluation/run_evaluation.py local_agent/provenance.py \
+                  measurement/capture_run_manifest.py measurement/run_experiment.sh \
+                  docs/next-experiment-preregistration.md INSTRUMENT.json \
+                  tests/unit/test_endpoint_analysis.py tests/unit/test_provenance.py \
+                  tests/unit/test_run_manifest.py tests/unit/test_repeat_collection.py
+          git diff --cached --quiet && { echo "no changes staged"; exit 1; }
+          git commit -m "Freeze generation-2 endpoints and bounded repeat contract"
+          git push origin HEAD:hardening/phase2-evidence-contract
