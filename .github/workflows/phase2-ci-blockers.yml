@@ -1,0 +1,101 @@
+name: Phase2 CI blocker fixes
+
+on:
+  push:
+    branches: [tmp/deterministic-checkout-verify]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out driver
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/deterministic-checkout-verify
+          path: driver
+          fetch-depth: 1
+      - name: Check out phase2
+        uses: actions/checkout@v4
+        with:
+          ref: hardening/phase2-evidence-contract
+          path: repo
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Apply content-bound staleness and compat fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=62152d1c34bb7f0a51c32751c7134b5f6f08f04e
+          actual=$(git -C repo rev-parse HEAD)
+          if [ "$actual" != "$expected" ]; then
+            echo "phase2 head moved: expected $expected, got $actual"
+            exit 1
+          fi
+          python driver/tools/phase2_ci_fixes.py repo
+      - name: Install and declare source identity
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[dev]"
+          python benchmark_fixture/generate_project.py
+          git diff --exit-code -- benchmark_fixture/cpp_project
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from local_agent import provenance as p
+          path = Path('INSTRUMENT.json')
+          declared = json.loads(path.read_text(encoding='utf-8'))
+          base = p.base_prompt_sha256()
+          outcome = p.outcome_contract_sha256()
+          assert declared['base_prompt_sha256'] == base, (declared['base_prompt_sha256'], base)
+          assert declared['outcome_contract_sha256'] == outcome, (declared['outcome_contract_sha256'], outcome)
+          declared['source_sha256'] = p.source_sha256()
+          path.write_text(json.dumps(declared, indent=2) + '\n', encoding='utf-8', newline='\n')
+          print('source_sha256', declared['source_sha256'])
+          print('base_prompt_sha256', base)
+          print('outcome_contract_sha256', outcome)
+          print('generation', declared['generation'])
+          PY
+      - name: Target the two failures and endpoint discrimination
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/unit/test_cross_platform_evidence.py \
+            tests/unit/test_run_manifest.py::test_manifest_marks_actual_device_unobserved_when_not_measured \
+            tests/integration/test_evaluator_cannot_be_fooled.py::test_the_build_stamp_cannot_be_forged \
+            tests/unit/test_endpoint_analysis.py::test_engineering_correctness_is_not_claim_compliance \
+            tests/unit/test_endpoint_analysis.py::test_scope_violation_and_invented_tool_calls_both_fail_e2 \
+            tests/unit/test_endpoint_analysis.py::test_repair_e1_requires_the_independent_oracle \
+            tests/integration/test_evaluator_cannot_be_fooled.py::test_a_failed_forbidden_edit_is_still_a_scope_violation \
+            tests/integration/test_oracle_isolation.py::test_gutting_the_test_does_not_produce_a_pass
+      - name: Full Linux and compatibility verification
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q
+          python measurement/run_test_suite.py tests
+          git diff --check
+      - name: Commit and push verified repair
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --short
+          git config user.name "aidenbarrett"
+          git config user.email "33842164+aidenbarrett@users.noreply.github.com"
+          git add local_agent/tools/testing.py local_agent/tools/build.py \
+                  measurement/run_test_suite.py tests/unit/test_cross_platform_evidence.py \
+                  tests/integration/test_evaluator_cannot_be_fooled.py INSTRUMENT.json
+          git diff --cached --quiet && { echo "no changes staged"; exit 1; }
+          git commit -m "Bind build freshness to source content"
+          git push origin HEAD:hardening/phase2-evidence-contract
