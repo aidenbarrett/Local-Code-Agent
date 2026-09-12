@@ -83,7 +83,15 @@ def _files() -> list[Path]:
         path = _ROOT / name
         if path.is_file():
             out.append(path)
-    return sorted(out)
+    # Ordered by the same canonical string the digest records. Path ordering
+    # is host-flavoured and is case-insensitive on Windows, so sorting Path
+    # objects directly made identical bytes hash differently across hosts.
+    return sorted(out, key=_key)
+
+
+def _key(path: Path) -> str:
+    """Canonical repository path used both for ordering and hashing."""
+    return path.relative_to(_ROOT).as_posix()
 
 
 def source_sha256() -> str:
@@ -95,7 +103,7 @@ def source_sha256() -> str:
     """
     digest = hashlib.sha256()
     for path in _files():
-        digest.update(path.relative_to(_ROOT).as_posix().encode())
+        digest.update(_key(path).encode())
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")

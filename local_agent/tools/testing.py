@@ -53,13 +53,19 @@ PROFILE_STAMP = ".local-agent-configured-profile"
 class BuildRecord:
     """What the last successful FULL build was, and when.
 
-    `profile` is None for a stamp written by an older package, which said only
-    "ok". Unknown provenance is treated exactly like no provenance: a stamp
-    that cannot name its profile cannot support a claim about one.
+    Nanoseconds are kept as an integer. The old float-seconds stamp could lose
+    enough precision when converted from a filesystem timestamp that an edit
+    made immediately after a build compared equal to the build and was missed
+    on Windows CI.
     """
 
-    profile: str | None
-    at: float
+    profile: str
+    at_ns: int
+
+    @property
+    def at(self) -> float:
+        """Legacy seconds view for callers that only display the timestamp."""
+        return self.at_ns / 1_000_000_000
 
 
 def touch_build_stamp(root: Any, build_dir: str, profile: str) -> None:
@@ -89,13 +95,18 @@ def touch_build_stamp(root: Any, build_dir: str, profile: str) -> None:
         # has drifted, and a build recorded as later than it happened would
         # hide a real stale source.
         #
+        # Use the integer nanosecond timestamp. `st_mtime` is a float and can
+        # collapse two nearby filesystem timestamps to the same representable
+        # value. That happened on the native Windows CI runner: an immediate
+        # source edit was not detected as stale.
+        #
         # So: write, ask the filesystem what time it just used, then write that
         # into the content. The second write's own mtime is a hair later than
         # the value stored, which errs towards calling a source stale rather
         # than fresh. That is the right direction to be wrong in.
         stamp.write_text("{}\n")
-        at = stamp.stat().st_mtime
-        stamp.write_text(json.dumps({"profile": profile, "at": at}) + "\n")
+        at_ns = stamp.stat().st_mtime_ns
+        stamp.write_text(json.dumps({"profile": profile, "at_ns": at_ns}) + "\n")
     except OSError:  # pragma: no cover - never load-bearing
         pass
 
@@ -114,7 +125,13 @@ def build_record(root: Any, build_dir: str) -> BuildRecord | None:
         return None
     try:
         payload = json.loads(text)
-        profile, at = payload.get("profile"), payload.get("at")
+        profile = payload.get("profile")
+        at_ns = payload.get("at_ns")
+        # Read stamps produced by the previous package. They carried float
+        # seconds. New writes are always nanoseconds, so precision is never
+        # thrown away again after this point.
+        if at_ns is None and isinstance(payload.get("at"), (int, float)):
+            at_ns = int(float(payload["at"]) * 1_000_000_000)
     except (ValueError, AttributeError):
         return None  # legacy "ok\n" stamp: built, but by whom, when, for what?
 
@@ -126,11 +143,11 @@ def build_record(root: Any, build_dir: str) -> BuildRecord | None:
     # now with nothing compiled. Writes into the build directory are refused
     # outright as well, and these are two independent locks on the same door
     # because that door decides whether a result counts as proof.
-    if not isinstance(at, (int, float)):
+    if not isinstance(at_ns, int) or at_ns <= 0:
         return None
     if not isinstance(profile, str) or not profile:
         return None
-    return BuildRecord(profile=profile, at=float(at))
+    return BuildRecord(profile=profile, at_ns=at_ns)
 
 
 def configured_profile(root: Any, build_dir: str) -> str | None:
@@ -179,7 +196,7 @@ def _stale_sources(root: Any, build_dir: str, record: BuildRecord | None) -> lis
         # condition. Returning [] here and letting the result stand as a PASS
         # is precisely how an unbuilt profile verified old binaries.
         return []
-    newest_build = record.at
+    newest_build_ns = record.at_ns
 
     stale: list[str] = []
     for path in root.rglob("*"):
@@ -191,8 +208,11 @@ def _stale_sources(root: Any, build_dir: str, record: BuildRecord | None) -> lis
         if not path.is_file() or path.suffix.lower() not in _SOURCE_SUFFIXES:
             continue
         try:
-            if path.stat().st_mtime > newest_build:
-                stale.append(str(path.relative_to(root)))
+            if path.stat().st_mtime_ns > newest_build_ns:
+                # Evidence is serialized and shown to the model. Repository
+                # paths therefore have one canonical spelling on every host,
+                # not backslashes on Windows and slashes on Linux.
+                stale.append(path.relative_to(root).as_posix())
         except OSError:  # pragma: no cover
             continue
     return sorted(stale)

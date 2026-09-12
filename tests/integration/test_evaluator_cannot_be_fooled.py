@@ -13,6 +13,7 @@ failure, which is why evidence is now a hard gate and not a quality point.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -493,6 +494,45 @@ def test_an_unrelated_targeted_build_cannot_clear_a_stale_source(tmp_path):
     assert run_test(name_filter="ring_buffer").data["stale_sources"] == []
 
 
+def _assert_tree_is_configured_for(root, profile_name):
+    """The requested profile matches the tree that was actually configured.
+
+    The old assertion read `CMAKE_BUILD_TYPE:STRING=<name>` out of
+    CMakeCache.txt. That is only meaningful under a single-config generator.
+    Under Visual Studio, which is what Windows gets by default,
+    CMAKE_BUILD_TYPE is empty and the configuration is chosen per build via
+    `--config`, so the assertion could never pass and the invariant it was
+    protecting went untested on the platform that needs it most.
+
+    The profile marker is the better subject anyway, and this is a
+    strengthening rather than a relaxation: `build_target` consults
+    `configured_profile()` to decide whether a reconfigure is needed, so the
+    marker is what the tool actually acts on, and the old test never checked
+    it. The cache is still checked, in the form each generator can honour.
+    """
+    from local_agent.tools.testing import configured_profile
+
+    assert configured_profile(root, "build") == profile_name, \
+        f"the build directory is not marked as configured for {profile_name!r}"
+
+    cache = (root / "build" / "CMakeCache.txt").read_text(encoding="utf-8")
+    build_type = re.search(r"^CMAKE_BUILD_TYPE:\w+=(.*)$", cache, re.M)
+    configuration_types = re.search(r"^CMAKE_CONFIGURATION_TYPES:\w+=(.+)$", cache, re.M)
+    expected = {"debug": "Debug", "release": "RelWithDebInfo"}[profile_name]
+
+    if build_type and build_type.group(1).strip():
+        # Single-config generator: the cache names the one configuration.
+        assert build_type.group(1).strip() == expected, cache[:400]
+    else:
+        # Multi-config generator: an empty CMAKE_BUILD_TYPE is correct rather
+        # than a defect, and the cache has to say so by declaring the
+        # configurations it offers, one of which must be the one we want.
+        assert configuration_types, \
+            "CMAKE_BUILD_TYPE is empty and no CMAKE_CONFIGURATION_TYPES: " + cache[:400]
+        offered = [c.strip() for c in configuration_types.group(1).split(";")]
+        assert expected in offered, f"{expected} not among {offered}"
+
+
 def test_the_profile_label_matches_the_configured_tree(tmp_path):
     """Both profiles share one build directory and configure only ran when
     CMakeCache.txt was absent, so `build_target(profile="release")` on a tree
@@ -508,13 +548,12 @@ def test_the_profile_label_matches_the_configured_tree(tmp_path):
 
     assert registry.get("configure_project").handler(profile="debug").ok
     assert registry.get("build_target").handler(profile="debug").ok
-    assert "CMAKE_BUILD_TYPE:STRING=Debug" in cache.read_text()
+    _assert_tree_is_configured_for(root, "debug")
 
     result = registry.get("build_target").handler(profile="release")
     assert result.ok, result.summary
     assert "release" in result.summary
-    assert "CMAKE_BUILD_TYPE:STRING=RelWithDebInfo" in cache.read_text(), \
-        "the label has to describe the tree that was actually built"
+    _assert_tree_is_configured_for(root, "release")
 
 
 def test_a_test_run_cannot_verify_a_profile_the_tree_is_not_configured_for(tmp_path):
@@ -709,14 +748,23 @@ def test_a_cache_with_no_profile_marker_is_treated_as_unknown_provenance(tmp_pat
     cache = root / "build" / "CMakeCache.txt"
 
     assert registry.get("configure_project").handler(profile="debug").ok
-    assert "CMAKE_BUILD_TYPE:STRING=Debug" in cache.read_text()
+    _assert_tree_is_configured_for(root, "debug")
+
+    from local_agent.tools.testing import configured_profile
 
     (root / "build" / PROFILE_STAMP).unlink()
     assert cache.is_file(), "the cache is still there; only the marker is gone"
+    assert configured_profile(root, "build") is None, \
+        "with the marker gone the tree's provenance must read as unknown"
 
     assert registry.get("build_target").handler(profile="release").ok
-    assert "CMAKE_BUILD_TYPE:STRING=RelWithDebInfo" in cache.read_text(), \
-        "an unlabelled cache must be reconfigured, not trusted"
+
+    # The invariant is that an unlabelled cache is reconfigured rather than
+    # trusted, which the generator-aware check states in the form each
+    # generator can honour. The literal `CMAKE_BUILD_TYPE:STRING=RelWithDebInfo`
+    # asserted that Visual Studio would populate a variable it deliberately
+    # leaves empty, which is a claim about CMake rather than about us.
+    _assert_tree_is_configured_for(root, "release")
 
 
 def test_the_runtime_and_the_evaluator_agree_on_what_proof_is(tmp_path):
@@ -972,3 +1020,182 @@ def test_a_targeted_failure_also_retracts(tmp_path):
     assert classify_proof(
         name="build_target", arguments={}, execution="blocked", domain="unknown",
     ) not in CONTRADICTS_CURRENT_TREE
+
+
+# ------------------------------------------------------------------ rmtree
+#
+# `prepare()` destroys and recreates its own worktree, and git makes that hard
+# on Windows: everything under `.git/objects` is marked read-only, which blocks
+# deletion there while changing nothing on POSIX.
+#
+# The recovery handler has three properties and each was got wrong once, so
+# each has its own test. Only the last of these is Windows-specific; the rest
+# are portable, which matters because the minimum supported interpreter is 3.11
+# and a green run on 3.12 cannot speak for it.
+
+
+def test_the_legacy_onerror_tuple_shape_is_handled(tmp_path):
+    """Python 3.11 has only `shutil.rmtree(onerror=...)`, which is handed a
+    `sys.exc_info()` TUPLE. Python 3.12 added `onexc`, handed the exception
+    INSTANCE. The project supports 3.11.
+
+    A single handler assuming an instance is broken on the minimum supported
+    version and fails in a worse way than the bug it repairs:
+    `isinstance(tuple, PermissionError)` is False, so it reaches `raise <tuple>`
+    and dies with `TypeError: exceptions must derive from BaseException`.
+
+    This drives the legacy adapter with a real `exc_info` tuple, produced by
+    actually raising, rather than a hand-built stand-in.
+    """
+    import os
+    import stat
+    import sys as _sys
+
+    import run_evaluation
+
+    target = tmp_path / "object"
+    target.write_text("content", encoding="utf-8")
+    os.chmod(target, 0o444)
+
+    try:
+        raise PermissionError(13, "Access is denied")
+    except PermissionError:
+        exc_info = _sys.exc_info()
+
+    assert isinstance(exc_info, tuple) and len(exc_info) == 3
+
+    retried = []
+    run_evaluation._clear_readonly_and_retry_legacy(retried.append, target, exc_info)
+
+    assert retried == [target], "the failing operation must be retried once"
+    assert stat.S_IMODE(os.lstat(target).st_mode) & stat.S_IWUSR
+
+
+def test_recovery_preserves_the_existing_mode(tmp_path):
+    """Add the owner write bit; do not replace the mode.
+
+    `os.chmod(path, stat.S_IWRITE)` sets the mode to 0o200, destroying read and
+    execute. On POSIX that turns one unrecoverable file into an untraversable
+    directory and a failed subtree.
+
+    The assertion is written as a subset relation rather than an exact mode,
+    because Windows does not represent the owner, group and other write bits
+    independently. `os.chmod` there toggles one read-only attribute, so a 0o444
+    file that becomes writable is reported as 0o666, not 0o644. An exact check
+    demanded POSIX granularity from an OS that does not have it.
+
+    Worth being explicit about what each platform can prove here, because the
+    two are not equal. On POSIX the subset relation still catches the dangerous
+    regression: reverting to `S_IWRITE` yields 0o200, and `0o200 & 0o444` is
+    zero, so the assertion fails. On Windows it cannot catch it, because the bad
+    implementation also ends up reported as 0o666. POSIX carries that evidence,
+    which is why the exact check below is kept where the OS can express it
+    rather than dropped entirely.
+
+    This is not a Windows carve-out. The test runs on both platforms and
+    asserts the portable invariant on both; it additionally asserts exactness
+    where exactness is meaningful.
+    """
+    import os
+    import stat
+    import sys as _sys
+
+    import run_evaluation
+
+    target = tmp_path / "object"
+    target.write_text("content", encoding="utf-8")
+    os.chmod(target, 0o444)
+    before = stat.S_IMODE(os.lstat(target).st_mode)
+
+    run_evaluation._clear_readonly_and_retry(lambda _p: None, target,
+                                             PermissionError(13, "Access is denied"))
+
+    after = stat.S_IMODE(os.lstat(target).st_mode)
+
+    assert after & before == before, \
+        f"recovery removed permission bits: {oct(before)} -> {oct(after)}"
+    assert after & stat.S_IWUSR, \
+        f"recovery must make the path owner-writable: {oct(after)}"
+
+    if _sys.platform != "win32":
+        assert after == before | stat.S_IWUSR, \
+            f"expected exactly {oct(before | stat.S_IWUSR)}, got {oct(after)}"
+
+
+def test_a_stuck_tree_still_fails_loudly(tmp_path):
+    """The handler must not become a blanket "ignore errors", in either shape.
+
+    Anything that is not a permission problem has to propagate, or a tree that
+    genuinely cannot be removed is silently accepted and the next case runs
+    against the previous case's repository.
+    """
+    import sys as _sys
+
+    import run_evaluation
+
+    error = OSError("device is on fire")
+    calls = []
+
+    for handler, payload in (
+        (run_evaluation._clear_readonly_and_retry, error),
+        (run_evaluation._clear_readonly_and_retry_legacy, (OSError, error, None)),
+    ):
+        try:
+            handler(calls.append, tmp_path, payload)
+        except OSError as raised:
+            assert raised is error
+        else:
+            raise AssertionError(f"{handler.__name__} swallowed a non-permission error")
+    assert not calls, "the failing operation must not be retried"
+
+    # And the version split itself is pinned, so a future tidy-up cannot
+    # collapse the two adapters back into one.
+    assert (_sys.version_info >= (3, 12)) or run_evaluation._clear_readonly_and_retry_legacy
+
+
+def test_a_worktree_with_read_only_git_objects_can_still_be_removed(tmp_path):
+    """The end-to-end case, and the only Windows-specific one here.
+
+    On Windows this fails without the fix. On POSIX `rmtree` succeeds anyway,
+    because unlinking needs write permission on the directory rather than on the
+    file, so this is a smoke test there and the three tests above carry the
+    portable evidence.
+    """
+    import os
+    import stat
+
+    from run_evaluation import prepare
+
+    root, _ = prepare(tmp_path, "clean")
+    objects = root / ".git" / "objects"
+    assert objects.is_dir(), "prepare must leave a real git repository behind"
+
+    marked = 0
+    for path in objects.rglob("*"):
+        if path.is_file():
+            os.chmod(path, stat.S_IRUSR)
+            marked += 1
+    assert marked, "the fixture is meant to have git objects to mark"
+
+    again, _ = prepare(tmp_path, "clean")
+    assert again.is_dir() and (again / ".git").is_dir()
+
+
+def test_the_profile_invariant_rejects_a_mismatched_tree(tmp_path):
+    """The generator-aware profile check has to be capable of failing.
+
+    It replaced a literal `CMAKE_BUILD_TYPE:STRING=Debug` match that could never
+    pass under a multi-config generator. A replacement that passes on both
+    platforms is only worth having if it still catches what the original caught.
+    """
+    from run_evaluation import prepare
+    from local_agent.config import load_repo_config
+    from local_agent.tools import build_registry
+
+    root, _ = prepare(tmp_path, "clean")
+    registry, _, _ = build_registry(load_repo_config(root))
+    assert registry.get("configure_project").handler(profile="debug").ok
+
+    _assert_tree_is_configured_for(root, "debug")
+    with pytest.raises(AssertionError):
+        _assert_tree_is_configured_for(root, "release")
