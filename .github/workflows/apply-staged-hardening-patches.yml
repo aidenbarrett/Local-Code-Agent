@@ -1,0 +1,85 @@
+name: Apply staged hardening patches
+
+on:
+  push:
+    branches:
+      - tmp/deterministic-checkout-verify
+    paths:
+      - .ci-patches/GO
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out staging branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply exact uploaded patches and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expected=5d72947890f3ffd62dd844e0f0595cdffd177f97
+          target=hardening/phase1-runtime-evidence
+
+          cp .ci-patches/0003.patch "$RUNNER_TEMP/0003.patch"
+          cp .ci-patches/0004.patch "$RUNNER_TEMP/0004.patch"
+
+          git fetch origin "$target"
+          actual="$(git rev-parse "origin/$target")"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Refusing to apply: $target moved from $expected to $actual" >&2
+            exit 1
+          fi
+
+          git switch -C apply-target "origin/$target"
+          git config user.name "aidenbarrett"
+          git config user.email "33842164+aidenbarrett@users.noreply.github.com"
+
+          git am "$RUNNER_TEMP/0003.patch"
+          git am "$RUNNER_TEMP/0004.patch"
+
+          if [[ "$(git rev-list --count "$expected"..HEAD)" != "2" ]]; then
+            echo "Expected exactly two applied commits" >&2
+            exit 1
+          fi
+
+          python benchmark_fixture/generate_project.py
+          git diff --exit-code -- benchmark_fixture/cpp_project
+
+          python - <<'PY'
+          from local_agent import provenance as p
+          expected_source = "a7a1c268d82e969f821111322c3ea9064685e03d7e5e9f488461a81e5c563e9b"
+          expected_prompt = "f1fb88236b18c2aa21d396a91cdc878274005cb47d687b1442811c6a740f1559"
+          actual_source = p.source_sha256()
+          actual_prompt = p.base_prompt_sha256()
+          print("source_sha256", actual_source)
+          print("base_prompt_sha256", actual_prompt)
+          assert actual_source == expected_source, (actual_source, expected_source)
+          assert actual_prompt == expected_prompt, (actual_prompt, expected_prompt)
+          PY
+
+          python -m pip install -e '.[dev]'
+          python -m pytest -q \
+            tests/integration/test_evaluator_cannot_be_fooled.py::test_a_cache_with_no_profile_marker_is_treated_as_unknown_provenance \
+            tests/unit/test_metrics_and_context.py::test_the_declared_identity_matches_this_tree \
+            tests/unit/test_metrics_and_context.py::test_no_hashed_file_has_windows_line_endings \
+            tests/unit/test_metrics_and_context.py::test_the_repository_declares_canonical_line_endings \
+            tests/unit/test_metrics_and_context.py::test_the_fixture_generator_writes_lf_on_every_host \
+            tests/unit/test_metrics_and_context.py::test_the_generator_write_helper_emits_the_bytes_it_was_given \
+            tests/unit/test_metrics_and_context.py::test_the_hashed_order_does_not_depend_on_the_host_path_flavour
+
+          git status --short
+          test -z "$(git status --porcelain)"
+
+          git push origin HEAD:"$target"
