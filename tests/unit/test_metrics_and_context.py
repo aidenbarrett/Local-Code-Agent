@@ -866,3 +866,135 @@ def test_the_hashed_set_is_reported_as_portable_relative_paths():
         assert ".." not in rel.split("/"), rel
     for path in _files():
         assert _ROOT in path.parents or path.parent == _ROOT, path
+
+
+def test_no_hashed_file_has_windows_line_endings():
+    """`source_sha256` hashes raw bytes, so the checkout has to be canonical.
+
+    This is the stronger of the two available designs and it is deliberate. A
+    hash that normalised line endings before hashing would be a hash of what we
+    chose to look at rather than of what is on disk, and it would quietly
+    forgive any future byte-level difference somebody decided was cosmetic.
+    Keeping the hash raw means the working tree has to be made deterministic
+    instead.
+
+    By default it is not. Git for Windows ships `core.autocrlf=true`, which
+    rewrites LF to CRLF on checkout, so an identical commit produced a different
+    identity there. Measured on this tree:
+
+        LF working tree    e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+        same tree as CRLF  6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
+
+    Root `.gitattributes` sets `* text=auto eol=lf`, which overrides
+    `core.autocrlf` on every host. This asserts the result rather than the
+    configuration, so it fails on a checkout that ignored the attributes, on a
+    file added later with CRLF committed into the blob, or on anybody who
+    decides to relax the attribute.
+
+    Every file in the hashed set is text: 76 of them, no NUL bytes, extensions
+    .cpp .hpp .py .sh .md .json .toml .txt and .gitignore. So a CRLF here is
+    always a line ending and never binary content that happens to contain 0x0D
+    0x0A.
+    """
+    from local_agent.provenance import _ROOT, _files
+
+    offenders = []
+    for path in _files():
+        blob = path.read_bytes()
+        if b"\r\n" in blob:
+            offenders.append(path.relative_to(_ROOT).as_posix())
+
+    assert not offenders, (
+        "CRLF in the hashed source surface, so this checkout cannot reproduce "
+        "the declared source_sha256: " + ", ".join(sorted(offenders))
+    )
+
+
+def test_the_repository_declares_canonical_line_endings():
+    """The attribute itself, pinned, because the test above only sees the
+    result. A checkout that happened to be clean would pass it while leaving the
+    next person on Windows to rediscover the problem.
+    """
+    from local_agent.provenance import _ROOT
+
+    attributes = _ROOT / ".gitattributes"
+    assert attributes.is_file(), "root .gitattributes is what makes the checkout deterministic"
+
+    directives = [
+        line.split("#", 1)[0].strip()
+        for line in attributes.read_text(encoding="utf-8").splitlines()
+    ]
+    assert "* text=auto eol=lf" in directives, \
+        "every text file must check out with LF regardless of core.autocrlf"
+
+
+def test_the_fixture_generator_writes_lf_on_every_host():
+    """`.gitattributes` makes the checkout canonical. It cannot make a later
+    write canonical, and the generator runs after checkout in every CI job.
+
+    `Path.write_text` opens in text mode, and text mode on Windows translates
+    "\\n" to "\\r\\n" on the way out. `benchmark_fixture/cpp_project` is inside
+    the hashed surface, so five unqualified writes rewrote 24 of the 76 hashed
+    files as CRLF on Windows and moved `source_sha256` every time the generator
+    ran there.
+
+    This asserts the funnel rather than the result, because the result is
+    invisible on Linux: `write_text` never translates here, so a missing keyword
+    passes locally and fails only on the host nobody develops on.
+    """
+    import ast
+
+    from local_agent.provenance import _ROOT
+
+    source = (_ROOT / "benchmark_fixture" / "generate_project.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "\r" not in source, (
+        "a CR in the generator source would survive newline='\\n', which "
+        "translates rather than normalises"
+    )
+
+    unqualified = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if name not in {"write_text", "open", "write_bytes"}:
+            continue
+        if "newline" not in {kw.arg for kw in node.keywords}:
+            unqualified.append(f"{name} at line {node.lineno}")
+
+    assert not unqualified, (
+        "every generated write must pin its line endings, or a Windows run of "
+        "the generator moves source_sha256: " + ", ".join(unqualified)
+    )
+
+
+def test_the_generator_write_helper_emits_the_bytes_it_was_given(tmp_path):
+    """The behaviour the AST check above only infers. Trivially true on Linux,
+    load-bearing on Windows, and cheap enough to state in both places.
+    """
+    import importlib.util
+    import sys
+
+    from local_agent.provenance import _ROOT
+
+    spec = importlib.util.spec_from_file_location(
+        "_generate_project_under_test",
+        _ROOT / "benchmark_fixture" / "generate_project.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        content = "one\ntwo\nthree\n"
+        target = tmp_path / "sample.txt"
+        module._write_text(target, content)
+    finally:
+        sys.modules.pop(spec.name, None)
+
+    assert target.read_bytes() == content.encode("utf-8"), (
+        "the generator must put the bytes of its source strings on disk, "
+        "unmodified, on every host"
+    )

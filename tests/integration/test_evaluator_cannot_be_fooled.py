@@ -750,12 +750,21 @@ def test_a_cache_with_no_profile_marker_is_treated_as_unknown_provenance(tmp_pat
     assert registry.get("configure_project").handler(profile="debug").ok
     _assert_tree_is_configured_for(root, "debug")
 
+    from local_agent.tools.testing import configured_profile
+
     (root / "build" / PROFILE_STAMP).unlink()
     assert cache.is_file(), "the cache is still there; only the marker is gone"
+    assert configured_profile(root, "build") is None, \
+        "with the marker gone the tree's provenance must read as unknown"
 
     assert registry.get("build_target").handler(profile="release").ok
-    assert "CMAKE_BUILD_TYPE:STRING=RelWithDebInfo" in cache.read_text(), \
-        "an unlabelled cache must be reconfigured, not trusted"
+
+    # The invariant is that an unlabelled cache is reconfigured rather than
+    # trusted, which the generator-aware check states in the form each
+    # generator can honour. The literal `CMAKE_BUILD_TYPE:STRING=RelWithDebInfo`
+    # asserted that Visual Studio would populate a variable it deliberately
+    # leaves empty, which is a claim about CMake rather than about us.
+    _assert_tree_is_configured_for(root, "release")
 
 
 def test_the_runtime_and_the_evaluator_agree_on_what_proof_is(tmp_path):
