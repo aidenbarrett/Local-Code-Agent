@@ -1,0 +1,170 @@
+name: Phase2 adversarial trust-boundary fixes
+
+on:
+  push:
+    branches: [tmp/phase2-ci-repair]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out staged repair scripts
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/phase2-ci-repair
+          path: driver
+          fetch-depth: 1
+
+      - name: Check out content-bound core repair
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/deterministic-checkout-verify
+          path: core
+          fetch-depth: 1
+
+      - name: Check out phase2 target
+        uses: actions/checkout@v4
+        with:
+          ref: hardening/phase2-evidence-contract
+          path: repo
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify exact starting point
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=f58f74a1adcf28f0ce7cb51c51b5f86186281f81
+          actual=$(git -C repo rev-parse HEAD)
+          test "$actual" = "$expected" || { echo "phase2 head moved: expected $expected got $actual"; exit 1; }
+          git -C repo status --porcelain | test ! -s /dev/stdin
+
+      - name: Pre-register tamper semantics before implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python driver/tools/phase2_preregister.py repo
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('repo/docs/next-experiment-preregistration.md')
+          text = p.read_text(encoding='utf-8')
+          old = '- the existing diagnostic subset is at least **60%** correct by task majority;\n'
+          new = '- at least **3 of the 4 pre-registered diagnostic-subset tasks** are correct by task majority;\n'
+          if text.count(old) != 1:
+              raise SystemExit('diagnostic threshold preregistration target moved')
+          p.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+          PY
+          git -C repo diff --check
+          git -C repo config user.name "phase2-hardening-bot"
+          git -C repo config user.email "33842164+aidenbarrett@users.noreply.github.com"
+          git -C repo add docs/next-experiment-preregistration.md
+          git -C repo commit -m "Pre-register oracle tampering as terminal model behaviour"
+          git -C repo push origin HEAD:hardening/phase2-evidence-contract
+
+      - name: Apply content proof, endpoint and provenance repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python core/tools/phase2_ci_fixes.py repo
+          python driver/tools/phase2_eval_semantics.py repo
+          python driver/tools/phase2_post_core_fixes.py repo
+          python driver/tools/phase2_regressions.py repo
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('repo/evaluation/run_evaluation.py')
+          text = p.read_text(encoding='utf-8')
+          old = '        "condition": condition,\n        "catalogue": catalogue,\n'
+          new = '        "condition": condition,\n        "catalogue": catalogue,\n        "rehearsal": bool(rehearse),\n'
+          if text.count(old) != 1:
+              raise SystemExit('rehearsal row marker target moved')
+          p.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+          PY
+          git -C repo diff --check
+
+      - name: Install and regenerate fixture
+        working-directory: repo
+        run: |
+          python -m pip install -e ".[dev]"
+          python benchmark_fixture/generate_project.py
+          git diff --exit-code -- benchmark_fixture/cpp_project
+
+      - name: Reconcile generation-2 declarations
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from local_agent import provenance as p
+
+          path = Path('INSTRUMENT.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          if data.get('generation') != 2:
+              raise SystemExit('expected generation 2')
+          data['source_sha256'] = p.source_sha256()
+          data['base_prompt_sha256'] = p.base_prompt_sha256()
+          data['outcome_contract_sha256'] = p.outcome_contract_sha256()
+          path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8', newline='\n')
+          print('source', data['source_sha256'])
+          print('base  ', data['base_prompt_sha256'])
+          print('outcome', data['outcome_contract_sha256'])
+          PY
+
+      - name: Target adversarial regressions
+        working-directory: repo
+        run: |
+          python -m pytest -q \
+            tests/unit/test_cross_platform_evidence.py \
+            tests/unit/test_endpoint_analysis.py \
+            tests/unit/test_repeat_collection.py \
+            tests/unit/test_compat_runner_contract.py \
+            tests/unit/test_provenance.py \
+            tests/integration/test_endpoint_row_contract.py \
+            tests/integration/test_evaluator_cannot_be_fooled.py \
+            tests/integration/test_oracle_isolation.py
+
+      - name: Full Linux pytest and offline compatibility suite
+        working-directory: repo
+        run: |
+          python -m pytest -q
+          python measurement/run_test_suite.py tests
+
+      - name: Verify declarations and clean generated state
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from local_agent import provenance as p
+          data = json.load(open('INSTRUMENT.json', encoding='utf-8'))
+          actual = {
+              'source_sha256': p.source_sha256(),
+              'base_prompt_sha256': p.base_prompt_sha256(),
+              'outcome_contract_sha256': p.outcome_contract_sha256(),
+          }
+          for key, value in actual.items():
+              print(key, value)
+              if data.get(key) != value:
+                  raise SystemExit(f'{key} drift: {data.get(key)} != {value}')
+          PY
+          python benchmark_fixture/generate_project.py
+          git diff --exit-code -- benchmark_fixture/cpp_project
+          git diff --check
+
+      - name: Commit and push verified implementation
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git commit -m "Close phase2 adversarial evidence holes"
+          git push origin HEAD:hardening/phase2-evidence-contract
