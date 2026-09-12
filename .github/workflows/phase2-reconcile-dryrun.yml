@@ -1,0 +1,32 @@
+name: Phase2 reconcile dry run
+
+on:
+  push:
+    branches: [tmp/deterministic-checkout-verify]
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/phase2-evidence-contract
+          fetch-depth: 0
+      - name: Merge main without committing
+        shell: bash
+        run: |
+          git config user.name "phase2-reconcile"
+          git config user.email "phase2-reconcile@users.noreply.github.com"
+          git fetch origin main
+          set +e
+          git merge --no-commit --no-ff origin/main
+          rc=$?
+          echo "MERGE_RC=$rc"
+          echo "--- unresolved ---"
+          git diff --name-only --diff-filter=U || true
+          echo "--- status ---"
+          git status --short
+          exit $rc
