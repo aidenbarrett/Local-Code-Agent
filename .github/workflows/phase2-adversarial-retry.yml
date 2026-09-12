@@ -53,6 +53,7 @@ jobs:
           python driver/tools/phase2_post_core_fixes.py repo
           python driver/tools/phase2_regressions.py repo
           python driver/tools/phase2_retry_additions.py repo
+          python driver/tools/phase2_retry2.py repo
           python - <<'PY'
           from pathlib import Path
           p = Path('repo/evaluation/run_evaluation.py')
