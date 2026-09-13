@@ -67,8 +67,12 @@ jobs:
         run: python measurement/run_test_suite.py tests
 
   integrity:
-    name: fixture and instrument integrity
-    runs-on: ubuntu-latest
+    name: fixture and instrument integrity (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -92,6 +96,7 @@ jobs:
       # hashes. Keep this as a separate gate so a test-runner implementation can
       # never redefine what a green identity check means.
       - name: Instrument identity matches INSTRUMENT.json
+        shell: bash
         run: |
           python - <<'PY'
           import json, sys
