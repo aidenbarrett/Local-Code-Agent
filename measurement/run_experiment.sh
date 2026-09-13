@@ -132,8 +132,15 @@ case "$RUN" in
     *) echo "refusing run name '$RUN': it does not carry a condition"; exit 1 ;;
 esac
 
-# Stale artifacts are worse than missing artifacts. Clear only this exact run.
-rm -rf "$OUT/$RUN.json" "$OUT/$RUN-transcripts" "$OUT/$RUN.log" "$OUT/$RUN-manifest.json"
+# A retry must never erase evidence needed to enforce the repeat rule.
+for artifact in     "$OUT/$RUN.json" "$OUT/$RUN-transcripts" "$OUT/$RUN.log" "$OUT/$RUN-manifest.json"
+do
+    if [ -e "$artifact" ]; then
+        echo "refusing to overwrite existing pilot artifact: $artifact"
+        echo "choose a new run label/output location or archive the prior run explicitly"
+        exit 1
+    fi
+done
 
 # --- 6.5. observations that cannot be recovered after the run -----------------
 step "6.5. immutable run manifest"

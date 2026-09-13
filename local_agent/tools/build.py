@@ -7,6 +7,8 @@ changes when this agent moves from a synthetic sandbox to a real work tree.
 
 from __future__ import annotations
 
+import shutil
+
 from .base import (
     BlockedError,
     DomainStatus,
@@ -105,6 +107,16 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 raise ToolError("target name must be a plain identifier")
             command += ["--target", target]
 
+        # Incremental builds are useful working operations, but the build
+        # system's own mtime decision cannot certify that current source bytes
+        # were compiled. An untargeted build is the proof-producing operation,
+        # so start it from an empty build tree. The successful build stamp is
+        # written only after this clean configure+build completes.
+        if target is None:
+            build_root = ctx.root / ctx.repo.build_dir
+            if build_root.exists():
+                shutil.rmtree(build_root)
+
         # Configure on demand rather than making the model remember to, and
         # also when the tree is configured for a DIFFERENT profile. Both
         # profiles share one build directory, so without this the tool prints
@@ -140,14 +152,10 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             # Untargeted only. The stamp means "every source is represented by
             # a current binary", which a targeted build cannot support.
             #
-            # The only thing in the tree that says "a compile succeeded at this
-            # moment". run_test compares source mtimes against it.
-            #
-            # The obvious alternative, the newest mtime anywhere under build/,
-            # is wrong: ctest writes build/Testing/LastTest.log every time it
-            # runs, so editing a source and then running the tests twice made
-            # the staleness warning vanish with nothing recompiled. A timestamp
-            # written by the test runner is not evidence of a build.
+            # The stamp binds a successful full compile to the exact source
+            # bytes present when it completed. run_test compares content hashes,
+            # never filesystem clocks, so an equal-mtime edit cannot make stale
+            # binaries look current. Test-runner timestamps are irrelevant.
             #
             # The profile goes in the stamp. run_test needs to know not just
             # that a full build succeeded but which profile it produced, and

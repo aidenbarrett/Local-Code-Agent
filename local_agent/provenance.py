@@ -204,7 +204,7 @@ def _function_source(path: Path, name: str) -> str | None:
     sys.path.
     """
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_bytes().decode("utf-8")
         tree = ast.parse(text)
     except (OSError, SyntaxError):
         return None
@@ -216,48 +216,34 @@ def _function_source(path: Path, name: str) -> str | None:
 
 
 def outcome_contract_sha256() -> str:
-    """Fingerprint what makes an evaluation result count as correct.
-
-    A confirmatory generation ends when either side of the experiment changes:
-
-      * model-facing contract: what the model sees / must submit
-      * outcome-facing contract: what the evaluator calls correct
-
-    The previous generation rule only tracked the first axis. That let a change
-    to the `navigation` expected claim alter what counted as success while the
-    generation number stayed put.
-
-    This hash is deliberately conservative. It includes the task contracts,
-    oracle, the grading portion of `run_case`, and the frozen endpoint/repeat
-    policy. Changing engineering-correctness definitions or 2-of-3 aggregation
-    is every bit as outcome-facing as changing an expected claim.
-    """
+    """Fingerprint the byte-exact contract that makes an evaluation result count."""
     task_contracts = _ROOT / "evaluation" / "task_contracts.py"
     oracle = _ROOT / "evaluation" / "oracle.py"
     endpoints = _ROOT / "evaluation" / "endpoints.py"
     evaluator = _ROOT / "evaluation" / "run_evaluation.py"
-    run_case_source = _function_source(evaluator, "run_case")
-    run_all_source = _function_source(evaluator, "run_all")
+    function_names = ("prepare", "establish", "_error_row", "run_case", "run_all")
+    sources = {name: _function_source(evaluator, name) for name in function_names}
     required = (task_contracts, oracle, endpoints)
-    if (run_case_source is None or run_all_source is None
-            or not all(path.is_file() for path in required)):
+    if any(value is None for value in sources.values()) or not all(p.is_file() for p in required):
         return "unavailable-no-source"
 
-    parts = (
-        ("evaluation/task_contracts.py", task_contracts.read_text(encoding="utf-8")),
-        ("evaluation/oracle.py", oracle.read_text(encoding="utf-8")),
-        ("evaluation/endpoints.py", endpoints.read_text(encoding="utf-8")),
-        ("evaluation.run_evaluation.run_case", run_case_source),
-        ("evaluation.run_evaluation.run_all", run_all_source),
-    )
+    parts: list[tuple[str, bytes]] = [
+        ("evaluation/task_contracts.py", task_contracts.read_bytes()),
+        ("evaluation/oracle.py", oracle.read_bytes()),
+        ("evaluation/endpoints.py", endpoints.read_bytes()),
+    ]
+    for name in function_names:
+        source = sources[name]
+        assert source is not None
+        parts.append((f"evaluation.run_evaluation.{name}", source.encode("utf-8")))
+
     digest = hashlib.sha256()
-    for label, text in parts:
+    for label, content in parts:
         digest.update(label.encode())
         digest.update(b"\0")
-        digest.update(text.encode())
+        digest.update(content)
         digest.update(b"\0")
     return digest.hexdigest()
-
 
 def package_identity() -> dict[str, Any]:
     """Commit, dirtiness and content hashes. Quoted with every run."""

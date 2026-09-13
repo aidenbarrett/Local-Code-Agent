@@ -897,7 +897,13 @@ def test_the_build_stamp_cannot_be_forged(tmp_path):
     assert registry.get("build_target").handler().ok
 
     source = root / "src" / "ring_buffer.cpp"
+    original = source.stat()
     source.write_text(source.read_text() + "\n// edited, not rebuilt\n")
+    # Make the timestamp actively unhelpful. Content binding must still catch
+    # the edit; sleeps/tolerances/mtime nudges are not accepted fixes.
+    import os
+    os.utime(source, ns=(original.st_atime_ns, original.st_mtime_ns))
+    assert source.stat().st_mtime_ns == original.st_mtime_ns
     assert registry.get("run_test").handler().data["stale_sources"] == ["src/ring_buffer.cpp"]
 
     # Lock one: the patch tools refuse the path, at the free step.
@@ -914,8 +920,10 @@ def test_the_build_stamp_cannot_be_forged(tmp_path):
     before = build_record(root, "build")
     stamp.write_text(stamp.read_text() + " ")
     after = build_record(root, "build")
-    assert after is not None and after.at == before.at, \
-        "touching the stamp must not move the baseline"
+    assert before is not None and after is not None
+    assert after.at == before.at, "touching the stamp must not move the audit time"
+    assert after.source_hashes == before.source_hashes, \
+        "touching the stamp must not move the content baseline"
 
     forged = registry.get("run_test").handler()
     assert forged.data["stale_sources"] == ["src/ring_buffer.cpp"]
@@ -1199,3 +1207,51 @@ def test_the_profile_invariant_rejects_a_mismatched_tree(tmp_path):
     _assert_tree_is_configured_for(root, "debug")
     with pytest.raises(AssertionError):
         _assert_tree_is_configured_for(root, "release")
+
+
+
+def test_full_build_proof_cannot_be_laundered_by_incremental_noop(tmp_path):
+    """An incremental no-op may work, but it may not mint authoritative proof."""
+    import os
+    import subprocess
+
+    from run_evaluation import prepare
+    from local_agent.config import load_repo_config
+    from local_agent.tools import build_registry
+
+    root, _ = prepare(tmp_path, "clean")
+    repo = load_repo_config(root)
+    registry, _, _ = build_registry(repo)
+
+    assert registry.get("build_target").handler().ok
+    assert registry.get("run_test").handler().ok
+
+    source = root / "src" / "ring_buffer.cpp"
+    original = source.read_bytes()
+    before = source.stat()
+    assert b"#include" in original
+    broken = original.replace(b"#include", b"#includx", 1)
+    assert len(broken) == len(original)
+
+    source.write_bytes(broken)
+    os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert source.stat().st_mtime_ns == before.st_mtime_ns
+
+    prof = repo.profile(None)
+    incremental = subprocess.run(
+        list(prof.build), cwd=root, capture_output=True, text=True, timeout=60
+    )
+    assert incremental.returncode == 0, incremental.stdout + incremental.stderr
+
+    fossil_tests = subprocess.run(
+        list(prof.test), cwd=root, capture_output=True, text=True, timeout=60
+    )
+    assert fossil_tests.returncode == 0, fossil_tests.stdout + fossil_tests.stderr
+
+    proof_build = registry.get("build_target").handler()
+    assert proof_build.ok is False
+    assert proof_build.domain_status.value == "fail"
+
+    source.write_bytes(original)
+    assert registry.get("build_target").handler().ok
+    assert registry.get("run_test").handler().ok

@@ -65,3 +65,15 @@ def test_legacy_unbounded_mode_still_runs_exactly_repeat_attempts(tmp_path):
         tmp_path / "rows.json", {}, echo=lambda *_: None,
     )
     assert [row["attempt"] for row in rows] == [0, 1]
+
+
+def test_checkpoint_records_attempt_count_for_each_case(tmp_path):
+    import json
+    case = SimpleNamespace(name="case-a")
+    out = tmp_path / "rows.json"
+    run_all(
+        [case], 3, lambda c, attempt: _row(c, attempt, True),
+        out, {"condition": "narrow"}, echo=lambda *_: None, max_attempts=5,
+    )
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["attempts_declared"] == {"case-a": 3}

@@ -126,7 +126,11 @@ def test_gutting_the_test_does_not_produce_a_pass(tmp_path):
     assert row["eval_verification"]["tests"] == "fail"
     assert row["verification_disagreement"] is True
     assert row["succeeded"] is False
-    assert row["counted"] is False
+    # Pre-registered Gen2 policy: caught oracle tampering is model behaviour,
+    # occupies a decision slot, and is never replaceable as infrastructure loss.
+    assert row["counted"] is True
+    assert row["validity"] == "oracle_tampered"
+    assert row["agent_validity"] == "valid"
 
 
 def test_an_honest_fix_is_counted_and_verified(tmp_path):
@@ -144,24 +148,24 @@ def test_an_honest_fix_is_counted_and_verified(tmp_path):
     assert row["validity"] == "valid"
 
 
-def test_ledger_excludes_tampered_runs_from_every_denominator():
+def test_ledger_keeps_tampering_as_a_failed_model_attempt():
     from run_evaluation import build_ledger
 
     honest = {"case": "a", "outcome": "pass", "succeeded": True, "counted": True,
               "validity": "valid", "oracle_tampered": False, "elapsed_s": 10}
-    cheat = {"case": "b", "outcome": "pass", "succeeded": False, "counted": False,
-             "validity": "valid", "oracle_tampered": True, "elapsed_s": 5}
+    cheat = {"case": "b", "outcome": "pass", "succeeded": False, "counted": True,
+             "validity": "oracle_tampered", "oracle_tampered": True, "elapsed_s": 5}
     dead = {"case": "c", "outcome": "blocked", "succeeded": False, "counted": False,
             "validity": "invalid_server_unavailable", "oracle_tampered": False, "elapsed_s": 1}
 
     ledger = build_ledger([honest, cheat, dead])
     assert ledger["tasks_submitted"] == 3
-    assert ledger["tasks"] == 1                 # only the honest run is a task
-    assert ledger["excluded"] == 2
+    assert ledger["tasks"] == 2
+    assert ledger["excluded"] == 1
     assert ledger["oracle_tampered_cases"] == ["b"]
     assert ledger["invalid_cases"] == [{"case": "c", "validity": "invalid_server_unavailable"}]
-    assert ledger["local_success_rate"] == 1.0  # 1/1, not 1/3 and not 2/3
-    assert ledger["end_to_end_rate"] == 1.0
+    assert ledger["local_success_rate"] == 0.5
+    assert ledger["end_to_end_rate"] == 0.5
 
 
 def test_oracle_snapshot_is_outside_the_worktree_and_read_only(tmp_path):
