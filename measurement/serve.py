@@ -284,8 +284,15 @@ def owned_process(record):
         process = psutil.Process(record["pid"])
         if not process.is_running() or process.status() == psutil.STATUS_ZOMBIE:
             return None
-        if process.create_time() != record["create_time"] or process.exe() != record["process_exe"]:
+        if process.create_time() != record["create_time"]:
             raise Refusal("PID now belongs to another process; refusing to adopt or stop it")
+        executable = process.exe()
+        # A process can exit between status() and exe(); Linux may return an
+        # empty executable during teardown before the zombie state is visible.
+        if not executable or not process.is_running() or process.status() == psutil.STATUS_ZOMBIE:
+            return None
+        if executable != record["process_exe"]:
+            raise Refusal("PID executable changed; refusing to adopt or stop it")
         return process
     except psutil.NoSuchProcess:
         return None

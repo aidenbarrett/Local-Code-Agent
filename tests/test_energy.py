@@ -76,7 +76,7 @@ def test_command_manifest_with_synthetic_csv_sampler(tmp_path):
         assert energy.main(['--out',str(out),'--hwinfo-csv',str(csv_path),
                             '--',sys.executable,'-c','sum(i*i for i in range(1000000))']) == 0
         data=json.loads(out.read_text())
-        assert data['energy_joules'] == pytest.approx(10*(data['end_unix']-data['start_unix']))
+        assert math.isclose(data['energy_joules'], 10*(data['end_unix']-data['start_unix']), rel_tol=1e-6)
         assert data['sampler']=='HWiNFO64 CSV'
     finally:
         done.set(); thread.join(timeout=3)

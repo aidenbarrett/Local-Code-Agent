@@ -214,9 +214,23 @@ def test_status_does_not_adopt_foreign_http_or_wrong_model(tmp_path, monkeypatch
     assert serve.status(p)['server_observed_device'] is None
 
 
-def test_status_all_lists_presets(tmp_path, monkeypatch, capsys):
+def test_status_all_lists_presets(tmp_path, monkeypatch):
+    import io
+    from contextlib import redirect_stdout
+    captured = io.StringIO()
     monkeypatch.setattr(serve,'get_json',lambda url:(None,{'error':'offline'}))
-    assert serve.main(['status','--all','--runtime-root',str(tmp_path)]) == 0
-    output=json.loads(capsys.readouterr().out)
+    with redirect_stdout(captured):
+        assert serve.main(['status','--all','--runtime-root',str(tmp_path)]) == 0
+    output=json.loads(captured.getvalue())
     assert {'ptl-npu-8b','ptl-gpu-30b'} <= {row['profile'] for row in output}
     assert not any(row['healthy'] for row in output)
+
+
+def test_exit_between_status_and_exe_is_dead_not_pid_reuse(monkeypatch):
+    class Exiting:
+        def is_running(self): return True
+        def status(self): return psutil.STATUS_RUNNING
+        def create_time(self): return 42
+        def exe(self): return ""
+    monkeypatch.setattr(psutil, 'Process', lambda pid: Exiting())
+    assert serve.owned_process({'pid':123, 'create_time':42, 'process_exe':'python'}) is None
