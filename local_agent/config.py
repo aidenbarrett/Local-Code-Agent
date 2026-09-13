@@ -37,6 +37,14 @@ class ModelConfig:
     model: str = "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov"
     api_key: str = "unused"
     device_note: str = "CPU"
+    device: str = "CPU"
+    server_max_prompt_length: int = 16_384
+    # NPU: compiled prompt cap. CPU/GPU OVMS: declared supported envelope,
+    # checked against config.json; not an admission-control flag.
+    serving_experimental: bool = False
+    llama_backend: str = "native"  # native | openvino
+    minimum_free_disk_gib: int = 10
+    minimum_pull_disk_gib: int = 40
     temperature: float = 0.2
     max_tokens: int = 2048
     # Sent on every request and recorded in identity. Gate Zero showed llama.cpp
@@ -117,6 +125,9 @@ class ModelConfig:
             model=os.environ.get(f"{prefix}MODEL", base.model),
             api_key=os.environ.get(f"{prefix}API_KEY", base.api_key),
             device_note=os.environ.get(f"{prefix}DEVICE", base.device_note),
+            device=os.environ.get(f"{prefix}DEVICE", base.device),
+            server_max_prompt_length=int(os.environ.get(
+                f"{prefix}SERVER_MAX_PROMPT_LENGTH", base.server_max_prompt_length)),
             temperature=float(os.environ.get(f"{prefix}TEMPERATURE", base.temperature)),
             max_tokens=int(os.environ.get(f"{prefix}MAX_TOKENS", base.max_tokens)),
             request_timeout_s=float(
@@ -146,7 +157,11 @@ class ModelConfig:
         """Everything that must be quoted alongside any number from this endpoint."""
         return {
             "model": self.model,
-            "device": self.device_note,
+            "device": self.device,
+            "device_note": self.device_note,
+            "server_max_prompt_length": self.server_max_prompt_length,
+            "llama_backend": self.llama_backend,
+            "tier": self.tier,
             "runtime": self.runtime,
             "runtime_version": self.runtime_version or "not recorded",
             "quant": self.quant,
@@ -179,7 +194,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         model="OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
         device_note="CPU",
         runtime="ovms",
-        quant="int4-ov",
+        quant="INT4_ASYM",
         tool_parser="qwen3coder",
     ),
     "nuc-cpu-8b": ModelConfig(
@@ -187,7 +202,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         model="OpenVINO/Qwen3-8B-int4-cw-ov",
         device_note="CPU",
         runtime="ovms",
-        quant="int4-cw-ov",
+        quant="INT4_SYM",
         tool_parser="hermes3",
         tier="cheap",
     ),
@@ -249,17 +264,19 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
     # compiled, and overrunning it produces garbage output rather than an error.
     # Two presets on purpose.
     #
-    # Intel documents `--max_prompt_len 16384` with
-    # `NPUW_LLM_PREFILL_ATTENTION_HINT: PYRAMID` for this model on NPU. But
-    # their long-context guidance recommends NPU for short-to-medium contexts,
-    # typically up to 8K, their published NPU prefix-cache measurements stop at
-    # 8K, and a larger configured maximum costs latency and memory even for a
-    # 1K request. So 8K is the daily path and 16K is the stress path, and the
-    # difference between them is something to measure rather than assume.
+    # OVMS 2026.3 and 2026.3.1 release notes retain an 8K NPU limit.
+    # The 16K preset is an explicit experimental probe, never the default.
     "ptl-npu-8b": ModelConfig(
         base_url="http://127.0.0.1:18000/v3",
         model="OpenVINO/Qwen3-8B-int4-cw-ov",
         device_note="NPU (8K)",
+        device="NPU",
+        runtime="ovms",
+        runtime_version="2026.3.0",
+        quant="INT4_SYM",
+        tool_parser="hermes3",
+        server_max_prompt_length=8192,
+        minimum_pull_disk_gib=15,
         context_budget_tokens=7_500,   # blob compiled at --max_prompt_len 8192
         max_tool_result_tokens=900,
         max_total_tool_tokens=4_000,
@@ -268,7 +285,15 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
     "ptl-npu-8b-16k": ModelConfig(
         base_url="http://127.0.0.1:18010/v3",
         model="OpenVINO/Qwen3-8B-int4-cw-ov",
-        device_note="NPU (16K)",
+        device_note="NPU (16K), unproven",
+        device="NPU",
+        runtime="ovms",
+        runtime_version="2026.3.0",
+        quant="INT4_SYM",
+        tool_parser="hermes3",
+        server_max_prompt_length=16384,
+        serving_experimental=True,
+        minimum_pull_disk_gib=20,
         context_budget_tokens=15_000,  # blob compiled at --max_prompt_len 16384
         max_tool_result_tokens=1_500,
         max_total_tool_tokens=9_000,
@@ -283,12 +308,23 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         base_url="http://127.0.0.1:18001/v3",
         model="OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
         device_note="GPU (Arc B390)",
+        device="GPU",
+        runtime="ovms",
+        runtime_version="2026.3.0",
+        quant="INT4_ASYM",
+        tool_parser="qwen3coder",
         tier="strong",
     ),
     "ptl-cpu-30b": ModelConfig(
         base_url="http://127.0.0.1:18002/v3",
         model="OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
         device_note="CPU",
+        device="CPU",
+        runtime="ovms",
+        runtime_version="2026.3.0",
+        quant="INT4_ASYM",
+        tool_parser="qwen3coder",
+        tier="strong",
     ),
     # Quality ceiling reference ONLY, and not on the critical path.
     #
@@ -304,6 +340,12 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         base_url="http://127.0.0.1:18003/v3",
         model="OpenVINO/Qwen3.8-27B-int4-ov",
         device_note="GPU (Arc B390), experimental stack",
+        device="GPU",
+        runtime="ovms",
+        quant="INT4_ASYM",
+        tool_parser="qwen3coder",
+        tier="strong",
+        serving_experimental=True,
         max_tokens=1024,
     ),
     # ---------------------------------------------------------------- cloud
@@ -316,6 +358,9 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         model=os.environ.get("LOCAL_AGENT_CLOUD_MODEL", "unset"),
         api_key=os.environ.get("LOCAL_AGENT_CLOUD_API_KEY", "unset"),
         device_note="remote",
+        device="remote",
+        quant="unobserved",
+        tool_parser="provider",
         runtime="cloud",
         tier="strong",
     ),
