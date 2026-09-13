@@ -375,24 +375,57 @@ def run_all(
     out: Path,
     identity: dict,
     echo: Any = print,
+    max_attempts: int | None = None,
 ) -> tuple[list[dict], bool]:
     """The suite loop: run, checkpoint, decide whether to continue.
 
     Returns (rows, stopped_early). Every row is on disk before the next case
     starts, atomically, so a forty-minute run never loses its first thirty-nine.
     """
+    if repeat < 1:
+        raise ValueError("repeat must be at least 1")
+    if max_attempts is not None and max_attempts < repeat:
+        raise ValueError("max_attempts must be >= repeat")
+    attempt_limit = repeat if max_attempts is None else max_attempts
+
     rows: list[dict] = []
     consecutive_harness = 0
+    attempts_declared: dict[str, int] = {}
 
     def checkpoint(final: bool) -> None:
-        write_atomic(out, {**identity, "complete": final, "rows": rows})
+        write_atomic(
+            out,
+            {**identity, "complete": final,
+             "attempts_declared": dict(sorted(attempts_declared.items())),
+             "rows": rows},
+        )
 
     checkpoint(final=False)
     for case in selected:
-        for attempt in range(repeat):
+        valid_draws = 0
+        for attempt in range(attempt_limit):
+            envelope = {
+                key: identity[key]
+                for key in (
+                    "condition", "generation", "source_sha256",
+                    "base_prompt_sha256", "outcome_contract_sha256",
+                    "model", "model_identity", "rehearsal",
+                )
+                if key in identity
+            }
             row = run_one(case, attempt)
+            for key, value in envelope.items():
+                if key in row and row[key] != value:
+                    raise RuntimeError(
+                        f"row identity mismatch for {case.name}/{attempt}: "
+                        f"{key}={row[key]!r}, expected {value!r}"
+                    )
+                row[key] = value
             row["attempt"] = attempt
             rows.append(row)
+            attempts_declared[case.name] = attempt + 1
+            if row.get("counted") is True:
+                valid_draws += 1
             checkpoint(final=False)
 
             if row.get("error"):
@@ -443,6 +476,9 @@ def run_all(
                     return rows, True
             else:
                 consecutive_harness = 0
+
+            if max_attempts is not None and valid_draws >= repeat:
+                break
     return rows, False
 
 
@@ -586,6 +622,12 @@ def run_case(
     try:
         tamper = oracle.compare(root, oracle_dir)
         oracle.restore(root, oracle_dir)
+        restore_check = oracle.compare(root, oracle_dir)
+        if restore_check.tampered:
+            raise RuntimeError(
+                "oracle restoration incomplete: "
+                + json.dumps(restore_check.as_dict(), sort_keys=True)
+            )
         eval_verification = oracle.verify(registry)
     except Exception as exc:
         import traceback
@@ -597,8 +639,11 @@ def run_case(
     # Whatever the cause, the agent's claim is not evidence.
     disagreement = bool(result.state.verified and not eval_verification["ok"])
 
-    validity = result.state.validity.value
-    counted = validity == "valid" and not tamper.tampered
+    agent_validity = result.state.validity.value
+    # Oracle tampering is model behaviour, not lost infrastructure. It is a
+    # terminal, non-replaceable decision draw and therefore occupies a slot.
+    validity = "oracle_tampered" if tamper.tampered else agent_validity
+    counted = validity in {"valid", "oracle_tampered"}
 
     # Scope: a diagnosis task that edited the tree is wrong behaviour whatever
     # its answer says. Fails the case, does not merely cost a check.
@@ -720,6 +765,7 @@ def run_case(
         "outcome": result.outcome.value,
         "halt_cause": result.state.halt_cause.value if result.state.halt_cause else None,
         "validity": validity,
+        "agent_validity": agent_validity,
         "oracle_tampered": tamper.tampered,
         "oracle_tamper": tamper.as_dict() if tamper.tampered else None,
         "eval_verification": eval_verification,
@@ -745,14 +791,17 @@ def build_ledger(rows: list[dict], tiered: bool = False) -> dict:
     query is one task, not six wins, and reporting it the other way would
     flatter the cheap tier for being chatty.
     """
-    # Runs that may not enter a denominator: the agent edited the oracle, or the
-    # run happened under a configuration nobody chose. Reported, never counted.
+    # Infrastructure-invalid rows do not enter a denominator. Oracle
+    # tampering is model behaviour and therefore remains a counted failed task.
     excluded = [r for r in rows if r.get("counted") is False]
     tampered = [r for r in rows if r.get("oracle_tampered")]
-    invalid = [r for r in rows if r.get("validity") not in (None, "valid")]
+    invalid = [
+        r for r in rows
+        if r.get("validity") not in (None, "valid", "oracle_tampered")
+    ]
     errors = [r for r in rows if r.get("error")]
     all_rows = rows
-    rows = [r for r in rows if r.get("counted", True)]
+    rows = [r for r in rows if r.get("counted") is True]
 
     total = len(rows)
     blocked = [r for r in rows if r.get("outcome") == "blocked"]
@@ -919,6 +968,10 @@ def main() -> int:
     parser.add_argument("--model")
     parser.add_argument("--case", action="append", help="run only these cases")
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument(
+        "--max-attempts", type=int,
+        help="bounded replacement attempts per case; stop as soon as --repeat valid rows exist",
+    )
     # `action="store_true", default=True` could never be False. Approval mode
     # is part of the experiment's identity: these runs auto-approve on purpose,
     # so that an attempted out-of-scope mutation actually happens and can be
@@ -966,6 +1019,13 @@ def main() -> int:
         help="run the harness with no model at all, to prove the pipeline works",
     )
     args = parser.parse_args()
+    if args.max_attempts is not None and args.max_attempts < args.repeat:
+        parser.error("--max-attempts must be >= --repeat")
+    if args.cheap_profile:
+        parser.error(
+            "--cheap-profile is disabled for the generation-2 mechanism pilot; "
+            "all conditions must use one pinned model configuration"
+        )
 
     model = MODEL_PRESETS.get(args.profile, ModelConfig()) if args.profile else ModelConfig.from_env()
     if args.base_url:
@@ -985,6 +1045,28 @@ def main() -> int:
         print(f"endpoint: {model.base_url}  model: {model.model}  device: {model.device_note}")
     print(f"cases: {len(selected)} x {args.repeat}\n")
 
+    package = package_identity()
+    instrument = json.loads((REPO / "INSTRUMENT.json").read_text(encoding="utf-8"))
+    for key in ("source_sha256", "base_prompt_sha256", "outcome_contract_sha256"):
+        if instrument.get(key) != package.get(key):
+            raise SystemExit(
+                f"instrument identity drift for {key}: "
+                f"declared {instrument.get(key)!r}, observed {package.get(key)!r}"
+            )
+    generation = instrument.get("generation")
+    if not isinstance(generation, int) or isinstance(generation, bool):
+        raise SystemExit("INSTRUMENT.json has no valid generation")
+
+    model_identity = (
+        {
+            "mode": "rehearsal",
+            "model": "none",
+            "context_budget_tokens": model.context_budget_tokens,
+        }
+        if args.rehearse
+        else {**model.identity(), **sdk_identity()}
+    )
+
     identity = {
         "label": args.label
         or ("REHEARSAL (no model)" if args.rehearse else f"{model.model} on {model.device_note}"),
@@ -992,22 +1074,33 @@ def main() -> int:
         "endpoint": "none (rehearsal)" if args.rehearse else model.base_url,
         "model": "none (rehearsal)" if args.rehearse else model.model,
         "device": "none (rehearsal)" if args.rehearse else model.device_note,
-        "model_identity": None if args.rehearse else {**model.identity(), **sdk_identity()},
-        "package": package_identity(),
+        "model_identity": model_identity,
+        "package": package,
+        "generation": generation,
+        "source_sha256": package["source_sha256"],
+        "base_prompt_sha256": package["base_prompt_sha256"],
+        "outcome_contract_sha256": package["outcome_contract_sha256"],
         "context_budget_tokens": model.context_budget_tokens,
         "cheap_profile": args.cheap_profile,
         "condition": "control" if args.no_skill else args.condition,
         "catalogue": args.catalogue,
         "approval_mode": args.approval_mode,
-        # With a single client there is no cheap and no strong, only the model
-        # that ran. tier_for_skill(None) labels the control "strong" and a
-        # skill-routed run "cheap" on the SAME endpoint, so the tier shares are
-        # routing metadata, not execution identity, and are meaningless here.
         "tiered": bool(args.cheap_profile),
         "kill_threshold": KILL_THRESHOLD,
+        "valid_draw_target": args.repeat,
+        "max_attempts_per_case": (
+            args.max_attempts if args.max_attempts is not None else args.repeat
+        ),
     }
     cheap_cfg = MODEL_PRESETS[args.cheap_profile] if args.cheap_profile else None
     out_path = Path(args.out)
+    transcript_dir = out_path.with_name(out_path.stem + "-transcripts")
+    existing = [path for path in (out_path, transcript_dir) if path.exists()]
+    if existing:
+        raise SystemExit(
+            "refusing to overwrite existing pilot output(s): "
+            + ", ".join(str(path) for path in existing)
+        )
     rows, stopped = run_all(
         selected, args.repeat,
         lambda case, attempt=0: run_case(
@@ -1019,6 +1112,7 @@ def main() -> int:
             catalogue=args.catalogue,
         ),
         out_path, identity,
+        max_attempts=args.max_attempts,
     )
 
     weighted = sum(r["score"] * r.get("weight", 1.0) for r in rows)
@@ -1074,11 +1168,21 @@ def main() -> int:
             f"answer quality {diag_score:.3f}"
         )
 
+    attempts_declared: dict[str, int] = {}
+    for row in rows:
+        case_name = row.get("case")
+        attempt_index = row.get("attempt")
+        if isinstance(case_name, str) and isinstance(attempt_index, int) and not isinstance(attempt_index, bool):
+            attempts_declared[case_name] = max(
+                attempts_declared.get(case_name, 0), attempt_index + 1
+            )
+
     write_atomic(
         Path(args.out),
         {
             **identity,
             "complete": not stopped,
+            "attempts_declared": dict(sorted(attempts_declared.items())),
             "stopped_early": stopped,
             "overall": overall,
             "tasks_without_escalation": ledger["cheap_only_success"],

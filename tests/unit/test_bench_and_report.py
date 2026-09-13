@@ -212,6 +212,8 @@ def test_comparison_covers_every_case_from_both_runs(tmp_path):
 def _row(case, outcome, score, seconds, cheap_calls, strong_calls):
     return {
         "case": case,
+        "counted": True,
+        "validity": "valid",
         "score": score,
         "succeeded": outcome in ("pass", "escalated_pass") and score >= 0.75,
         "outcome": outcome,

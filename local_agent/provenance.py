@@ -12,6 +12,7 @@ git metadata and a hand-edited file still reports honestly.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import subprocess
@@ -82,29 +83,23 @@ def _files() -> list[Path]:
         path = _ROOT / name
         if path.is_file():
             out.append(path)
-    # Ordered by the same canonical string the digest records, not by Path
-    # comparison. `PurePath.__lt__` compares the host flavour's normcase form,
-    # which on Windows is `str(path).lower()`: case-insensitive, and with
-    # backslash separators. So `cpp_project/README.md` sorts before
-    # `cpp_project/include/...` here and after it there, and the identical tree
-    # hashed two different ways. Sorting on the key that is actually hashed
-    # makes the order a property of the repository rather than of the host.
+    # Ordered by the same canonical string the digest records. Path ordering
+    # is host-flavoured and is case-insensitive on Windows, so sorting Path
+    # objects directly made identical bytes hash differently across hosts.
     return sorted(out, key=_key)
 
 
 def _key(path: Path) -> str:
-    """The canonical repository path: what is hashed, and what orders it."""
+    """Canonical repository path used both for ordering and hashing."""
     return path.relative_to(_ROOT).as_posix()
 
 
 def source_sha256() -> str:
     """A hash over the files that decide behaviour, path and content both.
 
-    Paths are canonical POSIX-style repository paths on every host, and so is
-    the order they are visited in. Both mattered: using `str(Path)` as the key
-    made an identical tree hash differently on Windows because the separators
-    changed, and sorting `Path` objects made it hash differently again because
-    `PurePath` ordering is case-insensitive there.
+    The repository-relative path has one canonical spelling on every host.
+    `str(Path)` made an identical source tree hash differently on Windows solely
+    because backslashes replaced slashes.
     """
     digest = hashlib.sha256()
     for path in _files():
@@ -200,8 +195,58 @@ def base_prompt_sha256() -> str:
     return digest.hexdigest()
 
 
+def _function_source(path: Path, name: str) -> str | None:
+    """Return one top-level function exactly as written, without importing it.
+
+    `evaluation.run_evaluation` imports this module, so importing the evaluator
+    back from provenance would create a circular dependency. Parsing source
+    also means the identity still works in a package where evaluation is not on
+    sys.path.
+    """
+    try:
+        text = path.read_bytes().decode("utf-8")
+        tree = ast.parse(text)
+    except (OSError, SyntaxError):
+        return None
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            segment = ast.get_source_segment(text, node)
+            return segment if segment is not None else None
+    return None
+
+
+def outcome_contract_sha256() -> str:
+    """Fingerprint the byte-exact contract that makes an evaluation result count."""
+    task_contracts = _ROOT / "evaluation" / "task_contracts.py"
+    oracle = _ROOT / "evaluation" / "oracle.py"
+    endpoints = _ROOT / "evaluation" / "endpoints.py"
+    evaluator = _ROOT / "evaluation" / "run_evaluation.py"
+    function_names = ("prepare", "establish", "_error_row", "run_case", "run_all")
+    sources = {name: _function_source(evaluator, name) for name in function_names}
+    required = (task_contracts, oracle, endpoints)
+    if any(value is None for value in sources.values()) or not all(p.is_file() for p in required):
+        return "unavailable-no-source"
+
+    parts: list[tuple[str, bytes]] = [
+        ("evaluation/task_contracts.py", task_contracts.read_bytes()),
+        ("evaluation/oracle.py", oracle.read_bytes()),
+        ("evaluation/endpoints.py", endpoints.read_bytes()),
+    ]
+    for name in function_names:
+        source = sources[name]
+        assert source is not None
+        parts.append((f"evaluation.run_evaluation.{name}", source.encode("utf-8")))
+
+    digest = hashlib.sha256()
+    for label, content in parts:
+        digest.update(label.encode())
+        digest.update(b"\0")
+        digest.update(content)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
 def package_identity() -> dict[str, Any]:
-    """Commit, dirtiness and content hash. Quoted with every run."""
+    """Commit, dirtiness and content hashes. Quoted with every run."""
     stamp = _ROOT / "PACKAGE.json"
     out: dict[str, Any] = {"package_commit": None, "package_dirty": None,
                            "package_source": "unknown"}
@@ -220,4 +265,5 @@ def package_identity() -> dict[str, Any]:
         out.update(_from_git() or {})
     out["source_sha256"] = source_sha256()
     out["base_prompt_sha256"] = base_prompt_sha256()
+    out["outcome_contract_sha256"] = outcome_contract_sha256()
     return out
