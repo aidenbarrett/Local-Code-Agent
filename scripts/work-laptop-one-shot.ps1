@@ -4,10 +4,7 @@ param(
     [switch]$InstallMissing,
     [switch]$AttemptWslInstall,
     [switch]$OpenDriverPage,
-    [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent",
-    [string]$ModelId = "OpenVINO/Qwen3-8B-int4-cw-ov",
-    [int]$RestPort = 18000,
-    [int]$MaxPromptLen = 8192
+    [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent"
 )
 
 Set-StrictMode -Version Latest
@@ -21,7 +18,8 @@ $ProgressPreference = "SilentlyContinue"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $BaseBootstrap = Join-Path $PSScriptRoot "bootstrap-work-laptop.ps1"
-$Launcher = Join-Path $PSScriptRoot "start-ovms-detached.py"
+$Controller = Join-Path $RepoRoot "measurement\serve.py"
+$Profile = "ptl-npu-8b"
 $VenvPython = Join-Path $RepoRoot ".venv-workstation\Scripts\python.exe"
 $ToolDir = Join-Path $RuntimeRoot "tools"
 $ModelDir = Join-Path $RuntimeRoot "models"
@@ -32,36 +30,17 @@ $RuntimeDir = Join-Path $RuntimeRoot "runtime"
 $PidDir = Join-Path $RuntimeDir "pid"
 $ProfileDir = Join-Path $RuntimeDir "profiles"
 $OvmsDir = Join-Path $ToolDir "ovms-2026.3.0"
-$PidFile = Join-Path $PidDir "ptl-npu-8b.pid"
-$StdoutLog = Join-Path $LogDir "ovms-ptl-npu-8b.stdout.log"
-$StderrLog = Join-Path $LogDir "ovms-ptl-npu-8b.stderr.log"
-$ServeSpec = Join-Path $RuntimeDir "ovms-ptl-npu-8b-serve.json"
 $RuntimeProfile = Join-Path $ProfileDir "ptl-npu-8b.json"
 $QualificationJson = Join-Path $ReportDir "qualification-ptl-npu-8b.json"
 $QualificationDump = Join-Path $ReportDir "qualification-ptl-npu-8b-failures"
 $ModelManifest = Join-Path $ReportDir "model-qwen3-8b-int4-cw-ov-manifest.json"
 $ReportPath = Join-Path $ReportDir ("work-laptop-ready-{0}.json" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
-$BaseUrl = "http://127.0.0.1:$RestPort/v3"
-$ModelsUrl = "http://127.0.0.1:$RestPort/v1/models"
-$PluginConfig = '{"NPUW_LLM_PREFILL_ATTENTION_HINT":"PYRAMID"}'
 
 function Say([string]$Text) { Write-Host "[one-shot] $Text" }
 function Fail([string]$Text) { Write-Host "[one-shot] FAIL: $Text"; exit 2 }
 function EnsureDir([string]$Path) { if (!(Test-Path $Path)) { New-Item -ItemType Directory -Force -Path $Path | Out-Null } }
 function Has([string]$Name) { return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue) }
 function RefreshPath { $env:Path = ([Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")) }
-
-function WaitForHttp([string]$Url,[int]$Seconds) {
-    $deadline = (Get-Date).AddSeconds($Seconds)
-    do {
-        try {
-            $r = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5
-            if ([int]$r.StatusCode -ge 200 -and [int]$r.StatusCode -lt 500) { return $true }
-        } catch {}
-        Start-Sleep -Seconds 2
-    } while ((Get-Date) -lt $deadline)
-    return $false
-}
 
 function ImportVsDevEnvironment {
     $roots = @()
@@ -112,10 +91,9 @@ function WriteModelManifest([string]$Root) {
 
 Say "repo: $RepoRoot"
 Say "runtime: $RuntimeRoot"
-Say "target: $ModelId on NPU, port $RestPort, max prompt $MaxPromptLen"
 
 if (!(Test-Path $BaseBootstrap)) { Fail "missing $BaseBootstrap" }
-if (!(Test-Path $Launcher)) { Fail "missing $Launcher" }
+if (!(Test-Path $Controller)) { Fail "missing $Controller" }
 
 # Stage 1 owns Windows/Python/OpenVINO/NPU/OVMS inventory and user-space setup.
 $baseArgs = @("-RuntimeRoot",$RuntimeRoot)
@@ -159,82 +137,45 @@ $setupVars = Get-ChildItem $OvmsDir -Recurse -Filter setupvars.ps1 -ErrorAction 
 if (!$ovmsExe -or !$setupVars) { Fail "OVMS 2026.3.0 installation is incomplete under $OvmsDir" }
 . $setupVars.FullName
 
-# Pull the fixed NPU model only when it is absent.
-$modelRoot = Join-Path $ModelDir $ModelId.Replace('/','\')
-if (!(Test-Path $modelRoot)) {
-    Say "pulling $ModelId; this is the large model download"
-    $pullArgs = @(
-        "--pull",
-        "--source_model",$ModelId,
-        "--model_repository_path",$ModelDir,
-        "--target_device","NPU",
-        "--task","text_generation",
-        "--tool_parser","hermes3",
-        "--cache_dir",$CacheDir,
-        "--enable_prefix_caching","true",
-        "--max_prompt_len","$MaxPromptLen",
-        "--plugin_config",$PluginConfig
-    )
-    & $ovmsExe.FullName @pullArgs
-    if ($LASTEXITCODE -ne 0) { Fail "OVMS model pull failed ($LASTEXITCODE)" }
+# Serving configuration has exactly one owner: MODEL_PRESETS via serve.py.
+# Existing virtual environments must also have the controller dependency.
+& $VenvPython -c "import psutil"
+if ($LASTEXITCODE -ne 0) { Fail 'Update the checkout environment: python -m pip install -e ".[dev]"' }
+$serveArgs = @("--profile",$Profile,"--runtime-root",$RuntimeRoot,"--executable",$ovmsExe.FullName)
+$planText = & $VenvPython $Controller start @serveArgs --dry-run
+if ($LASTEXITCODE -ne 0) { Fail "could not resolve serving preset" }
+$plan = ($planText -join "`n") | ConvertFrom-Json
+$ModelId = $plan.model_configuration.model
+$BaseUrl = $plan.base_url
+$RestPort = $plan.port
+$MaxPromptLen = $plan.model_configuration.server_max_prompt_length
+$PidFile = $plan.state_file
+$StdoutLog = $plan.stdout
+$StderrLog = $plan.stderr
+Say "target: $ModelId on $($plan.model_configuration.device), port $RestPort, max prompt $MaxPromptLen"
+$modelRoot = $plan.model_dir
+if (!(Test-Path (Join-Path $modelRoot "openvino_model.xml"))) {
+    Say "pulling model after controller disk check"
+    & $VenvPython $Controller pull @serveArgs
+    if ($LASTEXITCODE -ne 0) { Fail "model pull failed" }
+    $planText = & $VenvPython $Controller start @serveArgs --dry-run
+    if ($LASTEXITCODE -ne 0) { Fail "could not resolve pulled model" }
+    $plan = ($planText -join "`n") | ConvertFrom-Json
+    $modelRoot = $plan.model_dir
 }
-if (!(Test-Path $modelRoot)) {
-    $found = Get-ChildItem $ModelDir -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq "Qwen3-8B-int4-cw-ov" } | Select-Object -First 1
-    if ($found) { $modelRoot = $found.FullName }
-}
-if (!(Test-Path $modelRoot)) { Fail "model pull completed but model root was not found under $ModelDir" }
-Say "model repository: $modelRoot"
 WriteModelManifest $modelRoot
-
-# Reuse a healthy endpoint if one is already running. Otherwise launch OVMS.
-$serverReady = WaitForHttp $ModelsUrl 3
-if (!$serverReady) {
-    if (Test-Path $PidFile) {
-        try {
-            $oldPid = [int]((Get-Content $PidFile -Raw).Trim())
-            $old = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
-            if ($old) { Fail "PID file points to a live process $oldPid but $ModelsUrl is not healthy. Inspect $StdoutLog and $StderrLog before killing/restarting it." }
-        } catch {}
-        Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
-    }
-
-    $serveArgs = @(
-        "--source_model",$ModelId,
-        "--model_repository_path",$ModelDir,
-        "--target_device","NPU",
-        "--task","text_generation",
-        "--tool_parser","hermes3",
-        "--rest_port","$RestPort",
-        "--cache_dir",$CacheDir,
-        "--enable_prefix_caching","true",
-        "--max_prompt_len","$MaxPromptLen",
-        "--plugin_config",$PluginConfig
-    )
-    [pscustomobject]@{exe=$ovmsExe.FullName;args=$serveArgs;stdout=$StdoutLog;stderr=$StderrLog} |
-        ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $ServeSpec
-    Say "starting OVMS; first NPU compile/load can take several minutes"
-    $pidText = (& $VenvPython $Launcher $ServeSpec 2>&1 | Select-Object -Last 1)
-    if ($LASTEXITCODE -ne 0 -or !($pidText -match '^\d+$')) { Fail "could not launch OVMS: $pidText" }
-    Set-Content -Encoding ASCII -Path $PidFile -Value $pidText
-    Say "OVMS pid $pidText"
-    $serverReady = WaitForHttp $ModelsUrl 900
-}
-if (!$serverReady) { Fail "OVMS did not become ready within 900s. Inspect $StdoutLog and $StderrLog" }
+Say "starting server through controller; first NPU compile may take several minutes"
+$runtimeText = & $VenvPython $Controller start @serveArgs --wait-seconds 900
+if ($LASTEXITCODE -ne 0) { Fail "server refused or not ready. Inspect $StdoutLog and $StderrLog" }
+$runtimeText | Set-Content -Encoding UTF8 $RuntimeProfile
 Say "OVMS endpoint ready: $BaseUrl"
-
-[pscustomobject]@{
-    profile="ptl-npu-8b";base_url=$BaseUrl;model=$ModelId;device="NPU";
-    runtime="ovms";runtime_version="2026.3.0";quant="int4-cw-ov";
-    tool_parser="hermes3";max_prompt_len=$MaxPromptLen;model_repository=$ModelDir;
-    cache_dir=$CacheDir;pid_file=$PidFile;stdout_log=$StdoutLog;stderr_log=$StderrLog
-} | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $RuntimeProfile
 
 # Protocol qualification is plumbing, not a scored experiment.
 EnsureDir $QualificationDump
 Say "running Local Code Agent server qualification"
 Push-Location $RepoRoot
 try {
-    & $VenvPython measurement\qualify_server.py --profile ptl-npu-8b --base-url $BaseUrl --model $ModelId --context-probes "1000,4000,7000" --json $QualificationJson --dump-dir $QualificationDump
+    & $VenvPython measurement\qualify_server.py --profile $Profile --base-url $BaseUrl --model $ModelId --context-probes "1000,4000,7000" --json $QualificationJson --dump-dir $QualificationDump
     $qualExit = $LASTEXITCODE
 } finally { Pop-Location }
 if ($qualExit -ne 0) { Fail "server qualification failed ($qualExit). See $QualificationJson and $QualificationDump" }

@@ -9,6 +9,7 @@ description = "Local C++ engineering agent. The orchestrator owns the workflow; 
 requires-python = ">=3.11"
 dependencies = [
     "openai>=1.40",
+    "psutil>=6.0",
 ]
 
 [project.optional-dependencies]
