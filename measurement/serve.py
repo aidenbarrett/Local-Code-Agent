@@ -50,7 +50,8 @@ def endpoint(config):
 
 def model_directory(repository, model):
     root = repository / model
-    candidates = list(root.rglob("openvino_model.xml")) if root.exists() else []
+    candidates = ([p for name in ("openvino_model.xml", "openvino_language_model.xml")
+                   for p in root.rglob(name)] if root.exists() else [])
     if len(candidates) > 1:
         raise Refusal(f"multiple IR versions under {root}; select one with --model-dir")
     return candidates[0].parent if candidates else root
@@ -114,7 +115,12 @@ def make_plan(profile, config, runtime_root, *, executable=None, model_dir=None,
 
 def precision(payload):
     """The official artifacts omit mode in JSON; read NNCF metadata in the IR."""
-    path = Path(payload) / "openvino_model.xml"
+    candidates = [Path(payload) / name for name in
+                  ("openvino_model.xml", "openvino_language_model.xml")
+                  if (Path(payload) / name).is_file()]
+    if len(candidates) != 1:
+        raise Refusal(f"expected one language IR in {payload}, found {len(candidates)}")
+    path = candidates[0]
     try:
         root = ET.parse(path).getroot()
         wc = root.find("rt_info/nncf/weight_compression")
@@ -197,13 +203,15 @@ def preflight(plan, config, allow_experimental=False):
     if config.runtime == "ovms":
         # Do this before even querying the runtime, so a bad NPU artifact is named.
         record["precision"] = check_precision(payload, config.device)
-        for name in ("openvino_model.bin", "openvino_tokenizer.xml", "openvino_tokenizer.bin",
-                     "openvino_detokenizer.xml", "openvino_detokenizer.bin", "config.json"):
+        required = ["openvino_tokenizer.xml", "openvino_tokenizer.bin",
+                    "openvino_detokenizer.xml", "openvino_detokenizer.bin", "config.json"]
+        required += [xml.with_suffix(".bin").name for xml in payload.glob("openvino_*.xml")]
+        for name in required:
             if not (payload / name).is_file() or (payload / name).stat().st_size == 0:
                 raise Refusal(f"incomplete model payload: {payload / name}; run pull first")
         if config.device != "NPU":
             model_config = json.loads((payload / "config.json").read_text(encoding="utf-8"))
-            maximum = model_config.get("max_position_embeddings")
+            maximum = model_config.get("text_config", model_config).get("max_position_embeddings")
             if not isinstance(maximum, int) or maximum < config.server_max_prompt_length:
                 raise Refusal(f"model max_position_embeddings={maximum} does not cover declared envelope")
     elif not payload.is_file():

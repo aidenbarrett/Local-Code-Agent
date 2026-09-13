@@ -54,7 +54,8 @@ start; pull always uses the preset's HF model and runtime-root model repository.
 ## Refusals and status
 
 - NPU requires `INT4_SYM`, ratio 1, group -1 or 128 from
-  `openvino_model.xml/rt_info/nncf/weight_compression`. The official 8B and 30B
+  `openvino_model.xml/rt_info/nncf/weight_compression` (or the VLM
+  `openvino_language_model.xml`). The official 8B and 30B
   `openvino_config.json` files omit the precision mode, so trusting only that
   JSON would reject the good artifact. Missing, malformed or incompatible IR
   metadata refuses before any inference process is started. Metadata checking
@@ -99,7 +100,9 @@ Protocol qualification is still required after a real start.
 The [2026.3 and 2026.3.1 release notes](https://github.com/openvinotoolkit/model_server/releases)
 still list the NPU 8K cap. Both experimental profiles refuse start/pull unless
 `--allow-experimental` is supplied. This opt-in is a probe permission, not a
-support claim. The ceiling model also needs its documented matching runtime and
+support claim. The ceiling model has a VLM payload with a separate language IR and nested text
+configuration; its [tool template](https://huggingface.co/OpenVINO/Qwen3.8-27B-int4-ov/blob/main/chat_template.jinja)
+uses the qwen3coder parser. It also needs its documented matching runtime and
 model revision; do not run it against the bootstrap's ordinary stack by default.
 The controller does not fetch a nightly stack.
 

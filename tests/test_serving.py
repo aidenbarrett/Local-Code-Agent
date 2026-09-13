@@ -234,3 +234,22 @@ def test_exit_between_status_and_exe_is_dead_not_pid_reuse(monkeypatch):
         def exe(self): return ""
     monkeypatch.setattr(psutil, 'Process', lambda pid: Exiting())
     assert serve.owned_process({'pid':123, 'create_time':42, 'process_exe':'python'}) is None
+
+
+def test_experimental_vlm_layout_and_nested_context(tmp_path, monkeypatch):
+    c=MODEL_PRESETS['ceiling-27b-dense']
+    p=serve.make_plan('ceiling',c,tmp_path,executable=sys.executable)
+    payload=Path(p['model_dir'])
+    ir(payload,'int4_asym','128')
+    (payload/'openvino_model.xml').rename(payload/'openvino_language_model.xml')
+    for name in ['openvino_language_model.bin','openvino_tokenizer.xml','openvino_tokenizer.bin',
+                 'openvino_detokenizer.xml','openvino_detokenizer.bin']:
+        (payload/name).write_text('fixture')
+    (payload/'config.json').write_text(json.dumps({'text_config':{'max_position_embeddings':32768}}))
+    monkeypatch.setattr(serve,'available_devices',lambda:(['CPU','GPU.0'],'test'))
+    monkeypatch.setattr(serve,'check_disk',lambda *a:100*1024**3)
+    monkeypatch.setattr(serve,'check_port',lambda *a:None)
+    observed=serve.preflight(p,c,allow_experimental=True)
+    assert observed['precision']['mode']=='INT4_ASYM'
+    assert observed['precision']['source'].endswith('openvino_language_model.xml')
+    assert serve.model_directory(Path(p['model_repository']),c.model)==payload
