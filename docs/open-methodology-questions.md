@@ -2,8 +2,8 @@
 
 Decisions, not defects. Each one is a live choice about what the numbers mean,
 and each will be re-litigated by the next reviewer unless the answer is written
-down. None of these blocks the first generation-2 row. All of them change how a
-result should be reported.
+down. Items 1-8 do not block the first generation-2 row; item 9 does, because it
+changes hashed measurement source and must land before the pilot starts.
 
 Answer them here, in this file, with a date and a reason. An unanswered question
 is a finding waiting to be rediscovered.
