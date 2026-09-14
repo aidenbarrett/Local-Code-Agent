@@ -6,7 +6,7 @@
 #
 #   bash run_experiment.sh /mnt/c/Users/<you>/Downloads/local-code-agent.zip nuc-llama-30b
 #
-# Controlled probe of one case (decision 12), transcript captured:
+# Controlled probe of one case:
 #   bash run_experiment.sh <zip> nuc-llama-30b test-failure-diagnose
 #
 # One cell of the mechanism experiment:
@@ -14,22 +14,16 @@
 #   CONDITION=narrow  bash run_experiment.sh <zip> nuc-llama-30b
 #   CONDITION=skill   bash run_experiment.sh <zip> nuc-llama-30b
 #
-# Each step is a gate. The script stops at the first one that fails and says
-# which. Nothing here is clever; it is the blueprint's slice 3 typed out.
+# Each step is a gate. Nothing after a failed gate is reported as a run.
 
 # pipefail: the eval is piped to tee, and without it a Python crash is masked
 # by tee's exit status and the script goes on to print "done".
 set -uo pipefail
 ZIP="${1:?path to local-code-agent.zip}"
 PROFILE="${2:-nuc-llama-30b}"
-CASE="${3:-}"            # optional: run one case only, as a probe
-# CONDITION selects which of the three cells this run measures:
-#   skill    the skill body and the skill's toolset
-#   narrow   the same toolset, no body: the effect of taking tools away
-#   control  no body, every registered tool
-# The catalogue is off in all three, so skill minus narrow is procedure alone.
+CASE="${3:-}"
 CONDITION="${CONDITION:-skill}"
-NOSKILL="${NOSKILL:-0}"  # older spelling of CONDITION=control
+NOSKILL="${NOSKILL:-0}"
 [ "$NOSKILL" = "1" ] && CONDITION="control"
 case "$CONDITION" in skill|narrow|control) ;; *)
     echo "CONDITION must be skill, narrow or control (got '$CONDITION')"; exit 1 ;;
@@ -41,8 +35,8 @@ mkdir -p "$OUT"
 step() { printf '\n===== %s =====\n' "$1"; }
 fail() {
     printf '\nGATE FAILED: %s\n' "$1"
-    printf 'No run happened. Any probe or suite JSON already in %s is from an\n' "$OUT"
-    printf 'EARLIER run. Do not send it as this run.\n'
+    printf 'No completed run happened. Any JSON already in %s may be partial or\n' "$OUT"
+    printf 'from an earlier run; use the run name and manifest together.\n'
     exit 1
 }
 
@@ -77,9 +71,8 @@ rm -rf "$tmp"
 cd "$DEST" || fail "cd"
 echo "unpacked: $(find local_agent -name '*.py' | wc -l) source files"
 
-# This script was copied out of a previous package and lives in $HOME. If it
-# has drifted from the one inside the zip, the JSON would report the package
-# hash while a different experiment actually ran.
+# This script is often copied out beside the package. Refuse drift: the
+# launcher is part of the source hash because it decides what actually runs.
 me="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 if [ -f "$DEST/measurement/run_experiment.sh" ] && [ "$me" != "$DEST/measurement/run_experiment.sh" ]; then
     if ! cmp -s "$me" "$DEST/measurement/run_experiment.sh"; then
@@ -100,21 +93,13 @@ pip install -q -e ".[dev]" || fail "pip install (needs network from WSL)"
 python -c 'import openai; print("openai", openai.__version__)' || fail "openai import"
 
 # --- 3. the agent works on THIS Linux before it meets a model -----------------
-step "3. test suite on this machine"
-# Once, not twice. Piping to tail loses the exit status, so the suite used to
-# be run a second time just to read it: double the time and double the exposure
-# to a flake disagreeing with itself.
+step "3. authoritative pytest on this machine"
 testlog="$(mktemp)"
-if command -v pytest >/dev/null 2>&1; then
-    pytest -q >"$testlog" 2>&1; rc=$?
-    tail -3 "$testlog"
-else
-    python measurement/run_test_suite.py tests >"$testlog" 2>&1; rc=$?
-    tail -1 "$testlog"
-fi
+python -m pytest -q >"$testlog" 2>&1; rc=$?
+tail -3 "$testlog"
 if [ "$rc" -ne 0 ]; then
     echo "--- last 40 lines ---"; tail -40 "$testlog"
-    rm -f "$testlog"; fail "test suite"
+    rm -f "$testlog"; fail "pytest"
 fi
 rm -f "$testlog"
 
@@ -134,34 +119,73 @@ step "6. qualify ($PROFILE)"
 python measurement/qualify_server.py --profile "$PROFILE" --json "$OUT/qualify-$PROFILE.json" \
     --dump-dir "$OUT/qualify-failures" || fail "qualification. Fix these before running the suite."
 
-# --- 7. the run ---------------------------------------------------------------
-# Every condition is named, including skill. It used to be the empty suffix,
-# so CONDITION=skill wrote <profile>.json, which was the exact filename
-# of the historical frozen dataset, and the rm below would have deleted it
-# before the run started. A filename must never be able to masquerade as, or
-# destroy, a dataset from a different prompt generation.
+# Every run name carries its condition so one cell cannot overwrite another.
 COND="-$CONDITION"
 COND_FLAG="--condition $CONDITION"
-
 if [ -n "$CASE" ]; then
     RUN="probe-$CASE-$PROFILE$COND"
 else
     RUN="$PROFILE$COND"
 fi
-
-# Stale results are worse than no results. If a gate above stops the script, or
-# this run dies, the previous run's JSON and transcripts must not be sitting
-# there under the same names looking current. One round trip was already spent
-# analysing a leftover transcript as if it were fresh.
-#
-# The delete is scoped to a name that always carries the condition, so it can
-# only ever remove this run's own leftovers.
 case "$RUN" in
     *-control|*-narrow|*-skill|*-control-*|*-narrow-*|*-skill-*) ;;
-    *) echo "refusing to clear '$RUN': the name does not carry a condition"; exit 1 ;;
+    *) echo "refusing run name '$RUN': it does not carry a condition"; exit 1 ;;
 esac
-rm -rf "$OUT/$RUN.json" "$OUT/$RUN-transcripts" "$OUT/$RUN.log"
 
+# A retry must never erase evidence needed to enforce the repeat rule.
+for artifact in     "$OUT/$RUN.json" "$OUT/$RUN-transcripts" "$OUT/$RUN.log" "$OUT/$RUN-manifest.json"
+do
+    if [ -e "$artifact" ]; then
+        echo "refusing to overwrite existing pilot artifact: $artifact"
+        echo "choose a new run label/output location or archive the prior run explicitly"
+        exit 1
+    fi
+done
+
+# --- 6.5. observations that cannot be recovered after the run -----------------
+step "6.5. immutable run manifest"
+manifest_args=(
+    python measurement/capture_run_manifest.py
+    --profile "$PROFILE"
+    --condition "$CONDITION"
+    --out "$OUT/$RUN-manifest.json"
+)
+if [ -n "$CASE" ]; then
+    manifest_args+=(--case "$CASE")
+fi
+"${manifest_args[@]}" || fail "run manifest capture"
+
+# Refuse a package whose declared hashes do not describe the bytes being run.
+python - "$OUT/$RUN-manifest.json" <<'PY' || fail "manifest instrument identity"
+import json, sys
+p = json.load(open(sys.argv[1], encoding="utf-8"))
+declared = p["instrument"]["declared"]
+observed = p["instrument"]["observed"]
+keys = ["source_sha256", "base_prompt_sha256"]
+if "outcome_contract_sha256" in declared or "outcome_contract_sha256" in observed:
+    keys.append("outcome_contract_sha256")
+bad = [(k, declared.get(k), observed.get(k)) for k in keys if declared.get(k) != observed.get(k)]
+if bad:
+    for k, want, got in bad:
+        print(f"{k}: declared {want}, observed {got}")
+    raise SystemExit(1)
+print("instrument identity matches manifest declaration")
+PY
+
+# Actual device may not be independently observable from an OpenAI-compatible
+# HTTP endpoint. Never infer it from the requested profile. The manifest says
+# UNOBSERVED unless the operator deliberately supplies LOCAL_AGENT_ACTUAL_DEVICE.
+python - "$OUT/$RUN-manifest.json" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1], encoding="utf-8"))
+t = p["target"]
+print("requested device:", t["requested_device"])
+print("actual device:", t["actual_device"] or "UNOBSERVED", f"({t['actual_device_source']})")
+if t["actual_device"] is None:
+    print("NOTE: set LOCAL_AGENT_ACTUAL_DEVICE before a deployment comparison if the runtime can establish it.")
+PY
+
+# --- 7. the run ---------------------------------------------------------------
 if [ -n "$CASE" ]; then
     step "7. CONTROLLED PROBE ($PROFILE, case $CASE, once)"
     echo "Transcript lands in $OUT/$RUN-transcripts/ whatever the outcome."
@@ -170,11 +194,12 @@ if [ -n "$CASE" ]; then
         2>&1 | tee "$OUT/$RUN.log"
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "the probe exited non-zero; see $OUT/$RUN.log"
 else
-    step "7. END-TO-END RUN ($PROFILE, 10 cases, 7 scenarios, once each)"
-    echo "Allow an hour on the 30B. The measured full suite was 22 minutes with"
-    echo "skills and 38 without, because the control takes more turns."
+    step "7. END-TO-END RUN ($PROFILE, 10 pilot cases, 3 valid draws each; max 5 attempts)"
+    echo "These ten tasks validate the comparison. They are not confirmatory evidence"
+    echo "for a population-level procedure hypothesis; fresh held-out tasks do that."
     echo "Output: $OUT/$RUN.json"
     python evaluation/run_evaluation.py --profile "$PROFILE" --label "$RUN" $COND_FLAG \
+        --repeat 3 --max-attempts 5 \
         --out "$OUT/$RUN.json" --workdir "$HOME/local-agent-evals" \
         2>&1 | tee "$OUT/$RUN.log"
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "the run exited non-zero; see $OUT/$RUN.log"
@@ -182,5 +207,6 @@ fi
 
 step "done"
 echo "ledger:     see above and $OUT/$RUN.json"
+echo "manifest:   $OUT/$RUN-manifest.json"
 echo "per case:   python -c 'import json;[print(r[\"case\"], r[\"outcome\"], r[\"validity\"], r[\"succeeded\"], r[\"scope_violation\"], r[\"tool_calls\"], r[\"elapsed_s\"]) for r in json.load(open(\"$OUT/$RUN.json\"))[\"rows\"]]'"
-echo "send back:  $OUT/$RUN.json, $OUT/$RUN-transcripts/*.json (if any) and $OUT/qualify-$PROFILE.json"
+echo "send back:  $OUT/$RUN.json, $OUT/$RUN-manifest.json, $OUT/$RUN-transcripts/*.json and $OUT/qualify-$PROFILE.json"

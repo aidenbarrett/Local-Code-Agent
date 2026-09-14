@@ -67,12 +67,15 @@ average over two opposite per-case effects. Per case:
 | test-failure-fix | 0/3 | 3/3 | 3/3 | +1.00 | +0.00 |
 | timeout | 2/3 | 3/3 | 3/3 | +0.33 | +0.00 |
 
-The +0.06 aggregate is `link-error` at +3 rows, `compile-error-locate` at +1,
-and `review-restraint` at −2. With one repeat these were indistinguishable from
-noise, and the honest reading was "no measured effect". With three they are two
-named, opposite, per-case effects. That is a statement about where the movement
-sits in this fixture, not a claim that the underlying procedure effect is
-non-zero. Ten tasks repeated three times cannot support that claim.
+The +0.06 aggregate is `link-error` at +3 rows and `review-restraint` at -2,
+netting +1 success out of roughly thirty. `compile-error-locate` moved from 2/3
+to 2/2, which is a rate change caused by the excluded invalid row and not an
+additional success. With one repeat these movements were indistinguishable from
+noise, and the honest reading was "no measured effect". With three they expose
+two named, opposite, per-case effects plus one denominator artefact. That is a
+statement about where the movement sits in this fixture, not a claim that the
+underlying procedure effect is non-zero. Ten tasks repeated three times cannot
+support that claim.
 
 ### 2. `link-error` is a clean, deterministic procedure effect
 
@@ -129,8 +132,8 @@ skill     0, 0, 0      0 of 29 rows
 ```
 
 On `compile-error-locate`, `link-error` and `test-failure-diagnose`, control
-patched the repository on all three repeats and then claimed `success` on a
-task that asked only for a diagnosis. It also did it on `segfault` twice.
+patched the repository on all three repeats and then claimed `success` on a task
+that asked only for a diagnosis. It also did it on `segfault` twice.
 
 So the 0.300 is not the model failing to understand C++. Control solves plenty
 of these. It fails because, given the full registry, it does work it was not

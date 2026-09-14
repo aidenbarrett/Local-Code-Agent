@@ -6,8 +6,10 @@ project's own test suite by any tool that walks the source tree.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,7 +44,15 @@ _FILTER_MAX = 200
 
 # What a C or C++ build turns into a binary. A change to any of these makes the
 # artefacts in the build directory older than the truth.
-_SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".txt", ".cmake")
+_SOURCE_SUFFIXES = (
+    ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
+    ".txt", ".cmake", ".in", ".inc", ".ipp", ".tpp", ".def", ".s",
+    ".asm", ".py", ".sh",
+)
+_SOURCE_NAMES = frozenset({
+    "CMakeLists.txt", "CMakePresets.json", "CMakeUserPresets.json",
+    ".local-agent.toml",
+})
 
 
 BUILD_STAMP = ".local-agent-build-ok"
@@ -51,21 +61,50 @@ PROFILE_STAMP = ".local-agent-configured-profile"
 
 @dataclass(frozen=True)
 class BuildRecord:
-    """What the last successful FULL build was, and when.
+    """What source bytes the last successful FULL build represented.
 
-    Nanoseconds are kept as an integer. The old float-seconds stamp could lose
-    enough precision when converted from a filesystem timestamp that an edit
-    made immediately after a build compared equal to the build and was missed
-    on Windows CI.
+    `at_ns` remains useful audit metadata, but freshness is deliberately not a
+    clock comparison. Filesystem timestamps can compare equal across a real
+    source edit, which makes a timestamp-only proof forgeable by accident.
     """
 
     profile: str
     at_ns: int
+    source_hashes: dict[str, str]
 
     @property
     def at(self) -> float:
         """Legacy seconds view for callers that only display the timestamp."""
         return self.at_ns / 1_000_000_000
+
+
+def _source_hashes(root: Any, build_dir: str) -> dict[str, str]:
+    """Hash build inputs by canonical repository-relative path.
+
+    Exclusions are repository-relative. An ancestor outside the worktree named
+    `build` must not disable the oracle. Symlinks are not followed outside the
+    evidence tree.
+    """
+    out: dict[str, str] = {}
+    build_rel = Path(build_dir)
+    skipped = {".git", ".local-agent", ".venv", "__pycache__", ".pytest_cache"}
+    for path in root.rglob("*"):
+        rel = path.relative_to(root)
+        if skipped.intersection(rel.parts):
+            continue
+        try:
+            rel.relative_to(build_rel)
+            continue
+        except ValueError:
+            pass
+        if path.name in (BUILD_STAMP, PROFILE_STAMP):
+            continue
+        if path.is_symlink() or not path.is_file():
+            continue
+        if path.name not in _SOURCE_NAMES and path.suffix.lower() not in _SOURCE_SUFFIXES:
+            continue
+        out[rel.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return dict(sorted(out.items()))
 
 
 def touch_build_stamp(root: Any, build_dir: str, profile: str) -> None:
@@ -88,25 +127,21 @@ def touch_build_stamp(root: Any, build_dir: str, profile: str) -> None:
     try:
         build.mkdir(parents=True, exist_ok=True)
         stamp = build / BUILD_STAMP
-        # Two writes on purpose. The recorded time has to come from the SAME
-        # clock as the source mtimes it will be compared against, which is the
-        # filesystem's, not `time.time()`. They agree on an ordinary local
-        # disk and can disagree on a network mount or a VM whose guest clock
-        # has drifted, and a build recorded as later than it happened would
-        # hide a real stale source.
-        #
-        # Use the integer nanosecond timestamp. `st_mtime` is a float and can
-        # collapse two nearby filesystem timestamps to the same representable
-        # value. That happened on the native Windows CI runner: an immediate
-        # source edit was not detected as stale.
-        #
-        # So: write, ask the filesystem what time it just used, then write that
-        # into the content. The second write's own mtime is a hair later than
-        # the value stored, which errs towards calling a source stale rather
-        # than fresh. That is the right direction to be wrong in.
-        stamp.write_text("{}\n")
+        # The timestamp is retained for audit/display only. The load-bearing
+        # freshness proof is the exact source-content snapshot. This makes an
+        # edit stale even when the filesystem reports the same mtime before and
+        # after it, which Windows CI demonstrated is a real case.
+        source_hashes = _source_hashes(root, build_dir)
+        stamp.write_text("{}\n", encoding="utf-8")
         at_ns = stamp.stat().st_mtime_ns
-        stamp.write_text(json.dumps({"profile": profile, "at_ns": at_ns}) + "\n")
+        stamp.write_text(
+            json.dumps({
+                "profile": profile,
+                "at_ns": at_ns,
+                "source_hashes": source_hashes,
+            }, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     except OSError:  # pragma: no cover - never load-bearing
         pass
 
@@ -127,27 +162,25 @@ def build_record(root: Any, build_dir: str) -> BuildRecord | None:
         payload = json.loads(text)
         profile = payload.get("profile")
         at_ns = payload.get("at_ns")
-        # Read stamps produced by the previous package. They carried float
-        # seconds. New writes are always nanoseconds, so precision is never
-        # thrown away again after this point.
-        if at_ns is None and isinstance(payload.get("at"), (int, float)):
-            at_ns = int(float(payload["at"]) * 1_000_000_000)
+        source_hashes = payload.get("source_hashes")
     except (ValueError, AttributeError):
         return None  # legacy "ok\n" stamp: built, but by whom, when, for what?
 
-    # The time comes out of the CONTENT, never from the file's mtime.
-    #
-    # Reading the mtime made the stamp forgeable by touching it, and touching a
-    # file inside the repository was a tool call the model already had:
-    # propose_patch a byte, apply_patch, and the staleness baseline jumped to
-    # now with nothing compiled. Writes into the build directory are refused
-    # outright as well, and these are two independent locks on the same door
-    # because that door decides whether a result counts as proof.
+    # A timestamp-only stamp is no longer trusted. It cannot establish which
+    # bytes were compiled, so an older checkout must perform one fresh full
+    # build before its tests can count as proof.
     if not isinstance(at_ns, int) or at_ns <= 0:
         return None
     if not isinstance(profile, str) or not profile:
         return None
-    return BuildRecord(profile=profile, at_ns=at_ns)
+    if not isinstance(source_hashes, dict) or not all(
+        isinstance(path, str)
+        and isinstance(digest, str)
+        and len(digest) == 64
+        for path, digest in source_hashes.items()
+    ):
+        return None
+    return BuildRecord(profile=profile, at_ns=at_ns, source_hashes=source_hashes)
 
 
 def configured_profile(root: Any, build_dir: str) -> str | None:
@@ -178,44 +211,25 @@ def set_configured_profile(root: Any, build_dir: str, name: str) -> None:
 
 
 def _stale_sources(root: Any, build_dir: str, record: BuildRecord | None) -> list[str]:
-    """Source files modified since the build directory was last written.
+    """Source paths whose current bytes differ from the last full build.
 
-    ctest does not build. A model that edits a source file and reruns the test
-    gets the previous binary's result, identical to the one before the edit,
-    and no amount of rereading the source explains why. The 30B spent ten tool
-    calls on exactly that: it fixed the defect correctly, reran, saw the same
-    failure, checked the file, saw its own correct fix, and looped until the
-    repeat guard stopped it.
-
-    So the tool says it. Deterministically, from mtimes, with no guessing.
+    ctest does not build. Freshness therefore has to be a content statement,
+    not a clock statement: equal mtimes must never make changed source look
+    represented by an older binary. Added and deleted build inputs are stale
+    for the same reason as modified ones.
     """
     if record is None:
-        # No successful full build recorded, so there is nothing to compare
-        # mtimes against. This is NOT "nothing is stale": it is "freshness is
-        # unknown", and the caller reports it as its own invalidating
-        # condition. Returning [] here and letting the result stand as a PASS
-        # is precisely how an unbuilt profile verified old binaries.
+        # No content-bound successful full build is recorded. This is NOT
+        # "nothing is stale": the caller reports unknown build provenance as
+        # its own invalidating condition.
         return []
-    newest_build_ns = record.at_ns
 
-    stale: list[str] = []
-    for path in root.rglob("*"):
-        parts = path.parts
-        if build_dir in parts or ".git" in parts or ".local-agent" in parts:
-            continue
-        if path.name in (BUILD_STAMP, PROFILE_STAMP):
-            continue
-        if not path.is_file() or path.suffix.lower() not in _SOURCE_SUFFIXES:
-            continue
-        try:
-            if path.stat().st_mtime_ns > newest_build_ns:
-                # Evidence is serialized and shown to the model. Repository
-                # paths therefore have one canonical spelling on every host,
-                # not backslashes on Windows and slashes on Linux.
-                stale.append(path.relative_to(root).as_posix())
-        except OSError:  # pragma: no cover
-            continue
-    return sorted(stale)
+    current = _source_hashes(root, build_dir)
+    names = set(record.source_hashes) | set(current)
+    return sorted(
+        name for name in names
+        if record.source_hashes.get(name) != current.get(name)
+    )
 
 
 def register(reg: ToolRegistry, ctx: ToolContext) -> None:

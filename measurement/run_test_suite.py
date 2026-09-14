@@ -127,9 +127,18 @@ class MonkeyPatch:
     def setenv(self, name: str, value: str) -> None:
         old = os.environ.get(name)
         self._undo.append(
-            lambda: os.environ.pop(name) if old is None else os.environ.__setitem__(name, old)
+            lambda: os.environ.pop(name, None) if old is None else os.environ.__setitem__(name, old)
         )
         os.environ[name] = value
+
+    def delenv(self, name: str, raising: bool = True) -> None:
+        if name not in os.environ:
+            if raising:
+                raise KeyError(name)
+            return
+        old = os.environ[name]
+        self._undo.append(lambda: os.environ.__setitem__(name, old))
+        del os.environ[name]
 
     def undo(self) -> None:
         for fn in reversed(self._undo):
