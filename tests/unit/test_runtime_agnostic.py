@@ -128,7 +128,8 @@ def test_identity_reaches_run_metadata(sandbox):
     assert identity[CHEAP]["runtime"] == "llamacpp"
     assert identity[CHEAP]["runtime_version"] == "b10816-427291b5b"
     assert identity[CHEAP]["thinking"] is False
-    assert identity[STRONG]["device"] == "NPU (8K)"
+    assert identity[STRONG]["device"] == "NPU"
+    assert identity[STRONG]["device_note"] == "NPU (8K)"
 
 
 def test_thinking_mode_is_carried_into_run_metadata(sandbox):
