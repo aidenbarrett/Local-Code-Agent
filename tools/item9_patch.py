@@ -101,6 +101,16 @@ replace_once(
     "from local_agent.provenance import package_identity  # noqa: E402\n"
     "from local_agent.persistence import sanitized_result  # noqa: E402\n",
 )
+# Transcript evidence still needs to be dereferenceable by auditors and by the
+# existing integration contract. Store a cwd-relative reference instead of an
+# absolute path; the structural sanitizer then leaves it usable while still
+# guaranteeing no absolute path escapes in the row. This helper is deliberately
+# outside outcome_contract_sha256, so the change remains source-only.
+replace_once(
+    p,
+    "    return str(path)\n\n\ndef run_case(\n",
+    "    return os.path.relpath(path, Path.cwd())\n\n\ndef run_case(\n",
+)
 replace_once(
     p,
     "\n\ndef build_ledger(rows: list[dict], tiered: bool = False) -> dict:\n",
@@ -176,7 +186,9 @@ p = ROOT / "tests" / "integration" / "test_persistence_privacy.py"
 p.write_text(
     r'''from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 from evaluation.run_evaluation import CASES, ModelConfig, run_case
 from measurement.capture_run_manifest import capture_manifest
@@ -221,7 +233,7 @@ def test_sanitizer_covers_all_absolute_path_families_recursively():
     assert "corp\\share" not in repr(safe)
 
 
-def test_run_case_emits_no_absolute_path_anywhere(tmp_path):
+def test_run_case_emits_no_absolute_path_anywhere_and_keeps_transcript_usable(tmp_path):
     case = next(case for case in CASES if case.name == "clean-build")
     row = run_case(
         case,
@@ -236,6 +248,10 @@ def test_run_case_emits_no_absolute_path_anywhere(tmp_path):
     )
     assert row["transcript"] is not None
     assert _absolute_paths(row) == []
+    transcript = Path(row["transcript"])
+    assert not transcript.is_absolute()
+    saved = json.loads(transcript.read_text(encoding="utf-8"))
+    assert saved["case"] == "clean-build"
 
 
 def test_captured_manifest_contains_no_absolute_path_in_any_field():
@@ -263,10 +279,12 @@ generation.
     '''**Resolved 2026-09-14, before generation-2 row one:** persisted evaluation
 rows and pre-run manifests now pass through one recursive persistence-boundary
 redactor that replaces POSIX, Windows drive-letter and UNC absolute paths with
-opaque path hashes. The regression walks the complete returned structure rather
-than named fields, so adding a field later cannot silently reintroduce a path.
-The work-laptop bootstrap report also omits the computer name, absolute roots and
-free-form result details; those remain interactive console diagnostics only.
+opaque path hashes. Transcript references remain usable but are stored relative
+to the process working directory. The regression walks the complete returned
+structure rather than named fields, so adding a field later cannot silently
+reintroduce a path. The work-laptop bootstrap report also omits the computer
+name, absolute roots and free-form result details; those remain interactive
+console diagnostics only.
 
 This is a source-only generation-2 move. `source_sha256` moves with the fix;
 `base_prompt_sha256` and `outcome_contract_sha256` remain frozen.
