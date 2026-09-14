@@ -1,6 +1,6 @@
 # Adversarial review history
 
-Six rounds. Every defect below was found by an adversarial reviewer or by a
+Eleven rounds. Every defect below was found by an adversarial reviewer or by a
 sweep written to attack the instrument, reproduced as a failing test, then
 closed. The tests are written as the cheat rather than as the fix, so they fail
 again if the fix is ever undone. They live in
@@ -251,3 +251,160 @@ verification requirement.
 three arms disagreed with each other rather than converging, so the correct
 claim type there is a live design question, not a settled defect. Leaving it
 visible in an exemption set beats resolving it quietly.
+
+## Round 9: one tree, two identities, and the number nobody could explain
+
+Native Windows CI reported `source_sha256 = bd6ca03…` against a declared
+`e16b2f01…`, on an identical commit. Four candidate explanations were computed
+from the real bytes and **none matched**, which is what turned this from a
+guess into an investigation. Reporting the miss rather than shipping the nearest
+plausible story is the only reason the third cause was found.
+
+There were three causes, not two, and all three had to close.
+
+**The checkout.** Git for Windows ships `core.autocrlf=true` and rewrites LF to
+CRLF for every text file. `source_sha256` hashes raw bytes deliberately, because
+a hash that normalised line endings first would be a hash of what we decided to
+look at rather than of what is on disk. So the tree has to be canonical instead:
+root `.gitattributes` with `* text=auto eol=lf`, and frozen evidence pinned
+`binary` rather than left to a NUL-byte heuristic.
+
+**The generator.** `benchmark_fixture/generate_project.py` runs after checkout in
+every CI job and undid the fix. `Path.write_text` opens in text mode, and text
+mode on Windows translates `\n` to `\r\n` on the way out, so a generator run
+there rewrote 24 of the 76 hashed files regardless of what the checkout had
+produced. Every text write now goes through one helper pinning `newline="\n"`.
+
+**The ordering.** `_files()` ended in `sorted(out)`, sorting `Path` objects.
+`PurePath.__lt__` compares the host flavour's normcase form, which on Windows is
+`str(path).lower()` with backslashes: case-insensitive. So
+`cpp_project/README.md` sorted before `include/…` on Linux and after it on
+Windows, and the identical tree hashed two different ways. The earlier
+`.as_posix()` fix corrected the key each file contributes and never touched the
+order they are contributed in. Now sorted on `_key`, so the sort key and the
+hashed key are the same function and cannot drift apart again.
+
+Computed on the tree at `5d729478`, applying each transformation to the real
+bytes:
+
+```
+canonical order, LF     e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
+canonical order, CRLF   6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
+Windows order,   LF     6c0b0cde2c9a8fd5fe1eb4eb34cdf314ee4fe68d545124271920d75e367cc734
+Windows order,   CRLF   bd6ca03ea18c0c12ddf3ab190aac50bb36d6fdf2d2eaafa3d4c296dc905f0dc6
+```
+
+The exact match proved three things no argument would have: the Windows hashed
+file **set** is identical, 76 files, killing the competing `rglob`/`_SKIP`
+hypothesis; the CRLF was tree-wide rather than fixture-only, excluding two other
+candidates by measurement; and `.gitattributes` plus the generator fix land on
+`6c0b0cde`, necessary and demonstrably not sufficient.
+
+Three regressions, each capable of failing on every host rather than only on the
+one that had the bug. The ordering one additionally asserts that the tree still
+contains a file pair the two orderings disagree on, so it says so rather than
+passing vacuously if that ever stops being true.
+
+Same defect class as round 5 and round 8: a fix that closed one instance of a
+pattern and left another instance of the same pattern one layer up.
+
+## Round 10: the trust boundary, and evidence that was never checked
+
+Review of PR #7 at `f58f74a`. The endpoint separation work was sound; the
+defects were all in what happened to evidence after it was recorded.
+
+**Tampering was laundered into a replaceable missing observation.**
+`counted = validity == "valid" and not tamper.tampered`, and every endpoint opens
+`if row.get("counted") is not True: return None`. So a tampered row was not a
+failure, it was a missing observation, in the same bucket as the inference server
+falling over, and therefore replaceable inside the five-attempt bound. Executed:
+two tampered draws followed by three clean ones produced a clean 2-of-3 pass on
+every endpoint, and the analyser reported the interference as a 0.4 *deployment
+flakiness rate*. Nothing in the output named it.
+
+Worse, it was asymmetric. Tampering needs tools that reach the oracle, and
+`control` holds the full registry on every case while `narrow` and `skill` do
+not. So the free-retry mechanism was more available to one arm than the others,
+exactly like the build-stamp forgery in round 5. Tampering is now a terminal,
+counted, non-replaceable class that fails compliance and is named in reporting.
+
+**Cherry-picking by deletion was undetectable.** The five-attempt bound stops
+optional stopping only if every attempt is present, and nothing checked that.
+Executed: an honest four-attempt cell (T, F, T, T) reported 2 successes and a
+protocol violation; deleting the failing row from the file reported 3 successes,
+clean, no violation. The doctored cell looked better than the honest one.
+Attempt indices 17, 4 and 900 were also accepted without complaint. Declared
+attempt counts are now persisted and checked against exact indices.
+
+**The endpoints were tested only against hand-written rows.** Twenty-two good
+negative tests, every one grading a dictionary built by a local `_row` helper.
+No test graded a row `run_case` had actually produced. Every endpoint returns
+`None` on a schema mismatch, `None` becomes `indeterminate`, and `analyse`
+withholds every verdict when anything is indeterminate, so a single renamed key
+would have turned the whole pilot into a run that produced no result while the
+suite stayed green. Real rows now flow through `row_endpoints` in integration
+tests.
+
+**Known noncompliance returned Unknown.** A row with `claim_ok=False` could
+return `None` rather than `False` when citation evidence was absent, converting a
+known failure into an indeterminate one. Unknown is now reserved for genuinely
+unavailable or malformed evidence.
+
+The governing sentence that came out of this round and is worth keeping:
+**recorded evidence does not count merely because it exists; every fact has to be
+enforced at the next trust boundary before it can affect a result.**
+
+## Round 11: build proof causality, and a fix that would have made it worse
+
+The largest defect found so far, and the correction of a proposal of mine that
+would have certified it.
+
+`run_test` decided freshness by comparing source mtimes against the recorded
+build. Four reproductions, all executed:
+
+```
+edit source, os.utime the original mtime back   ->  not stale
+edit lands on exactly the stamp nanosecond      ->  not stale   (`>`, not `>=`)
+delete a source file entirely                   ->  not stale
+repo path contains a component named "build"    ->  detection off entirely
+```
+
+The fourth is the round 9 defect class again: the exclusion was computed on
+absolute `path.parts`, so a repository living under any directory named `build`,
+`.git` or `.local-agent` silently disabled staleness detection for the whole
+tree.
+
+The shipped interim fix, float seconds to integer nanoseconds, narrowed a
+rounding error sitting on top of a much larger quantisation window. Windows file
+times are stamped from a system clock that ticks at roughly 15.6 ms, so
+nanosecond units do not mean nanosecond resolution.
+
+**My proposed fix was wrong and would have been worse than the bug.** I proposed
+hashing the build-relevant sources at the moment of a successful build and
+comparing content thereafter. Astra reproduced the case that kills it, and it
+reproduces on this fixture first go:
+
+```
+invalid C++ written into src/ring_buffer.cpp, original mtime restored
+  incremental build   ->  "ninja: no work to do."  exit 0
+  ctest               ->  100% tests passed, 4 of 4
+  clean rebuild       ->  FAILS
+```
+
+The build tool's own decision about what to recompile is itself an mtime
+comparison. We had layered our mtime oracle on top of ninja's mtime oracle, and
+a content snapshot taken at the moment of that successful-but-empty build would
+have recorded the invalid bytes as the bytes that were built, then certified
+them with a hash, permanently.
+
+The fix is causal rather than comparative: **a proof build is a clean build.**
+`FULL_BUILD_PASS` is emitted only by a build that started from an empty build
+tree. Incremental `build_target` remains a working tool that cannot produce
+proof. Measured on this fixture, a clean configure and build is 1.3 seconds
+against 0.017 for an incremental no-op, so there is no performance argument. The
+full sequence above is now an acceptance test.
+
+Recorded here because the lesson is not the bug. It is that a confident
+mechanism telling the same lie is worse than a weak one, and that the right
+question was never "how do we compare more carefully" but "what actually proves
+these bytes were compiled".
