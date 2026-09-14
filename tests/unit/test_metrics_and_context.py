@@ -630,7 +630,8 @@ def test_configuration_identity_is_complete():
     assert identity["quant"] == "UD-Q4_K_XL"
     assert identity["thinking"] is False
     assert set(identity) == {
-        "model", "device", "runtime", "runtime_version", "quant", "tool_parser",
+        "model", "device", "device_note", "server_max_prompt_length", "llama_backend", "tier",
+        "runtime", "runtime_version", "quant", "tool_parser",
         "thinking", "context_budget_tokens", "max_tool_result_tokens",
         "temperature", "top_k", "top_p", "min_p",
         # Every clock, so nobody has to guess which one aborts what. The

@@ -270,48 +270,29 @@ at 122 TOPS. Run all three. The iGPU is the bigger engine and has no
 static-shape prompt limit, so if you only try the NPU you will conclude the
 laptop is slower than it is.
 
-OVMS is the documented path to the NPU for this model family. The command:
+OVMS is the primary NPU route. Use the preset controller so the command and
+agent budget have one owner:
 
 ```powershell
-ovms.exe --rest_port 18000 `
-  --source_model OpenVINO/Qwen3-8B-int4-cw-ov `
-  --model_repository_path C:\ovms-models `
-  --target_device NPU `
-  --tool_parser hermes3 `
-  --max_prompt_len 16384 `
-  --plugin_config "{\"NPUW_LLM_PREFILL_ATTENTION_HINT\":\"PYRAMID\"}" `
-  --task text_generation
-```
-
-16384 is the documented prompt length, so the `ptl-npu-8b` preset carries a
-15500 token context budget to sit under it. If you compile the blob smaller,
-drop the preset to match: the two must move together, because overrunning on
-NPU gives garbage output rather than an error.
-
-```powershell
-ovms.exe --rest_port 18000 `
-  --source_model OpenVINO/Qwen3-8B-int4-cw-ov `
-  --model_repository_path C:\ovms-models `
-  --tool_parser hermes3 `
-  --target_device NPU `
-  --task text_generation
-
+python measurement/serve.py start --profile ptl-npu-8b --dry-run
+python measurement/serve.py pull --profile ptl-npu-8b
+python measurement/serve.py start --profile ptl-npu-8b
 local-agent --profile ptl-npu-8b doctor
-python measurement\run_suite.py --profile ptl-npu-8b `
-  --label "Qwen3-8B INT4-CW, NPU" --memory-note "LPDDR5X, 64 GB" `
-  --outdir results\ptl-npu
 ```
+
+The daily preset uses **8192** maximum prompt tokens and a **7500** token agent
+budget. The former 16384/15500 guidance was stale. The separate 16K preset is
+unproven and requires an explicit experimental opt-in; OVMS 2026.3 and 2026.3.1
+still document an 8K NPU limit. See [serving.md](serving.md) for preflight,
+concurrent profiles, stop/status/logs, and energy capture.
 
 Then the same model family on the iGPU, which is the path Intel documents for
 the coder model through OVMS:
 
 ```powershell
-ovms.exe --rest_port 18001 `
-  --source_model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov `
-  --model_repository_path C:\ovms-models `
-  --tool_parser qwen3coder `
-  --target_device GPU `
-  --task text_generation
+python measurement/serve.py pull --profile ptl-gpu-30b
+python measurement/serve.py start --profile ptl-gpu-30b
+python measurement/serve.py start --profile ptl-cpu-30b
 
 python measurement\run_suite.py --profile ptl-gpu-30b `
   --label "Qwen3-Coder 30B INT4, Arc B390" --memory-note "LPDDR5X, 64 GB" `
@@ -324,10 +305,10 @@ python measurement\run_suite.py --profile ptl-cpu-30b `
 python measurement\compare_evals.py results\*\evals.json --markdown comparison.md
 ```
 
-The NPU will not win on latency against a 122 TOPS iGPU and it does not need
-to. Its case is energy: capture package power for each pass and compare joules
-per completed task. "Same answer for a fifth of the energy, and the CPU stayed
-free for the build" is the argument that lands.
+Measure latency and package energy on each device; neither winner nor ratio is
+established yet. Use the HWiNFO CSV wrapper in [serving.md](serving.md). Compare
+joules per verified completed task only after collecting properly linked energy
+and outcome evidence. Absent sensors are unobserved, never zero.
 
 ## Stage 4.5: the two-tier run, which is the actual result
 

@@ -53,39 +53,13 @@ The script prints `WORKSTATION READY` only when NPU serving, protocol qualificat
 
 Source stays in the Git checkout. Runtime/model state lives outside it:
 
-```text
-<repo>\
-├─ .venv-workstation\
-├─ local_agent\
-├─ evaluation\
-├─ measurement\
-├─ scripts\
-└─ skills\
+The runtime root keeps weights in `models/`, compiled caches in
+`cache/<profile>/`, and qualification/model manifests in `reports/`.
+Controller state is in `runtime/<profile>/process.json` and `launch.json`, with
+`stdout.log` and `stderr.log` alongside them. The one-shot readiness summary
+also links the controller status saved in `runtime/profiles/ptl-npu-8b.json`.
+See [serving.md](serving.md) for commands and ownership/refusal behaviour.
 
-%LOCALAPPDATA%\LocalCodeAgent\
-├─ cache\
-│  └─ fixture-smoke\
-├─ logs\
-│  ├─ ovms-ptl-npu-8b.stdout.log
-│  └─ ovms-ptl-npu-8b.stderr.log
-├─ models\
-│  └─ OpenVINO\
-│     └─ Qwen3-8B-int4-cw-ov\
-├─ reports\
-│  ├─ model-qwen3-8b-int4-cw-ov-manifest.json
-│  ├─ qualification-ptl-npu-8b.json
-│  ├─ qualification-ptl-npu-8b-failures\
-│  └─ work-laptop-ready-<timestamp>.json
-├─ runtime\
-│  ├─ ovms-ptl-npu-8b-serve.json
-│  ├─ pid\
-│  │  └─ ptl-npu-8b.pid
-│  └─ profiles\
-│     └─ ptl-npu-8b.json
-└─ tools\
-   ├─ ovms-2026.3.0\
-   └─ ovms_windows_2026.3.0_python_on.zip
-```
 
 The runtime root can be changed with `-RuntimeRoot`.
 
@@ -128,6 +102,7 @@ The bootstrap does **not** execute `evaluation/run_evaluation.py`. A corporate p
 
 - `scripts/bootstrap-work-laptop.ps1` — lower-level machine/user-space bootstrap used by the one-shot entry point.
 - `scripts/work-laptop-one-shot.ps1` — canonical end-to-end orchestrator for the work laptop.
-- `scripts/start-ovms-detached.py` — tiny Windows process-launch helper used so embedded JSON arguments such as `--plugin_config` survive Windows PowerShell 5.1 quoting exactly.
+- `measurement/serve.py` owns preset resolution, preflight and process lifecycle.
+- `scripts/start-ovms-detached.py` is the shared argv-safe process launcher, including Windows PowerShell 5.1 embedded JSON quoting.
 
 The setup is idempotent by intent: existing venv, OVMS package, model repository and healthy running server are reused where safe. Ambiguous live/stale server state is reported instead of being killed automatically.
