@@ -50,9 +50,9 @@ length.
 
 Current pinned configuration: blob compiled at **8192**, `ptl-npu-8b` budget
 **7500**. `ptl-npu-8b-16k` assumes a blob at 16384 and is **unproven**: OVMS
-2026.2 release notes state that NPU execution on LLMs has a limit on the max
-prompt parameter of 8k tokens. Until a server actually starts with a 16K blob on
-this hardware, treat the 16K preset as a hypothesis.
+2026.3 and 2026.3.1 release notes still document an 8K NPU limit. Until a server
+actually starts with a 16K blob on this hardware, treat the 16K preset as a
+hypothesis.
 
 A test asserts that no preset's context budget meets or exceeds its declared max
 prompt length. Do not remove it; this exact pair drifted across three files
@@ -83,35 +83,38 @@ belong in the preset rather than being discovered at runtime:
 
 It is the newer and rougher path. Its value is as an independent cross-check of
 OVMS numbers on the same silicon, which is worth a great deal when a result looks
-surprising.
+surprising. The optional accelerator-enabled llama.cpp build remains deferred;
+PR #8 landed the controller and tested native llama-server launch constraints,
+not a measured accelerator result.
 
-## The NPU's case is energy, and it currently cannot be made
+## Energy measurement exists; the hardware result does not
 
-The NPU will not beat a 122 TOPS iGPU on latency and does not need to. The
-argument that lands is joules per completed task with the CPU left free for the
-build. That claim requires a power measurement, and **no sampler is nominated
-anywhere in this repository**. Intel Power Gadget is deprecated.
+The repository now has an HWiNFO CSV capture path in `measurement/energy.py` and
+the serving controller can wrap an explicitly supplied sampler command. It
+records a linked completion manifest and treats absent sensors as `unobserved`,
+never zero. Synthetic capture has exercised the plumbing, but no physical NPU or
+GPU energy result has been measured yet.
 
-Candidates, in the order worth trying: HWiNFO64 in shared-memory or CSV logging
-mode, most likely to be permitted on a managed machine; Intel SoC Watch, the
-documented Intel route but heavier; on Linux, RAPL under `/sys/class/powercap`
-plus NPU telemetry under `/sys/class/intel_pmt/telem*` and
-`/sys/bus/pci/drivers/intel_vpu/`.
+The research claim remains joules per verified completed task, not an assumed
+latency or efficiency win. HWiNFO64 is the primary managed-Windows route; Intel
+SoC Watch is the heavier documented alternative; on Linux, RAPL under
+`/sys/class/powercap` plus NPU telemetry under `/sys/class/intel_pmt/telem*` and
+`/sys/bus/pci/drivers/intel_vpu/` are candidates.
 
-Whatever is chosen, record `energy_joules`, `sampler`, `sample_hz` and
-`measurement_quality` in the run manifest, and follow the manifest's existing
-convention: no sampler available records `"unobserved"`, never a zero.
+Whatever is used, record `energy_joules`, `sampler`, `sample_hz` and
+`measurement_quality`, with the measurement linked to the exact run evidence.
 
-## What does not exist yet
+## Serving controller status
 
-There is no device-selectable launcher. `scripts/work-laptop-one-shot.ps1` is
-NPU-only, one model, one port, hardcoded, and nothing starts the GPU or CPU
-servers at all. Until that exists, every non-NPU configuration is a manual
-command.
+`measurement/serve.py` is now the device-selectable launcher for OVMS profiles.
+It derives launch arguments from `MODEL_PRESETS`, owns per-profile ports/cache
+and process state, and supports start/status/stop/logs/pull plus exact dry-runs.
+`scripts/work-laptop-one-shot.ps1` delegates to that controller rather than
+keeping a second NPU-only command table.
 
-Whatever builds it must derive every argument from `MODEL_PRESETS` and never
-from a second table. The three-way prompt-length drift described above happened
-precisely because the doc, the config and the script each kept their own copy.
+The remaining work is physical validation on the Panther Lake laptop: start the
+real NPU and GPU servers, prove inference on each intended profile, and capture
+HWiNFO power data. That is hardware evidence, not missing launcher architecture.
 
 ## Sources
 
