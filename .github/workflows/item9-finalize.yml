@@ -27,7 +27,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git merge-base HEAD main)" = "51ef8bc49c55668b7f751a1e09557caec3088f7e"
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git merge-base HEAD origin/main)" = "51ef8bc49c55668b7f751a1e09557caec3088f7e"
           python -m pip install -e ".[dev]"
       - name: Apply bounded privacy fix
         shell: bash
