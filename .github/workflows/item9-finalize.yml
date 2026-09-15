@@ -35,6 +35,34 @@ jobs:
         run: |
           set -euo pipefail
           python tools/item9_patch.py
+          python - <<'PY'
+          from pathlib import Path
+
+          # A cwd-relative transcript reference such as ../../tmp/run.json is
+          # operational evidence, not an absolute-path leak. The previous
+          # pattern could restart a POSIX match at the slash after '..' and
+          # corrupt that reference. Protect dot-prefixed relative segments at
+          # both the production boundary and the independent structural oracle.
+          for name in (
+              'local_agent/persistence.py',
+              'tests/integration/test_persistence_privacy.py',
+          ):
+              path = Path(name)
+              text = path.read_text(encoding='utf-8')
+              old = r'(?<![:/A-Za-z0-9])/(?!/)'
+              new = r'(?<![.:/A-Za-z0-9])/(?!/)'
+              if text.count(old) != 1:
+                  raise SystemExit(f'{name}: expected one POSIX-prefix pattern')
+              path.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+
+          test_path = Path('tests/integration/test_persistence_privacy.py')
+          text = test_path.read_text(encoding='utf-8')
+          anchor = 'def test_sanitizer_covers_all_absolute_path_families_recursively():\n'
+          regression = '''def test_sanitizer_preserves_parent_relative_references():\n    value = "../../tmp/private/run.json"\n    assert sanitize_for_persistence(value) == value\n    assert _absolute_paths(value) == []\n\n\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit('privacy regression anchor moved')
+          test_path.write_text(text.replace(anchor, regression + anchor), encoding='utf-8', newline='\n')
+          PY
           git diff --check
       - name: Reconcile source-only generation-2 identity
         shell: bash
