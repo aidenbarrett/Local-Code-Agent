@@ -50,8 +50,9 @@ def run_contention(agent_command, compile_command, *, settle_seconds=0.0, agent_
     compile_ended = time.monotonic()
 
     timed_out = False
+    remaining = max(0.0, agent_timeout_seconds - (time.monotonic() - agent_started))
     try:
-        agent_exit = agent.wait(timeout=agent_timeout_seconds)
+        agent_exit = agent.wait(timeout=remaining)
     except subprocess.TimeoutExpired:
         timed_out = True
         agent.terminate()
@@ -62,7 +63,15 @@ def run_contention(agent_command, compile_command, *, settle_seconds=0.0, agent_
             agent_exit = agent.wait(timeout=5)
     agent_ended = time.monotonic()
     overlap = max(0.0, min(compile_ended, agent_ended) - max(compile_started, agent_started))
-    quality = "observed" if compile_error is None and overlap > 0 and not timed_out else "invalid"
+    quality = (
+        "observed"
+        if compile_error is None
+        and compile_exit == 0
+        and agent_exit == 0
+        and overlap > 0
+        and not timed_out
+        else "invalid"
+    )
     return {
         "measurement_quality": quality,
         "reason": compile_error,
