@@ -3,7 +3,7 @@ name: Item 9 final transcript contract
 on:
   push:
     branches: [finalizer/item9-transcript-contract]
-    paths: [tools/item9-final-contract.trigger]
+    paths: [tools/item9-final-contract.txt]
 
 permissions:
   contents: write
