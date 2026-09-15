@@ -2,9 +2,16 @@ from __future__ import annotations
 
 import json
 import re
+
+import pytest
 from pathlib import Path
 
-from evaluation.run_evaluation import CASES, ModelConfig, run_case
+from evaluation.run_evaluation import (
+    CASES,
+    ModelConfig,
+    resolve_transcript_reference,
+    run_case,
+)
 from measurement.capture_run_manifest import capture_manifest
 from local_agent.persistence import sanitize_for_persistence
 
@@ -71,12 +78,27 @@ def test_run_case_emits_no_absolute_path_anywhere_and_keeps_transcript_usable(tm
     assert _absolute_paths(row) == []
     transcript_ref = Path(row["transcript"])
     assert not transcript_ref.is_absolute()
-    # save_transcript uses transcript_out as the naming seed and writes the
-    # private payload beside it in <stem>-transcripts/. Check the actual
-    # private artifact rather than assuming transcript_out itself is written.
-    transcript_path = transcript_out.with_name(transcript_out.stem + "-transcripts") / "clean-build-0.json"
+    assert transcript_ref.as_posix() == "run-transcripts/clean-build-0.json"
+    transcript_path = resolve_transcript_reference(transcript_out, row["transcript"])
+    assert transcript_path == (
+        transcript_out.parent / "run-transcripts" / "clean-build-0.json"
+    )
     saved = json.loads(transcript_path.read_text(encoding="utf-8"))
     assert saved["case"] == "clean-build"
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "/tmp/private/run.json",
+        r"C:\Users\Aiden\private\run.json",
+        r"\\corp\share\private\run.json",
+        "../private/run.json",
+    ],
+)
+def test_transcript_reference_resolver_fails_closed(reference, tmp_path):
+    with pytest.raises(ValueError):
+        resolve_transcript_reference(tmp_path / "results.json", reference)
 
 
 def test_captured_manifest_contains_no_absolute_path_in_any_field():

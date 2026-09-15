@@ -124,7 +124,7 @@ and shows this was thought about once already.
 rows and pre-run manifests now pass through one recursive persistence-boundary
 redactor that replaces POSIX, Windows drive-letter and UNC absolute paths with
 opaque path hashes. Transcript references remain usable but are stored relative
-to the process working directory. The regression walks the complete returned
+to the result artifact directory, so the bundle is portable across hosts and Windows drives. The regression walks the complete returned
 structure rather than named fields, so adding a field later cannot silently
 reintroduce a path. The work-laptop bootstrap report also omits the computer
 name, absolute roots and free-form result details; those remain interactive

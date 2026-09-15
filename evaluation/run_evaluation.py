@@ -21,7 +21,7 @@ import statistics
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 # evaluation/run_evaluation.py -> evaluation/ -> repository root.
@@ -503,16 +503,26 @@ def save_transcript(out: Path, case_name: str, attempt: int, messages: list[dict
             m["content"] = content[:_TRANSCRIPT_CAP] + f"\n[... {len(content) - _TRANSCRIPT_CAP} more chars]"
         trimmed.append(m)
     write_atomic(path, {"case": case_name, "attempt": attempt, "messages": trimmed})
-    # Windows cannot express a relative path between drive volumes (for
-    # example Actions checks out on D: while pytest tmp_path is on C:).
-    # Keep the private transcript where requested and persist a non-secret
-    # locator. Same-volume runs retain the useful cwd-relative reference;
-    # cross-volume runs retain the filename, which is resolved against the
-    # separately known transcript store rather than leaking an absolute root.
-    try:
-        return os.path.relpath(path, Path.cwd())
-    except ValueError:
-        return path.name
+    # The row is an artifact manifest, so references are relative to the
+    # result artifact directory, never to the process cwd. That makes the bundle
+    # portable, privacy-safe, and independent of Windows drive letters.
+    return path.relative_to(out.parent).as_posix()
+
+
+def resolve_transcript_reference(out: Path, reference: str) -> Path:
+    """Resolve one persisted transcript locator against its result artifact.
+
+    The public row may name only a descendant of the result directory. Absolute
+    paths and parent traversal fail closed so a persisted reference can never
+    become a machine-specific or escaping filesystem path.
+    """
+    posix = PurePosixPath(reference)
+    windows = PureWindowsPath(reference)
+    if posix.is_absolute() or windows.is_absolute():
+        raise ValueError(f"absolute transcript reference is not allowed: {reference!r}")
+    if ".." in posix.parts or ".." in windows.parts:
+        raise ValueError(f"parent traversal is not allowed in transcript reference: {reference!r}")
+    return out.parent.joinpath(*posix.parts)
 
 
 def run_case(
