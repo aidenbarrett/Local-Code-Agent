@@ -314,7 +314,7 @@ def test_two_harness_errors_in_a_row_stop_the_suite_with_rows_preserved(tmp_path
 def test_rows_carry_what_an_audit_needs(tmp_path):
     """Every hypothesis in the slice-3 audit would have been a fact with these."""
     import json
-    from run_evaluation import run_case
+    from run_evaluation import resolve_transcript_reference, run_case
     from local_agent.config import ModelConfig
 
     out = tmp_path / "r.json"
@@ -333,7 +333,8 @@ def test_rows_carry_what_an_audit_needs(tmp_path):
     cheat = run_case(_case("test-failure-fix"), ModelConfig(), tmp_path,
                      auto_approve=True, client=_cheat_client(), transcript_out=out, attempt=0)
     assert cheat["transcript"] is not None    # failed rows do
-    saved = json.loads(Path(cheat["transcript"]).read_text())
+    cheat_path = resolve_transcript_reference(out, cheat["transcript"])
+    saved = json.loads(cheat_path.read_text(encoding="utf-8"))
     assert saved["case"] == "test-failure-fix"
     roles = [m["role"] for m in saved["messages"]]
     assert "tool" in roles and "assistant" in roles
@@ -343,7 +344,10 @@ def test_rows_carry_what_an_audit_needs(tmp_path):
                      auto_approve=True, client=_honest_client(), transcript_out=out,
                      attempt=1, keep_all_transcripts=True)
     assert probe["succeeded"] is True and probe["transcript"] is not None
-    assert Path(probe["transcript"]).name == "test-failure-fix-1.json"
+    assert Path(probe["transcript"]).as_posix() == (
+        "r-transcripts/test-failure-fix-1.json"
+    )
+    assert resolve_transcript_reference(out, probe["transcript"]).is_file()
 
 
 def test_a_diagnosis_task_cannot_edit_the_tree_at_all(tmp_path):

@@ -21,7 +21,7 @@ import statistics
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 # evaluation/run_evaluation.py -> evaluation/ -> repository root.
@@ -48,6 +48,7 @@ from local_agent.llm.router import (  # noqa: E402
 )
 from local_agent.llm.models import CallStats, ChatResponse, ToolCall  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
+from local_agent.persistence import sanitized_result  # noqa: E402
 from local_agent.tools import build_registry  # noqa: E402
 
 import oracle  # noqa: E402  (evaluation/oracle.py)
@@ -502,7 +503,26 @@ def save_transcript(out: Path, case_name: str, attempt: int, messages: list[dict
             m["content"] = content[:_TRANSCRIPT_CAP] + f"\n[... {len(content) - _TRANSCRIPT_CAP} more chars]"
         trimmed.append(m)
     write_atomic(path, {"case": case_name, "attempt": attempt, "messages": trimmed})
-    return str(path)
+    # The row is an artifact manifest, so references are relative to the
+    # result artifact directory, never to the process cwd. That makes the bundle
+    # portable, privacy-safe, and independent of Windows drive letters.
+    return path.relative_to(out.parent).as_posix()
+
+
+def resolve_transcript_reference(out: Path, reference: str) -> Path:
+    """Resolve one persisted transcript locator against its result artifact.
+
+    The public row may name only a descendant of the result directory. Absolute
+    paths and parent traversal fail closed so a persisted reference can never
+    become a machine-specific or escaping filesystem path.
+    """
+    posix = PurePosixPath(reference)
+    windows = PureWindowsPath(reference)
+    if posix.is_absolute() or windows.is_absolute():
+        raise ValueError(f"absolute transcript reference is not allowed: {reference!r}")
+    if ".." in posix.parts or ".." in windows.parts:
+        raise ValueError(f"parent traversal is not allowed in transcript reference: {reference!r}")
+    return out.parent.joinpath(*posix.parts)
 
 
 def run_case(
@@ -782,6 +802,12 @@ def run_case(
         ),
         "error": error,
     }
+
+
+# Privacy is a persistence concern, not an outcome-scoring concern. Keep the
+# byte-exact run_case contract frozen and sanitize the complete emitted row
+# after it returns, including error rows and fields added in the future.
+run_case = sanitized_result(run_case)
 
 
 def build_ledger(rows: list[dict], tiered: bool = False) -> dict:

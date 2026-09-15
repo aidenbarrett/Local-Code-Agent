@@ -35,6 +35,7 @@ from task_contracts import CASES  # noqa: E402
 from local_agent.agent import Orchestrator, SkillLibrary  # noqa: E402
 from local_agent.config import MODEL_PRESETS, load_repo_config  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
+from local_agent.persistence import sanitized_result  # noqa: E402
 from local_agent.tools import build_registry  # noqa: E402
 
 FIXTURE = REPO / "benchmark_fixture" / "cpp_project"
@@ -331,6 +332,11 @@ def capture_manifest(
         "tool_schema_archive": schemas,
         "case_tool_schemas": case_schemas,
     }
+
+
+# Persist only the privacy-safe projection. This is deliberately structural,
+# rather than a list of known path-bearing fields.
+capture_manifest = sanitized_result(capture_manifest)
 
 
 def write_atomic(path: Path, payload: dict[str, Any]) -> None:
