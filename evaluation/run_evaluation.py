@@ -503,7 +503,16 @@ def save_transcript(out: Path, case_name: str, attempt: int, messages: list[dict
             m["content"] = content[:_TRANSCRIPT_CAP] + f"\n[... {len(content) - _TRANSCRIPT_CAP} more chars]"
         trimmed.append(m)
     write_atomic(path, {"case": case_name, "attempt": attempt, "messages": trimmed})
-    return os.path.relpath(path, Path.cwd())
+    # Windows cannot express a relative path between drive volumes (for
+    # example Actions checks out on D: while pytest tmp_path is on C:).
+    # Keep the private transcript where requested and persist a non-secret
+    # locator. Same-volume runs retain the useful cwd-relative reference;
+    # cross-volume runs retain the filename, which is resolved against the
+    # separately known transcript store rather than leaking an absolute root.
+    try:
+        return os.path.relpath(path, Path.cwd())
+    except ValueError:
+        return path.name
 
 
 def run_case(

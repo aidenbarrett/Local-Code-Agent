@@ -55,22 +55,27 @@ def test_sanitizer_covers_all_absolute_path_families_recursively():
 
 def test_run_case_emits_no_absolute_path_anywhere_and_keeps_transcript_usable(tmp_path):
     case = next(case for case in CASES if case.name == "clean-build")
+    transcript_out = tmp_path / "private" / "run.json"
     row = run_case(
         case,
         ModelConfig(),
         tmp_path / "work",
         auto_approve=True,
         rehearse=True,
-        transcript_out=tmp_path / "private" / "run.json",
+        transcript_out=transcript_out,
         keep_all_transcripts=True,
         attempt=0,
         condition="skill",
     )
     assert row["transcript"] is not None
     assert _absolute_paths(row) == []
-    transcript = Path(row["transcript"])
-    assert not transcript.is_absolute()
-    saved = json.loads(transcript.read_text(encoding="utf-8"))
+    transcript_ref = Path(row["transcript"])
+    assert not transcript_ref.is_absolute()
+    # save_transcript uses transcript_out as the naming seed and writes the
+    # private payload beside it in <stem>-transcripts/. Check the actual
+    # private artifact rather than assuming transcript_out itself is written.
+    transcript_path = transcript_out.with_name(transcript_out.stem + "-transcripts") / "clean-build-0.json"
+    saved = json.loads(transcript_path.read_text(encoding="utf-8"))
     assert saved["case"] == "clean-build"
 
 
