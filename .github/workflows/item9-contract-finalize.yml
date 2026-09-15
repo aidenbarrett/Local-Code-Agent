@@ -10,6 +10,51 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    name: verify candidate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout finalizer driver
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: driver
+          fetch-depth: 1
+      - name: Checkout exact PR 11 candidate base
+        uses: actions/checkout@v4
+        with:
+          ref: 509c6aa66c76a79d4a3cfb554fde9bee8dc60bbc
+          path: repo
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Apply reviewed transcript contract fix
+        run: python driver/tools/item9_final_contract_fix.py repo
+      - name: Diff integrity
+        run: git -C repo diff --check
+      - name: Install
+        working-directory: repo
+        run: python -m pip install -e ".[dev]"
+      - name: Regenerate fixture and prove no fixture drift
+        working-directory: repo
+        run: |
+          python benchmark_fixture/generate_project.py
+          git diff --exit-code -- benchmark_fixture/cpp_project
+      - name: Focused transcript, privacy and provenance regressions
+        working-directory: repo
+        run: python -m pytest -q tests/integration/test_persistence_privacy.py tests/integration/test_oracle_isolation.py tests/unit/test_provenance.py
+      - name: Full authoritative pytest
+        working-directory: repo
+        run: python -m pytest -q
+      - name: Offline compatibility runner
+        if: runner.os == 'Linux'
+        working-directory: repo
+        run: python measurement/run_test_suite.py tests
+      - name: Verify exact generation-2 identities
+        working-directory: repo
+        run: python -c "import json; from local_agent import provenance as p; d=json.load(open('INSTRUMENT.json', encoding='utf-8')); assert d['generation']==2; assert d['source_sha256']==p.source_sha256(); assert d['base_prompt_sha256']==p.base_prompt_sha256(); assert d['outcome_contract_sha256']==p.outcome_contract_sha256(); print(d['source_sha256']); print(d['base_prompt_sha256']); print(d['outcome_contract_sha256'])"
