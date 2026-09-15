@@ -120,8 +120,15 @@ machine contains a username or an asset name:
 `host_identity()` deliberately omits `platform.node()`, which is the right call
 and shows this was thought about once already.
 
-**Needed:** one helper recording paths relative to a declared root, or basename
-plus a hash of the full path. **This has to land before the first generation-2
-row**, because `measurement/*.py` is inside the hashed surface, so doing it later
-moves `source_sha256` mid-pilot. It is a source-only move and does not end a
-generation.
+**Resolved 2026-09-14, before generation-2 row one:** persisted evaluation
+rows and pre-run manifests now pass through one recursive persistence-boundary
+redactor that replaces POSIX, Windows drive-letter and UNC absolute paths with
+opaque path hashes. Transcript references remain usable but are stored relative
+to the process working directory. The regression walks the complete returned
+structure rather than named fields, so adding a field later cannot silently
+reintroduce a path. The work-laptop bootstrap report also omits the computer
+name, absolute roots and free-form result details; those remain interactive
+console diagnostics only.
+
+This is a source-only generation-2 move. `source_sha256` moves with the fix;
+`base_prompt_sha256` and `outcome_contract_sha256` remain frozen.

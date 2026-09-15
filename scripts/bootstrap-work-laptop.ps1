@@ -306,9 +306,8 @@ Section "10. Final report"
 if (!$CheckOnly) { EnsureDir $ReportDir }
 $report = [pscustomobject]@{
     generated_at=(Get-Date).ToString("o")
-    repo_root=$RepoRoot
-    runtime_root=$RuntimeRoot
-    computer=$env:COMPUTERNAME
+    repo_label=(Split-Path -Leaf $RepoRoot)
+    runtime_label=(Split-Path -Leaf $RuntimeRoot)
     os=$os.Caption
     os_build=$os.BuildNumber
     cpu=$cpu.Name
@@ -316,7 +315,9 @@ $report = [pscustomobject]@{
     install_missing=$InstallMissing.IsPresent
     versions=@{openvino=$OpenVinoVersion;openvino_tokenizers=$OpenVinoTokenizersVersion;openvino_genai=$OpenVinoGenAiVersion;ovms="2026.3.0"}
     official_sources=@{intel_npu_driver=$IntelNpuDriverUrl;openvino_pip=$OpenVinoPipUrl;openvino_npu=$OpenVinoNpuUrl;ovms_windows=$OvmsDocsUrl;ovms_archive=$OvmsUrl;ovms_sha256=$OvmsSha256Url;wsl=$WslUrl;python=$PythonUrl;vc_redist_x64=$VcRedistUrl}
-    results=@($Results)
+    # Free-form Detail/Action strings intentionally stay on the interactive
+    # console. They may contain local absolute paths and are not experiment data.
+    results=@($Results | ForEach-Object { [pscustomobject]@{Check=$_.Check;Status=$_.Status} })
 }
 if (!$CheckOnly) {
     $reportPath = Join-Path $ReportDir ("work-laptop-bootstrap-{0}.json" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
