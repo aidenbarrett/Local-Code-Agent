@@ -58,3 +58,47 @@ jobs:
       - name: Verify exact generation-2 identities
         working-directory: repo
         run: python -c "import json; from local_agent import provenance as p; d=json.load(open('INSTRUMENT.json', encoding='utf-8')); assert d['generation']==2; assert d['source_sha256']==p.source_sha256(); assert d['base_prompt_sha256']==p.base_prompt_sha256(); assert d['outcome_contract_sha256']==p.outcome_contract_sha256(); print(d['source_sha256']); print(d['base_prompt_sha256']); print(d['outcome_contract_sha256'])"
+
+  publish:
+    name: publish verified candidate
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout finalizer driver
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: driver
+          fetch-depth: 1
+      - name: Checkout exact PR 11 candidate base
+        uses: actions/checkout@v4
+        with:
+          ref: 509c6aa66c76a79d4a3cfb554fde9bee8dc60bbc
+          path: repo
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Refuse a moving target
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote=$(git -C repo ls-remote origin refs/heads/hardening/item9-persistence-redaction | cut -f1)
+          test "$remote" = "509c6aa66c76a79d4a3cfb554fde9bee8dc60bbc"
+      - name: Recreate the exact verified candidate
+        run: python driver/tools/item9_final_contract_fix.py repo
+      - name: Final identity check
+        working-directory: repo
+        run: python -c "import json; from local_agent import provenance as p; d=json.load(open('INSTRUMENT.json', encoding='utf-8')); assert d['generation']==2; assert d['source_sha256']==p.source_sha256(); assert d['base_prompt_sha256']==p.base_prompt_sha256(); assert d['outcome_contract_sha256']==p.outcome_contract_sha256()"
+      - name: Commit and publish verified candidate
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "item9-finalizer"
+          git config user.email "item9-finalizer@users.noreply.github.com"
+          git add INSTRUMENT.json docs/open-methodology-questions.md evaluation/run_evaluation.py tests/integration/test_persistence_privacy.py tests/integration/test_oracle_isolation.py
+          git commit -m "Make transcript references artifact-relative"
+          git push origin HEAD:hardening/item9-persistence-redaction
