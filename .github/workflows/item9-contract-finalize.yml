@@ -1,0 +1,15 @@
+name: Item 9 final transcript contract
+
+on:
+  push:
+    branches: [finalizer/item9-transcript-contract]
+    paths: [tools/item9-final-contract.trigger]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
