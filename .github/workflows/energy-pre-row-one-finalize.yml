@@ -1,0 +1,86 @@
+name: Finalize pre-row-one energy instrumentation
+
+on:
+  push:
+    branches: [measurement/energy-arm-pre-row-one]
+    paths: [tools/energy-pre-row-one.trigger]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: energy-pre-row-one-finalize
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify energy candidate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reconcile source-only identity and binding preregistration
+        run: python tools/energy_finalize.py .
+      - name: Diff integrity
+        run: git diff --check
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Regenerate fixture and prove no fixture drift
+        shell: bash
+        run: |
+          python benchmark_fixture/generate_project.py
+          git diff --exit-code -- benchmark_fixture/cpp_project
+      - name: Focused energy, privacy and provenance regressions
+        run: python -m pytest -q tests/test_energy.py tests/test_contention.py tests/integration/test_persistence_privacy.py tests/unit/test_provenance.py
+      - name: Full authoritative pytest
+        run: python -m pytest -q
+      - name: Offline compatibility runner
+        if: runner.os == 'Linux'
+        run: python measurement/run_test_suite.py tests
+      - name: Verify generation-2 identities
+        run: python -c "import json; from local_agent import provenance as p; d=json.load(open('INSTRUMENT.json', encoding='utf-8')); assert d['generation']==2; assert d['source_sha256']==p.source_sha256(); assert d['base_prompt_sha256']==p.base_prompt_sha256(); assert d['outcome_contract_sha256']==p.outcome_contract_sha256(); print(d['source_sha256']); print(d['base_prompt_sha256']); print(d['outcome_contract_sha256'])"
+
+  publish:
+    name: publish verified energy candidate
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Refuse a moving target
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote=$(git ls-remote origin refs/heads/measurement/energy-arm-pre-row-one | cut -f1)
+          test "$remote" = "${{ github.sha }}"
+      - name: Recreate verified identity and preregistration
+        run: python tools/energy_finalize.py .
+      - name: Final identity check
+        run: python -c "import json; from local_agent import provenance as p; d=json.load(open('INSTRUMENT.json', encoding='utf-8')); assert d['generation']==2; assert d['source_sha256']==p.source_sha256(); assert d['base_prompt_sha256']==p.base_prompt_sha256(); assert d['outcome_contract_sha256']==p.outcome_contract_sha256()"
+      - name: Remove one-shot machinery and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/energy-pre-row-one-finalize.yml tools/energy_finalize.py tools/energy-pre-row-one.trigger
+          git diff --check
+          git config user.name "energy-finalizer"
+          git config user.email "energy-finalizer@users.noreply.github.com"
+          git add -A
+          git commit -m "Instrument pre-row-one energy study"
+          git push origin HEAD:measurement/energy-arm-pre-row-one
