@@ -20,6 +20,13 @@ def test_windows_bootstrap_entrypoint_creates_venv_before_core():
     assert 'Test-Path $venvPython' in text
 
 
+def test_windows_bootstrap_entrypoint_neutralizes_restricted_range_header():
+    text = (ROOT / "scripts" / "bootstrap-work-laptop.ps1").read_text(encoding="utf-8")
+    assert "function Invoke-WebRequest" in text
+    assert 'if ([string]$key -ieq "Range") { continue }' in text
+    assert "Microsoft.PowerShell.Utility\\Invoke-WebRequest @native" in text
+
+
 def test_historical_bootstrap_is_retained_as_core_implementation():
     core = ROOT / "scripts" / "bootstrap-work-laptop-core.ps1"
     assert core.is_file()
