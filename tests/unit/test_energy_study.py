@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from measurement.energy_study import (
@@ -5,6 +7,7 @@ from measurement.energy_study import (
     EXPECTED_CASES,
     EXPECTED_CONDITIONS,
     counterbalanced_device_order,
+    main as energy_study_main,
     project_fixed_window,
     sensor_domain_allows_efficiency_claim,
     summarize_block,
@@ -48,18 +51,66 @@ def _complete_block():
 
 def test_block_complete_requires_every_preregistered_cell():
     rows, declared = _complete_block()
-    result = summarize_block(rows, attempts_declared=declared, termination_reason="completed")
+    result = summarize_block(
+        rows, attempts_declared=declared, termination_reason="completed"
+    )
     assert result["block_complete"] is True
     assert result["device_efficiency_comparison_eligible"] is True
 
     rows = [
         row
         for row in rows
-        if not (row["case"] == EXPECTED_CASES[0] and row["condition"] == "control")
+        if not (
+            row["case"] == EXPECTED_CASES[0] and row["condition"] == "control"
+        )
     ]
-    result = summarize_block(rows, attempts_declared=declared, termination_reason="completed")
+    result = summarize_block(
+        rows, attempts_declared=declared, termination_reason="completed"
+    )
     assert result["block_complete"] is False
     assert result["device_efficiency_comparison_eligible"] is False
+
+
+def test_three_case_block_can_never_declare_itself_complete():
+    rows, declared = _complete_block()
+    allowed = set(EXPECTED_CASES[:3])
+    rows = [row for row in rows if row["case"] in allowed]
+    declared = {
+        key: value
+        for key, value in declared.items()
+        if key.split("|", 1)[0] in allowed
+    }
+
+    result = summarize_block(
+        rows, attempts_declared=declared, termination_reason="completed"
+    )
+
+    assert result["block_complete"] is False
+    assert result["device_efficiency_comparison_eligible"] is False
+    assert result["attempted_tasks"] == 3
+    assert result["expected_tasks"] == len(EXPECTED_CASES)
+
+
+def test_payload_cannot_supply_its_own_expected_cases(tmp_path):
+    rows, declared = _complete_block()
+    allowed = list(EXPECTED_CASES[:3])
+    payload = {
+        "rows": [row for row in rows if row["case"] in set(allowed)],
+        "attempts_declared": {
+            key: value
+            for key, value in declared.items()
+            if key.split("|", 1)[0] in set(allowed)
+        },
+        "termination_reason": "completed",
+        "expected_cases": allowed,
+    }
+    path = tmp_path / "doctored.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        energy_study_main(["summarize-block", str(path)])
+
+    assert exc.value.code == 2
 
 
 def test_block_complete_rejects_attempt_after_third_decision_draw():
@@ -78,7 +129,9 @@ def test_block_complete_rejects_attempt_after_third_decision_draw():
             "energy": _energy(1.0),
         }
     )
-    result = summarize_block(rows, attempts_declared=declared, termination_reason="completed")
+    result = summarize_block(
+        rows, attempts_declared=declared, termination_reason="completed"
+    )
     assert result["block_complete"] is False
     assert any(
         "continued after the third decision draw" in reason
@@ -103,13 +156,17 @@ def test_five_attempt_exhaustion_is_protocol_complete_but_not_fixed_decision_set
                 "condition": "control",
                 "attempt": attempt,
                 "counted": attempt in (1, 3),
-                "validity": "valid" if attempt in (1, 3) else "invalid_server_error",
+                "validity": "valid"
+                if attempt in (1, 3)
+                else "invalid_server_error",
                 "oracle_tampered": False,
                 "verified_completion": attempt == 1,
                 "energy": _energy(2.0),
             }
         )
-    result = summarize_block(rows, attempts_declared=declared, termination_reason="completed")
+    result = summarize_block(
+        rows, attempts_declared=declared, termination_reason="completed"
+    )
     assert result["block_complete"] is True
     assert result["fixed_decision_set_complete"] is False
     assert result["fixed_decision_set_energy_joules"] is None
@@ -120,7 +177,9 @@ def test_missing_telemetry_never_becomes_comparable_energy():
     rows, declared = _complete_block()
     rows[0]["energy"]["energy_joules"] = None
     rows[0]["energy"]["comparison_eligible"] = False
-    result = summarize_block(rows, attempts_declared=declared, termination_reason="completed")
+    result = summarize_block(
+        rows, attempts_declared=declared, termination_reason="completed"
+    )
     assert result["block_complete"] is True
     assert result["telemetry_complete"] is False
     assert result["protocol_workload_energy_joules"] is None
@@ -128,11 +187,19 @@ def test_missing_telemetry_never_becomes_comparable_energy():
 
 
 def test_sensor_responsiveness_is_not_domain_containment():
-    assert sensor_domain_allows_efficiency_claim("target_responsive", "load-test") is False
+    assert sensor_domain_allows_efficiency_claim(
+        "target_responsive", "load-test"
+    ) is False
     assert sensor_domain_allows_efficiency_claim("proxy_only", "intel-doc") is False
-    assert sensor_domain_allows_efficiency_claim("documented_excludes_target", "intel-doc") is False
-    assert sensor_domain_allows_efficiency_claim("documented_contains_target", None) is False
-    assert sensor_domain_allows_efficiency_claim("documented_contains_target", "intel-doc") is True
+    assert sensor_domain_allows_efficiency_claim(
+        "documented_excludes_target", "intel-doc"
+    ) is False
+    assert sensor_domain_allows_efficiency_claim(
+        "documented_contains_target", None
+    ) is False
+    assert sensor_domain_allows_efficiency_claim(
+        "documented_contains_target", "intel-doc"
+    ) is True
 
 
 def test_counterbalanced_rotation_is_deterministic():
@@ -142,17 +209,21 @@ def test_counterbalanced_rotation_is_deterministic():
     assert counterbalanced_device_order(3) == ("CPU", "GPU", "NPU")
 
 
-def _active(session):
+def _active(session, *, energy=100.0, duration=20.0, tasks=2):
     return {
         "session_id": session,
-        "energy_joules": 100.0,
-        "duration_s": 20.0,
-        "tasks_attempted": 2,
+        "energy_joules": energy,
+        "duration_s": duration,
+        "tasks_attempted": tasks,
     }
 
 
-def _idle(session):
-    return {"session_id": session, "mean_watts": 5.0, "duration_s": 3600.0}
+def _idle(session, *, watts=5.0, duration=3600.0):
+    return {
+        "session_id": session,
+        "mean_watts": watts,
+        "duration_s": duration,
+    }
 
 
 def test_projection_refuses_pseudoreplication():
@@ -177,7 +248,61 @@ def test_projection_refuses_too_few_independent_runs():
         )
 
 
-def test_projection_is_explicitly_derived_and_ranged():
+def test_projection_refuses_short_idle_runs():
+    with pytest.raises(ValueError, match="at least 3600 seconds"):
+        project_fixed_window(
+            [_active("a1"), _active("a2"), _active("a3")],
+            [
+                _idle("i1", duration=60),
+                _idle("i2", duration=60),
+                _idle("i3", duration=60),
+            ],
+            window_seconds=28800,
+            observed_tasks_per_second=0.01,
+            arrival_multiplier=1.0,
+        )
+
+
+def test_equal_power_different_throughput_exposes_serviced_work():
+    idle = [
+        _idle("i1", watts=10.0),
+        _idle("i2", watts=10.0),
+        _idle("i3", watts=10.0),
+    ]
+    fast = project_fixed_window(
+        [
+            _active("fa1", energy=1000.0, duration=100.0, tasks=1),
+            _active("fa2", energy=1000.0, duration=100.0, tasks=1),
+            _active("fa3", energy=1000.0, duration=100.0, tasks=1),
+        ],
+        idle,
+        window_seconds=28800,
+        observed_tasks_per_second=0.05,
+        arrival_multiplier=1.0,
+        bootstrap_draws=500,
+    )
+    slow = project_fixed_window(
+        [
+            _active("sa1", energy=10000.0, duration=1000.0, tasks=1),
+            _active("sa2", energy=10000.0, duration=1000.0, tasks=1),
+            _active("sa3", energy=10000.0, duration=1000.0, tasks=1),
+        ],
+        idle,
+        window_seconds=28800,
+        observed_tasks_per_second=0.05,
+        arrival_multiplier=1.0,
+        bootstrap_draws=500,
+    )
+
+    assert fast["median_joules"] == slow["median_joules"]
+    assert fast["tasks_demanded"] == slow["tasks_demanded"] == 1440.0
+    assert fast["tasks_serviced"] == 288.0
+    assert slow["tasks_serviced"] == 28.8
+    assert fast["demand_exceeded_capacity"] is True
+    assert slow["demand_exceeded_capacity"] is True
+
+
+def test_projection_is_explicitly_derived_and_predictive():
     result = project_fixed_window(
         [_active("a1"), _active("a2"), _active("a3")],
         [_idle("i1"), _idle("i2"), _idle("i3")],
@@ -189,5 +314,14 @@ def test_projection_is_explicitly_derived_and_ranged():
     assert result["derived"] is True
     assert result["active_independent_runs"] == 3
     assert result["idle_independent_runs"] == 3
-    assert result["empirical_interval_joules"]["low_p05"] <= result["median_joules"]
-    assert result["median_joules"] <= result["empirical_interval_joules"]["high_p95"]
+    assert result["idle_duration_seconds"] == [3600.0, 3600.0, 3600.0]
+    assert result["interval_kind"] == "predictive_p05_p95"
+    assert (
+        result["predictive_interval_joules"]["low_p05"]
+        <= result["median_joules"]
+    )
+    assert (
+        result["median_joules"]
+        <= result["predictive_interval_joules"]["high_p95"]
+    )
+    assert "empirical_interval_joules" not in result
