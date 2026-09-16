@@ -23,6 +23,60 @@ jobs:
           python-version: '3.12'
       - name: Install dev environment
         run: python -m pip install -e '.[dev]'
+      - name: Apply bounded energy-study regression repair
+        shell: python
+        run: |
+          from pathlib import Path
+
+          energy = Path('measurement/energy.py')
+          text = energy.read_text(encoding='utf-8')
+          old = '''    if min_sample_hz <= 0:\n        return unobserved("minimum sample rate must be positive", "HWiNFO64 CSV", **common)\n'''
+          new = '''    if min_sample_hz < DEFAULT_MIN_SAMPLE_HZ:\n        return unobserved(\n            f"minimum sample rate {min_sample_hz:.3f} Hz is below preregistered "\n            f"floor {DEFAULT_MIN_SAMPLE_HZ:.3f} Hz",\n            "HWiNFO64 CSV",\n            quality="invalid_sampling_policy",\n            **common,\n        )\n'''
+          if old not in text:
+              raise SystemExit('energy.py sampling-policy patch anchor missing')
+          text = text.replace(old, new, 1)
+          old = '''        or args.min_sample_hz <= 0\n        or not 0 <= args.flush_wait_seconds <= 60\n'''
+          new = '''        or args.min_sample_hz < DEFAULT_MIN_SAMPLE_HZ\n        or not 0 <= args.flush_wait_seconds <= 60\n'''
+          if old not in text:
+              raise SystemExit('energy.py CLI sampling-policy patch anchor missing')
+          text = text.replace(old, new, 1)
+          old = '''            "supply a command, positive max gap/sample rate, and flush wait between 0 and 60 seconds"\n'''
+          new = '''            f"supply a command, positive max gap, sample rate at least "\n            f"{DEFAULT_MIN_SAMPLE_HZ:.1f} Hz, and flush wait between 0 and 60 seconds"\n'''
+          if old not in text:
+              raise SystemExit('energy.py CLI error-text patch anchor missing')
+          text = text.replace(old, new, 1)
+          energy.write_text(text, encoding='utf-8')
+
+          legacy = Path('tests/test_energy.py')
+          text = legacy.read_text(encoding='utf-8')
+          old = '''def test_hwinfo_csv_and_missing_sampler(tmp_path):\n    p = tmp_path/'power.csv'\n    p.write_text('Date,Time,CPU Package Power [W]\\n13.09.2026,12:00:00.000,10\\n13.09.2026,12:00:02.000,30\\n13.09.2026,12:00:04.000,10\\n')\n    t = datetime(2026,9,13,12).timestamp()\n    measured = energy.measure(p,'CPU Package Power [W]','%d.%m.%Y %H:%M:%S.%f',t+1,t+3)\n    assert measured['energy_joules'] == 50\n    assert measured['sampler'] == 'HWiNFO64 CSV'\n    assert measured['measurement_quality'] == 'sampled'\n    missing = energy.measure(None,'unused','unused',t,t+2)\n    assert missing['energy_joules'] is None\n    assert missing['measurement_quality'] == 'unobserved'\n'''
+          new = '''def test_hwinfo_csv_and_missing_sampler(tmp_path):\n    p = tmp_path/'power.csv'\n    p.write_text('Date,Time,CPU Package Power [W]\\n13.09.2026,12:00:00.000,10\\n13.09.2026,12:00:00.250,10\\n13.09.2026,12:00:00.500,10\\n13.09.2026,12:00:00.750,10\\n')\n    t = datetime(2026,9,13,12).timestamp()\n    measured = energy.measure(p,'CPU Package Power [W]','%d.%m.%Y %H:%M:%S.%f',t+.125,t+.625)\n    assert math.isclose(measured['energy_joules'], 5.0)\n    assert measured['sample_hz'] == 4.0\n    assert measured['sampler'] == 'HWiNFO64 CSV'\n    assert measured['measurement_quality'] == 'sampled'\n    missing = energy.measure(None,'unused','unused',t,t+2)\n    assert missing['energy_joules'] is None\n    assert missing['measurement_quality'] == 'unobserved'\n'''
+          if old not in text:
+              raise SystemExit('legacy HWiNFO regression patch anchor missing')
+          text = text.replace(old, new, 1)
+          text = text.replace(
+              "energy.main(['--out',str(output),'--run-manifest',str(original),'--',sys.executable,'-c','print(1+1)'])",
+              "energy.main(['--out',str(output),'--power-source','mains','--device','CPU','--run-manifest',str(original),'--',sys.executable,'-c','print(1+1)'])",
+              1,
+          )
+          text = text.replace(
+              "energy.main(['--out',str(output),'--',sys.executable,'-c','raise RuntimeError()'])",
+              "energy.main(['--out',str(output),'--power-source','mains','--device','CPU','--',sys.executable,'-c','raise RuntimeError()'])",
+              1,
+          )
+          old = '''        assert energy.main(['--out',str(out),'--hwinfo-csv',str(csv_path),\n                            '--',sys.executable,'-c','sum(i*i for i in range(1000000))']) == 0\n'''
+          new = '''        assert energy.main(['--out',str(out),'--hwinfo-csv',str(csv_path),\n                            '--power-source','mains','--device','CPU',\n                            '--',sys.executable,'-c','sum(i*i for i in range(1000000))']) == 0\n'''
+          if old not in text:
+              raise SystemExit('legacy synthetic CLI regression patch anchor missing')
+          text = text.replace(old, new, 1)
+          legacy.write_text(text, encoding='utf-8')
+
+          measurement = Path('tests/unit/test_energy_measurement.py')
+          text = measurement.read_text(encoding='utf-8')
+          addition = '''\n\ndef test_preregistered_sample_floor_cannot_be_lowered(tmp_path):\n    csv = tmp_path / "slow-policy-bypass.csv"\n    start = _csv(csv, 2.0)\n    result = measure(\n        csv,\n        "CPU Package Power [W]",\n        "%d.%m.%Y %H:%M:%S.%f",\n        start.timestamp(),\n        (start + timedelta(seconds=20)).timestamp(),\n        min_sample_hz=0.5,\n        power_source="mains",\n        sensor_domain_state="target_responsive",\n    )\n    assert result["energy_joules"] is None\n    assert result["comparison_eligible"] is False\n    assert result["measurement_quality"] == "invalid_sampling_policy"\n    assert "preregistered" in result["reason"]\n'''
+          if 'test_preregistered_sample_floor_cannot_be_lowered' in text:
+              raise SystemExit('sampling floor regression already present unexpectedly')
+          measurement.write_text(text.rstrip() + addition + '\n', encoding='utf-8')
       - name: Reconcile source identity and refuse contract drift
         shell: python
         run: |
@@ -51,7 +105,7 @@ jobs:
           print('base_prompt_sha256', prompt)
           print('outcome_contract_sha256', outcome)
       - name: Targeted energy regressions
-        run: python -m pytest -q tests/unit/test_energy_measurement.py tests/unit/test_energy_study.py tests/unit/test_provenance.py
+        run: python -m pytest -q tests/test_energy.py tests/unit/test_energy_measurement.py tests/unit/test_energy_study.py tests/unit/test_provenance.py
       - name: Authoritative Linux suite
         run: python -m pytest -q
       - name: Diff hygiene
