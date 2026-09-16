@@ -6,8 +6,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Python = Join-Path (Split-Path -Parent $ScriptDir) ".venv\Scripts\python.exe"
-if (-not (Test-Path $Python)) {
+$Root = Split-Path -Parent $ScriptDir
+$Candidates = @(
+    (Join-Path $Root ".venv-workstation\Scripts\python.exe"),
+    (Join-Path $Root ".venv\Scripts\python.exe")
+)
+$Python = $Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $Python) {
     $Python = "python"
 }
 
