@@ -187,7 +187,9 @@ def main(argv=None):
         "--sensor-domain-evidence",
         help="evidence reference; required for documented sensor-domain states",
     )
-    parser.add_argument("--session-id", help="operator-declared independent session id")
+    parser.add_argument(
+        "--session-id", required=True, help="operator-declared independent session id"
+    )
     parser.add_argument("--start-temperature-c", type=float)
     parser.add_argument("--end-temperature-c", type=float)
     # Explicit format avoids interpreting 9/10 as either September or October.
