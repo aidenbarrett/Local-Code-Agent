@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 
-from measurement.energy import DEFAULT_MIN_SAMPLE_HZ, measure
+import pytest
+
+from measurement.energy import DEFAULT_MIN_SAMPLE_HZ, main as energy_main, measure
 
 
 def _csv(path, step_seconds: float, count: int = 20, watts: float = 10.0):
@@ -50,6 +52,7 @@ def test_adequate_sampling_emits_energy(tmp_path):
     assert result["sample_hz"] == 4.0
     assert abs(result["energy_joules"] - 200.0) < 1e-9
 
+
 def test_preregistered_sample_floor_cannot_be_lowered(tmp_path):
     csv = tmp_path / "slow-policy-bypass.csv"
     start = _csv(csv, 2.0)
@@ -67,3 +70,22 @@ def test_preregistered_sample_floor_cannot_be_lowered(tmp_path):
     assert result["comparison_eligible"] is False
     assert result["measurement_quality"] == "invalid_sampling_policy"
     assert "preregistered" in result["reason"]
+
+
+def test_capture_refuses_missing_session_id_before_running_command(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        energy_main(
+            [
+                "--out",
+                str(tmp_path / "result.json"),
+                "--power-source",
+                "mains",
+                "--device",
+                "CPU",
+                "--",
+                "command-must-not-run",
+            ]
+        )
+
+    assert exc.value.code == 2
+    assert not (tmp_path / "result.json").exists()
