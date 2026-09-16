@@ -54,6 +54,10 @@ function Result([string]$Check,[string]$Status,[string]$Detail,[string]$Action="
     if ($Action) { Write-Host ("       Action: {0}" -f $Action) }
 }
 
+function ProgressNote([string]$Text) {
+    Write-Host ("[working] {0}" -f $Text)
+}
+
 function Has([string]$Name) { return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue) }
 function EnsureDir([string]$Path) { if (!(Test-Path $Path)) { New-Item -ItemType Directory -Force -Path $Path | Out-Null } }
 
@@ -63,6 +67,7 @@ function RefreshPath {
 
 function InstallWinget([string]$Id) {
     if (!(Has "winget")) { throw "WinGet is unavailable. Install manually or ask IT." }
+    ProgressNote "Installing $Id with WinGet. The installer may be quiet for several minutes."
     & winget install --id $Id -e --source winget --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -ne 0) { throw "winget install failed for $Id ($LASTEXITCODE)" }
     RefreshPath
@@ -143,6 +148,7 @@ Write-Host "Mode:         $(if ($CheckOnly) {'CHECK ONLY'} else {'SETUP'})"
 Write-Host "Install prereqs: $(if ($InstallMissing) {'YES (explicit)'} else {'NO'})"
 Write-Host ""
 Write-Host "NPU drivers and Windows features are never changed silently."
+Write-Host "Long-running setup stages print [working] messages before quiet operations."
 
 Section "1. Host and basic tooling"
 $os = Get-CimInstance Win32_OperatingSystem
@@ -180,11 +186,13 @@ $wslUsable = $false
 if (Has "wsl.exe") {
     Result "WSL command" "PASS" "wsl.exe present"
     try {
+        ProgressNote "Checking WSL status and installed distributions. A broken WSL registration can take a few seconds to answer."
         $status = (& wsl.exe --status 2>&1) -join " | "
         Result "WSL status" $(if ($LASTEXITCODE -eq 0) {"PASS"} else {"WARN"}) $status
         $distros = @(& wsl.exe --list --quiet 2>$null | ForEach-Object { $_.Trim([char]0).Trim() } | Where-Object { $_ })
         if ($distros.Count -gt 0) {
             Result "WSL distros" "PASS" ($distros -join ", ")
+            ProgressNote "Probing one WSL command to confirm the distro actually starts. This probe is bounded to 15 seconds."
             $probe = Invoke-WslExecutionProbe -TimeoutSeconds 15
             if (!$probe.Started) {
                 Result "WSL execution" "WARN" "probe process failed to start" "WSL is optional; Windows-native NPU bring-up remains valid."
@@ -238,14 +246,20 @@ if (PythonOk $py) {
     $venvPython = Join-Path $VenvDir "Scripts\python.exe"
     if (!(Test-Path $venvPython)) {
         if ($CheckOnly) { Result "Agent venv" "INFO" "not created" "Run without -CheckOnly." }
-        else { RunPython $py @("-m","venv",$VenvDir); Result "Agent venv" "PASS" $VenvDir }
+        else {
+            ProgressNote "Creating the project Python virtual environment. This can take a minute on a managed laptop."
+            RunPython $py @("-m","venv",$VenvDir)
+            Result "Agent venv" "PASS" $VenvDir
+        }
     } else { Result "Agent venv" "PASS" $VenvDir }
 
     if (Test-Path $venvPython) {
         if (!$CheckOnly) {
+            ProgressNote "Updating pip in the project environment. pip output below means the bootstrap is still active."
             & $venvPython -m pip install --upgrade pip
             if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
             # Editable install is deliberate: current wheels do not package top-level skills/ yet.
+            ProgressNote "Installing Local Code Agent and development dependencies. Dependency resolution/build can take several minutes."
             & $venvPython -m pip install -e "${RepoRoot}[dev]"
             if ($LASTEXITCODE -ne 0) { throw "editable project install failed" }
         }
@@ -258,9 +272,11 @@ Section "6. OpenVINO and NPU visibility"
 $venvPython = Join-Path $VenvDir "Scripts\python.exe"
 if (Test-Path $venvPython) {
     if (!$CheckOnly) {
+        ProgressNote "Installing/verifying the pinned OpenVINO packages. This may be quiet while wheels are checked or unpacked."
         & $venvPython -m pip install "openvino==$OpenVinoVersion" "openvino-tokenizers==$OpenVinoTokenizersVersion" "openvino-genai==$OpenVinoGenAiVersion"
         if ($LASTEXITCODE -ne 0) { throw "OpenVINO install failed" }
     }
+    ProgressNote "Querying OpenVINO and enumerating available devices."
     $ovVersion = (& $venvPython -c "import openvino as ov; print(ov.__version__)" 2>&1) -join " "
     Result "OpenVINO" $(if ($LASTEXITCODE -eq 0) {"PASS"} else {"FAIL"}) $ovVersion
     $devices = (& $venvPython -c "from openvino import Core; print(','.join(Core().available_devices))" 2>&1) -join ""
@@ -285,6 +301,7 @@ $ovmsReady = $false
 if ($SkipOvms) {
     Result "OVMS" "INFO" "skipped by -SkipOvms"
 } elseif (Test-Path $OvmsDir) {
+    ProgressNote "Inspecting the existing OVMS tree for ovms.exe and setupvars.ps1. This recursive scan can be quiet for a while."
     $existingExe = Get-ChildItem $OvmsDir -Recurse -Filter ovms.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     $existingSetupVars = Get-ChildItem $OvmsDir -Recurse -Filter setupvars.ps1 -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($existingExe -and $existingSetupVars) {
@@ -302,7 +319,9 @@ if (!$SkipOvms -and !$ovmsReady -and !(Test-Path $OvmsDir)) {
         EnsureDir $ToolDir
         $zip = Join-Path $ToolDir "ovms_windows_2026.3.0_python_on.zip"
         $stage = Join-Path $ToolDir "ovms-2026.3.0.staging"
+        ProgressNote "Downloading the pinned OVMS Windows archive. PowerShell progress rendering is disabled, so the console may be quiet during transfer."
         Invoke-WebRequest -Uri $OvmsUrl -OutFile $zip -MaximumRedirection 8 -UseBasicParsing
+        ProgressNote "Download complete. Verifying the OVMS SHA256 before extraction."
         $actualSha = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
         if ($actualSha -ne $OvmsExpectedSha256) {
             throw "OVMS SHA256 mismatch. Expected $OvmsExpectedSha256, got $actualSha. Archive left at $zip for inspection."
@@ -310,7 +329,9 @@ if (!$SkipOvms -and !$ovmsReady -and !(Test-Path $OvmsDir)) {
         Result "OVMS archive hash" "PASS" $actualSha
         if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
         EnsureDir $stage
+        ProgressNote "Extracting the OVMS archive. Expand-Archive can be quiet for several minutes; do not treat the lack of output as a hang."
         Expand-Archive -Path $zip -DestinationPath $stage -Force
+        ProgressNote "Extraction complete. Finalising the OVMS runtime directory."
         Move-Item $stage $OvmsDir
         $ovmsReady = $true
         Result "OVMS" "PASS" $OvmsDir
@@ -318,6 +339,7 @@ if (!$SkipOvms -and !$ovmsReady -and !(Test-Path $OvmsDir)) {
 }
 
 if (!$SkipOvms -and (Test-Path $OvmsDir)) {
+    ProgressNote "Locating the OVMS executable and environment script for the final bootstrap report."
     $ovmsExe = Get-ChildItem $OvmsDir -Recurse -Filter ovms.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     $setupVars = Get-ChildItem $OvmsDir -Recurse -Filter setupvars.ps1 -ErrorAction SilentlyContinue | Select-Object -First 1
     Result "OVMS executable" $(if ($ovmsExe) {"PASS"} else {"WARN"}) $(if ($ovmsExe) {$ovmsExe.FullName} else {"ovms.exe not found"})
@@ -325,6 +347,7 @@ if (!$SkipOvms -and (Test-Path $OvmsDir)) {
 }
 
 Section "9. Verify official upstream endpoints from this laptop"
+ProgressNote "Checking the official download/documentation endpoints. Each network probe has a 20-second timeout, so a blocked corporate URL may pause briefly."
 CheckUrl "Intel NPU driver" $IntelNpuDriverUrl
 CheckUrl "OpenVINO install docs" $OpenVinoPipUrl
 CheckUrl "OpenVINO NPU docs" $OpenVinoNpuUrl
