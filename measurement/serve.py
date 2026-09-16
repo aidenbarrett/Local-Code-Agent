@@ -70,6 +70,13 @@ def make_plan(profile, config, runtime_root, *, executable=None, model_dir=None,
     env = {}
     if config.runtime == "ovms":
         exe = executable or ("ovms.exe" if windows else "ovms")
+        # setupvars.ps1 may point PYTHONHOME/PYTHONPATH at OVMS's bundled Python.
+        # Keep those values child-only so the controller can run from its own venv.
+        for source, target in (("LCA_OVMS_PYTHONHOME", "PYTHONHOME"),
+                               ("LCA_OVMS_PYTHONPATH", "PYTHONPATH")):
+            value = os.environ.get(source)
+            if value:
+                env[target] = value
         # Explicit task selects an in-memory graph from the verified local IR.
         # No implicit HF pull or shared graph.pbtxt edits at start time.
         args = ["--model_path", str(payload), "--model_name", config.model,
@@ -101,7 +108,8 @@ def make_plan(profile, config, runtime_root, *, executable=None, model_dir=None,
     return {"profile": profile, "model_configuration": config.identity(),
             "exe": str(exe), "args": args, "argv": [str(exe), *args], "env": env,
             "unset_env": ["GGML_OPENVINO_DEVICE", "GGML_OPENVINO_STATEFUL_EXECUTION",
-                          "GGML_OPENVINO_PREFILL_CHUNK_SIZE"],
+                          "GGML_OPENVINO_PREFILL_CHUNK_SIZE", "LCA_OVMS_PYTHONHOME",
+                          "LCA_OVMS_PYTHONPATH"],
             "cwd": str(ROOT), "host": host, "port": port,
             "base_url": config.base_url, "model_dir": str(payload),
             "model_repository": str(repository), "cache_dir": str(cache),
@@ -111,6 +119,15 @@ def make_plan(profile, config, runtime_root, *, executable=None, model_dir=None,
             "max_prompt_length_basis": ("launch_argument" if config.device == "NPU" or
                 config.runtime == "llamacpp" else "declared_model_envelope"),
             "server_observed_device": None, "server_observed_max_prompt_length": None}
+
+
+def runtime_process_env(plan):
+    """Build the exact child environment used for runtime probes and pulls."""
+    env = dict(os.environ)
+    for key in plan.get("unset_env", []):
+        env.pop(key, None)
+    env.update(plan.get("env", {}))
+    return env
 
 
 def precision(payload):
@@ -233,7 +250,8 @@ def preflight(plan, config, allow_experimental=False):
     plan["argv"][0] = plan["exe"]
     try:
         version = subprocess.run([plan["exe"], "--version"], capture_output=True,
-                                 text=True, timeout=15, check=True)
+                                 text=True, timeout=15, check=True,
+                                 env=runtime_process_env(plan))
         record["server_version_output"] = (version.stdout + version.stderr).strip()[:4000]
     except (OSError, subprocess.SubprocessError):
         record["server_version_output"] = None
@@ -425,7 +443,7 @@ def pull(plan, config, *, allow_experimental=False):
             "--model_repository_path", plan["model_repository"], "--target_device", config.device,
             "--task", "text_generation", "--tool_parser", config.tool_parser]
     with profile_lock(plan):
-        subprocess.run(argv, check=True)
+        subprocess.run(argv, check=True, env=runtime_process_env(plan))
     return {"pulled": config.model, "model_dir": str(model_directory(Path(plan["model_repository"]), config.model))}
 
 

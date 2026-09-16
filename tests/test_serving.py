@@ -47,6 +47,42 @@ def test_five_profiles_and_exact_npu_arguments(tmp_path):
     assert len(ports) == 5
 
 
+def test_ovms_python_environment_is_child_only(tmp_path, monkeypatch):
+    monkeypatch.setenv('LCA_OVMS_PYTHONHOME', r'C:\ovms\python')
+    monkeypatch.setenv('LCA_OVMS_PYTHONPATH', r'C:\ovms\python\Lib')
+    monkeypatch.setenv('PYTHONHOME', r'C:\wrong-controller-python')
+    c = MODEL_PRESETS['ptl-npu-8b']
+    p = serve.make_plan('ptl', c, tmp_path, windows=True)
+    assert p['env']['PYTHONHOME'] == r'C:\ovms\python'
+    assert p['env']['PYTHONPATH'] == r'C:\ovms\python\Lib'
+    assert 'LCA_OVMS_PYTHONHOME' in p['unset_env']
+    assert 'LCA_OVMS_PYTHONPATH' in p['unset_env']
+    child = serve.runtime_process_env(p)
+    assert child['PYTHONHOME'] == r'C:\ovms\python'
+    assert child['PYTHONPATH'] == r'C:\ovms\python\Lib'
+    assert 'LCA_OVMS_PYTHONHOME' not in child
+    assert 'LCA_OVMS_PYTHONPATH' not in child
+
+
+def test_ovms_pull_uses_child_runtime_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv('LCA_OVMS_PYTHONHOME', r'C:\ovms\python')
+    c = MODEL_PRESETS['ptl-npu-8b']
+    p = serve.make_plan('ptl', c, tmp_path, windows=True)
+    seen = {}
+    monkeypatch.setattr(serve, 'check_disk', lambda *args: None)
+    monkeypatch.setattr(serve, 'model_directory', lambda *args: tmp_path / 'model')
+
+    def fake_run(argv, *, check, env):
+        seen['argv'] = argv
+        seen['env'] = env
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(serve.subprocess, 'run', fake_run)
+    serve.pull(p, c)
+    assert seen['env']['PYTHONHOME'] == r'C:\ovms\python'
+    assert seen['argv'][0] == 'ovms.exe'
+
+
 def test_llama_native_and_openvino_devices(tmp_path):
     c = MODEL_PRESETS['nuc-llama-8b']
     p = serve.make_plan('native', c, tmp_path, gguf=tmp_path/'with spaces.gguf')
