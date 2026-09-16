@@ -49,3 +49,21 @@ def test_adequate_sampling_emits_energy(tmp_path):
     assert result["measurement_quality"] == "sampled"
     assert result["sample_hz"] == 4.0
     assert abs(result["energy_joules"] - 200.0) < 1e-9
+
+def test_preregistered_sample_floor_cannot_be_lowered(tmp_path):
+    csv = tmp_path / "slow-policy-bypass.csv"
+    start = _csv(csv, 2.0)
+    result = measure(
+        csv,
+        "CPU Package Power [W]",
+        "%d.%m.%Y %H:%M:%S.%f",
+        start.timestamp(),
+        (start + timedelta(seconds=20)).timestamp(),
+        min_sample_hz=0.5,
+        power_source="mains",
+        sensor_domain_state="target_responsive",
+    )
+    assert result["energy_joules"] is None
+    assert result["comparison_eligible"] is False
+    assert result["measurement_quality"] == "invalid_sampling_policy"
+    assert "preregistered" in result["reason"]

@@ -123,8 +123,14 @@ def measure(
     }
     if not path:
         return unobserved("no sampler configured", **common)
-    if min_sample_hz <= 0:
-        return unobserved("minimum sample rate must be positive", "HWiNFO64 CSV", **common)
+    if min_sample_hz < DEFAULT_MIN_SAMPLE_HZ:
+        return unobserved(
+            f"minimum sample rate {min_sample_hz:.3f} Hz is below preregistered "
+            f"floor {DEFAULT_MIN_SAMPLE_HZ:.3f} Hz",
+            "HWiNFO64 CSV",
+            quality="invalid_sampling_policy",
+            **common,
+        )
     try:
         samples, digest = read_hwinfo(
             path, sensor, timestamp_format, encoding=encoding, delimiter=delimiter
@@ -199,11 +205,12 @@ def main(argv=None):
     if (
         not command
         or args.max_gap_seconds <= 0
-        or args.min_sample_hz <= 0
+        or args.min_sample_hz < DEFAULT_MIN_SAMPLE_HZ
         or not 0 <= args.flush_wait_seconds <= 60
     ):
         parser.error(
-            "supply a command, positive max gap/sample rate, and flush wait between 0 and 60 seconds"
+            f"supply a command, positive max gap, sample rate at least "
+            f"{DEFAULT_MIN_SAMPLE_HZ:.1f} Hz, and flush wait between 0 and 60 seconds"
         )
     if args.sensor_domain_state.startswith("documented_") and not args.sensor_domain_evidence:
         parser.error("documented sensor-domain states require --sensor-domain-evidence")
