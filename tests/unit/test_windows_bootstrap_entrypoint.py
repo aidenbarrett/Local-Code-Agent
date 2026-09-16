@@ -32,3 +32,12 @@ def test_historical_bootstrap_is_retained_as_core_implementation():
     assert core.is_file()
     text = core.read_text(encoding="utf-8")
     assert "Local Code Agent work-laptop bootstrap" in text
+
+
+def test_optional_wsl_execution_probe_is_bounded_and_non_blocking():
+    text = (ROOT / "scripts" / "bootstrap-work-laptop-core.ps1").read_text(encoding="utf-8")
+    assert "function Invoke-WslExecutionProbe" in text
+    assert "$process.WaitForExit($TimeoutSeconds * 1000)" in text
+    assert "$process.Kill()" in text
+    assert 'Result "WSL execution" "WARN" "timed out after 15s"' in text
+    assert '& wsl.exe -e sh -lc "printf WSL_OK"' not in text
