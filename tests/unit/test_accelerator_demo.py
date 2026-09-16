@@ -42,3 +42,14 @@ def test_wrappers_offer_same_demo_entrypoint():
     assert "demo-accelerator.py" in ps1
     assert '"CPU", "GPU", "NPU", "ALL"' in ps1
     assert "demo-accelerator.py" in sh
+
+
+def test_windows_wrapper_uses_managed_ovms_runtime():
+    ps1 = (ROOT / "scripts" / "demo-accelerator.ps1").read_text(encoding="utf-8")
+    assert "ovms-2026.3.0" in ps1
+    assert "setupvars.ps1" in ps1
+    assert "LCA_OVMS_PYTHONHOME" in ps1
+    assert "LCA_OVMS_PYTHONPATH" in ps1
+    assert "--runtime-root" in ps1
+    assert "--executable" in ps1
+    assert "$OvmsExe.FullName" in ps1
