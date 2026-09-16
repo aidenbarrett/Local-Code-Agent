@@ -97,6 +97,31 @@ function RunPython($py,[string[]]$Args) {
     if ($LASTEXITCODE -ne 0) { throw "Python command failed ($LASTEXITCODE)" }
 }
 
+function Invoke-WslExecutionProbe([int]$TimeoutSeconds = 15) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "wsl.exe"
+    $psi.Arguments = '-e sh -lc "printf WSL_OK"'
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    try {
+        if (!$process.Start()) {
+            return [pscustomobject]@{TimedOut=$false;ExitCode=$null;Started=$false}
+        }
+        if (!$process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $process.Kill() } catch {}
+            return [pscustomobject]@{TimedOut=$true;ExitCode=$null;Started=$true}
+        }
+        return [pscustomobject]@{TimedOut=$false;ExitCode=$process.ExitCode;Started=$true}
+    } finally {
+        $process.Dispose()
+    }
+}
+
 function CheckUrl([string]$Name,[string]$Url) {
     try {
         $r = Invoke-WebRequest -Uri $Url -Method Head -MaximumRedirection 8 -UseBasicParsing -TimeoutSec 20
@@ -160,9 +185,17 @@ if (Has "wsl.exe") {
         $distros = @(& wsl.exe --list --quiet 2>$null | ForEach-Object { $_.Trim([char]0).Trim() } | Where-Object { $_ })
         if ($distros.Count -gt 0) {
             Result "WSL distros" "PASS" ($distros -join ", ")
-            & wsl.exe -e sh -lc "printf WSL_OK" *> $null
-            if ($LASTEXITCODE -eq 0) { $wslUsable=$true; Result "WSL execution" "PASS" "Linux command execution works" }
-            else { Result "WSL execution" "WARN" "distro exists but execution failed" }
+            $probe = Invoke-WslExecutionProbe -TimeoutSeconds 15
+            if (!$probe.Started) {
+                Result "WSL execution" "WARN" "probe process failed to start" "WSL is optional; Windows-native NPU bring-up remains valid."
+            } elseif ($probe.TimedOut) {
+                Result "WSL execution" "WARN" "timed out after 15s" "WSL is optional; Windows-native NPU bring-up remains valid."
+            } elseif ($probe.ExitCode -eq 0) {
+                $wslUsable=$true
+                Result "WSL execution" "PASS" "Linux command execution works"
+            } else {
+                Result "WSL execution" "WARN" "distro exists but execution failed (exit $($probe.ExitCode))" "WSL is optional; Windows-native NPU bring-up remains valid."
+            }
         } else { Result "WSL distros" "INFO" "none installed" "WSL is not required for Windows-native NPU bring-up." }
     } catch { Result "WSL" "WARN" $_.Exception.Message "Windows-native path remains valid." }
 } else { Result "WSL" "INFO" "not installed" "Optional. Official docs: $WslUrl" }
