@@ -38,14 +38,15 @@ def test_no_sampler_command_runs_and_existing_manifest_is_unchanged(tmp_path):
     original = tmp_path/'pre-run.json'
     original.write_text('{"identity":"original"}')
     output = tmp_path/'complete.json'
-    rc = energy.main(['--out',str(output),'--power-source','mains','--device','CPU','--run-manifest',str(original),'--',sys.executable,'-c','print(1+1)'])
+    rc = energy.main(['--out',str(output),'--power-source','mains','--device','CPU','--session-id','test-no-sampler','--run-manifest',str(original),'--',sys.executable,'-c','print(1+1)'])
     assert rc == 0
     data = json.loads(output.read_text())
     assert data['energy_joules'] is None and data['measurement_quality'] == 'unobserved'
     assert data['links']['run_manifest']['sha256']
+    assert data['session_id'] == 'test-no-sampler'
     assert original.read_text() == '{"identity":"original"}'
     with pytest.raises(FileExistsError):
-        energy.main(['--out',str(output),'--power-source','mains','--device','CPU','--',sys.executable,'-c','raise RuntimeError()'])
+        energy.main(['--out',str(output),'--power-source','mains','--device','CPU','--session-id','test-existing-output','--',sys.executable,'-c','raise RuntimeError()'])
 
 
 def test_duplicate_sensor_name_refuses(tmp_path):
@@ -76,9 +77,11 @@ def test_command_manifest_with_synthetic_csv_sampler(tmp_path):
         out = tmp_path/'measured.json'
         assert energy.main(['--out',str(out),'--hwinfo-csv',str(csv_path),
                             '--power-source','mains','--device','CPU',
+                            '--session-id','test-synthetic-csv',
                             '--',sys.executable,'-c','sum(i*i for i in range(1000000))']) == 0
         data=json.loads(out.read_text())
         assert math.isclose(data['energy_joules'], 10*(data['end_unix']-data['start_unix']), rel_tol=1e-6)
         assert data['sampler']=='HWiNFO64 CSV'
+        assert data['session_id']=='test-synthetic-csv'
     finally:
         done.set(); thread.join(timeout=3)
