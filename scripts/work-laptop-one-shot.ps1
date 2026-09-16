@@ -42,6 +42,11 @@ function EnsureDir([string]$Path) { if (!(Test-Path $Path)) { New-Item -ItemType
 function Has([string]$Name) { return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue) }
 function RefreshPath { $env:Path = ([Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")) }
 
+function RestoreEnvVariable([string]$Name,[bool]$Existed,[string]$Value) {
+    if ($Existed) { Set-Item -Path ("Env:" + $Name) -Value $Value }
+    else { Remove-Item -Path ("Env:" + $Name) -ErrorAction SilentlyContinue }
+}
+
 function ImportVsDevEnvironment {
     $roots = @()
     if (${env:ProgramFiles(x86)}) { $roots += (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe") }
@@ -135,7 +140,23 @@ Say "C++ compiler: $compiler"
 $ovmsExe = Get-ChildItem $OvmsDir -Recurse -Filter ovms.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 $setupVars = Get-ChildItem $OvmsDir -Recurse -Filter setupvars.ps1 -ErrorAction SilentlyContinue | Select-Object -First 1
 if (!$ovmsExe -or !$setupVars) { Fail "OVMS 2026.3.0 installation is incomplete under $OvmsDir" }
+
+# setupvars.ps1 intentionally points PYTHONHOME/PYTHONPATH at OVMS's bundled
+# Python. If those variables leak into the controller venv, CPython can fail
+# before import with init_fs_encoding / encodings errors. Preserve the values
+# for OVMS children, but restore the checkout Python environment immediately.
+$hadPythonHome = Test-Path Env:PYTHONHOME
+$pythonHomeBefore = if ($hadPythonHome) { $env:PYTHONHOME } else { $null }
+$hadPythonPath = Test-Path Env:PYTHONPATH
+$pythonPathBefore = if ($hadPythonPath) { $env:PYTHONPATH } else { $null }
 . $setupVars.FullName
+if (Test-Path Env:PYTHONHOME) { $env:LCA_OVMS_PYTHONHOME = $env:PYTHONHOME }
+else { Remove-Item Env:LCA_OVMS_PYTHONHOME -ErrorAction SilentlyContinue }
+if (Test-Path Env:PYTHONPATH) { $env:LCA_OVMS_PYTHONPATH = $env:PYTHONPATH }
+else { Remove-Item Env:LCA_OVMS_PYTHONPATH -ErrorAction SilentlyContinue }
+RestoreEnvVariable "PYTHONHOME" $hadPythonHome $pythonHomeBefore
+RestoreEnvVariable "PYTHONPATH" $hadPythonPath $pythonPathBefore
+Say "OVMS environment initialized without overriding the controller Python runtime"
 
 # Serving configuration has exactly one owner: MODEL_PRESETS via serve.py.
 # Existing virtual environments must also have the controller dependency.
