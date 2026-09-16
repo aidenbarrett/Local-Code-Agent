@@ -71,7 +71,7 @@ def stop_owned_previous(plan) -> None:
         return
     state = serve.status(plan)
     if state["process_alive"]:
-        print(f"[demo] stopping previously owned {DEMO_PROFILE} server (pid {state['pid']})")
+        print(f"Stopping the previously started demo server (PID {state['pid']})")
         serve.stop(plan)
     else:
         # Clear stale owned state through the same controller path.
@@ -91,20 +91,20 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
 
     print()
     print("=" * 68)
-    print("Local Code Agent accelerator demo")
-    print(f"  model   : {cfg.model}")
-    print(f"  runtime : {cfg.runtime}")
-    print(f"  device  : {cfg.device}")
-    print(f"  watch   : {monitor_hint(cfg.device)}")
+    print("Local Model Accelerator Demo")
+    print(f"  Model:            {cfg.model.split('/')[-1]}")
+    print("  Backend:          OVMS / OpenVINO")
+    print(f"  Requested device: {cfg.device}")
+    print(f"  Watch activity:   {monitor_hint(cfg.device)}")
     print("=" * 68)
 
     stop_owned_previous(plan)
-    print("[demo] starting OVMS through the normal fail-closed serving controller")
+    print("Starting the model server through the normal validated serving path...")
     state = serve.start(plan, cfg, wait_seconds=900)
-    print(f"[demo] server ready on {cfg.base_url} (pid {state['pid']})")
-    print(f"[demo] OpenVINO resolved device: {state['resolved_device']}")
-    print(f"[demo] generating sustained load for {seconds:.0f}s")
-    print(f"[demo] WATCH NOW: {monitor_hint(cfg.device)}")
+    print(f"Server ready: {cfg.base_url}  (PID {state['pid']})")
+    print(f"Resolved execution device: {state['resolved_device']}")
+    print(f"Running repeated model inference for {seconds:.0f} seconds.")
+    print(f"Watch now: {monitor_hint(cfg.device)}")
 
     client = OpenAICompatibleClient(cfg)
     deadline = time.monotonic() + seconds
@@ -120,28 +120,36 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
                     max_tokens=256,
                 )
                 stats = reply.stats
-                ttft = f"{stats.ttft_s:.2f}s" if stats.ttft_s is not None else "n/a"
-                rate = (f"{stats.decode_tok_s:.1f} tok/s"
+                ttft = f"{stats.ttft_s:.2f} s" if stats.ttft_s is not None else "n/a"
+                rate = (f"{stats.decode_tok_s:.1f} tokens/s"
                         if stats.decode_tok_s is not None else "n/a")
-                useful = len((reply.content or "").strip())
-                print(
-                    f"[demo] call {calls:02d}: ttft={ttft}, decode={rate}, "
-                    f"completion={stats.completion_tokens} tok, visible={useful} chars"
-                )
+                length = (f"{stats.completion_tokens} tokens"
+                          if stats.completion_tokens is not None else "n/a")
+                print()
+                print(f"Inference {calls}")
+                print(f"  Time to first token: {ttft}")
+                print(f"  Generation speed:    {rate}")
+                print(f"  Output length:       {length}")
             except Exception as exc:  # keep the demo visibly diagnostic
                 failures += 1
-                print(f"[demo] call {calls:02d}: FAILED {type(exc).__name__}: {exc}")
+                print()
+                print(f"Inference {calls}: FAILED")
+                print(f"  {type(exc).__name__}: {exc}")
                 break
     finally:
         if keep_server:
-            print(f"[demo] leaving server running on {cfg.base_url}")
+            print()
+            print(f"Leaving the model server running at {cfg.base_url}")
         else:
             serve.stop(plan)
-            print("[demo] server stopped")
+            print()
+            print("Model server stopped.")
 
     if calls == 0 or failures:
         return 1
-    print(f"[demo] PASS: {cfg.device} served {calls} inference call(s)")
+    print()
+    print("Result: PASS")
+    print(f"Completed {calls} inference request(s) successfully on {cfg.device}.")
     return 0
 
 
@@ -184,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
                 return rc
         return 0
     except (serve.Refusal, OSError, ValueError) as exc:
-        print(f"[demo] REFUSED: {exc}", file=sys.stderr)
+        print(f"Demo refused to run: {exc}", file=sys.stderr)
         return 2
 
 
