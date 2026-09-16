@@ -39,6 +39,7 @@ SENSOR_DOMAIN_STATES = frozenset(
 )
 CLAIM_ELIGIBLE_SENSOR_DOMAIN = "documented_contains_target"
 MIN_INDEPENDENT_PROJECTION_RUNS = 3
+MIN_IDLE_DURATION_SECONDS = 3600.0
 COUNTERBALANCED_DEVICE_ORDERS = (
     ("CPU", "GPU", "NPU"),
     ("GPU", "NPU", "CPU"),
@@ -66,9 +67,15 @@ def sensor_domain_allows_efficiency_claim(
 
 
 def counterbalanced_device_order(repetition_index: int) -> tuple[str, str, str]:
-    if not isinstance(repetition_index, int) or isinstance(repetition_index, bool) or repetition_index < 0:
+    if (
+        not isinstance(repetition_index, int)
+        or isinstance(repetition_index, bool)
+        or repetition_index < 0
+    ):
         raise ValueError("repetition index must be a non-negative integer")
-    return COUNTERBALANCED_DEVICE_ORDERS[repetition_index % len(COUNTERBALANCED_DEVICE_ORDERS)]
+    return COUNTERBALANCED_DEVICE_ORDERS[
+        repetition_index % len(COUNTERBALANCED_DEVICE_ORDERS)
+    ]
 
 
 def _declared_attempts(
@@ -88,7 +95,9 @@ def _row_e3(row: dict[str, Any]) -> bool | None:
     if isinstance(direct, bool):
         return direct
     endpoints = row.get("endpoints")
-    if isinstance(endpoints, dict) and isinstance(endpoints.get("verified_completion"), bool):
+    if isinstance(endpoints, dict) and isinstance(
+        endpoints.get("verified_completion"), bool
+    ):
         return endpoints["verified_completion"]
     try:
         return verified_completion(row)
@@ -156,7 +165,9 @@ def _cell_summary(
     else:
         terminal = len(ordered) == MAX_ATTEMPTS_PER_TASK_CONDITION
         if not terminal:
-            reasons.append("cell stopped before three decision draws or five bounded attempts")
+            reasons.append(
+                "cell stopped before three decision draws or five bounded attempts"
+            )
 
     invalid = [row for row in ordered if row.get("counted") is not True]
     valid = [row for row in ordered if row.get("validity") == "valid"]
@@ -167,7 +178,9 @@ def _cell_summary(
         "attempts": len(ordered),
         "attempts_declared": declared_attempts,
         "decision_draws": len(decision_rows),
-        "fixed_decision_set_available": len(decision_rows) == VALID_DRAWS_PER_TASK_CONDITION,
+        "fixed_decision_set_available": (
+            len(decision_rows) == VALID_DRAWS_PER_TASK_CONDITION
+        ),
         "invalid_attempts": len(invalid),
         "valid_attempts": len(valid),
         "oracle_tampered_attempts": len(tampered),
@@ -181,10 +194,8 @@ def summarize_block(
     *,
     attempts_declared: Mapping[Any, Any] | None,
     termination_reason: str,
-    expected_cases: Sequence[str] = EXPECTED_CASES,
-    expected_conditions: Sequence[str] = EXPECTED_CONDITIONS,
 ) -> dict[str, Any]:
-    """Summarise one fixed workload block, refusing incomplete work as comparable.
+    """Summarise one preregistered workload block, refusing incomplete work.
 
     `block_complete` is a protocol statement, not an energy statement. A block can
     be protocol-complete while an energy observation is missing, and then the
@@ -193,9 +204,17 @@ def summarize_block(
     rows = list(rows)
     reasons: list[str] = []
     if termination_reason != "completed":
-        reasons.append(f"block termination reason is {termination_reason!r}, not 'completed'")
+        reasons.append(
+            f"block termination reason is {termination_reason!r}, not 'completed'"
+        )
 
-    expected = {(case, condition) for case in expected_cases for condition in expected_conditions}
+    expected_cases = EXPECTED_CASES
+    expected_conditions = EXPECTED_CONDITIONS
+    expected = {
+        (case, condition)
+        for case in expected_cases
+        for condition in expected_conditions
+    }
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     malformed = 0
     for row in rows:
@@ -228,7 +247,11 @@ def summarize_block(
             grouped.get((case, condition), []),
             declared_attempts=_declared_attempts(attempts_declared, case, condition),
         )
-        serial = {k: v for k, v in cell.items() if k not in {"decision_rows", "ordered_rows"}}
+        serial = {
+            k: v
+            for k, v in cell.items()
+            if k not in {"decision_rows", "ordered_rows"}
+        }
         cell_summaries[key] = serial
         if not cell.get("protocol_complete"):
             all_cells_complete = False
@@ -248,10 +271,18 @@ def summarize_block(
         for obs in observations
     )
     power_sources = sorted(
-        {str(obs.get("power_source")) for obs in observations if isinstance(obs, dict) and obs.get("power_source")}
+        {
+            str(obs.get("power_source"))
+            for obs in observations
+            if isinstance(obs, dict) and obs.get("power_source")
+        }
     )
     domain_states = sorted(
-        {str(obs.get("sensor_domain_state")) for obs in observations if isinstance(obs, dict) and obs.get("sensor_domain_state")}
+        {
+            str(obs.get("sensor_domain_state"))
+            for obs in observations
+            if isinstance(obs, dict) and obs.get("sensor_domain_state")
+        }
     )
     mains_only = power_sources == ["mains"]
     domain_claim_eligible = bool(observations) and all(
@@ -264,9 +295,15 @@ def summarize_block(
 
     protocol_energy = None
     if telemetry_complete:
-        protocol_energy = sum(float(obs["energy_joules"]) for obs in observations if obs is not None)
+        protocol_energy = sum(
+            float(obs["energy_joules"])
+            for obs in observations
+            if obs is not None
+        )
 
-    fixed_decision_set_complete = len(decision_rows) == len(expected) * VALID_DRAWS_PER_TASK_CONDITION
+    fixed_decision_set_complete = (
+        len(decision_rows) == len(expected) * VALID_DRAWS_PER_TASK_CONDITION
+    )
     decision_observations = [_energy_observation(row) for row in decision_rows]
     fixed_energy = None
     if fixed_decision_set_complete and all(
@@ -275,26 +312,48 @@ def summarize_block(
         and obs.get("comparison_eligible") is True
         for obs in decision_observations
     ):
-        fixed_energy = sum(float(obs["energy_joules"]) for obs in decision_observations if obs is not None)
+        fixed_energy = sum(
+            float(obs["energy_joules"])
+            for obs in decision_observations
+            if obs is not None
+        )
 
     e3_values = [_row_e3(row) for row in decision_rows]
-    e3_complete = bool(decision_rows) and all(isinstance(value, bool) for value in e3_values)
-    e3_completions = sum(value is True for value in e3_values) if e3_complete else None
-    e3_rate = (e3_completions / len(e3_values)) if e3_complete and e3_values else None
+    e3_complete = bool(decision_rows) and all(
+        isinstance(value, bool) for value in e3_values
+    )
+    e3_completions = (
+        sum(value is True for value in e3_values) if e3_complete else None
+    )
+    e3_rate = (
+        (e3_completions / len(e3_values))
+        if e3_complete and e3_values
+        else None
+    )
 
     joules_per_attempt = (
-        protocol_energy / protocol_attempts if protocol_energy is not None and protocol_attempts else None
+        protocol_energy / protocol_attempts
+        if protocol_energy is not None and protocol_attempts
+        else None
     )
     joules_per_e3_completion = (
         fixed_energy / e3_completions
-        if fixed_energy is not None and isinstance(e3_completions, int) and e3_completions > 0
+        if fixed_energy is not None
+        and isinstance(e3_completions, int)
+        and e3_completions > 0
         else None
     )
 
     return {
         "kind": "energy_workload_block_summary",
         "expected_tasks": len(set(expected_cases)),
-        "attempted_tasks": len({case for case, condition in observed_cells if (case, condition) in expected}),
+        "attempted_tasks": len(
+            {
+                case
+                for case, condition in observed_cells
+                if (case, condition) in expected
+            }
+        ),
         "expected_task_condition_cells": len(expected),
         "observed_task_condition_cells": len(observed_cells & expected),
         "termination_reason": termination_reason,
@@ -316,22 +375,32 @@ def summarize_block(
         "joules_per_attempt": joules_per_attempt,
         "joules_per_e3_completion": joules_per_e3_completion,
         "device_efficiency_comparison_eligible": bool(
-            block_complete and telemetry_complete and mains_only and domain_claim_eligible
+            block_complete
+            and telemetry_complete
+            and mains_only
+            and domain_claim_eligible
         ),
         "cell_summaries": cell_summaries,
     }
 
 
-def _validate_component_runs(runs: Sequence[dict[str, Any]], *, kind: str) -> None:
+def _validate_component_runs(
+    runs: Sequence[dict[str, Any]], *, kind: str
+) -> None:
     if len(runs) < MIN_INDEPENDENT_PROJECTION_RUNS:
         raise ValueError(
-            f"{kind} projection requires at least {MIN_INDEPENDENT_PROJECTION_RUNS} independent runs"
+            f"{kind} projection requires at least "
+            f"{MIN_INDEPENDENT_PROJECTION_RUNS} independent runs"
         )
     session_ids = [run.get("session_id") for run in runs]
-    if any(not isinstance(value, str) or not value.strip() for value in session_ids):
+    if any(
+        not isinstance(value, str) or not value.strip() for value in session_ids
+    ):
         raise ValueError(f"{kind} runs require explicit non-empty session_id values")
     if len(set(session_ids)) != len(session_ids):
-        raise ValueError(f"{kind} runs are not independent: repeated session_id detected")
+        raise ValueError(
+            f"{kind} runs are not independent: repeated session_id detected"
+        )
 
 
 def project_fixed_window(
@@ -349,12 +418,16 @@ def project_fixed_window(
     _validate_component_runs(idle_runs, kind="idle")
     if not _finite_nonnegative(window_seconds) or window_seconds <= 0:
         raise ValueError("window_seconds must be positive")
-    if not _finite_nonnegative(observed_tasks_per_second) or observed_tasks_per_second <= 0:
+    if (
+        not _finite_nonnegative(observed_tasks_per_second)
+        or observed_tasks_per_second <= 0
+    ):
         raise ValueError("observed_tasks_per_second must be positive")
     if not isinstance(bootstrap_draws, int) or bootstrap_draws < 100:
         raise ValueError("bootstrap_draws must be at least 100")
     if arrival_multiplier != "saturation" and (
-        not _finite_nonnegative(arrival_multiplier) or float(arrival_multiplier) <= 0
+        not _finite_nonnegative(arrival_multiplier)
+        or float(arrival_multiplier) <= 0
     ):
         raise ValueError("arrival_multiplier must be positive or 'saturation'")
 
@@ -363,44 +436,84 @@ def project_fixed_window(
         energy = run.get("energy_joules")
         duration = run.get("duration_s")
         tasks = run.get("tasks_attempted")
-        if not _finite_nonnegative(energy) or not _finite_nonnegative(duration) or float(duration) <= 0:
-            raise ValueError("active runs require finite non-negative energy and positive duration")
+        if (
+            not _finite_nonnegative(energy)
+            or not _finite_nonnegative(duration)
+            or float(duration) <= 0
+        ):
+            raise ValueError(
+                "active runs require finite non-negative energy and positive duration"
+            )
         if not isinstance(tasks, int) or isinstance(tasks, bool) or tasks <= 0:
             raise ValueError("active runs require positive integer tasks_attempted")
-        active_components.append((float(energy) / tasks, float(duration) / tasks))
+        active_components.append(
+            (float(energy) / tasks, float(duration) / tasks)
+        )
 
     idle_watts = []
+    idle_durations = []
     for run in idle_runs:
         watts = run.get("mean_watts")
         duration = run.get("duration_s")
-        if not _finite_nonnegative(watts) or not _finite_nonnegative(duration) or float(duration) <= 0:
-            raise ValueError("idle runs require finite mean_watts and positive duration_s")
+        if (
+            not _finite_nonnegative(watts)
+            or not _finite_nonnegative(duration)
+            or float(duration) <= 0
+        ):
+            raise ValueError(
+                "idle runs require finite mean_watts and positive duration_s"
+            )
+        if float(duration) < MIN_IDLE_DURATION_SECONDS:
+            raise ValueError(
+                f"idle runs require at least "
+                f"{MIN_IDLE_DURATION_SECONDS:.0f} seconds each"
+            )
         idle_watts.append(float(watts))
+        idle_durations.append(float(duration))
 
     rng = random.Random(seed)
     projected = []
+    serviced_tasks = []
+    demand_exceeded_capacity = False
+    fixed_tasks_demanded = None
+    if arrival_multiplier != "saturation":
+        fixed_tasks_demanded = (
+            observed_tasks_per_second
+            * float(arrival_multiplier)
+            * float(window_seconds)
+        )
+
     for _ in range(bootstrap_draws):
         joules_per_task, seconds_per_task = rng.choice(active_components)
         idle_power = rng.choice(idle_watts)
+        capacity_tasks = window_seconds / seconds_per_task
+
         if arrival_multiplier == "saturation":
-            task_count = window_seconds / seconds_per_task
+            tasks_demanded = capacity_tasks
         else:
-            task_count = observed_tasks_per_second * float(arrival_multiplier) * window_seconds
-        active_seconds = min(window_seconds, task_count * seconds_per_task)
-        # At saturation the machine is continuously active; at a lower arrival
-        # rate, a device that finishes early still pays resident-idle energy.
+            tasks_demanded = fixed_tasks_demanded
+
+        tasks_serviced = min(tasks_demanded, capacity_tasks)
+        overload = tasks_demanded > capacity_tasks
+        demand_exceeded_capacity = demand_exceeded_capacity or overload
+
+        active_seconds = tasks_serviced * seconds_per_task
         if active_seconds >= window_seconds:
-            active_energy = (window_seconds / seconds_per_task) * joules_per_task
+            active_energy = capacity_tasks * joules_per_task
             idle_seconds = 0.0
         else:
-            active_energy = task_count * joules_per_task
+            active_energy = tasks_serviced * joules_per_task
             idle_seconds = window_seconds - active_seconds
+
         projected.append(active_energy + idle_power * idle_seconds)
+        serviced_tasks.append(tasks_serviced)
 
     projected.sort()
-    def percentile(p: float) -> float:
-        index = int(round((len(projected) - 1) * p))
-        return projected[index]
+    serviced_tasks.sort()
+
+    def percentile(values: Sequence[float], p: float) -> float:
+        index = int(round((len(values) - 1) * p))
+        return values[index]
 
     return {
         "kind": "derived_fixed_window_energy_projection",
@@ -410,11 +523,24 @@ def project_fixed_window(
         "observed_tasks_per_second": float(observed_tasks_per_second),
         "active_independent_runs": len(active_runs),
         "idle_independent_runs": len(idle_runs),
+        "idle_duration_seconds": idle_durations,
         "bootstrap_draws": bootstrap_draws,
+        "tasks_demanded": (
+            "saturation"
+            if arrival_multiplier == "saturation"
+            else float(fixed_tasks_demanded)
+        ),
+        "tasks_serviced": statistics.median(serviced_tasks),
+        "tasks_serviced_predictive_interval": {
+            "low_p05": percentile(serviced_tasks, 0.05),
+            "high_p95": percentile(serviced_tasks, 0.95),
+        },
+        "demand_exceeded_capacity": demand_exceeded_capacity,
         "median_joules": statistics.median(projected),
-        "empirical_interval_joules": {
-            "low_p05": percentile(0.05),
-            "high_p95": percentile(0.95),
+        "interval_kind": "predictive_p05_p95",
+        "predictive_interval_joules": {
+            "low_p05": percentile(projected, 0.05),
+            "high_p95": percentile(projected, 0.95),
         },
     }
 
@@ -425,17 +551,24 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     block = sub.add_parser("summarize-block")
-    block.add_argument("input", type=Path, help="JSON object containing rows/attempt declarations")
+    block.add_argument(
+        "input", type=Path, help="JSON object containing rows/attempt declarations"
+    )
     args = parser.parse_args(argv)
 
     if args.command == "summarize-block":
         payload = json.loads(args.input.read_text(encoding="utf-8"))
+        forbidden = {"expected_cases", "expected_conditions"} & set(payload)
+        if forbidden:
+            parser.error(
+                "input payload must not define "
+                + ", ".join(sorted(forbidden))
+                + "; workload expectations are preregistered"
+            )
         result = summarize_block(
             payload.get("rows", []),
             attempts_declared=payload.get("attempts_declared"),
             termination_reason=payload.get("termination_reason", "missing"),
-            expected_cases=payload.get("expected_cases", EXPECTED_CASES),
-            expected_conditions=payload.get("expected_conditions", EXPECTED_CONDITIONS),
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["block_complete"] else 2
