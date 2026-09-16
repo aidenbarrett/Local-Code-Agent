@@ -10,7 +10,7 @@ rehearse as often as you like.
 
 The point of the demo is beat 4. `ctest` genuinely reports 4/4 passed, and that
 result is stale: the binaries predate the source edit. An agent reading it would
-report success. The harness independently verifies the build evidence and
+report success. Local Code Agent independently verifies the build evidence and
 refuses the tree.
 
 The demo asserts every claim it makes. If any beat does not behave as described
@@ -53,7 +53,7 @@ def beat(number: int, title: str) -> None:
 
 
 def say(label: str, value: str) -> None:
-    print(f"      {label:<26} {value}")
+    print(f"      {label:<30} {value}")
 
 
 def ctest_directly(root: Path) -> str:
@@ -73,29 +73,29 @@ def demonstrate(root: Path) -> None:
     from local_agent.tools import build_registry
 
     print()
-    print("  LOCAL CODE AGENT  ·  trust boundary")
+    print("  LOCAL CODE AGENT  ·  INDEPENDENT VERIFICATION DEMO")
     print()
-    print("  A disposable copy of the benchmark C++ project. No model involved.")
-    print("  Every step below is the agent's own tooling, unmodified.")
-    say("working copy", str(root))
+    print("  This shows why passing test output is not automatically accepted as proof.")
+    print("  A disposable copy of the benchmark C++ project is used. No model is involved.")
+    say("Disposable working copy", str(root))
 
     registry, _, _ = build_registry(load_repo_config(root))
 
-    beat(1, "Configure and build from a clean tree")
+    beat(1, "Build a clean copy of the project")
     started = time.time()
     require(registry.get("configure_project").handler().ok, "configure failed")
     require(registry.get("build_target").handler().ok,
             "the clean build failed; the fixture or the toolchain is wrong")
-    say("build", f"succeeded  ({time.time() - started:.1f}s)")
+    say("Build result", f"PASS  ({time.time() - started:.1f}s)")
 
-    beat(2, "Run the tests. Everything is honest at this point")
+    beat(2, "Run the tests on the current source")
     honest = registry.get("run_test").handler()
     require(honest.ok,
-            "the harness refused an honest tree; nothing after this would mean anything")
-    say("harness verdict", "ACCEPTED")
-    say("ctest says", ctest_directly(root))
+            "verification refused an honest tree; nothing after this would mean anything")
+    say("Raw ctest result", ctest_directly(root))
+    say("Independent verification", "ACCEPTED")
 
-    beat(3, "Change the source, and put the timestamp back as it was")
+    beat(3, "Change the source without rebuilding the binary")
     source = root / "src" / "ring_buffer.cpp"
     original_mtime = source.stat().st_mtime_ns
     source.write_text(
@@ -103,36 +103,36 @@ def demonstrate(root: Path) -> None:
         encoding="utf-8", newline="\n",
     )
     os.utime(source, ns=(original_mtime, original_mtime))
-    say("edited", "src/ring_buffer.cpp")
-    say("timestamp", "restored to its original value")
-    say("binaries", "untouched, and now out of date")
+    say("Source changed", "src/ring_buffer.cpp")
+    say("Source timestamp", "restored to its original value")
+    say("Compiled binary", "unchanged and now stale")
 
-    beat(4, "Run the tests again. This is the moment")
-    say("ctest says", ctest_directly(root))
+    beat(4, "Run the tests again without rebuilding")
+    say("Raw ctest result", ctest_directly(root))
     print()
-    print("      Those tests genuinely passed. They ran the OLD binaries.")
-    print("      An agent reading that result would report success.")
+    print("      The tests genuinely passed, but they executed the OLD binary.")
+    print("      Treating this output alone as proof would report a false success.")
 
-    beat(5, "What the harness says about the same tree")
+    beat(5, "Ask Local Code Agent to verify the same result")
     verified = registry.get("run_test").handler()
     stale = verified.data.get("stale_sources") or []
     require(not verified.ok,
-            "THE HARNESS ACCEPTED A STALE TREE. Do not show this demo; investigate.")
+            "VERIFICATION ACCEPTED A STALE TREE. Do not show this demo; investigate.")
     require("src/ring_buffer.cpp" in stale,
             f"the edited file was not reported as stale; got {stale}")
-    say("harness verdict", "REFUSED")
+    say("Independent verification", "REFUSED")
     for path in stale:
-        say("stale source", path)
+        say("Stale source detected", path)
     print()
     print("      " + verified.summary.split(" -- ")[0][:200])
 
-    beat(6, "Prove the harness was right. Build the tree honestly")
+    beat(6, "Rebuild honestly and expose the real source state")
     require(not registry.get("build_target").handler().ok,
             "the edited source compiled; the demo's premise is broken")
-    say("build", "FAILED to compile")
+    say("Rebuild result", "FAILED TO COMPILE")
     print()
-    print("      The source really was broken. The passing tests were stale")
-    print("      evidence, and nothing the model could say would have changed that.")
+    print("      The source really was broken. The earlier passing tests were stale")
+    print("      evidence, so Local Code Agent was correct to refuse them.")
 
     print()
     print(RULE)
