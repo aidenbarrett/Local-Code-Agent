@@ -22,9 +22,11 @@ A run below the floor is rejected: `energy_joules` is null,
 gap check remains independent and also fails closed.
 
 Every completion sidecar records power source, requested device and sensor-domain
-state. Absolute paths and host names are not evidence and are not persisted.
-Artifact references are relative where possible and content hashes identify the
-linked bytes.
+state. `--session-id` is mandatory at capture so a study cannot be collected and
+only later discovered to lack the independence identity required for projection.
+Absolute paths and host names are not evidence and are not persisted. Artifact
+references are relative where possible and content hashes identify the linked
+bytes.
 
 ## Sensor-domain claim gate
 
@@ -40,10 +42,13 @@ operator judgement.
 
 ## Fixed workload block
 
-`measurement/energy_study.py` owns the block-completeness trust boundary. A block
-is complete only when all preregistered task-condition cells exist, attempt
-indices are contiguous from zero, the declared attempt count matches the rows,
-and every cell reaches one of the bounded protocol terminal states:
+`measurement/energy_study.py` owns the block-completeness trust boundary. The
+expected cases come directly from `evaluation.task_contracts.CASES` and the fixed
+three conditions; an input payload cannot redefine the workload it is judged
+against. A block is complete only when all preregistered task-condition cells
+exist, attempt indices are contiguous from zero, the declared attempt count
+matches the rows, and every cell reaches one of the bounded protocol terminal
+states:
 
 - the third non-replaceable decision draw, with no later attempt; or
 - five attempts exhausted before three decision draws.
@@ -96,15 +101,19 @@ component runs, each with a distinct operator-declared `session_id`. Re-slicing
 one long trace does not manufacture independent samples.
 
 The projection composes measured active energy/time with measured resident-idle
-power over a fixed wall-clock window. It reports a median and an empirical
-5th-95th percentile bootstrap interval, never a precise point estimate. Arrival
-rates are anchored to an observed pilot rate and expressed as 0.25x observed,
-1x observed, or saturation.
+power over a fixed wall-clock window. It reports energy only alongside
+`tasks_demanded`, `tasks_serviced` and `demand_exceeded_capacity`, so saturation
+cannot silently hide unserved work. The p05-p95 range is a **predictive interval**:
+each bootstrap replicate draws one observed active component and one idle power
+observation, so the range describes run-to-run spread rather than confidence in
+the mean. Arrival rates are anchored to an observed pilot rate and expressed as
+0.25x observed, 1x observed, or saturation.
 
-At least one 60 minute idle characterisation per device is still required before
-an all-day claim. Repeated long-idle sessions are required before the projection
-has an uncertainty range. If long idle does not stabilise, no all-day projection
-is published.
+Each idle component run used by the projection must be at least 60 minutes long,
+and the recorded idle durations are echoed into the projection artefact so the
+extrapolation basis is visible. Repeated long-idle sessions are required before
+the projection has a predictive range. If long idle does not stabilise, no
+all-day projection is published.
 
 ## Battery and contention
 
