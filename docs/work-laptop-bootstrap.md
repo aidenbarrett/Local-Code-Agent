@@ -98,6 +98,34 @@ With `-InstallMissing`, the script may install Microsoft Visual Studio 2022 Buil
 
 The bootstrap does **not** execute `evaluation/run_evaluation.py`. A corporate proxy failure, first NPU compile problem, missing compiler, or setup mistake must never create a row that looks like experimental evidence. Once `WORKSTATION READY` is printed, the script shows an example evaluation command, but the scored run remains an explicit separate action under the experiment protocol.
 
+## Accelerator smoke demo
+
+After the model and OVMS runtime are already installed, a separate human-facing smoke demo can run the same cached Qwen3-8B OpenVINO model on CPU, GPU or NPU. It is intentionally not an evaluation and produces no scored experimental evidence.
+
+Windows PowerShell:
+
+```powershell
+.\scripts\demo-accelerator.ps1 -Device NPU -Seconds 45
+.\scripts\demo-accelerator.ps1 -Device GPU -Seconds 45
+.\scripts\demo-accelerator.ps1 -Device CPU -Seconds 45
+```
+
+Or run all three sequentially:
+
+```powershell
+.\scripts\demo-accelerator.ps1 -Device ALL -Seconds 20
+```
+
+Linux/macOS-style shell entry point:
+
+```bash
+./scripts/demo-accelerator.sh NPU 45
+./scripts/demo-accelerator.sh GPU 45
+./scripts/demo-accelerator.sh CPU 45
+```
+
+The Python implementation is cross-platform and uses the same fail-closed serving controller as normal Local Code Agent startup. Actual accelerator execution still requires that OpenVINO reports the requested device and that OVMS plus the relevant OS driver/runtime are installed. The Panther Lake NPU path has been physically exercised on Windows; Linux accelerator availability remains machine/runtime dependent until separately tested.
+
 ## Components
 
 - `scripts/bootstrap-work-laptop.ps1` — lower-level machine/user-space bootstrap used by the one-shot entry point.
