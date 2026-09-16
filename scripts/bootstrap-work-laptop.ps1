@@ -35,6 +35,43 @@ for ($i = 0; $i -lt $args.Count; $i++) {
     }
 }
 
+# Windows PowerShell 5.1 rejects Range when supplied through -Headers because
+# Range is a restricted WebHeaderCollection member. The retained core uses a
+# one-byte GET only as a fallback when HEAD is refused. Strip that compatibility
+# probe header and perform a normal GET instead; module qualification prevents
+# recursion into this wrapper. PowerShell 7 does not need the shim, but keeping
+# the behavior here makes the canonical entry point deterministic across both.
+function Invoke-WebRequest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Uri,
+        [string]$Method = "Get",
+        [hashtable]$Headers,
+        [int]$MaximumRedirection,
+        [switch]$UseBasicParsing,
+        [int]$TimeoutSec,
+        [string]$OutFile
+    )
+
+    $native = @{ Uri = $Uri }
+    if ($PSBoundParameters.ContainsKey("Method")) { $native.Method = $Method }
+    if ($PSBoundParameters.ContainsKey("MaximumRedirection")) { $native.MaximumRedirection = $MaximumRedirection }
+    if ($PSBoundParameters.ContainsKey("UseBasicParsing")) { $native.UseBasicParsing = $UseBasicParsing }
+    if ($PSBoundParameters.ContainsKey("TimeoutSec")) { $native.TimeoutSec = $TimeoutSec }
+    if ($PSBoundParameters.ContainsKey("OutFile")) { $native.OutFile = $OutFile }
+
+    if ($PSBoundParameters.ContainsKey("Headers") -and $Headers) {
+        $safeHeaders = @{}
+        foreach ($key in $Headers.Keys) {
+            if ([string]$key -ieq "Range") { continue }
+            $safeHeaders[$key] = $Headers[$key]
+        }
+        if ($safeHeaders.Count -gt 0) { $native.Headers = $safeHeaders }
+    }
+
+    Microsoft.PowerShell.Utility\Invoke-WebRequest @native
+}
+
 function Find-UsablePython {
     $candidates = @(
         @{ Exe = "py"; Prefix = @("-3.12") },
