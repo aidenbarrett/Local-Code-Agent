@@ -53,3 +53,19 @@ def test_windows_wrapper_uses_managed_ovms_runtime():
     assert "--runtime-root" in ps1
     assert "--executable" in ps1
     assert "$OvmsExe.FullName" in ps1
+
+
+def test_human_facing_output_explains_inference_metrics():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "Time to first token" in source
+    assert "Generation speed" in source
+    assert "Output length" in source
+    assert "Running repeated model inference" in source
+    assert "Resolved execution device" in source
+    assert "Result: PASS" in source
+
+    # Keep implementation terminology out of the user-facing result line.
+    assert "decode={rate}" not in source
+    assert "completion={stats.completion_tokens}" not in source
+    assert "visible={useful}" not in source
+    assert "call {calls:02d}" not in source
