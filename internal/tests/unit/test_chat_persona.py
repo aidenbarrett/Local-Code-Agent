@@ -63,12 +63,13 @@ def test_persona_off_preserves_exact_messages_handed_to_client(monkeypatch):
                 stats=SimpleNamespace(ttft_s=None, decode_tok_s=None),
             )
 
+    import builtins
     import local_agent.llm.client as client_module
 
     monkeypatch.setattr(chat, "_ensure_server", lambda *a, **k: True)
     monkeypatch.setattr(client_module, "OpenAICompatibleClient", FakeClient)
     answers = iter(["hello", ""])
-    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    monkeypatch.setattr(builtins, "input", lambda _prompt: next(answers))
 
     assert chat.converse("qwen3-8b-npu", profile, config, persona=None) == 0
     assert captured == [_golden_persona_off_messages()]
