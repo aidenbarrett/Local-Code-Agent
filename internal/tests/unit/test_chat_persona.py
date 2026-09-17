@@ -119,3 +119,15 @@ def test_missing_persona_warns_and_falls_back_to_off(tmp_path):
     assert chat._load_requested_persona(str(tmp_path / "missing.toml"), term) is None
     assert warnings and warnings[0][0] == "warn"
     assert warnings[0][1].startswith("Persona disabled:")
+
+
+def test_named_persona_preset_loads():
+    chat = _chat()
+    warnings = []
+    term = SimpleNamespace(status=lambda role, message: warnings.append((role, message)))
+    persona = chat._load_requested_persona("aiden", term)
+    assert warnings == []
+    assert persona is not None
+    assert persona.name == "aiden"
+    assert persona.version == "1"
+    assert len(persona.style) > 1000
