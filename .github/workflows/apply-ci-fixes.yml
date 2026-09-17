@@ -1,3 +1,4 @@
+# Temporary one-shot verifier. Removed after the repair commit lands.
 name: apply-ci-fixes
 
 on:
