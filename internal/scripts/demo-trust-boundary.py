@@ -11,6 +11,7 @@ an old binary, while Local Code Agent independently refuses that stale result.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
 import shutil
 import subprocess
@@ -35,16 +36,31 @@ def require(condition: bool, message: str) -> None:
         raise DemoInvariant(message)
 
 
-def ctest_directly(root: Path) -> str:
-    """What a naive agent would run, and believe."""
+@dataclass(frozen=True)
+class DirectTestResult:
+    ok: bool
+    summary: str
+
+
+def run_tests_directly(root: Path, command: list[str]) -> DirectTestResult:
+    """Run the repository's configured test command without LCA verification.
+
+    This is the deliberately naive side of the demo: it observes only the test
+    process. It must still run the *same configured command* as the repository,
+    including multi-config arguments such as ``-C Debug`` on Windows.
+    """
     proc = subprocess.run(
-        ["ctest", "--test-dir", str(root / "build"), "--output-on-failure"],
-        capture_output=True, text=True, check=False,
+        command,
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    for line in reversed((proc.stdout + proc.stderr).splitlines()):
+    combined = proc.stdout + proc.stderr
+    for line in reversed(combined.splitlines()):
         if "tests passed" in line or "tests failed" in line:
-            return line.strip()
-    return f"exit code {proc.returncode}"
+            return DirectTestResult(proc.returncode == 0, line.strip())
+    return DirectTestResult(proc.returncode == 0, f"exit code {proc.returncode}")
 
 
 def demonstrate(root: Path) -> None:
@@ -59,7 +75,10 @@ def demonstrate(root: Path) -> None:
     term.status("info", "A disposable C++ project is used. No model is involved.")
     term.line()
 
-    registry, _, _ = build_registry(load_repo_config(root))
+    repo = load_repo_config(root)
+    registry, _, _ = build_registry(repo)
+    direct_test_command = list(repo.profile().test)
+    require(bool(direct_test_command), "the demo repository defines no test command")
 
     term.section("1 · BUILD A CLEAN PROJECT")
     started = time.time()
@@ -71,10 +90,14 @@ def demonstrate(root: Path) -> None:
     term.line()
     term.section("2 · RUN TESTS ON THE CURRENT SOURCE")
     honest = registry.get("run_test").handler()
+    direct_honest = run_tests_directly(root, direct_test_command)
+    term.field("Test runner", direct_honest.summary)
     require(honest.ok,
             "verification refused an honest tree; nothing after this would mean anything")
-    term.field("Test runner", ctest_directly(root))
-    term.status("ok", "Independent verification accepted the result")
+    require(direct_honest.ok,
+            "the raw configured test command did not pass on the clean tree; "
+            "nothing after this would demonstrate stale passing evidence")
+    term.status("ok", "Independent verification accepted the passing result")
 
     term.line()
     term.section("3 · CHANGE SOURCE WITHOUT REBUILDING")
@@ -93,7 +116,11 @@ def demonstrate(root: Path) -> None:
 
     term.line()
     term.section("4 · RUN THE TESTS AGAIN WITHOUT REBUILDING")
-    term.field("Test runner", ctest_directly(root))
+    direct_stale = run_tests_directly(root, direct_test_command)
+    term.field("Test runner", direct_stale.summary)
+    require(direct_stale.ok,
+            "the raw test command did not pass against the old binary; the demo "
+            "cannot claim that stale passing output was produced")
     term.line()
     term.status("warn", "The tests passed, but they executed the OLD compiled program")
     term.line("  Treating that output alone as proof would report a false success.")
