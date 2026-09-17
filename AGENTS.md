@@ -77,6 +77,15 @@ python internal/measurement/capture_run_manifest.py --profile <p> --out <f>
 machines. It is **not authoritative**. Green there is not green if native pytest
 fails.
 
+Every test under `internal/tests/` is exercised by both real pytest and the
+offline compatibility runner in pull-request CI. New tests must stay within the
+compatibility runner's documented pytest subset — currently normal/user fixtures,
+fixture dependencies and generator fixtures, `tmp_path`, `monkeypatch`,
+`pytest.raises`, `pytest.mark.parametrize`, `pytest.mark.skipif`, `pytest.mark.skip`
+and module-level `pytestmark` — or extend the runner and its regression coverage
+in the same change. Do not introduce a pytest-only fixture such as `capsys` and
+leave the compatibility job to discover the mismatch later.
+
 ## Product-facing contract
 
 Normal demo/user instructions should stay on these surfaces:
