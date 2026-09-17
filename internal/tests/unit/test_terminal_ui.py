@@ -1,4 +1,4 @@
-from io import StringIO
+from io import BytesIO, StringIO, TextIOWrapper
 from pathlib import Path
 import sys
 
@@ -7,13 +7,18 @@ INTERNAL = Path(__file__).resolve().parents[2]
 if str(INTERNAL) not in sys.path:
     sys.path.insert(0, str(INTERNAL))
 
-from terminal_ui import LCA_LOGO, WIDTH, device_label, ui  # noqa: E402
+from terminal_ui import ASCII_LCA_LOGO, LCA_LOGO, WIDTH, device_label, ui  # noqa: E402
 
 
 def test_lca_logo_is_mechanically_aligned():
     assert len(LCA_LOGO) == 6
     widths = {len(line) for line in LCA_LOGO}
     assert widths == {26}
+
+
+def test_ascii_fallback_logo_is_mechanically_aligned():
+    assert len(ASCII_LCA_LOGO) == 6
+    assert len({len(line) for line in ASCII_LCA_LOGO}) == 1
 
 
 def test_plain_banner_has_no_escape_sequences_and_keeps_the_identity():
@@ -60,3 +65,29 @@ def test_colour_is_additive_not_required_for_status_meaning():
     assert "! Passing output is stale" in output
     assert "× Rebuild failed" in output
     assert "\x1b" not in output
+
+
+def test_cp1252_redirect_uses_ascii_identity_instead_of_crashing():
+    raw = BytesIO()
+    stream = TextIOWrapper(raw, encoding="cp1252", errors="strict")
+    term = ui(stream=stream, colour=False)
+
+    term.banner(
+        "LOCAL AI HARDWARE DEMO",
+        "Same local Qwen3-8B model. Only the hardware target changes.",
+    )
+    term.section("LIVE INFERENCE")
+    term.status("ok", "Result independently verified")
+    term.status("active", "Inference running")
+    stream.flush()
+
+    output = raw.getvalue().decode("cp1252")
+    assert "LOCAL CODE AGENT" in output
+    assert "LOCAL AI HARDWARE DEMO" in output
+    assert "LLLLLL" in output
+    assert "--[ LIVE INFERENCE ]" in output
+    assert "+ Result independently verified" in output
+    assert "* Inference running" in output
+    assert "██" not in output
+    assert "╠" not in output
+    assert "✓" not in output
