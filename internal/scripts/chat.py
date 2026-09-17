@@ -69,7 +69,7 @@ def list_profiles() -> int:
         "LOCAL MODEL CHAT",
         "Choose where the same local Qwen3-8B model runs on this computer.",
     )
-    term.section("AVAILABLE LOCAL MODELS")
+    term.section("AVAILABLE LOCAL MODEL CHOICES")
     for friendly in FRIENDLY:
         resolved = _resolve(friendly)
         if resolved is None:
