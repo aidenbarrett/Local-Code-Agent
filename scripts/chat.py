@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Talk directly to a local model. No agent, tools, or repository access.
+r"""Talk directly to a local model. No agent, tools, or repository access.
 
 Use the root PowerShell entrypoint on Windows:
 
