@@ -19,48 +19,36 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-# local_agent/provenance.py -> local_agent/ -> repository root. The package
-# sits at the top level rather than under a src/ wrapper, so this is two
-# parents, not three.
-_ROOT = Path(__file__).resolve().parent.parent
+# The Python package now lives under internal/, but provenance is repository
+# provenance. Keep the real checkout root explicit so moving behaviour-affecting
+# files changes their canonical path in source_sha256 rather than disappearing
+# behind a redefined root.
+_ROOT = Path(__file__).resolve().parents[2]
 
 # Everything that can change what the agent does. Not the tests, not the docs:
 # a change to those does not change a measured number, and including them would
 # make the hash churn for reasons nobody cares about.
 _HASHED = (
-    ("local_agent", "*.py"),
-    # Every file under a skill, not just its SKILL.md.
-    #
-    # A skill may carry `references/` that the agent loads on demand through
-    # `Skill.reference()`, and the list of available reference names is injected
-    # into the skill message the model sees. So editing
-    # `skills/build-and-test/references/failure-taxonomy.md` changes what the
-    # model can be told, and adding or removing a reference changes what the
-    # model IS told, while a SKILL.md-only hash records neither.
-    #
-    # This gap predates the move out of `.github/`: the old entry had the same
-    # shape. It is fixed here, in a new generation, and no dataset collected
-    # under the previous hash is reinterpreted because of it.
-    ("skills", "*"),
-    ("evaluation", "*.py"),
-    ("benchmark_fixture/cpp_project", "*"),
-    # The qualification gate decides whether a run is allowed to start, and the
-    # runbook script decides what runs at all. A change to either changes the
-    # experiment. Leaving measurement out meant an edit to qualify.py produced a
-    # package with an unchanged hash, which is the one failure mode this hash
-    # exists to prevent.
-    ("measurement", "*.py"),
-    ("measurement", "*.sh"),
+    ("internal/local_agent", "*.py"),
+    # Every file under a skill, not just its SKILL.md. References are loaded on
+    # demand and their names are model-facing, so they are behaviour-affecting.
+    ("internal/skills", "*"),
+    ("internal/evaluation", "*.py"),
+    ("internal/benchmark_fixture/cpp_project", "*"),
+    # Qualification and experiment launch policy are part of the instrument.
+    ("internal/measurement", "*.py"),
+    ("internal/measurement", "*.sh"),
 )
 
-# Files at the repository root that decide what gets installed. pyproject.toml
-# names the dependencies and the entry points, and run_experiment.sh runs
-# `pip install -e .[dev]`, so editing it changes what executes while leaving
-# every hashed directory untouched. It did not move the hash. It does now.
+# Root packaging metadata decides what is installed and therefore executes.
 _HASHED_FILES = ("pyproject.toml",)
 
+_SKIP = {"__pycache__", "build", ".local-agent", ".git", ".venv", ".venv-workstation"}
 
-_SKIP = {"__pycache__", "build", ".local-agent", ".git", ".venv"}
+
+def _key(path: Path) -> str:
+    """Canonical repository path used both for ordering and hashing."""
+    return path.relative_to(_ROOT).as_posix()
 
 
 def _files() -> list[Path]:
@@ -73,9 +61,6 @@ def _files() -> list[Path]:
             if not path.is_file():
                 continue
             parts = path.relative_to(_ROOT).parts
-            # Generated state is not source. A doctor run leaves .local-agent
-            # inside the fixture, and if that counted, the hash would change
-            # for reasons that cannot change a result.
             if _SKIP.intersection(parts):
                 continue
             out.append(path)
@@ -83,24 +68,11 @@ def _files() -> list[Path]:
         path = _ROOT / name
         if path.is_file():
             out.append(path)
-    # Ordered by the same canonical string the digest records. Path ordering
-    # is host-flavoured and is case-insensitive on Windows, so sorting Path
-    # objects directly made identical bytes hash differently across hosts.
     return sorted(out, key=_key)
 
 
-def _key(path: Path) -> str:
-    """Canonical repository path used both for ordering and hashing."""
-    return path.relative_to(_ROOT).as_posix()
-
-
 def source_sha256() -> str:
-    """A hash over the files that decide behaviour, path and content both.
-
-    The repository-relative path has one canonical spelling on every host.
-    `str(Path)` made an identical source tree hash differently on Windows solely
-    because backslashes replaced slashes.
-    """
+    """A hash over the files that decide behaviour, path and content both."""
     digest = hashlib.sha256()
     for path in _files():
         digest.update(_key(path).encode())
@@ -112,12 +84,16 @@ def source_sha256() -> str:
 
 def _from_git() -> dict[str, Any] | None:
     try:
-        rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=_ROOT,
-                             capture_output=True, text=True, timeout=10)
+        rev = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=_ROOT,
+            capture_output=True, text=True, timeout=10,
+        )
         if rev.returncode != 0:
             return None
-        status = subprocess.run(["git", "status", "--porcelain"], cwd=_ROOT,
-                                capture_output=True, text=True, timeout=10)
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=_ROOT,
+            capture_output=True, text=True, timeout=10,
+        )
         return {
             "package_commit": rev.stdout.strip(),
             "package_dirty": bool(status.stdout.strip()),
@@ -131,35 +107,11 @@ def base_prompt_sha256() -> str:
     """The model-facing contract every condition receives, hashed.
 
     Distinct from source_sha256, which moves for any change at all. This moves
-    only when what the model is told, or what it is judged by, changes. A
-    dataset collected under a different value cannot be re-scored like for
-    like: the frozen 30B run finished review-restraint in prose because the
-    prompt of the day sanctioned prose, and re-scoring it under a prompt that
-    requires submit_answer marks it a failure of the model, which it is not.
+    only when what the model is told, or what it is judged by, changes.
 
-    This used to hash SYSTEM_PROMPT and nothing else, and that was too narrow.
-    Two changes landed that altered what the model sees and how its answer is
-    judged, while this value sat still:
-
-      * every tool result payload gained an `evidence_id` field
-      * the answer contract went from resolving several citation schemes to
-        accepting canonical `name:index` ids only
-
-    A dataset from that tree would have advertised comparability with the
-    2026-09-08 run and not had it. The lesson is that "the base prompt" is not
-    one string: it is everything the model is handed and everything its answer
-    is measured against.
-
-    What is covered, and why by source rather than by value: these are
-    functions, so their output depends on the repository, the skill and the
-    call at hand. Hashing one rendered example would miss a change in a branch
-    the example did not take. Hashing the function source misses nothing.
-
-    Deliberately NOT covered: tool names, descriptions and JSON schemas. Those
-    are model-facing, but they are the independent variable. They differ by
-    condition on purpose, so a single per-run number cannot describe them.
-    Every row already carries `tool_schema_hash` over the exact toolset that
-    row was offered, which is the honest place for it.
+    Tool names/descriptions/schemas are deliberately not covered here because
+    they are the independent variable and every row records its exact
+    tool_schema_hash separately.
     """
     import inspect
 
@@ -168,22 +120,16 @@ def base_prompt_sha256() -> str:
 
     parts: list[tuple[str, str]] = [("SYSTEM_PROMPT", ctxmod.SYSTEM_PROMPT)]
     members = (
-        # What the model is told.
         ("context.build_system_message", ctxmod.build_system_message),
         ("context.build_skill_message", ctxmod.build_skill_message),
-        # The shape of every tool result it reads back.
         ("context.tool_result_message", ctxmod.tool_result_message),
         ("contracts._execute", ContractOrchestrator._execute),
-        # What its answer has to look like to be accepted.
         ("contracts._accept_answer", ContractOrchestrator._accept_answer),
     )
     for label, member in members:
         try:
             parts.append((label, inspect.getsource(member)))
         except (OSError, TypeError):
-            # Source is unavailable, so this hash cannot describe the contract.
-            # Say so in a form nobody can mistake for a digest, rather than
-            # emitting a confident hash over a partial surface.
             return "unavailable-no-source"
 
     digest = hashlib.sha256()
@@ -196,13 +142,7 @@ def base_prompt_sha256() -> str:
 
 
 def _function_source(path: Path, name: str) -> str | None:
-    """Return one top-level function exactly as written, without importing it.
-
-    `evaluation.run_evaluation` imports this module, so importing the evaluator
-    back from provenance would create a circular dependency. Parsing source
-    also means the identity still works in a package where evaluation is not on
-    sys.path.
-    """
+    """Return one top-level function exactly as written, without importing it."""
     try:
         text = path.read_bytes().decode("utf-8")
         tree = ast.parse(text)
@@ -217,16 +157,19 @@ def _function_source(path: Path, name: str) -> str | None:
 
 def outcome_contract_sha256() -> str:
     """Fingerprint the byte-exact contract that makes an evaluation result count."""
-    task_contracts = _ROOT / "evaluation" / "task_contracts.py"
-    oracle = _ROOT / "evaluation" / "oracle.py"
-    endpoints = _ROOT / "evaluation" / "endpoints.py"
-    evaluator = _ROOT / "evaluation" / "run_evaluation.py"
+    task_contracts = _ROOT / "internal" / "evaluation" / "task_contracts.py"
+    oracle = _ROOT / "internal" / "evaluation" / "oracle.py"
+    endpoints = _ROOT / "internal" / "evaluation" / "endpoints.py"
+    evaluator = _ROOT / "internal" / "evaluation" / "run_evaluation.py"
     function_names = ("prepare", "establish", "_error_row", "run_case", "run_all")
     sources = {name: _function_source(evaluator, name) for name in function_names}
     required = (task_contracts, oracle, endpoints)
     if any(value is None for value in sources.values()) or not all(p.is_file() for p in required):
         return "unavailable-no-source"
 
+    # Keep the semantic labels stable. The physical repository paths moved, but
+    # the outcome contract is the same evaluator/task/oracle contract unless its
+    # bytes or selected function bodies change.
     parts: list[tuple[str, bytes]] = [
         ("evaluation/task_contracts.py", task_contracts.read_bytes()),
         ("evaluation/oracle.py", oracle.read_bytes()),
@@ -245,11 +188,15 @@ def outcome_contract_sha256() -> str:
         digest.update(b"\0")
     return digest.hexdigest()
 
+
 def package_identity() -> dict[str, Any]:
     """Commit, dirtiness and content hashes. Quoted with every run."""
     stamp = _ROOT / "PACKAGE.json"
-    out: dict[str, Any] = {"package_commit": None, "package_dirty": None,
-                           "package_source": "unknown"}
+    out: dict[str, Any] = {
+        "package_commit": None,
+        "package_dirty": None,
+        "package_source": "unknown",
+    }
     if stamp.exists():
         try:
             data = json.loads(stamp.read_text())
