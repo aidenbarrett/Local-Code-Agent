@@ -60,7 +60,7 @@ switch ($Command.ToLowerInvariant()) {
 
         # Product presentation lives outside the measured agent source. The
         # presenter still delegates server ownership to chat.ps1 and execution
-        # to local_agent.cli using the provisioned ptl-npu-8b profile.
+        # through the controlled developer path using the provisioned ptl-npu-8b profile.
         & $python (Join-Path $internal 'scripts\run-task-ui.py') @Rest
         exit $LASTEXITCODE
     }

@@ -22,6 +22,11 @@ qualify-*.json
 results.json
 !internal/experiments/**/*.json
 
+# Personal chat personas stay local. The neutral example is the only persona
+# deliberately versioned with the repository.
+internal/personas/*.toml
+!internal/personas/neutral.toml
+
 # Model weights are never committed.
 models/
 *.gguf

@@ -20,7 +20,8 @@ def test_repo_navigation_stops_when_build_profile_already_answers_question():
         encoding="utf-8"
     )
     assert "that is sufficient" in skill
-    assert "Finish with\n   `submit_answer` immediately" in skill
+    assert "Finish\n   immediately using that evidence." in skill
+    assert "`submit_answer`" not in skill
     assert "Do **not** enumerate\n   source files, tests, or the whole repository" in skill
     assert "Never repeat the same `list_files` query with a larger limit" in skill
     assert "Once the requested question is answered by current evidence" in skill

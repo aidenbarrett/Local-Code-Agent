@@ -19,8 +19,8 @@ def _run(*args: str):
 
 def test_compatibility_runner_default_points_at_live_test_tree():
     source = RUNNER.read_text(encoding="utf-8")
-    assert 'default=["internal/tests"]' in source
-    assert 'args.paths or ["internal/tests"]' in source
+    assert 'DEFAULT_TEST_PATH = Path(__file__).resolve().parents[1] / "tests"' in source
+    assert 'paths = [Path(p) for p in args.paths] if args.paths else [DEFAULT_TEST_PATH]' in source
 
 
 def test_compatibility_runner_refuses_missing_test_path(tmp_path):

@@ -22,8 +22,8 @@ answer allows.
 1. Call `repo_info` first. Its configured build profile is authoritative for the
    commands Local Code Agent will actually run.
 2. If `repo_info` reports configured build/test commands, that is sufficient for
-   a high-level question such as "how does this repository build?". Finish with
-   `submit_answer` immediately, citing the `repo_info` call. Do **not** enumerate
+   a high-level question such as "how does this repository build?". Finish
+   immediately using that evidence. Do **not** enumerate
    source files, tests, or the whole repository merely to make the answer longer.
 3. Only inspect build/configuration files when `repo_info` is missing required
    detail or the user explicitly asks about the underlying build system. In that
@@ -75,5 +75,5 @@ answer allows.
   the name of something.
 - If a search strategy returns no useful evidence twice, change strategy instead
   of spending more calls paraphrasing the same search.
-- Once the requested question is answered by current evidence, call
-  `submit_answer`; more tool calls are not progress.
+- Once the requested question is answered by current evidence, stop; more tool
+  calls are not progress.

@@ -92,7 +92,7 @@ Generation 1 used one local Qwen3-Coder-30B model on CPU against the same ten sy
 
 One Skill row was `INVALID_SERVER_UNAVAILABLE` and is excluded from its denominator rather than counted as a task failure.
 
-The strongest measured signal remained **action-space narrowing**: `Narrow - Control = +0.433` in the balanced replication, with 11 scope violations in 30 Control rows and 0 in the 59 valid Narrow/Skill rows. The incremental written-procedure contrast was much smaller and unresolved: `Skill - Narrow = +0.060`. The repeated data shows named, opposite per-case movements rather than a clear general procedure effect, so the defensible conclusion is **no clear aggregate procedure effect on this fixture**, not that written procedures have zero effect.
+The strongest measured signal remained **action-space narrowing**: `Narrow - Control = +0.433` in the balanced replication, with 11 scope violations in 30 Control rows and 0 in the 59 valid Narrow/Skill rows. The incremental written-procedure contrast was small and unresolved: `Skill - Narrow = +0.060`. The repeated data shows named, opposite per-case movements rather than a clear general procedure effect, so the defensible conclusion is **no clear aggregate procedure effect on this fixture**, not that written procedures have zero effect.
 
 These generation-1 runs were collected on the NUC under WSL2 Ubuntu with llama.cpp and the 30B UD-Q4_K_XL model. They are not measurements of the current Panther Lake / Windows / OVMS / Qwen3-8B demo stack, and they contained no 8B cell.
 

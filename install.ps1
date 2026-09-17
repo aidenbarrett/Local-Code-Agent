@@ -66,7 +66,7 @@ if (-not $CheckOnly) {
         if (-not [Environment]::UserInteractive -or $inputRedirected) {
             Write-Host 'Bare .\install.ps1 requires an interactive confirmation before machine-level changes.'
             Write-Host 'Use .\install.ps1 -CheckOnly for a read-only preflight, or'
-            Write-Host '.\install.ps1 -InstallMissing after prerequisite installation has been approved.'
+            Write-Host '.\install.ps1 -InstallMissing for non-interactive setup after prerequisite installation has been approved.'
             exit 2
         }
 

@@ -5,10 +5,12 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 def test_public_run_task_uses_provisioned_8b_profile_and_ensures_server():
-    source = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
-    assert "qwen3-8b-npu --ensure-only" in source
-    assert "--profile ptl-npu-8b run @Rest" in source
-    assert "local_agent.cli run @Rest" not in source
+    source = (REPO / "internal" / "scripts" / "run-task-ui.py").read_text(encoding="utf-8")
+    assert '"qwen3-8b-npu"' in source
+    assert '"--ensure-only"' in source
+    assert '"--profile",' in source
+    assert '"ptl-npu-8b",' in source
+    assert '"local_agent.cli"' in source
 
 
 def test_repository_python_profile_is_windows_portable():
