@@ -65,7 +65,9 @@ def test_human_facing_output_is_a_readable_terminal_report():
     source = SCRIPT.read_text(encoding="utf-8")
 
     assert "LOCAL CODE AGENT" in source
-    assert "Accelerator Verification Demo" in source
+    assert "Accelerator Verification Demo" not in source
+    assert "Qwen3-8B (INT4)" in source
+    assert "OpenVINO Model Server" in source
     assert "MODEL SETUP" in source
     assert "STARTUP" in source
     assert "INFERENCE RUN" in source
@@ -86,7 +88,14 @@ def test_human_facing_output_is_a_readable_terminal_report():
     assert "Best first token" in source
     assert "live demo observations, not benchmark results" in source
 
+    assert "Previous server   stopped (PID" not in source
     assert "decode={rate}" not in source
     assert "completion={stats.completion_tokens}" not in source
     assert "visible={useful}" not in source
     assert "call {calls:02d}" not in source
+
+
+def test_banner_is_compact_and_balanced():
+    assert len(DEMO.LOGO) == 4
+    assert max(len(line) for line in DEMO.LOGO) <= 24
+    assert DEMO.WIDTH == 60
