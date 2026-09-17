@@ -2,7 +2,9 @@ param(
     [ValidateSet("CPU", "GPU", "NPU", "ALL")]
     [string]$Device = "NPU",
     [double]$Seconds = 45,
-    [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent"
+    [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent",
+    # Leave the server running after the load ends, so chat.ps1 can use it.
+    [switch]$KeepServer
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,9 +46,14 @@ else { Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue }
 if ($HadPythonPath) { $env:PYTHONPATH = $PythonPathBefore }
 else { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
 
-& $Python (Join-Path $ScriptDir "demo-accelerator.py") `
-    --device $Device `
-    --seconds $Seconds `
-    --runtime-root $RuntimeRoot `
-    --executable $OvmsExe.FullName
+$DemoArgs = @(
+    (Join-Path $ScriptDir "demo-accelerator.py")
+    "--device", $Device
+    "--seconds", $Seconds
+    "--runtime-root", $RuntimeRoot
+    "--executable", $OvmsExe.FullName
+)
+if ($KeepServer) { $DemoArgs += "--keep-server" }
+
+& $Python @DemoArgs
 exit $LASTEXITCODE
