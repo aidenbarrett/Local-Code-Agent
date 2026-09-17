@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Show what Local Code Agent can and cannot do using the live implementation.
+r"""Show what Local Code Agent can and cannot do using the live implementation.
 
 Use the root PowerShell entrypoint on Windows:
 
