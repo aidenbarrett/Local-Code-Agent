@@ -44,3 +44,18 @@ def test_serving_gate_runs_on_main_pushes():
     source = (REPO / ".github" / "workflows" / "serving.yml").read_text(encoding="utf-8")
     assert "push:\n    branches: [main]" in source
     assert "pull_request:" in source
+
+
+def test_public_evidence_uses_balanced_generation_one_replication():
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "9/30 (0.300)" in readme
+    assert "22/30 (0.733)" in readme
+    assert "23/29 (0.793)" in readme
+    assert "no clear aggregate procedure effect" in readme
+    assert "NUC under WSL2 Ubuntu with llama.cpp" in readme
+    assert "not measurements of the current Panther Lake / Windows / OVMS / Qwen3-8B demo stack" in readme
+
+
+def test_repeated_dataset_points_to_frozen_generation_one_tag():
+    experiments = (REPO / "internal" / "experiments" / "README.md").read_text(encoding="utf-8")
+    assert "2026-09-08-30b-three-conditions-x3` | `08d5e0fe...` | `instrument-08d5e0fe`" in experiments
