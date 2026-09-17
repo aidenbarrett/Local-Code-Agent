@@ -64,15 +64,14 @@ def test_windows_wrapper_can_leave_server_running_for_chat():
 def test_human_facing_output_is_a_readable_terminal_report():
     source = SCRIPT.read_text(encoding="utf-8")
 
-    # Professional first-screen orientation.
     assert "LOCAL CODE AGENT" in source
-    assert "Local Model Accelerator Demo" in source
+    assert "Accelerator Verification Demo" in source
     assert "MODEL SETUP" in source
     assert "STARTUP" in source
     assert "INFERENCE RUN" in source
+    assert "SERVER" in source
     assert "SUMMARY" in source
 
-    # Plain-English metrics and cold/warm distinction.
     assert "Request 1 | COLD START" in source
     assert "| WARM" in source
     assert "First token" in source
@@ -81,13 +80,12 @@ def test_human_facing_output_is_a_readable_terminal_report():
     assert "One-time runtime warm-up + prompt processing" in source
     assert "Runtime already initialised; prompt processing still happens" in source
 
-    # Final report remains clearly observational, not benchmark evidence.
-    assert "RESULT         PASS" in source
+    assert "Starting validated model server..." in source
+    assert "RESULT          PASS" in source
     assert "Average speed" in source
     assert "Best first token" in source
     assert "live demo observations, not benchmark results" in source
 
-    # Keep implementation terminology out of the human-facing report.
     assert "decode={rate}" not in source
     assert "completion={stats.completion_tokens}" not in source
     assert "visible={useful}" not in source
