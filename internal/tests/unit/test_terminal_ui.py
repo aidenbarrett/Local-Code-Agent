@@ -67,6 +67,36 @@ def test_colour_is_additive_not_required_for_status_meaning():
     assert "\x1b" not in output
 
 
+def test_answer_panel_wraps_content_and_keeps_shared_width():
+    stream = StringIO()
+    term = ui(stream=stream, colour=False)
+    term.panel(
+        "LOCAL MODEL ANSWER",
+        "This is a deliberately long answer that should wrap inside the panel "
+        "instead of running across the terminal and hiding the result hierarchy.",
+    )
+    lines = stream.getvalue().splitlines()
+
+    assert lines[0].startswith("╔ LOCAL MODEL ANSWER ")
+    assert lines[-1] == "╚" + "═" * (WIDTH - 2) + "╝"
+    assert all(len(line) == WIDTH for line in lines)
+    assert "deliberately long answer" in " ".join(lines)
+
+
+def test_answer_panel_has_readable_ascii_fallback():
+    raw = BytesIO()
+    stream = TextIOWrapper(raw, encoding="cp1252", errors="strict")
+    term = ui(stream=stream, colour=False)
+    term.panel("ANSWER", "A short result")
+    stream.flush()
+
+    output = raw.getvalue().decode("cp1252")
+    assert "+ ANSWER " in output
+    assert "|  A short result" in output
+    assert "╔" not in output
+    assert "║" not in output
+
+
 def test_cp1252_redirect_uses_ascii_identity_instead_of_crashing():
     raw = BytesIO()
     stream = TextIOWrapper(raw, encoding="cp1252", errors="strict")
