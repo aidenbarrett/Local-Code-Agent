@@ -28,10 +28,13 @@ def test_root_chat_entrypoint_and_friendly_models_are_present():
     }
 
 
-def test_chat_listing_keeps_internal_python_entrypoint_out_of_user_guidance():
+def test_chat_guidance_stays_on_user_facing_entrypoints():
     source = (ROOT / "scripts" / "chat.py").read_text(encoding="utf-8")
     assert ".\\chat.ps1 qwen3-8b-npu" in source
+    assert ".\\scripts\\demo-accelerator.ps1 -Device" in source
+    assert "-Seconds 5 -KeepServer" in source
     assert "python scripts/chat.py <name>" not in source
+    assert "python measurement/serve.py start" not in source
     assert "Available local model choices" in source
 
 
@@ -51,6 +54,7 @@ def test_capabilities_use_plain_user_facing_language():
     assert "independently check" in source
     assert "typed registry" not in source
     assert "judged by the harness" not in source
+    assert ".\\local-code-agent.ps1 verification-demo" in source
 
 
 def test_quickstart_teaches_the_user_journey_in_the_expected_order():
@@ -63,8 +67,9 @@ def test_quickstart_teaches_the_user_journey_in_the_expected_order():
     assert ".\\local-code-agent.ps1 capabilities" in text
     assert ".\\chat.ps1 qwen3-8b-npu" in text
     assert ".\\local-code-agent.ps1 verification-demo" in text
+    assert "-Seconds 5 -KeepServer" in text
     assert "The model can propose actions. It cannot mark its own homework." in text
-    assert "qwen3-coder-30b` selects a different model profile" in text
+    assert "qwen3-coder-30b` is a different model on a different profile" in text
 
 
 def test_previous_research_readme_is_preserved():
