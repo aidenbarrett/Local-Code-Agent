@@ -7,7 +7,7 @@ Redaction belongs at an explicit future export boundary, not persistence.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
 import os
@@ -50,6 +50,7 @@ class Session:
     conversation_id: str
     created_utc: str
     updated_utc: str
+    persona_sha256: str | None = None
     runtime: list[RuntimeSegment] = field(default_factory=list)
     turns: list[Turn] = field(default_factory=list)
     budget_chars: int = DEFAULT_BUDGET_CHARS
@@ -64,13 +65,21 @@ class Composed:
     budget_chars: int
 
 
-def new_session(profile: str, model: str, device: str, *, budget_chars: int = DEFAULT_BUDGET_CHARS) -> Session:
+def new_session(
+    profile: str,
+    model: str,
+    device: str,
+    *,
+    budget_chars: int = DEFAULT_BUDGET_CHARS,
+    persona_sha256: str | None = None,
+) -> Session:
     now = _utc()
     cid = now.replace(":", "-").replace(".", "-") + "-" + uuid.uuid4().hex[:4]
     return Session(
         conversation_id=cid,
         created_utc=now,
         updated_utc=now,
+        persona_sha256=persona_sha256,
         runtime=[RuntimeSegment(0, profile, model, device)],
         budget_chars=budget_chars,
     )
@@ -88,8 +97,11 @@ def ensure_runtime(session: Session, profile: str, model: str, device: str) -> i
 def append_turn(session: Session, role: str, content: str, runtime_index: int) -> None:
     if role not in {"user", "assistant"}:
         raise ContextRefusal(f"unsupported stored turn role: {role}")
-    if not (0 <= runtime_index < len(session.runtime)):
-        raise ContextRefusal(f"invalid runtime segment: {runtime_index}")
+    current_runtime = len(session.runtime) - 1
+    if runtime_index != current_runtime:
+        raise ContextRefusal(
+            f"turn must use current runtime segment {current_runtime}; got {runtime_index}"
+        )
     session.turns.append(Turn(role, content, _utc(), runtime_index))
     session.updated_utc = _utc()
 
@@ -106,16 +118,51 @@ def _as_dict(session: Session) -> dict:
         "conversation_id": session.conversation_id,
         "created_utc": session.created_utc,
         "updated_utc": session.updated_utc,
-        "runtime": [vars(item) for item in session.runtime],
-        "turns": [vars(item) for item in session.turns],
+        "persona_sha256": session.persona_sha256,
+        "runtime": [asdict(item) for item in session.runtime],
+        "turns": [asdict(item) for item in session.turns],
         "budget": {"kind": "characters", "limit": session.budget_chars},
     }
 
 
+def _encoded_session(session: Session) -> bytes:
+    return (json.dumps(_as_dict(session), indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def ensure_append_fits(
+    session: Session,
+    turns: list[tuple[str, str]],
+    runtime_index: int,
+    *,
+    disk_cap_bytes: int = DEFAULT_DISK_CAP_BYTES,
+) -> None:
+    """Refuse before inference/append if a projected exchange cannot be persisted.
+
+    The projection uses the supplied turn contents and the current timestamp shape.
+    Callers should check the user turn before inference and the complete exchange
+    before mutating the live session. ``append_turn`` remains the only mutator.
+    """
+    projected = Session(
+        conversation_id=session.conversation_id,
+        created_utc=session.created_utc,
+        updated_utc=session.updated_utc,
+        persona_sha256=session.persona_sha256,
+        runtime=list(session.runtime),
+        turns=list(session.turns),
+        budget_chars=session.budget_chars,
+    )
+    for role, content in turns:
+        append_turn(projected, role, content, runtime_index)
+    size = len(_encoded_session(projected))
+    if size > disk_cap_bytes:
+        raise ContextRefusal(
+            f"conversation {session.conversation_id} would exceed disk cap ({size} > {disk_cap_bytes} bytes); start a new conversation or reset this one"
+        )
+
+
 def save_session(runtime_root: Path, session: Session, *, disk_cap_bytes: int = DEFAULT_DISK_CAP_BYTES) -> Path:
     path = session_path(runtime_root, session.conversation_id)
-    payload = json.dumps(_as_dict(session), indent=2, ensure_ascii=False) + "\n"
-    encoded = payload.encode("utf-8")
+    encoded = _encoded_session(session)
     if len(encoded) > disk_cap_bytes:
         raise ContextRefusal(
             f"conversation {session.conversation_id} exceeds disk cap ({len(encoded)} > {disk_cap_bytes} bytes); history was not dropped"
@@ -140,10 +187,18 @@ def load_session(runtime_root: Path, conversation_id: str) -> Session:
         budget = data["budget"]
         if budget.get("kind") != "characters":
             raise ValueError("unsupported budget kind")
+        persona_sha256 = data["persona_sha256"]
+        if persona_sha256 is not None and (
+            not isinstance(persona_sha256, str)
+            or len(persona_sha256) != 64
+            or any(ch not in "0123456789abcdef" for ch in persona_sha256)
+        ):
+            raise ValueError("invalid persona_sha256")
         session = Session(
             conversation_id=data["conversation_id"],
             created_utc=data["created_utc"],
             updated_utc=data["updated_utc"],
+            persona_sha256=persona_sha256,
             runtime=[RuntimeSegment(**item) for item in data["runtime"]],
             turns=[Turn(**item) for item in data["turns"]],
             budget_chars=int(budget["limit"]),
@@ -154,9 +209,22 @@ def load_session(runtime_root: Path, conversation_id: str) -> Session:
         raise ContextRefusal("conversation id does not match its filename")
     if not session.runtime:
         raise ContextRefusal("conversation has no runtime segment")
-    for turn in session.turns:
+    if session.runtime[0].from_turn != 0:
+        raise ContextRefusal("first runtime segment must start at turn 0")
+    previous_from = -1
+    for index, segment in enumerate(session.runtime):
+        if segment.from_turn < previous_from or segment.from_turn > len(session.turns):
+            raise ContextRefusal("conversation runtime segments are not ordered")
+        if index and segment.from_turn == previous_from:
+            raise ContextRefusal("conversation runtime segments must advance")
+        previous_from = segment.from_turn
+    for turn_index, turn in enumerate(session.turns):
         if turn.role not in {"user", "assistant"} or not (0 <= turn.runtime < len(session.runtime)):
             raise ContextRefusal("conversation contains an invalid turn")
+        segment = session.runtime[turn.runtime]
+        next_from = session.runtime[turn.runtime + 1].from_turn if turn.runtime + 1 < len(session.runtime) else len(session.turns)
+        if not (segment.from_turn <= turn_index < next_from):
+            raise ContextRefusal("conversation turn does not match its runtime segment")
     return session
 
 
@@ -196,7 +264,7 @@ def compose(
     session: Session,
     current_turn: str,
 ) -> Composed:
-    """Pure deterministic composition. Oldest stored messages are dropped whole."""
+    """Pure deterministic composition. Oldest complete exchanges are dropped."""
     fixed = [contract]
     parts: list[tuple[str, int]] = [("contract", len(contract["content"]))]
     if persona is not None:
@@ -213,10 +281,18 @@ def compose(
     history_chars = sum(len(item["content"]) for item in history)
     dropped = 0
     while history and fixed_chars + history_chars > session.budget_chars:
+        if history[0]["role"] != "user":
+            raise ContextRefusal("stored history does not begin with a user turn")
         removed = history.pop(0)
         history_chars -= len(removed["content"])
         dropped += 1
+        if history and history[0]["role"] == "assistant":
+            removed = history.pop(0)
+            history_chars -= len(removed["content"])
+            dropped += 1
 
+    if history and history[0]["role"] != "user":
+        raise ContextRefusal("trimmed history does not begin with a user turn")
     messages = fixed + history + [current]
     parts.append(("history", history_chars))
     parts.append(("current_turn", len(current_turn)))
