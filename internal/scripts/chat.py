@@ -78,103 +78,32 @@ def list_profiles() -> int:
         if resolved is None:
             term.field(friendly, "configuration unavailable", role="red")
             continue
-        _profile, device, config = resolved
-        term.field(friendly, f"{_model_label(config)} · {device_label(device)}")
-    term.line()
-    term.section("START CHAT")
-    term.line(r"  .\chat.ps1 qwen3-8b-npu")
-    term.line(r"  .\chat.ps1 qwen3-8b-npu --persona neutral")
-    term.footer_note("Chat is direct model conversation. Repository access is not enabled here.")
+        _profile, _device, config = resolved
+        term.field(friendly, f"{device_label(config.device)} · {_model_label(config)}")
     term.line()
     return 0
 
 
 def _session_header(name: str, config: ModelConfig, term, persona: Persona | None = None) -> None:
-    term.line()
     term.section("CHAT SESSION")
-    term.field("Selection", name)
     term.field("Model", _model_label(config))
-    term.field("Running on", device_label(config.device), role="cyan")
-    term.field("Backend", RUNTIME_LABEL.get(config.runtime, config.runtime))
-    term.field("Persona", persona.label if persona else "off")
-    term.field("Status", "Ready", role="green")
-    term.line()
-    term.status("info", "Direct chat only · no repository access, tools or verification")
-    term.status("info", "Empty line or Ctrl-C at the prompt exits")
-    term.status("info", "Ctrl-C while generating stops that reply and returns to the prompt")
+    term.field("Device", device_label(config.device))
+    term.field("Runtime", RUNTIME_LABEL.get(config.runtime, config.runtime))
+    term.field("Choice", name)
+    term.field("Persona", f"{persona.name} v{persona.version}" if persona else "off")
     term.line()
 
 
-def _reachable(config: ModelConfig) -> bool:
-    import urllib.error
-    import urllib.request
-
-    root = config.base_url.rstrip("/").rsplit("/", 1)[0]
-    for url in (f"{config.base_url.rstrip('/')}/models", f"{root}/v1/models"):
-        try:
-            with urllib.request.urlopen(url, timeout=3):
-                return True
-        except (urllib.error.URLError, OSError, ValueError):
-            continue
-    return False
-
-
-def _runtime_root() -> Path:
-    explicit = os.environ.get("LCA_RUNTIME_ROOT")
-    if explicit:
-        return Path(explicit)
-    return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LocalCodeAgent"
-
-
-def _ensure_server(profile: str, config: ModelConfig, term=None) -> bool:
-    """Reuse only an owned compatible server; otherwise start through the controller."""
-    term = term or ui()
-    executable = os.environ.get("LCA_OVMS_EXECUTABLE") if config.runtime == "ovms" else None
-    plan = serve.make_plan(
-        profile,
-        config,
-        _runtime_root(),
-        executable=executable,
-    )
-
-    record = serve.read_record(plan)
-    if record:
-        state = serve.status(plan)
-        recorded = (record.get("plan") or {}).get("model_configuration") or {}
-        record_device = recorded.get("device")
-        record_model = recorded.get("model")
-        if (
-            state.get("healthy")
-            and record_device == config.device
-            and record_model == config.model
-        ):
-            term.status("ok", f"Local model server already ready on {config.device}")
-            return True
-        if state.get("process_alive"):
-            term.status("info", f"Stopping previous {record_device or 'local'} model server")
-            serve.stop(plan)
-    if _reachable(config):
-        term.line()
-        term.status("warn", "The configured local endpoint is already in use")
-        term.line("  That server is not owned by Local Code Agent, so it will not be adopted or stopped.")
-        term.line("  Stop that server, then run this chat command again.")
-        term.line()
-        return False
-
-    term.status("active", f"Starting {_model_label(config)} on {device_label(config.device)}")
+def _ensure_server(profile: str, config: ModelConfig, *, term) -> bool:
+    if config.runtime == "cloud":
+        return True
+    term.status("info", "Checking model server")
     try:
-        state = serve.start(plan, config, wait_seconds=900)
-    except (serve.Refusal, OSError) as exc:
-        term.line()
-        term.status("fail", "Model server could not be started")
-        term.line(f"  {exc}")
-        term.line()
-        term.line("  Run the root setup command and try again:")
-        term.line(r"    .\install.ps1")
-        term.line()
+        ready = serve.ensure_server(profile, config)
+    except Exception as exc:
+        term.status("fail", f"Model server failed: {type(exc).__name__}: {exc}")
         return False
-
-    if not state.get("healthy"):
+    if not ready:
         term.status("fail", "Model server did not become ready")
         return False
     term.status("ok", "Model server ready")
@@ -207,17 +136,18 @@ def _messages_for_turn(
     history: list[dict[str, str]],
     said: str,
     persona: Persona | None,
+    config: ModelConfig,
 ) -> list[dict[str, str]]:
     """Return the exact message list handed to the client for this turn.
 
-    Persona-off deliberately preserves the pre-persona message sequence byte for
-    byte. Persona is derived each turn and is never written into chat history.
+    ``history`` contains conversation turns only. Derived controller contract and
+    optional persona messages are composed afresh for every request, so future
+    persistence cannot accidentally freeze either into the session record.
     """
-    messages = list(history)
-    if persona is not None:
-        messages.insert(1, persona_message(persona))
-    messages.append({"role": "user", "content": said})
-    return messages
+    contract = [_system_message(config)]
+    tone = [persona_message(persona)] if persona is not None else []
+    current_turn = [{"role": "user", "content": said}]
+    return [*contract, *tone, *history, *current_turn]
 
 
 def _load_requested_persona(value: str | None, term) -> Persona | None:
@@ -253,7 +183,7 @@ def converse(
     _session_header(name, config, term, persona)
 
     client = OpenAICompatibleClient(config)
-    history: list[dict[str, str]] = [_system_message(config)]
+    history: list[dict[str, str]] = []
     while True:
         try:
             prompt = term.paint("YOU  › ", "magenta", bold=True)
@@ -265,7 +195,7 @@ def converse(
             print()
             return 0
 
-        messages = _messages_for_turn(history, said, persona)
+        messages = _messages_for_turn(history, said, persona, config)
         try:
             reply = client.chat(messages)
         except KeyboardInterrupt:
