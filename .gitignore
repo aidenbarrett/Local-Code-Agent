@@ -22,10 +22,11 @@ qualify-*.json
 results.json
 !internal/experiments/**/*.json
 
-# Personal chat personas stay local. The neutral example is the only persona
-# deliberately versioned with the repository.
+# Personal chat personas stay local by default. Neutral and Aiden are explicit
+# versioned examples; any other local persona remains ignored.
 internal/personas/*.toml
 !internal/personas/neutral.toml
+!internal/personas/aiden.toml
 
 # Model weights are never committed.
 models/
