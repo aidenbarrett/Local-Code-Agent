@@ -60,8 +60,9 @@ def main() -> int:
 
     if not FIXTURE.is_dir():
         print("\nThe benchmark fixture is not present yet.", file=sys.stderr)
-        print("Create it with:", file=sys.stderr)
-        print("  python benchmark_fixture/generate_project.py\n", file=sys.stderr)
+        print("Run the root setup command:", file=sys.stderr)
+        print(r"  .\install.ps1", file=sys.stderr)
+        print(file=sys.stderr)
         return 2
 
     registry, _, _ = build_registry(load_repo_config(FIXTURE))
@@ -103,7 +104,7 @@ def main() -> int:
 
     print()
     print("See independent verification reject stale test results:")
-    print("  .\\local-code-agent.ps1 verification-demo")
+    print(r"  .\local-code-agent.ps1 verification-demo")
     print()
     return 0
 

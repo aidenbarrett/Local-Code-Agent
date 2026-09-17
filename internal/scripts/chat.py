@@ -164,7 +164,7 @@ def _ensure_server(profile: str, config: ModelConfig) -> bool:
         print(f"  {exc}", file=sys.stderr)
         print(file=sys.stderr)
         print("Run the root setup command and try again:", file=sys.stderr)
-        print("  .\\install.ps1", file=sys.stderr)
+        print(r"  .\install.ps1", file=sys.stderr)
         print(file=sys.stderr)
         return False
 

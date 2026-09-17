@@ -43,8 +43,10 @@ def test_product_root_is_small_and_implementation_is_hidden():
 
 def test_root_chat_entrypoint_and_friendly_models_are_present():
     wrapper = (REPO / "chat.ps1").read_text(encoding="utf-8")
-    assert "internal\\scripts\\chat.py" in wrapper
-    assert "$Args" not in wrapper
+    assert "$internal = Join-Path $root 'internal'" in wrapper
+    assert "(Join-Path $internal 'scripts\\chat.py')" in wrapper
+    assert "@Rest" in wrapper
+    assert "@Args" not in wrapper
 
     chat = _load_chat_module()
     assert chat.FRIENDLY == {
@@ -88,7 +90,8 @@ def test_local_code_agent_root_facade_explains_why_it_exists():
     assert "capabilities" in wrapper
     assert "run-task" in wrapper
     assert "verification-demo" in wrapper
-    assert "internal\\scripts\\capabilities.py" in wrapper
+    assert "$internal = Join-Path $root 'internal'" in wrapper
+    assert "(Join-Path $internal 'scripts\\capabilities.py')" in wrapper
 
 
 def test_capabilities_use_plain_user_facing_language():
@@ -98,6 +101,8 @@ def test_capabilities_use_plain_user_facing_language():
     assert "typed registry" not in source
     assert "judged by the harness" not in source
     assert ".\\local-code-agent.ps1 verification-demo" in source
+    assert ".\\install.ps1" in source
+    assert "python benchmark_fixture/" not in source
 
 
 def test_public_demo_wrappers_exist_and_hide_implementation_paths_from_docs():
@@ -134,5 +139,6 @@ def test_quickstart_teaches_the_user_journey_in_the_expected_order():
 
 def test_previous_research_readme_is_preserved():
     history = (INTERNAL / "docs" / "project-history.md").read_text(encoding="utf-8")
-    assert "measurement instrument first and an agent second" in history
-    assert "verified completion** | **3/10** | **8/10** | **8/10**" in history
+    plain = " ".join(history.replace("**", "").split()).lower()
+    assert "measurement instrument first and an agent second" in plain
+    assert "| verified completion | 3/10 | 8/10 | 8/10 |" in plain
