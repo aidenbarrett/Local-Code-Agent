@@ -11,21 +11,23 @@ model/device profile and have a normal terminal conversation. Local Code Agent
 is separate; it adds controlled repository access, restricted tools, skills and
 independent verification.
 
-The chat path uses the same client, model profiles and serving endpoints as the
+The chat path uses the same client, model profiles and serving controller as the
 rest of the project. There is no demo-only model path.
 """
 from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+import os
 from pathlib import Path
 import sys
 
-REPO = Path(__file__).resolve().parents[1]
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
 
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
+from measurement import serve  # noqa: E402
 
 FRIENDLY: dict[str, tuple[str, str]] = {
     "qwen3-8b-npu": ("ptl-npu-8b", "NPU"),
@@ -35,7 +37,11 @@ FRIENDLY: dict[str, tuple[str, str]] = {
 }
 
 BANNER = "Local Model Chat"
-RUNTIME_LABEL = {"ovms": "OVMS / OpenVINO", "llamacpp": "llama.cpp", "cloud": "Cloud"}
+RUNTIME_LABEL = {
+    "ovms": "OpenVINO Model Server",
+    "llamacpp": "llama.cpp",
+    "cloud": "Cloud",
+}
 
 
 def _resolve(name: str) -> tuple[str, str, ModelConfig] | None:
@@ -51,6 +57,13 @@ def _resolve(name: str) -> tuple[str, str, ModelConfig] | None:
     return profile, base.device, base
 
 
+def _model_label(config: ModelConfig) -> str:
+    artifact = config.model.split("/")[-1]
+    if artifact == "Qwen3-8B-int4-cw-ov":
+        return "Qwen3-8B (INT4)"
+    return artifact
+
+
 def list_profiles() -> int:
     print()
     print("Available local model choices")
@@ -63,7 +76,7 @@ def list_profiles() -> int:
             print(f"  {friendly:<22} {'(configuration unavailable)':<36} {'-':<8}")
             continue
         _profile, device, config = resolved
-        print(f"  {friendly:<22} {config.model.split('/')[-1]:<36} {device:<8}")
+        print(f"  {friendly:<22} {_model_label(config):<36} {device:<8}")
     print()
     print("Start a chat with:")
     print("  .\\chat.ps1 qwen3-8b-npu")
@@ -74,25 +87,24 @@ def list_profiles() -> int:
     return 0
 
 
-def _header(name: str, profile: str, config: ModelConfig, reachable: bool) -> None:
+def _header(name: str, config: ModelConfig) -> None:
     print()
     print(BANNER)
     print()
     print(f"  Selection   {name}")
-    print(f"  Model       {config.model.split('/')[-1]}")
+    print(f"  Model       {_model_label(config)}")
     print(f"  Device      {config.device}")
     print(f"  Backend     {RUNTIME_LABEL.get(config.runtime, config.runtime)}")
-    print(f"  Endpoint    {config.base_url}")
-    print(f"  Status      {'Ready' if reachable else 'Model server not running'}")
+    print(f"  Status      Ready")
     print()
-    if reachable:
-        print("Type a message and press Enter. Use an empty line or Ctrl-C to exit.")
-        print()
+    print("Type a message and press Enter. Use an empty line or Ctrl-C to exit.")
+    print()
 
 
 def _reachable(config: ModelConfig) -> bool:
     import urllib.error
     import urllib.request
+
     root = config.base_url.rstrip("/").rsplit("/", 1)[0]
     for url in (f"{config.base_url.rstrip('/')}/models", f"{root}/v1/models"):
         try:
@@ -103,22 +115,89 @@ def _reachable(config: ModelConfig) -> bool:
     return False
 
 
+def _runtime_root() -> Path:
+    explicit = os.environ.get("LCA_RUNTIME_ROOT")
+    if explicit:
+        return Path(explicit)
+    return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LocalCodeAgent"
+
+
+def _ensure_server(profile: str, config: ModelConfig) -> bool:
+    """Reuse a compatible owned server or start one through the serving controller."""
+    if _reachable(config):
+        return True
+
+    executable = os.environ.get("LCA_OVMS_EXECUTABLE") if config.runtime == "ovms" else None
+    plan = serve.make_plan(
+        profile,
+        config,
+        _runtime_root(),
+        executable=executable,
+    )
+
+    record = serve.read_record(plan)
+    if record:
+        state = serve.status(plan)
+        record_device = (
+            ((record.get("plan") or {}).get("model_configuration") or {}).get("device")
+        )
+        if state.get("healthy") and record_device == config.device:
+            return True
+        if state.get("process_alive"):
+            print(f"Stopping the previous {record_device or 'local'} model server...")
+            serve.stop(plan)
+
+    print(f"Starting {_model_label(config)} on {config.device}...")
+    try:
+        state = serve.start(plan, config, wait_seconds=900)
+    except (serve.Refusal, OSError) as exc:
+        print()
+        print("Model server could not be started.", file=sys.stderr)
+        print(f"  {exc}", file=sys.stderr)
+        print(file=sys.stderr)
+        print("Run the root setup command and try again:", file=sys.stderr)
+        print("  .\\install.ps1", file=sys.stderr)
+        print(file=sys.stderr)
+        return False
+
+    if not state.get("healthy"):
+        print("Model server did not become ready.", file=sys.stderr)
+        return False
+    print("Model server ready.")
+    return True
+
+
+def _system_message(config: ModelConfig) -> dict[str, str]:
+    backend = RUNTIME_LABEL.get(config.runtime, config.runtime)
+    return {
+        "role": "system",
+        "content": (
+            "You are a language model running entirely on this machine, with no network "
+            f"access. You are served by {backend} on the {config.device} of the user's "
+            f"computer. The model is {_model_label(config)}.\n\n"
+            "You are running inside a plain terminal chat program. There is no window, "
+            "no button and no menu. The person types a line and presses Enter. To leave, "
+            "they press Enter on an empty line, or Ctrl-C.\n\n"
+            "You have no tools, no access to the filesystem, and no ability to run "
+            "commands. This program is separate from Local Code Agent, which is the part "
+            "of this project that gives a model controlled repository access and verifies "
+            "its work independently. You are not that, and you cannot speak for it.\n\n"
+            "If you are asked something about this program, this project or this machine "
+            "that you have not been told here, say you do not know. Do not guess at "
+            "feature names, buttons or commands."
+        ),
+    }
+
+
 def converse(name: str, profile: str, config: ModelConfig) -> int:
     from local_agent.llm.client import OpenAICompatibleClient
-    reachable = _reachable(config)
-    _header(name, profile, config, reachable)
-    if not reachable:
-        print(f"No model server is running for {name}.")
-        print()
-        print("Start one with:")
-        print(f"  .\\scripts\\demo-accelerator.ps1 -Device {config.device} -Seconds 5 -KeepServer")
-        print()
-        print("Then run the same chat command again.")
-        print()
+
+    if not _ensure_server(profile, config):
         return 2
+    _header(name, config)
 
     client = OpenAICompatibleClient(config)
-    history: list[dict[str, str]] = []
+    history: list[dict[str, str]] = [_system_message(config)]
     while True:
         try:
             said = input("You > ").strip()
