@@ -1,6 +1,6 @@
 """Every Python file in the repository must compile without a syntax warning.
 
-Written after `scripts/chat.py` shipped with `.\\chat.ps1` inside a plain
+Written after `internal/scripts/chat.py` shipped with `.\\chat.ps1` inside a plain
 docstring. `\\c` is not a valid escape sequence, so Python emitted a warning on
 every single launch, printed above the banner, in front of whoever was being
 shown the tool. It was invisible on Python 3.11, where invalid escapes are a
@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[2]
+REPO = Path(__file__).resolve().parents[3]
 
 # Generated, vendored or transient trees. Nothing here is ours to keep clean.
 SKIP = {"__pycache__", ".git", "build", ".venv", ".venv-workstation",
@@ -47,8 +47,6 @@ def test_compiles_without_warning(path: Path) -> None:
         warnings.simplefilter("always")
         compile(source, str(path), "exec")
 
-    # An invalid escape is a DeprecationWarning on 3.11 and a SyntaxWarning on
-    # 3.12+, so match on either, and on the message for the escape case.
     complaints = [
         f"line {w.lineno}: {w.category.__name__}: {w.message}"
         for w in caught
