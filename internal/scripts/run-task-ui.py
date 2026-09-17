@@ -30,6 +30,11 @@ _MODEL_RE = re.compile(
     r" in=(?P<input>\d+) out=(?P<output>\d+)"
     r"(?: cached=(?P<cached>\d+))?$"
 )
+_WALL_RE = re.compile(
+    r"^(?P<total>[0-9.]+)s \(model (?P<model>[0-9.]+)s over "
+    r"(?P<calls>\d+) call\(s\), tools (?P<tools>[0-9.]+)s, "
+    r"overhead (?P<overhead>[0-9.]+)s\)$"
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -125,13 +130,44 @@ def _parse_summary(lines: list[str]) -> tuple[dict[str, str], list[str], list[st
     return fields, warnings, evidence
 
 
+def _route_display(detail: str) -> tuple[str, str | None]:
+    """Translate internal tier names into language a first-time user understands."""
+    if " -> " not in detail:
+        return detail.strip(), None
+    skill, tier = (part.strip() for part in detail.split(" -> ", 1))
+    normalized = tier.lower()
+    if normalized.endswith(" tier"):
+        normalized = normalized[:-5].strip()
+    labels = {
+        "cheap": "Prefer local Qwen3-8B on NPU",
+        "strong": "Use the higher-capability model route",
+    }
+    return skill, labels.get(normalized, tier)
+
+
+def _parse_wall_timing(value: str) -> dict[str, str] | None:
+    """Turn the developer wall-time tuple into operator-facing timing fields."""
+    match = _WALL_RE.match(value.strip())
+    if not match:
+        return None
+    calls = int(match.group("calls"))
+    return {
+        "total": f"{match.group('total')} s",
+        "model": f"{match.group('model')} s across {calls} model call{'s' if calls != 1 else ''}",
+        "tools": f"{match.group('tools')} s",
+        "overhead": f"{match.group('overhead')} s",
+    }
+
+
 def _show_observer_line(term, raw: str) -> None:
     line = raw.strip()
     if not line:
         return
     if line.startswith("skill:"):
-        detail = line[len("skill:") :].strip().replace(" -> ", " · ")
-        term.status("active", f"Procedure selected: {detail}")
+        skill, route = _route_display(line[len("skill:") :].strip())
+        term.status("active", f"Procedure selected: {skill}")
+        if route:
+            term.field("Routing", route)
         return
     if line.startswith("-> "):
         name = line[3:].split("(", 1)[0].strip()
@@ -147,13 +183,17 @@ def _show_observer_line(term, raw: str) -> None:
         return
     match = _MODEL_RE.match(line)
     if match:
-        bits = [f"Model {match.group('total')}s"]
+        term.line()
+        term.status("info", "Model response")
+        term.field("Model call time", f"{match.group('total')} s")
         if match.group("ttft"):
-            bits.append(f"TTFT {match.group('ttft')}s")
-        bits.append(f"{int(match.group('input')):,} in / {int(match.group('output')):,} out")
+            term.field("First token", f"{match.group('ttft')} s")
+        term.field(
+            "Token usage",
+            f"{int(match.group('input')):,} input · {int(match.group('output')):,} output",
+        )
         if match.group("cached"):
-            bits.append(f"{int(match.group('cached')):,} cached")
-        term.status("info", " · ".join(bits))
+            term.field("Prompt cache", f"{int(match.group('cached')):,} tokens reused")
         return
     if line.startswith("^^ escalating"):
         term.status("warn", line[3:].strip())
@@ -229,13 +269,16 @@ def main(argv: list[str] | None = None) -> int:
     term.field("Model", "Qwen3-8B · INT4")
     term.field("Device", device_label("NPU"))
 
+    term.line()
     term.section("LOCAL MODEL")
     server_rc = _prepare_server(term)
     if server_rc != 0:
+        term.line()
         term.section("RESULT")
         term.status("fail", "Task did not start because the local model server is unavailable")
         return server_rc
 
+    term.line()
     term.section("AGENT WORK")
     rc, raw_report = _run_agent(term, args)
     answer, summary_lines = _split_report(raw_report)
@@ -250,15 +293,30 @@ def main(argv: list[str] | None = None) -> int:
     term.section("RESULT")
     outcome = fields.get("outcome", "pass" if rc == 0 else "fail")
     term.status("ok" if rc == 0 else "fail", f"Outcome: {outcome.upper()}")
-    for label, key in (
-        ("Procedure", "skill"),
-        ("Phase", "phase"),
-        ("Tool calls", "tool calls"),
-        ("Wall time", "wall"),
-    ):
-        value = fields.get(key)
-        if value:
-            term.field(label, value)
+
+    procedure = fields.get("skill")
+    if procedure:
+        term.field("Procedure", procedure)
+    phase = fields.get("phase")
+    if phase:
+        phase_display = "Answer produced" if phase == "report" else phase.replace("_", " ").title()
+        term.field("Final state", phase_display)
+    tool_calls = fields.get("tool calls")
+    if tool_calls:
+        term.field("Tool calls", tool_calls)
+
+    wall = fields.get("wall")
+    if wall:
+        timing = _parse_wall_timing(wall)
+        if timing:
+            term.line()
+            term.field("Total task time", timing["total"], role="green" if rc == 0 else None)
+            term.field("Model time", timing["model"])
+            term.field("Tool time", timing["tools"])
+            term.field("LCA overhead", timing["overhead"])
+        else:
+            term.field("Total task time", wall)
+
     if evidence:
         term.status("info", f"Evidence recorded: {len(evidence)} item(s)")
     for warning in warnings:
@@ -267,7 +325,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.transcript:
         term.status("info", f"Transcript: {args.transcript}")
     term.footer_note(
-        "The model proposes actions. Local Code Agent owns policy, execution state and verification."
+        "CONTROL BOUNDARY · The model proposes answers and tool calls. "
+        "Local Code Agent decides what may execute, tracks repository state, "
+        "and decides what evidence is current enough to count as verified."
     )
     return rc
 
