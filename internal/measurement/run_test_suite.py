@@ -7,8 +7,8 @@ function discovery, fixtures (including fixtures depending on fixtures and
 generator fixtures), `tmp_path`, `monkeypatch`, `pytest.raises`,
 `pytest.mark.parametrize`, `pytest.mark.skipif` and module-level `pytestmark`.
 
-    python measurement/run_test_suite.py tests
-    python measurement/run_test_suite.py tests/unit -k policy
+    python internal/measurement/run_test_suite.py
+    python internal/measurement/run_test_suite.py internal/tests/unit -k policy
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ import types
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
+
+DEFAULT_TEST_PATH = Path(__file__).resolve().parents[1] / "tests"
 
 # --------------------------------------------------------------------------
 # the `pytest` shim
@@ -253,20 +255,35 @@ def _skip_reason(marks: list[_MarkDecorator]) -> str | None:
     return None
 
 
-def run(paths: list[Path], keyword: str | None, verbose: bool) -> int:
-    _install_shim()
-    root = Path.cwd()
-    sys.path.insert(0, str(root / "src"))
-
+def _discover_test_files(paths: list[Path]) -> list[Path]:
     files: list[Path] = []
     for path in (p.resolve() for p in paths):
+        if not path.exists():
+            raise ValueError(f"test path does not exist: {path}")
         if path.is_file():
-            files.append(path)
+            if path.name.startswith("test_") and path.suffix == ".py":
+                files.append(path)
         else:
             files.extend(sorted(path.rglob("test_*.py")))
+    if not files:
+        joined = ", ".join(str(p) for p in paths)
+        raise ValueError(f"no test files collected from: {joined}")
+    return files
+
+
+def run(paths: list[Path], keyword: str | None, verbose: bool) -> int:
+    root = Path.cwd()
+    try:
+        files = _discover_test_files(paths)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    _install_shim()
+    sys.path.insert(0, str(root / "internal"))
 
     conftest_fixtures: dict[str, Callable] = {}
-    for conftest in sorted({f.parent for f in files} | {root / "tests"}):
+    for conftest in sorted({f.parent for f in files} | {DEFAULT_TEST_PATH}):
         candidate = conftest / "conftest.py"
         if candidate.is_file():
             module = _load_module(candidate, f"conftest_{candidate.parent.name}")
@@ -296,9 +313,7 @@ def run(paths: list[Path], keyword: str | None, verbose: bool) -> int:
                         print(f"SKIP {label} ({reason})")
                     continue
 
-                needed = [
-                    p for p in inspect.signature(fn).parameters if p not in params
-                ]
+                needed = [p for p in inspect.signature(fn).parameters if p not in params]
                 try:
                     with _resolve_many(needed, fixtures, {}) as kwargs:
                         fn(**params, **kwargs)
@@ -324,11 +339,12 @@ def run(paths: list[Path], keyword: str | None, verbose: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("paths", nargs="*", default=["tests"])
+    parser.add_argument("paths", nargs="*")
     parser.add_argument("-k", dest="keyword")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    return run([Path(p) for p in (args.paths or ["tests"])], args.keyword, args.verbose)
+    paths = [Path(p) for p in args.paths] if args.paths else [DEFAULT_TEST_PATH]
+    return run(paths, args.keyword, args.verbose)
 
 
 if __name__ == "__main__":
