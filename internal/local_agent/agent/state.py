@@ -37,6 +37,7 @@ class HaltCause(str, Enum):
                                                # (invented, or real but not offered)
     SERVER_UNAVAILABLE = "server_unavailable"  # the inference call itself failed
     INFERENCE_STALLED = "inference_stalled"    # server alive, request made no progress
+    CONTEXT_BUDGET_EXHAUSTED = "context_budget_exhausted"  # request would exceed local model cap
 
 
 class Validity(str, Enum):

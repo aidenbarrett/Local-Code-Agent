@@ -57,10 +57,11 @@ switch ($Command.ToLowerInvariant()) {
             Write-Host ''
             exit 2
         }
-        # The public workstation path provisions Qwen3-8B on the Panther Lake
-        # endpoint. Keep the product facade on that known profile instead of
-        # falling through to the generic CLI's historical 30B/port-8000 default.
-        & $python -m local_agent.cli --profile ptl-npu-8b run @Rest
+
+        # Product presentation lives outside the measured agent source. The
+        # presenter still delegates server ownership to chat.ps1 and execution
+        # through the controlled developer path using the provisioned ptl-npu-8b profile.
+        & $python (Join-Path $internal 'scripts\run-task-ui.py') @Rest
         exit $LASTEXITCODE
     }
     'verification-demo' {

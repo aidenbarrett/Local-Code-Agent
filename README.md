@@ -33,6 +33,8 @@ A controlled repository task looks like:
 .\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation
 ```
 
+The public `run-task` path prepares/reuses the same Qwen3-8B NPU server used by chat and selects the matching `ptl-npu-8b` agent profile explicitly.
+
 Examples of intended workloads include:
 
 - inspect a repository and explain how it builds
@@ -80,21 +82,21 @@ This describes implemented behaviour. It does not imply production readiness or 
 
 ## Measured evidence so far
 
-The strongest completed generation-1 evidence is the balanced three-repeat replication of the same ten synthetic C++ tasks with one local 30B model on CPU:
+Generation 1 used one local Qwen3-Coder-30B model on CPU against the same ten synthetic C++ tasks under three controlled conditions. The initial smoke produced **3/10 control, 8/10 narrow, 8/10 skill**. A later frozen replication used the same instrument identity, three balanced repeats and 90 case rows:
 
-| Condition | Verified completion |
-|---|---:|
-| Control | 9/30 (0.300) |
-| Narrow tools | 22/30 (0.733) |
-| Narrow tools + written skill | 23/29 (0.793) |
+| Condition | Per repeat | Pooled verified completion |
+|---|---|---:|
+| Control | 2/10, 4/10, 3/10 | **9/30 (0.300)** |
+| Narrow tools | 7/10, 7/10, 8/10 | **22/30 (0.733)** |
+| Narrow tools + written skill | 8/10, 7/9, 8/10 | **23/29 (0.793)** |
 
-Restricting the available action space produced the large observed movement: **+0.433** from control to narrow. Across the repeated fixture, control recorded 11 scope violations while narrow and skill recorded none. The written procedure added **+0.060** over narrow in aggregate, but the frozen findings treat that movement as small and unresolved rather than evidence of a general procedure effect. One skill row was infrastructure-invalid and is excluded from its denominator.
+One Skill row was `INVALID_SERVER_UNAVAILABLE` and is excluded from its denominator rather than counted as a task failure.
 
-The earlier smoke run at the same frozen instrument identity was 3/10, 8/10 and 8/10. The three-repeat run rotated condition order and reproduced the same overall shape; the repeats are repeated observations of the same ten fixtures, not independent tasks or a population-level statistical claim.
+The strongest measured signal remained **action-space narrowing**: `Narrow - Control = +0.433` in the balanced replication, with 11 scope violations in 30 Control rows and 0 in the 59 valid Narrow/Skill rows. The incremental written-procedure contrast was small and unresolved: `Skill - Narrow = +0.060`. The repeated data shows named, opposite per-case movements rather than a clear general procedure effect, so the defensible conclusion is **no clear aggregate procedure effect on this fixture**, not that written procedures have zero effect.
 
-These generation-1 measurements were taken on the historical NUC/WSL2 Ubuntu path using Qwen3-Coder-30B (`UD-Q4_K_XL`) through llama.cpp. They are **not** measurements of the current Panther Lake Windows/OVMS path. No 8B cell was run, so the result provides no evidence that the same effect transfers to the smaller model used in the current demo.
+These generation-1 runs were collected on the NUC under WSL2 Ubuntu with llama.cpp and the 30B UD-Q4_K_XL model. They are not measurements of the current Panther Lake / Windows / OVMS / Qwen3-8B demo stack, and they contained no 8B cell.
 
-Frozen analysis: [`internal/experiments/2026-09-08-30b-three-conditions-x3/findings.md`](internal/experiments/2026-09-08-30b-three-conditions-x3/findings.md).
+See [`internal/experiments/2026-09-08-30b-three-conditions-x3/findings.md`](internal/experiments/2026-09-08-30b-three-conditions-x3/findings.md) for the replication, caveats and per-case analysis.
 
 Generation 1 is reproduced from the historical tag `instrument-08d5e0fe`. The current tree intentionally has a different repository layout and source identity; recomputing the generation-1 source hash from the current tree is not a valid reproduction procedure.
 
@@ -154,7 +156,7 @@ Useful deeper documentation:
 | [`internal/docs/verification.md`](internal/docs/verification.md) | What counts as proof and why |
 | [`internal/docs/serving-and-accelerators.md`](internal/docs/serving-and-accelerators.md) | Model, runtime and accelerator details |
 | [`internal/docs/review-history.md`](internal/docs/review-history.md) | Adversarial defects and regression history |
-| [`internal/docs/project-history.md`](internal/docs/project-history.md) | Historical framing and earlier README material |
+| [`internal/docs/project-history.md`](internal/docs/project-history.md) | Historical framing and preserved earlier README material |
 | [`AGENTS.md`](AGENTS.md) | Developer guidance for changing the codebase |
 
 Historical experiments are frozen. Historical tags remain the authoritative way to reproduce historical layouts. Behaviour-affecting current source has an explicit source identity, while model-facing and outcome-facing contracts are tracked separately.

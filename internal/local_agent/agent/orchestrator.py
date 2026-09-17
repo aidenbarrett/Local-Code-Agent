@@ -518,6 +518,17 @@ class Orchestrator:
         if tiered is not None:
             budget = tiered.context_budget() or budget
         ctx = ContextManager(budget_tokens=budget)
+        active_config = (
+            tiered.config_for() if tiered is not None
+            else getattr(self.client, "config", None)
+        )
+        tool_result_max_bytes = self.repo.policy.max_tool_result_bytes
+        if active_config is not None:
+            token_cap = int(getattr(active_config, "max_tool_result_tokens", 0) or 0)
+            if token_cap > 0:
+                tool_result_max_bytes = min(
+                    tool_result_max_bytes, max(512, token_cap * 4)
+                )
         ctx.append(ctxmod.build_system_message(
             self.repo, self.skills.catalogue() if catalogue else None))
         if skill and condition == "skill":
@@ -530,10 +541,18 @@ class Orchestrator:
             skill.name if skill else None, skill, no_skill=(condition == "control"))
         state.toolset = list(toolset)
         schemas = self.registry.schemas(toolset)
+        ctx.set_tool_schemas(schemas)
         self.observer("toolset", {"tools": toolset})
 
         answer = ""
         nudged = False
+        task_lower = task.lower()
+        build_summary_mode = (
+            skill is not None
+            and skill.name == "repo-navigation"
+            and "build" in task_lower
+            and ("repository" in task_lower or "repo" in task_lower)
+        )
 
         while True:
             if state.tool_calls >= self.repo.policy.max_tool_calls:
@@ -565,9 +584,21 @@ class Orchestrator:
                     )
 
             state.metrics.context_peak_tokens = max(
-                state.metrics.context_peak_tokens, ctx.tokens
+                state.metrics.context_peak_tokens, ctx.estimated_request_tokens
             )
+            if ctx.estimated_request_tokens > budget:
+                state.halt(
+                    HaltCause.CONTEXT_BUDGET_EXHAUSTED,
+                    f"context budget exhausted before inference: estimated request "
+                    f"{ctx.estimated_request_tokens} tokens exceeds budget {budget}",
+                )
+                self.observer(
+                    "context_budget_exhausted",
+                    {"estimated": ctx.estimated_request_tokens, "budget": budget},
+                )
+                break
 
+            message_tokens_before_request = ctx.tokens
             try:
                 response = self.client.chat(ctx.for_request(), tools=schemas)
             except LLMTransportError as exc:
@@ -577,7 +608,17 @@ class Orchestrator:
                 # a server we could not reach, and one that answered but made no
                 # progress. They get different follow-up, so they are typed apart.
                 state.llm_error = str(exc)
-                if getattr(exc, "kind", "unavailable") == "stalled":
+                kind = getattr(exc, "kind", "unavailable")
+                if kind == "context_overflow":
+                    state.halt(
+                        HaltCause.CONTEXT_BUDGET_EXHAUSTED,
+                        f"inference request exceeded the model context limit: {exc}",
+                    )
+                    self.observer(
+                        "context_budget_exhausted",
+                        {"error": str(exc), "cause": exc.cause},
+                    )
+                elif kind == "stalled":
                     state.halt(HaltCause.INFERENCE_STALLED, f"inference stalled: {exc}")
                     self.observer("server_stalled", {"error": str(exc), "cause": exc.cause})
                 else:
@@ -588,6 +629,9 @@ class Orchestrator:
                     self.observer("server_unavailable", {"error": str(exc), "cause": exc.cause})
                 break
             state.metrics.observe_call(response.stats)
+            ctx.observe_prompt_tokens(
+                response.stats.prompt_tokens, message_tokens_before_request
+            )
             self.observer("llm", response.stats.as_dict())
             ctx.append(response.as_assistant_message())
 
@@ -627,9 +671,37 @@ class Orchestrator:
                     ctxmod.tool_result_message(
                         call.id,
                         call.name,
-                        outcome.to_json(self.repo.policy.max_tool_result_bytes),
+                        outcome.to_json(tool_result_max_bytes),
                     )
                 )
+                if build_summary_mode and call.name == "repo_info" and outcome.ok:
+                    # For a high-level repository build summary, repo_info already
+                    # contains the configured build/test profile. Do not leave the
+                    # small model a broad discovery surface after sufficient
+                    # evidence exists: narrow deterministically to reporting only.
+                    toolset = ["submit_answer"]
+                    state.toolset = list(toolset)
+                    schemas = self.registry.schemas(toolset)
+                    ctx.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "The repo_info result is sufficient for this high-level "
+                                "build summary. This task asks how the repository is "
+                                "configured, not whether its build or tests currently pass. "
+                                "Finish now by calling submit_answer with claim='diagnosis' "
+                                "and cite the repo_info tool result. Describe the configured "
+                                "profile name and build/test command arguments literally. "
+                                "Do not infer target languages, target types, build systems, "
+                                "or successful execution beyond repo_info. Do not call another "
+                                "discovery tool."
+                            ),
+                        }
+                    )
+                    self.observer(
+                        "toolset",
+                        {"tools": toolset, "reason": "repo_info sufficient for build summary"},
+                    )
                 if stop:
                     halt = True
                     break
@@ -642,7 +714,7 @@ class Orchestrator:
 
         state.metrics.wall_seconds = time.monotonic() - run_started
         state.metrics.context_peak_tokens = max(
-            state.metrics.context_peak_tokens, ctx.tokens
+            state.metrics.context_peak_tokens, ctx.estimated_request_tokens
         )
         if tiered is not None:
             state.metrics.tier_stats = tiered.stats_as_dict()

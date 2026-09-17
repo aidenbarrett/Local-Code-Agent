@@ -171,7 +171,7 @@ def test_compaction_is_recorded_and_warned_about(sandbox):
     registry, _, _ = build_registry(repo)
     skills = SkillLibrary.discover(REPO / "skills")
     orch = Orchestrator(
-        repo, registry, ScriptedClient(turns), skills, context_budget_tokens=900
+        repo, registry, ScriptedClient(turns), skills, context_budget_tokens=4_000
     )
     result = orch.run("read the file in pieces", skill_name="repo-navigation")
 

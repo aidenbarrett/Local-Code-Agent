@@ -82,7 +82,7 @@ def test_compaction_undershoots_the_budget_so_it_does_not_immediately_refire():
 
 
 def test_recent_results_survive_compaction_intact():
-    ctx = ContextManager(budget_tokens=2_000, keep_recent_tool_results=2)
+    ctx = ContextManager(budget_tokens=6_000, keep_recent_tool_results=2)
     ctx.append({"role": "system", "content": "sys"})
     for i in range(10):
         ctx.append(_tool_message(i))

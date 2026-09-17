@@ -177,9 +177,13 @@ class ContextManager:
     overrunning it there is not an error, it is garbage output.
     """
 
+    # Total request budget, not just visible message text. Tool schemas and
+    # chat-template framing consume prompt tokens too.
     budget_tokens: int = 12_000
     keep_recent_tool_results: int = 6
     hysteresis: float = 0.55
+    request_overhead_tokens: int = 0
+    calibration_margin_tokens: int = 128
     messages: list[dict[str, Any]] = field(default_factory=list)
     compactions: list[CompactionEvent] = field(default_factory=list)
 
@@ -196,6 +200,32 @@ class ContextManager:
         return approximate_tokens(self.messages)
 
     @property
+    def estimated_request_tokens(self) -> int:
+        return self.tokens + self.request_overhead_tokens
+
+    def set_tool_schemas(self, schemas: list[dict[str, Any]]) -> None:
+        """Reserve prompt space for schemas before the first model call.
+
+        The server's tokenizer is authoritative once it reports usage. Until then
+        a conservative serialized-size estimate prevents us pretending schemas are
+        free context.
+        """
+        if not schemas:
+            return
+        serialized = json.dumps(schemas, sort_keys=True, default=str)
+        estimate = max(1, len(serialized) // 4) + self.calibration_margin_tokens
+        self.request_overhead_tokens = max(self.request_overhead_tokens, estimate)
+
+    def observe_prompt_tokens(self, prompt_tokens: int, message_tokens: int) -> None:
+        """Calibrate fixed request overhead from a successful server call."""
+        if prompt_tokens <= 0:
+            return
+        measured = max(0, prompt_tokens - message_tokens)
+        self.request_overhead_tokens = max(
+            self.request_overhead_tokens, measured + self.calibration_margin_tokens
+        )
+
+    @property
     def stable_prefix_len(self) -> int:
         """Messages that have never been rewritten, so the server can cache them."""
         if not self.compactions:
@@ -205,30 +235,32 @@ class ContextManager:
     # ----------------------------------------------------------- compaction
 
     def needs_compaction(self) -> bool:
-        return self.tokens > self.budget_tokens
+        return self.estimated_request_tokens > self.budget_tokens
 
     def compact(self) -> CompactionEvent | None:
-        """Collapse old tool payloads in one go. Invalidates the KV prefix.
+        """Collapse tool payloads until the whole request is back in budget.
 
-        Compacts down to `hysteresis` of the budget rather than to exactly the
-        budget, so the next append does not immediately trigger another one.
-        A second compaction costs a second full re-prefill.
+        Prefer old results so recent evidence survives. If that is insufficient,
+        collapse recent results too rather than sending an oversized prompt. The
+        summary/evidence handle remains and the model can re-run a narrower call.
         """
-        before = self.tokens
+        before = self.estimated_request_tokens
         if before <= self.budget_tokens:
             return None
 
-        target = int(self.budget_tokens * self.hysteresis)
+        target_total = int(self.budget_tokens * self.hysteresis)
+        target_messages = max(0, target_total - self.request_overhead_tokens)
         tool_indices = [i for i, m in enumerate(self.messages) if m.get("role") == "tool"]
-        collapsible = (
+        old = (
             tool_indices[: -self.keep_recent_tool_results]
             if self.keep_recent_tool_results
             else tool_indices
         )
+        recent = [i for i in tool_indices if i not in old]
 
         first_touched = len(self.messages)
         collapsed = 0
-        for idx in collapsible:
+        for idx in [*old, *recent]:
             try:
                 already = json.loads(self.messages[idx].get("content") or "{}")
             except (ValueError, TypeError):
@@ -238,7 +270,7 @@ class ContextManager:
             self.messages[idx] = _collapse(self.messages[idx])
             first_touched = min(first_touched, idx)
             collapsed += 1
-            if self.tokens <= target:
+            if self.tokens <= target_messages:
                 break
 
         if not collapsed:
@@ -247,7 +279,7 @@ class ContextManager:
         event = CompactionEvent(
             at_message_index=first_touched,
             tokens_before=before,
-            tokens_after=self.tokens,
+            tokens_after=self.estimated_request_tokens,
             collapsed_results=collapsed,
         )
         self.compactions.append(event)
@@ -262,6 +294,8 @@ class ContextManager:
         return {
             "messages": len(self.messages),
             "approx_tokens": self.tokens,
+            "request_overhead_tokens": self.request_overhead_tokens,
+            "estimated_request_tokens": self.estimated_request_tokens,
             "budget_tokens": self.budget_tokens,
             "compactions": len(self.compactions),
             "tokens_reclaimed": sum(c.tokens_reclaimed for c in self.compactions),

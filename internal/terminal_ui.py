@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
+import textwrap
 from dataclasses import dataclass
 from typing import TextIO
 
@@ -171,6 +172,16 @@ class TerminalUI:
         rendered = self.paint(value, role, bold=role in {"green", "red"}) if role else value
         self.line(f"  {label:<18} {rendered}")
 
+    def wrapped_field(self, label: str, value: str, *, role: str | None = None) -> None:
+        """Render a long user-facing value without destroying the section layout."""
+        prefix = f"  {label:<18} "
+        continuation = " " * len(prefix)
+        width = max(20, self.width - len(prefix))
+        lines = textwrap.wrap(value, width=width, replace_whitespace=False) or [""]
+        for index, line in enumerate(lines):
+            rendered = self.paint(line, role, bold=role in {"green", "red"}) if role else line
+            self.line((prefix if index == 0 else continuation) + rendered)
+
     def status(self, state: str, text: str) -> None:
         state = state.lower()
         unicode_marks = {
@@ -191,14 +202,65 @@ class TerminalUI:
         mark, role = marks.get(state, marks["info"])
         self.line(f"  {self.paint(mark, role, bold=True)} {text}")
 
+    def panel(self, title: str, text: str, *, border_role: str = "magenta") -> None:
+        """High-emphasis wrapped panel for the answer or another primary result."""
+        if self.unicode_output:
+            top_left, top_right, side, bottom_left, bottom_right, horizontal = (
+                "╔", "╗", "║", "╚", "╝", "═"
+            )
+        else:
+            top_left = top_right = bottom_left = bottom_right = "+"
+            side, horizontal = "|", "-"
+
+        inner = self.width - 2
+        content_width = max(20, inner - 4)
+        heading = f" {title.upper()} "
+        heading = heading[:inner]
+        top_fill = max(0, inner - len(heading))
+        self.line(
+            self.paint(top_left + heading + horizontal * top_fill + top_right,
+                       border_role, bold=True)
+        )
+
+        paragraphs = text.splitlines() or [""]
+        rendered_lines: list[str] = []
+        for paragraph in paragraphs:
+            if not paragraph.strip():
+                rendered_lines.append("")
+                continue
+            rendered_lines.extend(
+                textwrap.wrap(
+                    paragraph,
+                    width=content_width,
+                    replace_whitespace=False,
+                    drop_whitespace=True,
+                ) or [""]
+            )
+
+        for line in rendered_lines:
+            padded = f"  {line:<{content_width}}  "
+            self.line(
+                self.paint(side, border_role, bold=True)
+                + padded
+                + self.paint(side, border_role, bold=True)
+            )
+
+        self.line(
+            self.paint(bottom_left + horizontal * inner + bottom_right,
+                       border_role, bold=True)
+        )
+
     def request_header(self, number: int, state: str) -> None:
         role = "amber" if state == "COLD START" else "cyan"
         text = f"REQUEST {number:02d}  //  {state}"
         self.line("  " + self.paint(text, role, bold=True))
 
     def footer_note(self, text: str) -> None:
+        """Render secondary explanatory copy with deliberate terminal wrapping."""
         self.line()
-        self.line("  " + self.paint(text, "dim"))
+        width = max(20, self.width - 4)
+        for line in textwrap.wrap(text, width=width, replace_whitespace=False) or [""]:
+            self.line("  " + self.paint(line, "dim"))
 
 
 def ui(*, stream: TextIO | None = None, colour: bool | None = None,

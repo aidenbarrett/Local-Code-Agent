@@ -84,6 +84,20 @@ def _usage_from(obj: Any) -> tuple[int, int, int | None]:
     return prompt, completion, cached
 
 
+def _transport_kind(exc: Exception) -> str:
+    """Classify transport failures without calling a live server dead."""
+    name = type(exc).__name__
+    message = str(exc).lower()
+    if (
+        "input length exceeds" in message
+        or ("maximum allowed length" in message and "input" in message)
+    ):
+        return "context_overflow"
+    if "timeout" in name.lower() or "timeout" in message:
+        return "stalled"
+    return "unavailable"
+
+
 def _http_stack() -> Any:
     """The HTTP library the installed openai SDK is built on.
 
@@ -277,13 +291,13 @@ class OpenAICompatibleClient:
                     completion = self._ensure().chat.completions.create(**kwargs)
                 except Exception as exc2:
                     raise LLMTransportError(
-                        f"{type(exc2).__name__}: {exc2}", cause=type(exc2).__name__
+                        f"{type(exc2).__name__}: {exc2}", cause=type(exc2).__name__,
+                    kind=_transport_kind(exc2)
                     ) from exc2
             else:
                 name = type(exc).__name__
                 raise LLMTransportError(
-                    f"{name}: {exc}", cause=name,
-                    kind="stalled" if "Timeout" in name else "unavailable",
+                    f"{name}: {exc}", cause=name, kind=_transport_kind(exc),
                 ) from exc
         elapsed = time.monotonic() - started
         provenance = _provenance_from(completion)
@@ -342,14 +356,16 @@ class OpenAICompatibleClient:
                 retried = True
             if not retried:
                 raise LLMTransportError(
-                    f"{type(exc).__name__}: {exc}", cause=type(exc).__name__
+                    f"{type(exc).__name__}: {exc}", cause=type(exc).__name__,
+                    kind=_transport_kind(exc)
                 ) from exc
             started = time.monotonic()
             try:
                 stream = self._ensure().chat.completions.create(**kwargs)
             except Exception as exc2:
                 raise LLMTransportError(
-                    f"{type(exc2).__name__}: {exc2}", cause=type(exc2).__name__
+                    f"{type(exc2).__name__}: {exc2}", cause=type(exc2).__name__,
+                    kind=_transport_kind(exc2)
                 ) from exc2
 
         ttft: float | None = None

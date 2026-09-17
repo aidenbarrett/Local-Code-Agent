@@ -45,11 +45,14 @@ this branch may freeze the revised agent identity/anti-guessing prompt without
 creating a post-data methodology change. The moment row one lands, both contract
 axes freeze for confirmatory comparison.
 
-Recompute and compare after the editable install:
+Canonical recomputation from the repository root, with no editable-install
+assumption:
 
 ```text
 python -c "import sys; sys.path.insert(0,'internal'); from local_agent import provenance as p; print(p.source_sha256()); print(p.base_prompt_sha256()); print(p.outcome_contract_sha256())"
 ```
+
+The same command is recorded in `internal/INSTRUMENT.json`; keep the two in sync.
 
 ## Do not change without saying so explicitly in the PR
 
@@ -75,7 +78,8 @@ python internal/measurement/capture_run_manifest.py --profile <p> --out <f>
 
 `internal/measurement/run_test_suite.py` is a compatibility runner for offline
 machines. It is **not authoritative**. Green there is not green if native pytest
-fails.
+fails. With no path argument it runs `internal/tests`; a missing path or an empty
+collection is an error, never a green zero-test run.
 
 Every test under `internal/tests/` is exercised by both real pytest and the
 offline compatibility runner in pull-request CI. New tests must stay within the

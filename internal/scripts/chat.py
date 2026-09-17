@@ -264,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="chat", description="Talk directly to a local model.")
     parser.add_argument("model", nargs="?", default="list", help="model choice, or 'list' to show available choices")
     parser.add_argument("--persona", default="off", metavar="NAME_OR_PATH", help="optional chat-only tone profile: 'neutral', 'off', or a persona TOML path")
+    parser.add_argument("--ensure-only", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.model == "list":
         return list_profiles()
@@ -273,6 +274,8 @@ def main(argv: list[str] | None = None) -> int:
         list_profiles()
         return 2
     profile, _device, config = resolved
+    if args.ensure_only:
+        return 0 if _ensure_server(profile, config) else 2
     term = ui()
     persona = _load_requested_persona(args.persona, term)
     return converse(args.model, profile, config, persona)

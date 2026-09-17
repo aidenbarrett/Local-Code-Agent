@@ -14,18 +14,14 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $internal = Join-Path $root 'internal'
 
-if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
-    Write-Host ''
-    Write-Host 'chat.ps1 currently supports the Windows workstation path only.'
-    Write-Host 'The controller is portable, but this wrapper expects the managed Windows OVMS layout.'
-    Write-Host ''
-    exit 2
+$localAppData = $env:LOCALAPPDATA
+if (-not $localAppData) {
+    $localAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
 }
-if (-not $env:LOCALAPPDATA) {
-    Write-Host 'LOCALAPPDATA is not set; cannot locate the managed Local Code Agent runtime.'
-    exit 2
+if (-not $localAppData) {
+    $localAppData = Join-Path $HOME '.local'
 }
-$runtimeRoot = Join-Path $env:LOCALAPPDATA 'LocalCodeAgent'
+$runtimeRoot = Join-Path $localAppData 'LocalCodeAgent'
 
 $python = @(
     (Join-Path $root '.venv-workstation\Scripts\python.exe'),

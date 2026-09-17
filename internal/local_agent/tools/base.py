@@ -260,14 +260,18 @@ class ToolResult:
             return text
 
         # Too big. Drop the payload, keep the handle. The model can page.
+        note = (
+            "Result exceeded the tool-result budget. Use read_log_chunk or read_file "
+            "against the listed artifacts to page through it."
+            if self.artifacts
+            else "Result exceeded the tool-result budget. Repeat the tool with a "
+                 "smaller limit or a narrower path/pattern."
+        )
         trimmed = {
             "ok": self.ok,
             "summary": self.summary,
             "truncated": True,
-            "note": (
-                "Result exceeded the tool-result budget. Use read_log_chunk or "
-                "read_file against the listed artifacts to page through it."
-            ),
+            "note": note,
             "artifacts": self.artifacts,
         }
         if self.exit_code is not None:
