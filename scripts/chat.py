@@ -27,9 +27,6 @@ if str(REPO) not in sys.path:
 
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
 
-# Friendly names are a user-facing layer over the existing preregistered model
-# profiles. Qwen3-8B has one profile; CPU/GPU/NPU are explicit device overrides,
-# matching the accelerator demo rather than inventing new behavioural profiles.
 FRIENDLY: dict[str, tuple[str, str]] = {
     "qwen3-8b-npu": ("ptl-npu-8b", "NPU"),
     "qwen3-8b-gpu": ("ptl-npu-8b", "GPU"),
@@ -42,7 +39,6 @@ RUNTIME_LABEL = {"ovms": "OVMS / OpenVINO", "llamacpp": "llama.cpp", "cloud": "C
 
 
 def _resolve(name: str) -> tuple[str, str, ModelConfig] | None:
-    """Return (profile, device, config), or None if the name is unknown."""
     if name in FRIENDLY:
         profile, device = FRIENDLY[name]
     else:
@@ -97,7 +93,6 @@ def _header(name: str, profile: str, config: ModelConfig, reachable: bool) -> No
 def _reachable(config: ModelConfig) -> bool:
     import urllib.error
     import urllib.request
-
     root = config.base_url.rstrip("/").rsplit("/", 1)[0]
     for url in (f"{config.base_url.rstrip('/')}/models", f"{root}/v1/models"):
         try:
@@ -110,14 +105,13 @@ def _reachable(config: ModelConfig) -> bool:
 
 def converse(name: str, profile: str, config: ModelConfig) -> int:
     from local_agent.llm.client import OpenAICompatibleClient
-
     reachable = _reachable(config)
     _header(name, profile, config, reachable)
     if not reachable:
-        print("The model configuration is known, but nothing is serving it yet.")
+        print(f"No model server is running for {name}.")
         print()
-        print("Start the configured model server with:")
-        print(f"  python measurement/serve.py start --profile {profile} --device {config.device}")
+        print("Start one with:")
+        print(f"  .\\scripts\\demo-accelerator.ps1 -Device {config.device} -Seconds 5 -KeepServer")
         print()
         print("Then run the same chat command again.")
         print()
@@ -158,13 +152,10 @@ def converse(name: str, profile: str, config: ModelConfig) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="chat", description="Talk directly to a local model.")
-    parser.add_argument("model", nargs="?", default="list",
-                        help="model choice, or 'list' to show available choices")
+    parser.add_argument("model", nargs="?", default="list", help="model choice, or 'list' to show available choices")
     args = parser.parse_args(argv)
-
     if args.model == "list":
         return list_profiles()
-
     resolved = _resolve(args.model)
     if resolved is None:
         print(f"\nUnknown model choice: {args.model}\n", file=sys.stderr)
