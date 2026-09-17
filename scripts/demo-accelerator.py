@@ -27,9 +27,18 @@ from measurement import serve  # noqa: E402
 BASE_PROFILE = "ptl-npu-8b"
 DEMO_PROFILE = BASE_PROFILE
 DEVICES = ("CPU", "GPU", "NPU")
+WIDTH = 68
 PROMPT = (
     "Produce a compact C++ code review checklist with exactly 20 numbered items. "
     "Do not use tools. Do not explain your reasoning."
+)
+
+LOGO = (
+    " _      ____    _    ",
+    "| |    / ___|  / \\   ",
+    "| |   | |     / _ \\  ",
+    "| |___| |___ / ___ \\ ",
+    "|_____\\____/_/   \\_\\",
 )
 
 
@@ -64,6 +73,22 @@ def monitor_hint(device: str) -> str:
     return "top/htop or your CPU monitor"
 
 
+def section(title: str) -> None:
+    label = f" {title} "
+    remaining = max(1, WIDTH - len(label))
+    print(f"{label}{'-' * remaining}")
+
+
+def print_banner() -> None:
+    print()
+    for line in LOGO:
+        print(f"  {line}")
+    print()
+    print("  LOCAL CODE AGENT")
+    print("  Local Model Accelerator Demo")
+    print("=" * WIDTH)
+
+
 def stop_owned_previous(plan) -> None:
     """Stop only a process the deterministic serving controller can prove it owns."""
     record = serve.read_record(plan)
@@ -71,7 +96,7 @@ def stop_owned_previous(plan) -> None:
         return
     state = serve.status(plan)
     if state["process_alive"]:
-        print(f"Stopping the previously started demo server (PID {state['pid']})")
+        print(f"  Stopping previously started demo server (PID {state['pid']})")
         serve.stop(plan)
     else:
         # Clear stale owned state through the same controller path.
@@ -89,27 +114,33 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
         model_dir=model_dir,
     )
 
+    print_banner()
+    section("MODEL SETUP")
+    print(f"  Model            {cfg.model.split('/')[-1]}")
+    print("  Backend          OVMS / OpenVINO")
+    print(f"  Requested device {cfg.device}")
+    print(f"  Hardware view    {monitor_hint(cfg.device)}")
     print()
-    print("=" * 68)
-    print("Local Model Accelerator Demo")
-    print(f"  Model:            {cfg.model.split('/')[-1]}")
-    print("  Backend:          OVMS / OpenVINO")
-    print(f"  Requested device: {cfg.device}")
-    print(f"  Watch activity:   {monitor_hint(cfg.device)}")
-    print("=" * 68)
 
     stop_owned_previous(plan)
-    print("Starting the model server through the normal validated serving path...")
+    section("STARTUP")
+    print("  [1/3] Starting the model server through the validated serving path...")
     state = serve.start(plan, cfg, wait_seconds=900)
-    print(f"Server ready: {cfg.base_url}  (PID {state['pid']})")
-    print(f"Resolved execution device: {state['resolved_device']}")
-    print(f"Running repeated model inference for {seconds:.0f} seconds.")
-    print(f"Watch now: {monitor_hint(cfg.device)}")
+    print(f"        Ready at          {cfg.base_url}")
+    print(f"        Process ID        {state['pid']}")
+    print(f"        Device confirmed  {state['resolved_device']}")
+    print()
+
+    section("INFERENCE RUN")
+    print(f"  [2/3] Running repeated model inference for {seconds:.0f} seconds")
+    print(f"        Watch now: {monitor_hint(cfg.device)}")
 
     client = OpenAICompatibleClient(cfg)
     deadline = time.monotonic() + seconds
     calls = 0
     failures = 0
+    ttfts: list[float] = []
+    rates: list[float] = []
     try:
         while time.monotonic() < deadline:
             calls += 1
@@ -120,43 +151,58 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
                     max_tokens=256,
                 )
                 stats = reply.stats
+                if stats.ttft_s is not None:
+                    ttfts.append(stats.ttft_s)
+                if stats.decode_tok_s is not None:
+                    rates.append(stats.decode_tok_s)
                 ttft = f"{stats.ttft_s:.2f} s" if stats.ttft_s is not None else "n/a"
                 rate = (f"{stats.decode_tok_s:.1f} tokens/s"
                         if stats.decode_tok_s is not None else "n/a")
                 length = (f"{stats.completion_tokens} tokens"
                           if stats.completion_tokens is not None else "n/a")
+
                 print()
                 if calls == 1:
-                    print("Inference 1  (first request after model startup)")
-                    print(f"  Time to first token: {ttft}")
-                    print("    Includes one-time runtime warm-up and processing the prompt")
+                    print("  Request 1 | COLD START")
+                    note = "One-time runtime warm-up + prompt processing"
                 else:
-                    print(f"Inference {calls}  (model already warm)")
-                    print(f"  Time to first token: {ttft}")
-                    print("    Runtime is already initialised; prompt processing still happens")
-                print(f"  Generation speed:    {rate}")
-                print(f"  Output length:       {length}")
+                    print(f"  Request {calls} | WARM")
+                    note = "Runtime already initialised; prompt processing still happens"
+                print(f"    First token       {ttft}")
+                print(f"    Generation speed  {rate}")
+                print(f"    Output length     {length}")
+                print(f"    Note              {note}")
             except Exception as exc:  # keep the demo visibly diagnostic
                 failures += 1
                 print()
-                print(f"Inference {calls}: FAILED")
-                print(f"  {type(exc).__name__}: {exc}")
+                print(f"  Request {calls} | FAILED")
+                print(f"    {type(exc).__name__}: {exc}")
                 break
     finally:
+        print()
+        section("SERVER")
         if keep_server:
-            print()
-            print(f"Leaving the model server running at {cfg.base_url}")
+            print(f"  Server left running at {cfg.base_url}")
         else:
             serve.stop(plan)
-            print()
-            print("Model server stopped.")
+            print("  Model server stopped cleanly")
 
     if calls == 0 or failures:
         return 1
+
     print()
-    print("Result: PASS")
-    print(f"{calls} model inference request(s) completed successfully on {cfg.device}.")
-    print("Timing values above are demo observations, not benchmark results.")
+    section("SUMMARY")
+    print("  [3/3] RESULT         PASS")
+    print(f"        Device         {cfg.device}")
+    print(f"        Requests       {calls} completed successfully")
+    if rates:
+        print(f"        Average speed  {sum(rates) / len(rates):.1f} tokens/s")
+    if ttfts:
+        print(f"        Best first token {min(ttfts):.2f} s")
+    print()
+    print("  Timing values are live demo observations, not benchmark results.")
+    print("=" * WIDTH)
+    print()
     return 0
 
 
