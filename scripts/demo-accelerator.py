@@ -34,11 +34,11 @@ PROMPT = (
 )
 
 LOGO = (
-    " _      ____    _    ",
-    "| |    / ___|  / \\   ",
-    "| |   | |     / _ \\  ",
-    "| |___| |___ / ___ \\ ",
-    "|_____\\____/_/   \\_\\",
+    " _      ____      /\\",
+    "| |    / ___|    /  \\",
+    "| |   | |       / /\\ \\",
+    "| |___| |___   / ____ \\",
+    "|_____|\\____| /_/    \\_\\",
 )
 
 
@@ -56,8 +56,6 @@ def demo_config(device: str):
         base,
         device=device,
         device_note=f"{device} accelerator demo",
-        # Demo latency should not be dominated by hidden Qwen reasoning. The
-        # qualification path separately verifies whether the server honours it.
         thinking=False,
         stream=True,
     )
@@ -74,9 +72,8 @@ def monitor_hint(device: str) -> str:
 
 
 def section(title: str) -> None:
-    label = f" {title} "
-    remaining = max(1, WIDTH - len(label))
-    print(f"{label}{'-' * remaining}")
+    print(title)
+    print("-" * WIDTH)
 
 
 def print_banner() -> None:
@@ -85,22 +82,21 @@ def print_banner() -> None:
         print(f"  {line}")
     print()
     print("  LOCAL CODE AGENT")
-    print("  Local Model Accelerator Demo")
+    print("  Accelerator Verification Demo")
+    print()
     print("=" * WIDTH)
+    print()
 
 
-def stop_owned_previous(plan) -> None:
+def stop_owned_previous(plan):
     """Stop only a process the deterministic serving controller can prove it owns."""
     record = serve.read_record(plan)
     if not record:
-        return
+        return None
     state = serve.status(plan)
-    if state["process_alive"]:
-        print(f"  Stopping previously started demo server (PID {state['pid']})")
-        serve.stop(plan)
-    else:
-        # Clear stale owned state through the same controller path.
-        serve.stop(plan)
+    pid = state["pid"]
+    serve.stop(plan)
+    return pid
 
 
 def run_device(device: str, *, seconds: float, runtime_root: Path,
@@ -115,22 +111,27 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
     )
 
     print_banner()
+
     section("MODEL SETUP")
-    print(f"  Model            {cfg.model.split('/')[-1]}")
-    print("  Backend          OVMS / OpenVINO")
-    print(f"  Requested device {cfg.device}")
-    print(f"  Hardware view    {monitor_hint(cfg.device)}")
-    print()
+    print(f"  Model             {cfg.model.split('/')[-1]}")
+    print("  Backend           OVMS / OpenVINO")
+    print(f"  Requested device  {cfg.device}")
+    print(f"  Hardware view     {monitor_hint(cfg.device)}")
 
-    stop_owned_previous(plan)
+    stopped_pid = stop_owned_previous(plan)
+
+    print()
     section("STARTUP")
-    print("  [1/3] Starting the model server through the validated serving path...")
+    if stopped_pid:
+        print(f"  Previous server   stopped (PID {stopped_pid})")
+        print()
+    print("  [1/3] Starting validated model server...")
     state = serve.start(plan, cfg, wait_seconds=900)
-    print(f"        Ready at          {cfg.base_url}")
-    print(f"        Process ID        {state['pid']}")
-    print(f"        Device confirmed  {state['resolved_device']}")
-    print()
+    print(f"        Ready at         {cfg.base_url}")
+    print(f"        Process ID       {state['pid']}")
+    print(f"        Device confirmed {state['resolved_device']}")
 
+    print()
     section("INFERENCE RUN")
     print(f"  [2/3] Running repeated model inference for {seconds:.0f} seconds")
     print(f"        Watch now: {monitor_hint(cfg.device)}")
@@ -172,7 +173,7 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
                 print(f"    Generation speed  {rate}")
                 print(f"    Output length     {length}")
                 print(f"    Note              {note}")
-            except Exception as exc:  # keep the demo visibly diagnostic
+            except Exception as exc:
                 failures += 1
                 print()
                 print(f"  Request {calls} | FAILED")
@@ -182,7 +183,7 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
         print()
         section("SERVER")
         if keep_server:
-            print(f"  Server left running at {cfg.base_url}")
+            print(f"  Model server left running at {cfg.base_url}")
         else:
             serve.stop(plan)
             print("  Model server stopped cleanly")
@@ -192,15 +193,16 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
 
     print()
     section("SUMMARY")
-    print("  [3/3] RESULT         PASS")
-    print(f"        Device         {cfg.device}")
-    print(f"        Requests       {calls} completed successfully")
+    print("  [3/3] RESULT          PASS")
+    print(f"        Device          {cfg.device}")
+    print(f"        Requests        {calls} completed successfully")
     if rates:
-        print(f"        Average speed  {sum(rates) / len(rates):.1f} tokens/s")
+        print(f"        Average speed   {sum(rates) / len(rates):.1f} tokens/s")
     if ttfts:
         print(f"        Best first token {min(ttfts):.2f} s")
     print()
     print("  Timing values are live demo observations, not benchmark results.")
+    print()
     print("=" * WIDTH)
     print()
     return 0
