@@ -5,8 +5,9 @@ Runs entirely against a disposable copy of the benchmark project. No model, no
 evaluator, no experiment path, nothing written inside the repository. Safe to
 rehearse as often as you like.
 
-The important moment is that the test runner genuinely reports success against
-an old binary, while Local Code Agent independently refuses that stale result.
+The important moment is that the configured test runner genuinely reports
+success against an old binary, while Local Code Agent independently refuses that
+stale result.
 """
 from __future__ import annotations
 
@@ -35,21 +36,25 @@ def require(condition: bool, message: str) -> None:
         raise DemoInvariant(message)
 
 
-def ctest_directly(root: Path) -> str:
-    """What a naive agent would run, and believe."""
+def ctest_directly(root: Path, command: list[str]) -> tuple[int, str]:
+    """Run the exact configured test command without LCA verification."""
     proc = subprocess.run(
-        ["ctest", "--test-dir", str(root / "build"), "--output-on-failure"],
-        capture_output=True, text=True, check=False,
+        command,
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     for line in reversed((proc.stdout + proc.stderr).splitlines()):
         if "tests passed" in line or "tests failed" in line:
-            return line.strip()
-    return f"exit code {proc.returncode}"
+            return proc.returncode, line.strip()
+    return proc.returncode, f"exit code {proc.returncode}"
 
 
 def demonstrate(root: Path) -> None:
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
+    from local_agent.tools.base import DomainStatus, Reason
 
     term = ui()
     term.banner(
@@ -59,7 +64,11 @@ def demonstrate(root: Path) -> None:
     term.status("info", "A disposable C++ project is used. No model is involved.")
     term.line()
 
-    registry, _, _ = build_registry(load_repo_config(root))
+    repo_config = load_repo_config(root)
+    profile = repo_config.profile()
+    test_command = list(profile.test)
+    require(bool(test_command), "the default build profile defines no test command")
+    registry, _, _ = build_registry(repo_config)
 
     term.section("1 · BUILD A CLEAN PROJECT")
     started = time.time()
@@ -71,10 +80,18 @@ def demonstrate(root: Path) -> None:
     term.line()
     term.section("2 · RUN TESTS ON THE CURRENT SOURCE")
     honest = registry.get("run_test").handler()
-    require(honest.ok,
-            "verification refused an honest tree; nothing after this would mean anything")
-    term.field("Test runner", ctest_directly(root))
-    term.status("ok", "Independent verification accepted the result")
+    direct_code, direct_summary = ctest_directly(root, test_command)
+    term.field("Test runner", direct_summary)
+    require(
+        direct_code == 0,
+        f"the configured test runner did not pass the clean baseline: {direct_summary}",
+    )
+    require(
+        honest.ok and honest.domain_status == DomainStatus.PASS,
+        "independent verification did not accept a genuinely passing clean tree: "
+        f"{honest.summary}",
+    )
+    term.status("ok", "Independent verification accepted the passing result")
 
     term.line()
     term.section("3 · CHANGE SOURCE WITHOUT REBUILDING")
@@ -93,7 +110,13 @@ def demonstrate(root: Path) -> None:
 
     term.line()
     term.section("4 · RUN THE TESTS AGAIN WITHOUT REBUILDING")
-    term.field("Test runner", ctest_directly(root))
+    stale_code, stale_summary = ctest_directly(root, test_command)
+    term.field("Test runner", stale_summary)
+    require(
+        stale_code == 0,
+        "the old compiled program did not pass, so there is no false-success result "
+        f"for the verifier to reject: {stale_summary}",
+    )
     term.line()
     term.status("warn", "The tests passed, but they executed the OLD compiled program")
     term.line("  Treating that output alone as proof would report a false success.")
@@ -104,6 +127,10 @@ def demonstrate(root: Path) -> None:
     stale = verified.data.get("stale_sources") or []
     require(not verified.ok,
             "VERIFICATION ACCEPTED A STALE TREE. Do not show this demo; investigate.")
+    require(verified.domain_status == DomainStatus.UNKNOWN,
+            f"stale evidence should be UNKNOWN, got {verified.domain_status}")
+    require(verified.reason == Reason.STALE_BINARY,
+            f"expected STALE_BINARY refusal, got {verified.reason}")
     require("src/ring_buffer.cpp" in stale,
             f"the edited file was not reported as stale; got {stale}")
     term.status("warn", "Independent verification REFUSED the passing test result")
