@@ -126,8 +126,14 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
                 length = (f"{stats.completion_tokens} tokens"
                           if stats.completion_tokens is not None else "n/a")
                 print()
-                print(f"Inference {calls}")
-                print(f"  Time to first token: {ttft}")
+                if calls == 1:
+                    print("Inference 1  (first request after model startup)")
+                    print(f"  Time to first token: {ttft}")
+                    print("    Includes one-time runtime warm-up and processing the prompt")
+                else:
+                    print(f"Inference {calls}  (model already warm)")
+                    print(f"  Time to first token: {ttft}")
+                    print("    Runtime is already initialised; prompt processing still happens")
                 print(f"  Generation speed:    {rate}")
                 print(f"  Output length:       {length}")
             except Exception as exc:  # keep the demo visibly diagnostic
@@ -149,7 +155,8 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
         return 1
     print()
     print("Result: PASS")
-    print(f"Completed {calls} inference request(s) successfully on {cfg.device}.")
+    print(f"{calls} model inference request(s) completed successfully on {cfg.device}.")
+    print("Timing values above are demo observations, not benchmark results.")
     return 0
 
 
@@ -163,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         help="accelerator to demonstrate; ALL runs CPU, GPU, then NPU sequentially",
     )
     parser.add_argument("--seconds", type=float, default=45.0,
-                        help="sustained inference time per device (default: 45)")
+                        help="repeated inference time per device (default: 45)")
     parser.add_argument("--runtime-root", type=Path, default=default_runtime_root())
     parser.add_argument("--executable", help="override the OVMS executable")
     parser.add_argument("--model-dir", type=Path,
