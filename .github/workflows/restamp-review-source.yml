@@ -1,0 +1,56 @@
+name: restamp review source identity
+
+on:
+  push:
+    branches: [fix/post-refactor-review]
+
+permissions:
+  contents: write
+
+jobs:
+  restamp:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/post-refactor-review
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recompute declared identities
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, 'internal')
+          from local_agent import provenance as p
+
+          path = Path('internal/INSTRUMENT.json')
+          declaration = json.loads(path.read_text(encoding='utf-8'))
+          source = p.source_sha256()
+          base = p.base_prompt_sha256()
+          outcome = p.outcome_contract_sha256()
+
+          if base != declaration['base_prompt_sha256']:
+              raise SystemExit(f"base_prompt_sha256 unexpectedly moved: {base}")
+          if outcome != declaration['outcome_contract_sha256']:
+              raise SystemExit(f"outcome_contract_sha256 unexpectedly moved: {outcome}")
+
+          print(f"source_sha256={source}")
+          print(f"base_prompt_sha256={base}")
+          print(f"outcome_contract_sha256={outcome}")
+          declaration['source_sha256'] = source
+          path.write_text(json.dumps(declaration, indent=2) + '\n', encoding='utf-8')
+          PY
+      - name: Commit declaration and remove one-shot workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/restamp-review-source.yml
+          git add internal/INSTRUMENT.json
+          git diff --cached --exit-code && exit 0
+          git commit -m 'Restamp source identity after runner hardening'
+          git push origin HEAD:fix/post-refactor-review
