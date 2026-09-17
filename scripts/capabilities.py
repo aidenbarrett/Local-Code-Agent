@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Show what Local Code Agent can and cannot do using the live implementation.
 
-    python scripts/capabilities.py
+Use the root entrypoint on Windows:
 
-Supported capabilities are read from the live tool registry and installed
+    .\local-code-agent.ps1 capabilities
+
+Supported capabilities are read from the live implementation and installed
 skills so this page cannot quietly drift away from the code. Unsupported items
 are explicit design boundaries rather than missing documentation.
 """
@@ -47,7 +49,7 @@ NOT_SUPPORTED = [
     ("Unrestricted filesystem access",
      "writes to protected locations such as .git and agent state are refused"),
     ("Model self-certification",
-     "build and test evidence is checked independently, never accepted on the model's word"),
+     "build and test evidence is checked by independent verification, never accepted on the model's word"),
     ("Accepting stale test results",
      "a pass over out-of-date binaries is refused even when the test runner reports success"),
     ("Uncited claims",
@@ -107,7 +109,7 @@ def main() -> int:
 
     print()
     print("See independent verification reject stale test results:")
-    print("  python scripts/demo-trust-boundary.py")
+    print("  .\\local-code-agent.ps1 verification-demo")
     print()
     return 0
 
