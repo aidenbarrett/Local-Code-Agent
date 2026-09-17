@@ -48,7 +48,7 @@ axes freeze for confirmatory comparison.
 Recompute and compare after the editable install:
 
 ```text
-python -c "from local_agent import provenance as p; print(p.source_sha256()); print(p.base_prompt_sha256()); print(p.outcome_contract_sha256())"
+python -c "import sys; sys.path.insert(0,'internal'); from local_agent import provenance as p; print(p.source_sha256()); print(p.base_prompt_sha256()); print(p.outcome_contract_sha256())"
 ```
 
 ## Do not change without saying so explicitly in the PR

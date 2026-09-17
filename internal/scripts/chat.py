@@ -148,7 +148,7 @@ def _ensure_server(profile: str, config: ModelConfig, term=None) -> bool:
         if state.get("process_alive"):
             term.status("info", f"Stopping previous {record_device or 'local'} model server")
             serve.stop(plan)
-    elif _reachable(config):
+    if _reachable(config):
         term.line()
         term.status("warn", "The configured local endpoint is already in use")
         term.line("  That server is not owned by Local Code Agent, so it will not be adopted or stopped.")

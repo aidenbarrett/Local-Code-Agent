@@ -84,3 +84,22 @@ def test_chat_starts_requested_server_when_endpoint_is_free(monkeypatch, tmp_pat
 
     assert chat._ensure_server(profile, config) is True
     assert calls == [("NPU", 900)]
+
+
+
+def test_chat_refuses_unmanaged_server_even_with_a_stale_ownership_record(monkeypatch, tmp_path):
+    chat = _chat()
+    profile, _, config = _config(chat)
+    plan = SimpleNamespace()
+    record = {"plan": {"model_configuration": {"device": "NPU", "model": config.model}}}
+    started = []
+
+    monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
+    monkeypatch.setattr(chat.serve, "make_plan", lambda *a, **k: plan)
+    monkeypatch.setattr(chat.serve, "read_record", lambda p: record)
+    monkeypatch.setattr(chat.serve, "status", lambda p: {"healthy": False, "process_alive": False})
+    monkeypatch.setattr(chat, "_reachable", lambda c: True)
+    monkeypatch.setattr(chat.serve, "start", lambda *a, **k: started.append(True))
+
+    assert chat._ensure_server(profile, config) is False
+    assert started == []

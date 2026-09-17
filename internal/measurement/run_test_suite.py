@@ -7,8 +7,8 @@ function discovery, fixtures (including fixtures depending on fixtures and
 generator fixtures), `tmp_path`, `monkeypatch`, `pytest.raises`,
 `pytest.mark.parametrize`, `pytest.mark.skipif` and module-level `pytestmark`.
 
-    python measurement/run_test_suite.py tests
-    python measurement/run_test_suite.py tests/unit -k policy
+    python internal/measurement/run_test_suite.py internal/tests
+    python internal/measurement/run_test_suite.py internal/tests/unit -k policy
 """
 
 from __future__ import annotations
@@ -256,17 +256,29 @@ def _skip_reason(marks: list[_MarkDecorator]) -> str | None:
 def run(paths: list[Path], keyword: str | None, verbose: bool) -> int:
     _install_shim()
     root = Path.cwd()
-    sys.path.insert(0, str(root / "src"))
+    sys.path.insert(0, str(root / "internal"))
 
     files: list[Path] = []
+    missing: list[Path] = []
     for path in (p.resolve() for p in paths):
-        if path.is_file():
+        if not path.exists():
+            missing.append(path)
+        elif path.is_file():
             files.append(path)
         else:
             files.extend(sorted(path.rglob("test_*.py")))
 
+    if missing:
+        for path in missing:
+            print(f"ERROR: test path does not exist: {path}", file=sys.stderr)
+        return 2
+    if not files:
+        joined = ", ".join(str(p) for p in paths)
+        print(f"ERROR: no test files collected from: {joined}", file=sys.stderr)
+        return 2
+
     conftest_fixtures: dict[str, Callable] = {}
-    for conftest in sorted({f.parent for f in files} | {root / "tests"}):
+    for conftest in sorted({f.parent for f in files} | {root / "internal" / "tests"}):
         candidate = conftest / "conftest.py"
         if candidate.is_file():
             module = _load_module(candidate, f"conftest_{candidate.parent.name}")
@@ -324,11 +336,11 @@ def run(paths: list[Path], keyword: str | None, verbose: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("paths", nargs="*", default=["tests"])
+    parser.add_argument("paths", nargs="*", default=["internal/tests"])
     parser.add_argument("-k", dest="keyword")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    return run([Path(p) for p in (args.paths or ["tests"])], args.keyword, args.verbose)
+    return run([Path(p) for p in (args.paths or ["internal/tests"])], args.keyword, args.verbose)
 
 
 if __name__ == "__main__":
