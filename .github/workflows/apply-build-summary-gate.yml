@@ -1,0 +1,31 @@
+name: apply build summary gate
+
+on:
+  push:
+    branches: [fix/post-refactor-review]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/post-refactor-review
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply repair
+        run: python internal/scripts/_hotfix_build_summary_gate.py
+      - name: Run targeted regressions
+        run: |
+          python internal/measurement/run_test_suite.py internal/tests/unit/test_build_summary_gate_contract.py internal/tests/unit/test_repo_navigation_small_model_contract.py internal/tests/unit/test_context_budget_guard.py
+      - name: Commit repaired tree
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Deterministically finish repository build summaries"
+          git push
