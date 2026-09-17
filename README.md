@@ -33,6 +33,8 @@ A controlled repository task looks like:
 .\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation
 ```
 
+The public `run-task` path prepares/reuses the same Qwen3-8B NPU server used by chat and selects the matching `ptl-npu-8b` agent profile explicitly.
+
 Examples of intended workloads include:
 
 - inspect a repository and explain how it builds
@@ -80,17 +82,21 @@ This describes implemented behaviour. It does not imply production readiness or 
 
 ## Measured evidence so far
 
-The completed generation-1 experiment used one local 30B model on CPU and ten synthetic C++ tasks:
+Generation 1 used one local Qwen3-Coder-30B model on CPU against the same ten synthetic C++ tasks under three controlled conditions. The initial smoke produced **3/10 control, 8/10 narrow, 8/10 skill**. A later frozen replication used the same instrument identity, three balanced repeats and 90 case rows:
 
-| Condition | Verified completion |
-|---|---:|
-| Control | 3/10 |
-| Narrow tools | 8/10 |
-| Narrow tools + written skill | 8/10 |
+| Condition | Per repeat | Pooled verified completion |
+|---|---|---:|
+| Control | 2/10, 4/10, 3/10 | **9/30 (0.300)** |
+| Narrow tools | 7/10, 7/10, 8/10 | **22/30 (0.733)** |
+| Narrow tools + written skill | 8/10, 7/9, 8/10 | **23/29 (0.793)** |
 
-The strongest measured signal was **action-space narrowing**. Restricting the model to the tools relevant to the task improved verified completion from 3/10 to 8/10, removed the four observed scope violations, and reduced tool calls and wall time substantially.
+One Skill row was `INVALID_SERVER_UNAVAILABLE` and is excluded from its denominator rather than counted as a task failure.
 
-The experiment did **not** contain an 8B cell, so it provides no evidence that the same result transfers to the smaller model used in the current Panther Lake demo.
+The strongest measured signal remained **action-space narrowing**: `Narrow - Control = +0.433` in the balanced replication, with 11 scope violations in 30 Control rows and 0 in the 59 valid Narrow/Skill rows. The incremental written-procedure contrast was much smaller and unresolved: `Skill - Narrow = +0.060`. The repeated data shows named, opposite per-case movements rather than a clear general procedure effect, so the defensible conclusion is **no clear aggregate procedure effect on this fixture**, not that written procedures have zero effect.
+
+These generation-1 runs were collected on the NUC under WSL2 Ubuntu with llama.cpp and the 30B UD-Q4_K_XL model. They are not measurements of the current Panther Lake / Windows / OVMS / Qwen3-8B demo stack, and they contained no 8B cell.
+
+See [`internal/experiments/2026-09-08-30b-three-conditions-x3/findings.md`](internal/experiments/2026-09-08-30b-three-conditions-x3/findings.md) for the replication, caveats and per-case analysis.
 
 Generation 1 is reproduced from the historical tag `instrument-08d5e0fe`. The current tree intentionally has a different repository layout and source identity; recomputing the generation-1 source hash from the current tree is not a valid reproduction procedure.
 
@@ -150,7 +156,7 @@ Useful deeper documentation:
 | [`internal/docs/verification.md`](internal/docs/verification.md) | What counts as proof and why |
 | [`internal/docs/serving-and-accelerators.md`](internal/docs/serving-and-accelerators.md) | Model, runtime and accelerator details |
 | [`internal/docs/review-history.md`](internal/docs/review-history.md) | Adversarial defects and regression history |
-| [`internal/docs/project-history.md`](internal/docs/project-history.md) | Historical framing and earlier README material |
+| [`internal/docs/project-history.md`](internal/docs/project-history.md) | Historical framing and preserved earlier README material |
 | [`AGENTS.md`](AGENTS.md) | Developer guidance for changing the codebase |
 
 Historical experiments are frozen. Historical tags remain the authoritative way to reproduce historical layouts. Behaviour-affecting current source has an explicit source identity, while model-facing and outcome-facing contracts are tracked separately.
