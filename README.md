@@ -12,19 +12,23 @@ If this is your first time here, start with [`QUICKSTART.md`](QUICKSTART.md).
 
 ## Start here
 
-### 1. See the available local models
+There are two root entrypoints and they do different things:
 
 ```powershell
 .\chat.ps1
+.\local-code-agent.ps1
 ```
 
-### 2. Chat directly with Qwen3-8B on the NPU
+- **`chat.ps1`** talks directly to a configured model. No repository tools or agent behaviour.
+- **`local-code-agent.ps1`** adds controlled repository access, approved tools, skills and independent verification.
+
+### Chat directly with Qwen3-8B on the NPU
 
 ```powershell
 .\chat.ps1 qwen3-8b-npu
 ```
 
-The same user-facing chat path can select:
+The same chat path can select:
 
 ```powershell
 .\chat.ps1 qwen3-8b-gpu
@@ -34,15 +38,23 @@ The same user-facing chat path can select:
 
 The three Qwen3-8B choices use the same model artifact while changing only the requested execution device. `qwen3-coder-30b` selects a different model profile.
 
-### 3. See what Local Code Agent is allowed to do
+### See what Local Code Agent is allowed to do
 
 ```powershell
-python scripts\capabilities.py
+.\local-code-agent.ps1 capabilities
 ```
 
 This reads the live tool registry and installed skills, then prints the supported actions and the boundaries enforced by the controller.
 
-### 4. Prove the NPU / GPU / CPU route
+### Run a controlled repository task
+
+```powershell
+.\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation
+```
+
+This forwards to the existing agent runner. The controller still owns the tool boundary and verification state.
+
+### Prove the NPU / GPU / CPU route
 
 ```powershell
 .\scripts\demo-accelerator.ps1 -Device NPU -Seconds 45
@@ -54,10 +66,10 @@ The demo reports the requested device and the device OpenVINO actually resolved,
 
 The timing numbers shown by this demo are observations on an uncontrolled machine, not benchmark results.
 
-### 5. See independent verification reject stale test results
+### See independent verification reject stale test results
 
 ```powershell
-python scripts\demo-trust-boundary.py
+.\local-code-agent.ps1 verification-demo
 ```
 
 The demo deliberately creates a case where `ctest` reports passing tests against an old binary after the source has changed. Local Code Agent rejects that result as stale. An honest rebuild then fails.
@@ -163,9 +175,9 @@ A new user should need only a few entrypoints:
 |---|---|
 | [`QUICKSTART.md`](QUICKSTART.md) | First-run path and demo sequence |
 | `chat.ps1` | Talk directly to a configured local model |
-| `scripts/capabilities.py` | Show what the controlled agent can and cannot do |
+| `local-code-agent.ps1` | Understand or run the controlled repository agent |
 | `scripts/demo-accelerator.ps1` | Prove CPU / GPU / NPU execution |
-| `scripts/demo-trust-boundary.py` | Demonstrate independent verification |
+| `scripts/demo-trust-boundary.py` | Underlying independent-verification demo |
 
 The rest of the repository contains the implementation, tests, research harness and frozen experiment history. Those details are deliberately not required to understand the first five minutes.
 
