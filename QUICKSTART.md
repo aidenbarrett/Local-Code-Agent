@@ -27,7 +27,7 @@ This checks the workstation without installing or changing anything. If required
 .\scripts\work-laptop-one-shot.ps1 -InstallMissing
 ```
 
-That prepares the managed runtime, model artifacts and qualification path used by the Panther Lake demo. It stops before any scored experiment.
+That prepares the managed runtime, downloads the required model artifacts, qualifies the serving path and runs the fixture smoke checks. Allow time for the model download. It stops before any scored experiment.
 
 For the full setup details, see `docs/work-laptop-bootstrap.md`.
 
@@ -63,7 +63,7 @@ List the available user-facing choices:
 .\chat.ps1
 ```
 
-Start Qwen3-8B on the NPU profile:
+Start Qwen3-8B on the NPU:
 
 ```powershell
 .\chat.ps1 qwen3-8b-npu
@@ -77,11 +77,11 @@ Other configured choices:
 .\chat.ps1 qwen3-coder-30b
 ```
 
-The three Qwen3-8B choices use the same model artifact and client while changing only the requested execution device. `qwen3-coder-30b` selects a different model profile.
+The three Qwen3-8B choices use the same model artifact and client while changing only the requested execution device. `qwen3-coder-30b` is a different model on a different profile.
 
 Chat is deliberately separate from Local Code Agent: it gives you the model conversation without repository tools, skills or verification.
 
-If the selected model server is not running, chat tells you which configured server must be started before retrying.
+If the selected model server is not running, chat prints the exact user-facing command to start it and leave it running.
 
 ---
 
@@ -103,6 +103,12 @@ The same demo can target the GPU or CPU:
 The script requests the device explicitly and reports the device OpenVINO actually resolved before generating repeated model responses.
 
 It also shows time to first token and generation speed. The first request after model startup can be slower because it may include one-time runtime warm-up as well as prompt processing. Later requests use an already-initialised runtime, but still process their prompts.
+
+Add `-KeepServer` if you want to leave that model server running afterwards for `chat.ps1`:
+
+```powershell
+.\scripts\demo-accelerator.ps1 -Device NPU -Seconds 5 -KeepServer
+```
 
 These timings are demo observations on an uncontrolled machine, not benchmark results. Controlled performance and energy measurement is separate work.
 
@@ -146,7 +152,7 @@ The script asserts every stage and aborts if the demonstration does not behave a
 
 ## If something does not work
 
-**`chat.ps1` says the model server is not running.** The profile is known, but its configured serving endpoint is not active. Follow the start command printed by chat, then retry the same `chat.ps1` command.
+**`chat.ps1` says the model server is not running.** Use the start command it prints, wait for the server to become ready, then retry the same `chat.ps1` command.
 
 **The accelerator demo refuses immediately.** The managed OVMS runtime may not be installed. Run:
 
