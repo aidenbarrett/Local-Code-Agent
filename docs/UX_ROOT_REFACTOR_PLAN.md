@@ -120,7 +120,9 @@ SyntaxWarning: invalid escape sequence '\c'
 
 This warning appears before the product UI and immediately damages first impression quality.
 
-Fix it by making the docstring raw or escaping the backslashes correctly. Add a regression test that launches/imports the script with warnings enabled and proves no `SyntaxWarning` is emitted.
+**Status on this branch:** the known warning sites in `scripts/chat.py` and `scripts/capabilities.py` have been converted to raw docstrings. A repository-wide regression test now compiles every active Python file with `SyntaxWarning` promoted to an error. Frozen historical files under `experiments/` are deliberately excluded from mutation and from the active-source gate.
+
+The warning-cleanliness test is a permanent acceptance criterion for this refactor. Any newly introduced invalid escape sequence or other Python `SyntaxWarning` in active code must fail CI before it can reach a user-facing terminal.
 
 ### B. Chat does not provide a one-command experience
 
@@ -296,395 +298,255 @@ Expected behaviour:
 should:
 
 1. explain what it is going to validate or install
-2. use the existing bootstrap/one-shot implementation underneath
-3. fail with plain-language remediation
-4. finish with a concise readiness summary
-5. tell the user the next useful command, preferably `chat.ps1`
+2. reuse the existing deterministic/bootstrap implementation
+3. print human-readable progress
+4. finish with a simple readiness summary
+5. point directly to the next user action
 
-Advanced switches can forward to the existing bootstrap implementation rather than duplicating it.
+The success path should end with something like:
 
-## `chat.ps1` target UX
+```text
+LOCAL CODE AGENT
 
-The headline first-use path should be:
+Installation and system validation complete.
+
+Next:
+  .\chat.ps1 qwen3-8b-npu
+  .\local-code-agent.ps1 capabilities
+  .\demo\run-qwen-on-npu.ps1
+```
+
+Do not expose a giant internal experiment command on the installation success screen.
+
+## `chat.ps1` design
+
+`chat.ps1` is a headline capability, not a helper script.
+
+The first-time experience must be boringly obvious.
 
 ```powershell
 .\chat.ps1
 ```
 
-which lists choices cleanly, followed by:
+lists friendly model choices.
 
 ```powershell
 .\chat.ps1 qwen3-8b-npu
 ```
 
-which should result in a conversation without requiring the user to launch a separate internal server command first.
+starts or reuses the NPU model server and enters chat.
 
-Desired flow:
+The user should see:
 
 ```text
 LOCAL CODE AGENT
 Local Model Chat
 
-Model   Qwen3-8B (INT4)
-Device  NPU
-Status  Starting model server...
-
-Model server ready
+Model    Qwen3-8B (INT4)
+Device   NPU
+Backend  OpenVINO Model Server
+Status   Ready
 
 You >
 ```
 
-If startup takes time, show meaningful progress rather than silence or raw controller logs.
+No Python warnings. No internal paths. No manual serving command. No stack trace.
 
-The user-facing model names remain the stable abstraction:
+## `local-code-agent.ps1` design
 
-```text
-qwen3-8b-npu
-qwen3-8b-gpu
-qwen3-8b-cpu
-qwen3-coder-30b
-```
+The root agent entrypoint must remain the one obvious route into controlled repository work.
 
-Do not expose profile names such as `ptl-npu-8b` unless verbose/advanced output is requested.
-
-## `local-code-agent.ps1` target UX
-
-Running the root command with no arguments should explain, in plain English:
-
-- what Local Code Agent adds beyond chat
-- what it can currently do
-- what it cannot do
-- the next three or four useful commands
-
-A user should not need argparse knowledge or implementation vocabulary.
-
-Keep the current distinction clear:
-
-> Chat gives direct access to the model. Local Code Agent gives the model controlled repository access, approved tools, procedural skills and independent verification.
-
-## README and QUICKSTART requirements
-
-After the physical move, both documents must be audited against the new tree.
-
-No command in either file may reference an old internal path unless it is explicitly labelled advanced/internal.
-
-README should stay capability-first.
-
-QUICKSTART should preserve the simple progression:
+With no arguments it should explain the distinction succinctly:
 
 ```text
-install / validate
--> understand capabilities
--> chat with Qwen
--> demonstrate NPU/GPU/CPU execution
--> demonstrate independent verification
+Chat gives direct access to the model.
+Local Code Agent gives the model controlled repository access,
+restricted tools, procedural skills and independent verification.
 ```
 
-## Packaging strategy
+User-facing commands should favour explicit names and plain language.
 
-The Python import name `local_agent` does not need to change merely because the source directory moves.
+The facade may translate these names into existing internal CLI commands. It must not duplicate controller policy.
 
-Prefer preserving the public Python package name while changing its repository location.
+## Root-directory cleanup strategy
 
-Options to evaluate on the refactor branch:
+The reorganisation must be implemented in stages on this branch.
 
-1. configure setuptools package discovery from `internal/`
-2. add the internal source root to the controlled script environment
-3. use a conventional package-dir mapping while keeping imports as `local_agent.*`
+### Phase 0: remove demo-warning noise
 
-Do **not** perform a repo-wide import rename unless there is a compelling technical reason.
+Before any structural move:
 
-The goal is repository presentation, not a Python namespace redesign.
+- eliminate Python `SyntaxWarning` output from user-facing scripts
+- add the repository-wide active-Python warning-cleanliness regression
+- keep frozen historical experiment files unchanged
 
-## Migration phases
+This creates a clean baseline before path churn begins.
 
-### Phase 0: freeze a before-state
+### Phase 1: additive facade
 
-Before moving anything:
+Before moving any current implementation path:
 
-- record the branch base SHA
-- record current source/base-prompt/outcome-contract identities
-- run the authoritative test suite on Linux and native Windows where available
-- run the root entrypoints
-- capture current demo output
-- capture current root directory listing
+- add `install.ps1`
+- add `demo/` wrappers
+- make root commands work end-to-end
+- make chat one-command
+- add regression tests
+- physically rehearse on the Panther Lake workstation
 
-This is the behaviour baseline.
+The old paths remain intact during this phase.
 
-### Phase 1: fix the headline chat path first
+This gives us a known-good UX before structural churn.
 
-Before undertaking the large path move:
+### Phase 2: internal relocation on branch only
 
-- remove the Python `SyntaxWarning`
-- make `chat.ps1 qwen3-8b-npu` a complete first-use path
-- add regression coverage
-- physically run it on the Panther Lake workstation
+Move implementation directories beneath `internal/` in one coherent change or a small sequence of tightly controlled commits.
 
-Do not bury a broken headline feature beneath a repository-layout refactor.
+Update:
 
-### Phase 2: add public root facades
+- Python imports / package discovery
+- root wrappers
+- PowerShell and shell scripts
+- test paths
+- CI workflow paths
+- docs
+- fixture paths
+- skill discovery
+- measurement paths
+- packaging configuration
+- provenance globs
+- instrument identity
+- any hardcoded repository-root assumptions
 
-Add or finish:
+Do not merge halfway through this phase.
 
-```text
-install.ps1
-chat.ps1
-local-code-agent.ps1
-demo/
-```
+### Phase 3: exhaustive verification
 
-Validate these while the internals are still in their old locations.
+Run all available validation before considering merge.
 
-This separates facade defects from path-migration defects.
+At minimum:
 
-### Phase 3: move implementation directories
-
-Move one logical group at a time, using Git-aware moves so history remains readable.
-
-Suggested order:
-
-1. `scripts/`
-2. `tests/`
-3. `docs/`
-4. `measurement/`
-5. `evaluation/`
-6. `benchmark_fixture/`
-7. `skills/`
-8. `local_agent/`
-9. `experiments/` only after frozen-artifact handling is explicitly proven safe
-
-After each group:
-
-- update references
-- run targeted regressions
-- check CLI/root entrypoints
-- check source identity coverage
-
-Do not do one giant blind move followed by mass search-and-replace.
-
-### Phase 4: update packaging and provenance
-
-Once paths are final:
-
-- update `pyproject.toml`
-- update package discovery
-- update provenance globs
-- update `INSTRUMENT.json`
-- update tests that assert source coverage
-- recompute identities
-- document that this is a new source generation
-
-### Phase 5: documentation sweep
-
-Search all Markdown, PowerShell, Python and CI files for old root paths.
-
-Every command in README/QUICKSTART must be physically rehearsed from a fresh checkout of the branch.
-
-### Phase 6: final demo rehearsal
-
-A stranger should be able to clone the branch and understand the project from the root without verbal coaching.
-
-Run the exact demo journey below.
-
-## Required demo rehearsal
-
-### First screen
-
-Run:
-
-```powershell
-dir
-```
-
-The result should look intentional and small.
-
-The user should immediately see:
-
-```text
-install.ps1
-chat.ps1
-local-code-agent.ps1
-README.md
-QUICKSTART.md
-demo/
-```
-
-One implementation container such as `internal/` is acceptable. Nine implementation directories are not.
-
-### Install / readiness
-
-```powershell
-.\install.ps1
-```
-
-Expected result:
-
-- no Python warnings
-- no unexplained internal paths
-- no research jargon in the main success screen
-- clear PASS/READY result
-- next command is obvious
-
-### Direct chat
-
-```powershell
-.\chat.ps1 qwen3-8b-npu
-```
-
-Expected result:
-
-- no `SyntaxWarning`
-- no requirement to start `scripts/demo-accelerator.ps1`
-- selected model/device shown clearly
-- server starts or is reused automatically
-- user reaches `You >`
-- normal model answer appears
-- useful latency/generation metrics appear after the reply
-
-### Model/device demonstration
-
-```powershell
-.\demo\run-qwen-on-npu.ps1
-```
-
-Expected result:
-
-- polished LCA banner
-- human model/backend labels
-- requested and confirmed device
-- cold/warm request explanation
-- no benchmark overclaim
-
-Repeat GPU and CPU versions.
-
-### Controlled agent
-
-```powershell
-.\local-code-agent.ps1
-.\local-code-agent.ps1 capabilities
-```
-
-Expected result:
-
-- difference between chat and agent is obvious
-- capabilities are plain language
-- restrictions are visible and confidence-building
-
-### Trust boundary
-
-```powershell
-.\demo\show-stale-test-rejection.ps1
-```
-
-Expected result:
-
-- user understands that raw passing tests can be stale
-- user understands Local Code Agent rejects stale evidence independently
-- no internal Python path is required
-
-## Regression requirements
-
-This refactor is not complete without tests that protect the product surface.
-
-Add regressions for at least:
-
-- root wrappers exist
-- user-facing README/QUICKSTART commands resolve
-- `chat.py` emits no `SyntaxWarning`
-- friendly chat names resolve to real profiles/devices
-- chat startup uses the existing serving controller
-- root wrappers do not duplicate model/server configuration
-- `demo/` wrappers point to real known-good implementations
-- package discovery works after internal relocation
-- all current tool and skill discovery still works
-- provenance includes all moved behaviour-affecting files
-- historical frozen experiment bytes/hashes remain unchanged
-- current source identity matches the new instrument declaration
 - Linux pytest
 - native Windows pytest
-- serving tests
-- physical Panther Lake chat and NPU demo
+- serving CI
+- warning-cleanliness gate
+- provenance identity checks
+- historical/frozen artifact integrity checks
+- root-command smoke tests
+- PowerShell wrapper tests
+- `chat.ps1` list
+- `chat.ps1 qwen3-8b-npu`
+- NPU accelerator demo
+- GPU accelerator demo if practical
+- CPU accelerator demo if practical
+- capabilities
+- trust-boundary demo
+- workstation one-shot validation
 
-## CI and verification gate
+No result is called verified until the relevant checks are actually green.
 
-Do not call the refactor verified because imports work on one machine.
+### Phase 4: physical first-impression rehearsal
 
-Before merge, require:
+On the real Windows Panther Lake machine:
 
-- authoritative Linux pytest green
-- authoritative native Windows pytest green
-- serving job green
-- source identity tests green
-- root facade regression tests green
-- physical workstation `install.ps1` or validation path green
-- physical `chat.ps1 qwen3-8b-npu` successful conversation
-- NPU/GPU/CPU demo paths still callable
-- trust-boundary demo green
+1. clone/switch to the refactor branch
+2. run `dir`
+3. judge the root visually before reading docs
+4. run `README` / `QUICKSTART` flow exactly as written
+5. run `install.ps1` or its check-only form as appropriate
+6. run `chat.ps1`
+7. start NPU chat from a cold server state
+8. ask one normal question
+9. exit cleanly
+10. run Local Code Agent capabilities
+11. run a controlled repository task
+12. run the NPU demo
+13. run stale-test rejection
+14. inspect every visible warning, path, stack trace, internal term or unnecessary implementation detail
 
-If CI is unavailable, say exactly what was and was not verified. Do not infer green.
+Anything embarrassing in those first minutes is a release blocker for the demo branch.
 
-## Merge strategy
+## Warning-cleanliness gate
 
-Do all physical reorganisation on this dedicated branch.
+The repository now treats Python warning noise as a first-impression defect.
 
-Do not merge partial path moves into `main` just to make progress.
+The active Python tree must compile with `SyntaxWarning` promoted to an error. This specifically catches Windows-path literals such as `\c`, `\l` and similar invalid escape sequences before they leak into PowerShell output.
 
-The branch should reach a coherent state where:
+The check excludes frozen historical artifacts under `experiments/` because historical experiment bytes must not be silently repaired with newer instrumentation. If a historical file contains a warning, preserve it and reproduce it through its historical tag rather than mutating evidence.
 
-- root UX is complete
-- package/import paths are coherent
-- provenance is coherent
-- docs are coherent
-- tests are coherent
-- demo journey is coherent
+This warning-cleanliness gate should remain after the root refactor and should move with the active test suite if tests relocate under `internal/`.
 
-Then merge once.
+## Regression expectations
 
-If the branch becomes unstable, `main` remains the known-good demo path.
+Every changed contract gets a regression test.
+
+Examples:
+
+- root chat script has no invalid escape warnings
+- root capabilities command has no invalid escape warnings
+- all active `.py` files compile warning-clean
+- root chat starts or reuses the requested server
+- chat never instructs normal users to invoke an internal path
+- `demo/` wrappers point at the correct implementation
+- root entrypoints survive the internal move
+- provenance includes all moved behaviour-affecting files
+- frozen experiment bytes are unchanged
+- README and QUICKSTART commands all exist
+- Windows and Linux path handling remain valid
+
+## First-impression acceptance checklist
+
+The branch is not ready to merge until a new user can open the repo and answer these questions without help:
+
+- How do I install it?
+- How do I talk to the local model?
+- How do I use the coding agent?
+- How do I see what it can do?
+- How do I run the NPU demo?
+- How do I see independent verification?
+
+And the answers must all begin from root-level files or the `demo/` directory.
+
+There must be no:
+
+- warning before the product output
+- unexplained internal path
+- dead command
+- stack trace on a normal failure
+- prerequisite hidden until after failure
+- raw research terminology in the first-run path
+- required manual server choreography
+- ambiguous demo filename
 
 ## Explicit non-goals
 
-This refactor must not become an excuse to:
+Do not use this refactor as an excuse to:
 
-- redesign the orchestrator
-- change experiment semantics
-- alter task contracts
-- re-score frozen evidence
+- alter frozen experiment semantics
+- re-score historical runs
+- broaden model tool access
 - add arbitrary shell access
-- introduce a second serving architecture
-- build a massive installer framework
-- redesign model profiles
-- implement the future backend qualification framework
+- build a new serving framework
+- replace the deterministic controller
+- invent a second configuration system
+- change benchmark methodology
+- claim performance results that were not measured
 
-Those are separate projects.
+## Merge rule
 
-## Definition of done
+This branch should stay isolated until the whole first-run experience has been physically rehearsed.
 
-The refactor is done when a first-time user can open the repository and, without coaching:
+Do not merge merely because imports compile and CI is green.
 
-1. understand what to run
-2. install/validate the workstation
-3. start a direct local-model chat with one command
-4. understand the difference between chat and Local Code Agent
-5. run the hardware demo
-6. run the independent-verification demo
-7. never need to know where the internal implementation lives
+For this refactor, **UX is part of correctness**.
 
-And the engineering project still retains:
+The merge bar is:
 
-- deterministic verification
-- restricted tool policy
-- reproducible source identity
-- frozen historical evidence
-- current tests
-- existing known-good model serving behaviour
+1. deterministic/instrument integrity preserved
+2. regression tests green
+3. authoritative CI green
+4. physical Windows workstation flow green
+5. no warning or internal-path leakage in first-run output
+6. root directory makes immediate sense to somebody who knows nothing about the repository
+7. demo looks intentional and impressive
 
-## Final standard
-
-The bar for this branch is not merely "nothing broke".
-
-The bar is:
-
-> **A stranger opens the repository and immediately feels that Local Code Agent is a deliberate, coherent product rather than a research tree with a few demo scripts added on top.**
-
-That first impression is the primary UX acceptance criterion for this refactor.
+If the system is technically correct but looks confusing in the first five minutes, the refactor is not finished.
