@@ -48,6 +48,7 @@ def test_chat_stops_owned_wrong_device_before_starting_requested_device(monkeypa
     monkeypatch.setattr(chat.serve, "read_record", lambda p: record)
     monkeypatch.setattr(chat.serve, "status", lambda p: {"healthy": True, "process_alive": True})
     monkeypatch.setattr(chat.serve, "stop", lambda p: events.append("stop"))
+    monkeypatch.setattr(chat, "_reachable", lambda c: False)
     monkeypatch.setattr(chat.serve, "start", lambda *a, **k: events.append("start") or {"healthy": True})
 
     assert chat._ensure_server(profile, config) is True
@@ -84,3 +85,21 @@ def test_chat_starts_requested_server_when_endpoint_is_free(monkeypatch, tmp_pat
 
     assert chat._ensure_server(profile, config) is True
     assert calls == [("NPU", 900)]
+
+
+def test_chat_refuses_unmanaged_server_even_with_a_stale_ownership_record(monkeypatch, tmp_path):
+    chat = _chat()
+    profile, _, config = _config(chat)
+    plan = SimpleNamespace()
+    started = []
+    stale = {"plan": {"model_configuration": {"device": config.device, "model": config.model}}}
+
+    monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
+    monkeypatch.setattr(chat.serve, "make_plan", lambda *a, **k: plan)
+    monkeypatch.setattr(chat.serve, "read_record", lambda p: stale)
+    monkeypatch.setattr(chat.serve, "status", lambda p: {"healthy": False, "process_alive": False})
+    monkeypatch.setattr(chat, "_reachable", lambda c: True)
+    monkeypatch.setattr(chat.serve, "start", lambda *a, **k: started.append(True))
+
+    assert chat._ensure_server(profile, config) is False
+    assert started == []
