@@ -80,13 +80,22 @@ def _parse_matches(stdout: str, limit: int) -> list[dict[str, object]]:
 def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     @reg.add(
         "search_text",
-        "Search the repository for a regular expression. Returns file, line and "
-        "the matching text. Use this to locate code before reading it.",
+        "Search text CONTENTS in repository files for a regular expression. "
+        "The pattern is matched against file contents, not filenames or paths. "
+        "Use list_files to discover files by name/extension; use glob here only "
+        "to restrict which filenames are searched. Returns file, line and the "
+        "matching text.",
         {
             "type": "object",
             "properties": {
-                "pattern": {"type": "string", "description": "Regular expression."},
-                "glob": {"type": "string", "description": "Restrict to a glob such as *.cpp."},
+                "pattern": {
+                    "type": "string",
+                    "description": "Regular expression matched against file contents, not filenames.",
+                },
+                "glob": {
+                    "type": "string",
+                    "description": "Optional filename glob restricting searched files, such as *.cpp.",
+                },
                 "path": {"type": "string", "default": "."},
                 "case_sensitive": {"type": "boolean", "default": True},
                 "limit": {"type": "integer", "default": 60},
