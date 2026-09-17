@@ -44,9 +44,10 @@ def test_serving_power_shell_gate_also_runs_after_merge_to_main():
 
 def test_public_readme_uses_the_balanced_three_repeat_generation_one_result():
     text = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "same ten synthetic C++ tasks" in text
+    assert "90 case rows" in text
     assert "9/30 (0.300)" in text
     assert "22/30 (0.733)" in text
     assert "23/29 (0.793)" in text
     assert "small and unresolved" in text
     assert "NUC under WSL2 Ubuntu with llama.cpp" in text
-    assert "not independent tasks" in text
