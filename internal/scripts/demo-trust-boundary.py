@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -57,10 +58,17 @@ def run_tests_directly(root: Path, command: list[str]) -> DirectTestResult:
         check=False,
     )
     combined = proc.stdout + proc.stderr
+    pattern = re.compile(r"(\d+)% tests passed,\s+(\d+) tests failed out of (\d+)")
     for line in reversed(combined.splitlines()):
-        if "tests passed" in line or "tests failed" in line:
-            return DirectTestResult(proc.returncode == 0, line.strip())
-    return DirectTestResult(proc.returncode == 0, f"exit code {proc.returncode}")
+        match = pattern.search(line)
+        if not match:
+            continue
+        _percent, failed, total = (int(value) for value in match.groups())
+        passed = proc.returncode == 0 and failed == 0 and total > 0
+        return DirectTestResult(passed, line.strip())
+    # The demo is specifically about passing CTest evidence. A zero exit with
+    # no parseable non-empty CTest summary is not proof that this beat happened.
+    return DirectTestResult(False, f"exit code {proc.returncode}; no CTest result summary")
 
 
 def demonstrate(root: Path) -> None:
@@ -95,8 +103,8 @@ def demonstrate(root: Path) -> None:
     require(honest.ok,
             "verification refused an honest tree; nothing after this would mean anything")
     require(direct_honest.ok,
-            "the raw configured test command did not pass on the clean tree; "
-            "nothing after this would demonstrate stale passing evidence")
+            "the raw configured test command did not pass a non-empty test suite on "
+            "the clean tree; nothing after this would demonstrate stale passing evidence")
     term.status("ok", "Independent verification accepted the passing result")
 
     term.line()
@@ -119,10 +127,10 @@ def demonstrate(root: Path) -> None:
     direct_stale = run_tests_directly(root, direct_test_command)
     term.field("Test runner", direct_stale.summary)
     require(direct_stale.ok,
-            "the raw test command did not pass against the old binary; the demo "
-            "cannot claim that stale passing output was produced")
+            "the raw test command did not pass a non-empty suite against the old binary; "
+            "the demo cannot claim that stale passing output was produced")
     term.line()
-    term.status("warn", "The tests passed, but they executed the OLD compiled program")
+    term.status("warn", f"Raw tests still passed ({direct_stale.summary}) on the OLD compiled program")
     term.line("  Treating that output alone as proof would report a false success.")
 
     term.line()
