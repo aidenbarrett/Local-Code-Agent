@@ -21,10 +21,18 @@ answer allows.
 
 1. Call `repo_info` first. Its configured build profile is authoritative for the
    commands Local Code Agent will actually run.
-2. Use `list_files` to locate build/configuration files such as `CMakeLists.txt`,
-   `.local-agent.toml`, presets, or build scripts.
-3. `read_file` only the small set of files needed to explain the build structure.
-4. Answer. Do not crawl every source/test file when the question is only how the
+2. If `repo_info` reports configured build/test commands, that is sufficient for
+   a high-level question such as "how does this repository build?". Finish with
+   `submit_answer` immediately, citing the `repo_info` call. Do **not** enumerate
+   source files, tests, or the whole repository merely to make the answer longer.
+3. Only inspect build/configuration files when `repo_info` is missing required
+   detail or the user explicitly asks about the underlying build system. In that
+   case use a narrow `list_files` query for likely files such as `CMakeLists.txt`,
+   `.local-agent.toml`, presets, or build scripts, then `read_file` only those.
+4. A truncated file listing means the query is too broad. Narrow its path or
+   pattern. Never repeat the same `list_files` query with a larger limit just to
+   enumerate more files.
+5. Answer. Do not crawl source/test files when the question is only how the
    repository builds.
 
 ## Symbol or subsystem question
@@ -40,6 +48,8 @@ answer allows.
 
 - `list_files` searches **filenames/paths**. Use it for extensions or names such
   as `*.cpp`, `*.h`, `CMakeLists.txt`, or `*test*`.
+- If `list_files` is truncated, narrow the query. Do not increase `limit` and do
+  not repeat the same listing once it has already supplied enough evidence.
 - `search_text` searches **file contents**, not filenames. Its `pattern` is a
   regular expression applied to text inside files. Use its `glob` argument to
   restrict which filenames are searched, for example `glob="*.cpp"`.
@@ -65,3 +75,5 @@ answer allows.
   the name of something.
 - If a search strategy returns no useful evidence twice, change strategy instead
   of spending more calls paraphrasing the same search.
+- Once the requested question is answered by current evidence, call
+  `submit_answer`; more tool calls are not progress.
