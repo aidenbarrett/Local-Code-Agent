@@ -8,5 +8,9 @@ def test_repo_build_summary_is_deterministically_narrowed_after_repo_info():
     assert "build_summary_mode" in source
     assert "submit_answer" in source
     assert "repo_info sufficient for build summary" in source
-    assert "grounded in that repo_info result. Do not call another " in source
+    assert "claim='diagnosis'" in source
+    assert "command arguments literally" in source
+    assert "Do not infer target languages" in source
+    assert "successful execution beyond repo_info" in source
+    assert "Do not call another " in source
     assert "discovery tool." in source

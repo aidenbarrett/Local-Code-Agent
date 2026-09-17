@@ -686,10 +686,14 @@ class Orchestrator:
                         {
                             "role": "user",
                             "content": (
-                                "The repository build/test profile from repo_info is "
-                                "sufficient for this high-level build summary. Finish "
-                                "now by calling submit_answer with a concise summary "
-                                "grounded in that repo_info result. Do not call another "
+                                "The repo_info result is sufficient for this high-level "
+                                "build summary. This task asks how the repository is "
+                                "configured, not whether its build or tests currently pass. "
+                                "Finish now by calling submit_answer with claim='diagnosis' "
+                                "and cite the repo_info tool result. Describe the configured "
+                                "profile name and build/test command arguments literally. "
+                                "Do not infer target languages, target types, build systems, "
+                                "or successful execution beyond repo_info. Do not call another "
                                 "discovery tool."
                             ),
                         }
