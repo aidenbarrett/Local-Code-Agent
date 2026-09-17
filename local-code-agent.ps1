@@ -58,19 +58,10 @@ switch ($Command.ToLowerInvariant()) {
             exit 2
         }
 
-        # The public path uses the same model that install.ps1 provisions and
-        # chat.ps1 advertises. Prepare/reuse that owned server without entering
-        # an interactive chat, then select the matching agent profile explicitly.
-        & (Join-Path $root 'chat.ps1') qwen3-8b-npu --ensure-only
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host ''
-            Write-Host 'The local Qwen3-8B NPU server is not ready.'
-            Write-Host 'Run .\install.ps1 -CheckOnly, then retry this task.'
-            Write-Host ''
-            exit $LASTEXITCODE
-        }
-
-        & $python -m local_agent.cli --profile ptl-npu-8b run @Rest
+        # Product presentation lives outside the measured agent source. The
+        # presenter still delegates server ownership to chat.ps1 and execution
+        # to local_agent.cli using the provisioned ptl-npu-8b profile.
+        & $python (Join-Path $internal 'scripts\run-task-ui.py') @Rest
         exit $LASTEXITCODE
     }
     'verification-demo' {
