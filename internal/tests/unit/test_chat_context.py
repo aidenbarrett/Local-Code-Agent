@@ -19,22 +19,36 @@ def _context():
     return module
 
 
-def _session(ctx, budget=1000):
-    return ctx.new_session("p", "m", "NPU", budget_chars=budget)
+def _session(ctx, budget=1000, persona_sha256=None):
+    return ctx.new_session("p", "m", "NPU", budget_chars=budget, persona_sha256=persona_sha256)
 
 
-def test_round_trip_preserves_raw_history(tmp_path):
+def test_round_trip_preserves_raw_history_and_persona_provenance(tmp_path):
     ctx = _context()
-    session = _session(ctx)
+    persona_sha = "a" * 64
+    session = _session(ctx, persona_sha256=persona_sha)
     ctx.append_turn(session, "user", r"open C:\private\work\file.cpp", 0)
     ctx.append_turn(session, "assistant", "/home/aiden/private/result", 0)
     ctx.save_session(tmp_path, session)
 
     loaded = ctx.load_session(tmp_path, session.conversation_id)
+    assert loaded.persona_sha256 == persona_sha
     assert [turn.content for turn in loaded.turns] == [
         r"open C:\private\work\file.cpp",
         "/home/aiden/private/result",
     ]
+
+
+def test_invalid_persona_hash_refuses(tmp_path):
+    ctx = _context()
+    session = _session(ctx)
+    path = ctx.save_session(tmp_path, session)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["persona_sha256"] = "not-a-sha"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ctx.ContextRefusal, match="invalid persona_sha256"):
+        ctx.load_session(tmp_path, session.conversation_id)
 
 
 def test_unknown_schema_refuses_with_found_and_supported_versions(tmp_path):
@@ -63,7 +77,33 @@ def test_runtime_change_appends_segment_and_turns_keep_provenance():
     assert [turn.runtime for turn in session.turns] == [0, 0, 1]
 
 
-def test_compose_is_deterministic_and_drops_oldest_whole_turns():
+def test_append_turn_refuses_stale_runtime_segment():
+    ctx = _context()
+    session = _session(ctx)
+    ctx.append_turn(session, "user", "first", 0)
+    ctx.ensure_runtime(session, "p2", "m2", "GPU")
+
+    with pytest.raises(ctx.ContextRefusal, match="current runtime segment 1"):
+        ctx.append_turn(session, "assistant", "wrong provenance", 0)
+
+
+def test_load_refuses_unordered_runtime_segments(tmp_path):
+    ctx = _context()
+    session = _session(ctx)
+    ctx.append_turn(session, "user", "first", 0)
+    ctx.append_turn(session, "assistant", "reply", 0)
+    second = ctx.ensure_runtime(session, "p2", "m2", "GPU")
+    ctx.append_turn(session, "user", "second", second)
+    path = ctx.save_session(tmp_path, session)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["runtime"][0]["from_turn"] = 1
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ctx.ContextRefusal, match="first runtime segment must start at turn 0"):
+        ctx.load_session(tmp_path, session.conversation_id)
+
+
+def test_compose_is_deterministic_and_drops_oldest_complete_exchange():
     ctx = _context()
     session = _session(ctx, budget=24)
     ctx.append_turn(session, "user", "111111", 0)
@@ -74,8 +114,26 @@ def test_compose_is_deterministic_and_drops_oldest_whole_turns():
     second = ctx.compose(contract=contract, persona=None, session=session, current_turn="333333")
 
     assert first == second
-    assert first.dropped_turns == 1
-    assert first.messages == [contract, {"role": "assistant", "content": "222222"}, {"role": "user", "content": "333333"}]
+    assert first.dropped_turns == 2
+    assert first.messages == [contract, {"role": "user", "content": "333333"}]
+
+
+def test_compose_retained_history_never_starts_with_assistant():
+    ctx = _context()
+    session = _session(ctx, budget=35)
+    for role, content in [
+        ("user", "111111"),
+        ("assistant", "222222"),
+        ("user", "333333"),
+        ("assistant", "444444"),
+    ]:
+        ctx.append_turn(session, role, content, 0)
+    contract = {"role": "system", "content": "contract"}
+
+    composed = ctx.compose(contract=contract, persona=None, session=session, current_turn="555555")
+    history = composed.messages[1:-1]
+    assert not history or history[0]["role"] == "user"
+    assert [item["role"] for item in history] in ([], ["user", "assistant"])
 
 
 def test_compose_refuses_instead_of_truncating_fixed_contract():
@@ -88,6 +146,21 @@ def test_compose_refuses_instead_of_truncating_fixed_contract():
             session=session,
             current_turn="x",
         )
+
+
+def test_projected_disk_cap_refuses_before_live_session_mutates(tmp_path):
+    ctx = _context()
+    session = _session(ctx)
+    ctx.append_turn(session, "user", "saved", 0)
+    ctx.save_session(tmp_path, session)
+    before_turns = list(session.turns)
+    before_disk = ctx.session_path(tmp_path, session.conversation_id).read_bytes()
+
+    with pytest.raises(ctx.ContextRefusal, match="would exceed disk cap"):
+        ctx.ensure_append_fits(session, [("assistant", "x" * 1000)], 0, disk_cap_bytes=900)
+
+    assert session.turns == before_turns
+    assert ctx.session_path(tmp_path, session.conversation_id).read_bytes() == before_disk
 
 
 def test_disk_cap_refuses_without_dropping_history(tmp_path):
