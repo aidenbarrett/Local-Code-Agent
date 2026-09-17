@@ -210,11 +210,14 @@ Copy-Item $fixtureSource $fixtureSmoke -Recurse
 Say "smoke-testing C++ fixture"
 Push-Location $fixtureSmoke
 try {
+    # Visual Studio is a multi-config generator. Keep the configuration explicit
+    # for both build and CTest so the Windows smoke test executes the Debug
+    # binaries instead of reporting every test as "Not Run".
     & cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
     if ($LASTEXITCODE -ne 0) { Fail "fixture configure failed" }
-    & cmake --build build --parallel 4
+    & cmake --build build --config Debug --parallel 4
     if ($LASTEXITCODE -ne 0) { Fail "fixture build failed" }
-    & ctest --test-dir build --output-on-failure
+    & ctest --test-dir build -C Debug --output-on-failure
     if ($LASTEXITCODE -ne 0) { Fail "fixture test failed" }
 } finally { Pop-Location }
 
