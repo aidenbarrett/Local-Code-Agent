@@ -67,7 +67,7 @@ def list_profiles() -> int:
     term = ui()
     term.banner(
         "LOCAL MODEL CHAT",
-        "Choose where the same local Qwen3-8B model runs on this computer.",
+        "Available local model choices use the same Qwen3-8B on different hardware.",
     )
     term.section("AVAILABLE LOCAL MODEL CHOICES")
     for friendly in FRIENDLY:
