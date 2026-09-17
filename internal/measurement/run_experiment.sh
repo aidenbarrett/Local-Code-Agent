@@ -16,8 +16,6 @@
 #
 # Each step is a gate. Nothing after a failed gate is reported as a run.
 
-# pipefail: the eval is piped to tee, and without it a Python crash is masked
-# by tee's exit status and the script goes on to print "done".
 set -uo pipefail
 ZIP="${1:?path to local-code-agent.zip}"
 PROFILE="${2:-nuc-llama-30b}"
@@ -69,15 +67,15 @@ unzip -q "$ZIP" -d "$tmp" || fail "unzip"
 mv "$tmp/local-code-agent" "$DEST" || fail "unexpected zip layout"
 rm -rf "$tmp"
 cd "$DEST" || fail "cd"
-echo "unpacked: $(find local_agent -name '*.py' | wc -l) source files"
+echo "unpacked: $(find internal/local_agent -name '*.py' | wc -l) source files"
 
 # This script is often copied out beside the package. Refuse drift: the
 # launcher is part of the source hash because it decides what actually runs.
 me="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-if [ -f "$DEST/measurement/run_experiment.sh" ] && [ "$me" != "$DEST/measurement/run_experiment.sh" ]; then
-    if ! cmp -s "$me" "$DEST/measurement/run_experiment.sh"; then
+if [ -f "$DEST/internal/measurement/run_experiment.sh" ] && [ "$me" != "$DEST/internal/measurement/run_experiment.sh" ]; then
+    if ! cmp -s "$me" "$DEST/internal/measurement/run_experiment.sh"; then
         printf '\nSTALE LAUNCHER: %s differs from the one in the package.\n' "$me"
-        printf 'Copy it out and rerun:\n  cp %s ~/run_experiment.sh\n' "$DEST/measurement/run_experiment.sh"
+        printf 'Copy it out and rerun:\n  cp %s ~/run_experiment.sh\n' "$DEST/internal/measurement/run_experiment.sh"
         exit 1
     fi
     echo "launcher matches the package"
@@ -86,7 +84,6 @@ fi
 # --- 2. environment -----------------------------------------------------------
 step "2. python environment"
 python3 -m venv .venv || fail "venv"
-# shellcheck disable=SC1091
 . .venv/bin/activate
 pip install -q --upgrade pip >/dev/null
 pip install -q -e ".[dev]" || fail "pip install (needs network from WSL)"
@@ -112,11 +109,11 @@ echo "/v1/models: $(curl -sS http://127.0.0.1:8080/v1/models | python -c 'import
 
 # --- 5. doctor ----------------------------------------------------------------
 step "5. doctor ($PROFILE)"
-local-agent --repo benchmark_fixture/cpp_project --profile "$PROFILE" doctor || fail "doctor: the profile's model alias is not what the server is serving"
+local-agent --repo internal/benchmark_fixture/cpp_project --profile "$PROFILE" doctor || fail "doctor: the profile's model alias is not what the server is serving"
 
 # --- 6. qualification: no suite on an unqualified profile --------------------
 step "6. qualify ($PROFILE)"
-python measurement/qualify_server.py --profile "$PROFILE" --json "$OUT/qualify-$PROFILE.json" \
+python internal/measurement/qualify_server.py --profile "$PROFILE" --json "$OUT/qualify-$PROFILE.json" \
     --dump-dir "$OUT/qualify-failures" || fail "qualification. Fix these before running the suite."
 
 # Every run name carries its condition so one cell cannot overwrite another.
@@ -132,8 +129,8 @@ case "$RUN" in
     *) echo "refusing run name '$RUN': it does not carry a condition"; exit 1 ;;
 esac
 
-# A retry must never erase evidence needed to enforce the repeat rule.
-for artifact in     "$OUT/$RUN.json" "$OUT/$RUN-transcripts" "$OUT/$RUN.log" "$OUT/$RUN-manifest.json"
+for artifact in \
+    "$OUT/$RUN.json" "$OUT/$RUN-transcripts" "$OUT/$RUN.log" "$OUT/$RUN-manifest.json"
 do
     if [ -e "$artifact" ]; then
         echo "refusing to overwrite existing pilot artifact: $artifact"
@@ -145,7 +142,7 @@ done
 # --- 6.5. observations that cannot be recovered after the run -----------------
 step "6.5. immutable run manifest"
 manifest_args=(
-    python measurement/capture_run_manifest.py
+    python internal/measurement/capture_run_manifest.py
     --profile "$PROFILE"
     --condition "$CONDITION"
     --out "$OUT/$RUN-manifest.json"
@@ -189,7 +186,7 @@ PY
 if [ -n "$CASE" ]; then
     step "7. CONTROLLED PROBE ($PROFILE, case $CASE, once)"
     echo "Transcript lands in $OUT/$RUN-transcripts/ whatever the outcome."
-    python evaluation/run_evaluation.py --profile "$PROFILE" --label "$RUN" --case "$CASE" $COND_FLAG \
+    python internal/evaluation/run_evaluation.py --profile "$PROFILE" --label "$RUN" --case "$CASE" $COND_FLAG \
         --out "$OUT/$RUN.json" --workdir "$HOME/local-agent-evals" \
         2>&1 | tee "$OUT/$RUN.log"
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "the probe exited non-zero; see $OUT/$RUN.log"
@@ -198,7 +195,7 @@ else
     echo "These ten tasks validate the comparison. They are not confirmatory evidence"
     echo "for a population-level procedure hypothesis; fresh held-out tasks do that."
     echo "Output: $OUT/$RUN.json"
-    python evaluation/run_evaluation.py --profile "$PROFILE" --label "$RUN" $COND_FLAG \
+    python internal/evaluation/run_evaluation.py --profile "$PROFILE" --label "$RUN" $COND_FLAG \
         --repeat 3 --max-attempts 5 \
         --out "$OUT/$RUN.json" --workdir "$HOME/local-agent-evals" \
         2>&1 | tee "$OUT/$RUN.log"
