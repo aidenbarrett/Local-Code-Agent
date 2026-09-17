@@ -24,18 +24,18 @@ if text.count(old) != 1:
 text = text.replace(old, new)
 ORCH.write_text(text, encoding="utf-8")
 
-# Assert the exact repaired file before doing any test-runner work.
 written = ORCH.read_text(encoding="utf-8")
 for marker in (
     'build_summary_mode',
     'toolset = ["submit_answer"]',
     'repo_info sufficient for build summary',
-    'Do not call another discovery tool.',
+    'grounded in that repo_info result. Do not call another ',
+    'discovery tool.',
 ):
     if marker not in written:
         raise SystemExit(f"orchestrator repair missing marker: {marker}")
 
-TEST.write_text('''import inspect\n\nfrom local_agent.agent.orchestrator import Orchestrator\n\n\ndef test_repo_build_summary_is_deterministically_narrowed_after_repo_info():\n    source = inspect.getsource(Orchestrator._run_once)\n    assert "build_summary_mode" in source\n    assert "submit_answer" in source\n    assert "repo_info sufficient for build summary" in source\n    assert "Do not call another discovery tool." in source\n''', encoding="utf-8")
+TEST.write_text('''import inspect\n\nfrom local_agent.agent.orchestrator import Orchestrator\n\n\ndef test_repo_build_summary_is_deterministically_narrowed_after_repo_info():\n    source = inspect.getsource(Orchestrator._run_once)\n    assert "build_summary_mode" in source\n    assert "submit_answer" in source\n    assert "repo_info sufficient for build summary" in source\n    assert "grounded in that repo_info result. Do not call another " in source\n    assert "discovery tool." in source\n''', encoding="utf-8")
 
 instrument = json.loads(INSTRUMENT.read_text(encoding="utf-8"))
 old_base = instrument["base_prompt_sha256"]
@@ -55,7 +55,6 @@ print(f"source_sha256={new_source}")
 print(f"base_prompt_sha256={new_base}")
 print(f"outcome_contract_sha256={new_outcome}")
 
-# One-shot scaffolding must not survive into the proposed tree.
 Path(__file__).unlink()
 if WORKFLOW.exists():
     WORKFLOW.unlink()
