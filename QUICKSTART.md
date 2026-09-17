@@ -129,6 +129,8 @@ This demo uses a disposable C++ project and does not involve a model. It shows w
 5. Local Code Agent independently rejects that test result as stale and identifies the changed source file.
 6. Rebuild honestly. Compilation fails, proving that the earlier passing tests were not valid evidence for the current source.
 
+The timestamps in step 3 look innocent on purpose. The refusal is **not** based on file age: a successful full build records a sha256 for every build input, and verification compares the current source hashes against that recorded set. Restoring an mtime therefore does not make changed source look current.
+
 The point is simple:
 
 > **The model can propose actions. It cannot mark its own homework.**
