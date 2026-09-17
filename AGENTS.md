@@ -68,7 +68,7 @@ git diff --exit-code -- benchmark_fixture/cpp_project
 
 python measurement/qualify_server.py --profile ptl-npu-8b     # protocol conformance
 python measurement/analyze_endpoints.py <rows.json>           # endpoint analysis
-python measurement/capture_run_manifest.py --profile <p>      # pre-run sidecar
+python measurement/capture_run_manifest.py --profile <p> --out <f>   # pre-run sidecar
 ```
 
 `measurement/run_test_suite.py` is a compatibility runner for offline machines. It
