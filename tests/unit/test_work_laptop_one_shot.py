@@ -29,3 +29,16 @@ def test_windows_fixture_smoke_uses_explicit_debug_configuration():
     # same configuration or CTest reports every test as "Not Run".
     assert "cmake --build build --config Debug --parallel 4" in text
     assert "ctest --test-dir build -C Debug --output-on-failure" in text
+
+
+def test_workstation_summary_explains_what_passed_without_experiment_jargon():
+    text = (ROOT / "scripts" / "work-laptop-one-shot.ps1").read_text(encoding="utf-8")
+
+    assert "WORKSTATION VALIDATION" in text
+    assert "READY TO USE" in text
+    assert "Agent connection" in text
+    assert "C++ build/test" in text
+    assert "4/4 tests passed" in text
+    assert "No experimental evaluation was started automatically." in text
+    assert "Example single-arm smoke only" not in text
+    assert "Generation 2 run" not in text
