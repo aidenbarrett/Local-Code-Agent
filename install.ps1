@@ -61,6 +61,15 @@ $allowInstallMissing = $InstallMissing
 if (-not $CheckOnly) {
     Show-InstallPlan
     if (-not $InstallMissing) {
+        $inputRedirected = $false
+        try { $inputRedirected = [Console]::IsInputRedirected } catch { $inputRedirected = $false }
+        if (-not [Environment]::UserInteractive -or $inputRedirected) {
+            Write-Host 'Bare .\install.ps1 requires an interactive confirmation before machine-level changes.'
+            Write-Host 'Use .\install.ps1 -CheckOnly for a read-only preflight, or'
+            Write-Host '.\install.ps1 -InstallMissing after prerequisite installation has been approved.'
+            exit 2
+        }
+
         $answer = Read-Host 'Continue with setup? [y/N]'
         if ($null -eq $answer -or @('y','yes') -notcontains $answer.Trim().ToLowerInvariant()) {
             Write-Host ''
