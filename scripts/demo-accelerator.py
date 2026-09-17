@@ -27,18 +27,17 @@ from measurement import serve  # noqa: E402
 BASE_PROFILE = "ptl-npu-8b"
 DEMO_PROFILE = BASE_PROFILE
 DEVICES = ("CPU", "GPU", "NPU")
-WIDTH = 68
+WIDTH = 60
 PROMPT = (
     "Produce a compact C++ code review checklist with exactly 20 numbered items. "
     "Do not use tools. Do not explain your reasoning."
 )
 
 LOGO = (
-    " _      ____      /\\",
-    "| |    / ___|    /  \\",
-    "| |   | |       / /\\ \\",
-    "| |___| |___   / ____ \\",
-    "|_____|\\____| /_/    \\_\\",
+    " _      ____    _",
+    "| |    / ___|  / \\",
+    "| |___| |___  / _ \\",
+    "|_____|\\____|/_/ \\_\\",
 )
 
 
@@ -82,7 +81,6 @@ def print_banner() -> None:
         print(f"  {line}")
     print()
     print("  LOCAL CODE AGENT")
-    print("  Accelerator Verification Demo")
     print()
     print("=" * WIDTH)
     print()
@@ -113,8 +111,8 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
     print_banner()
 
     section("MODEL SETUP")
-    print(f"  Model             {cfg.model.split('/')[-1]}")
-    print("  Backend           OVMS / OpenVINO")
+    print("  Model             Qwen3-8B (INT4)")
+    print("  Backend           OpenVINO Model Server")
     print(f"  Requested device  {cfg.device}")
     print(f"  Hardware view     {monitor_hint(cfg.device)}")
 
@@ -123,7 +121,7 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
     print()
     section("STARTUP")
     if stopped_pid:
-        print(f"  Previous server   stopped (PID {stopped_pid})")
+        print("  Previous server   stopped")
         print()
     print("  [1/3] Starting validated model server...")
     state = serve.start(plan, cfg, wait_seconds=900)
