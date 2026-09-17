@@ -95,7 +95,7 @@ def _header(name: str, config: ModelConfig) -> None:
     print(f"  Model       {_model_label(config)}")
     print(f"  Device      {config.device}")
     print(f"  Backend     {RUNTIME_LABEL.get(config.runtime, config.runtime)}")
-    print(f"  Status      Ready")
+    print("  Status      Ready")
     print()
     print("Type a message and press Enter. Use an empty line or Ctrl-C to exit.")
     print()
@@ -123,10 +123,7 @@ def _runtime_root() -> Path:
 
 
 def _ensure_server(profile: str, config: ModelConfig) -> bool:
-    """Reuse a compatible owned server or start one through the serving controller."""
-    if _reachable(config):
-        return True
-
+    """Reuse only an owned compatible server; otherwise start through the controller."""
     executable = os.environ.get("LCA_OVMS_EXECUTABLE") if config.runtime == "ovms" else None
     plan = serve.make_plan(
         profile,
@@ -138,14 +135,25 @@ def _ensure_server(profile: str, config: ModelConfig) -> bool:
     record = serve.read_record(plan)
     if record:
         state = serve.status(plan)
-        record_device = (
-            ((record.get("plan") or {}).get("model_configuration") or {}).get("device")
-        )
-        if state.get("healthy") and record_device == config.device:
+        recorded = (record.get("plan") or {}).get("model_configuration") or {}
+        record_device = recorded.get("device")
+        record_model = recorded.get("model")
+        if (
+            state.get("healthy")
+            and record_device == config.device
+            and record_model == config.model
+        ):
             return True
         if state.get("process_alive"):
             print(f"Stopping the previous {record_device or 'local'} model server...")
             serve.stop(plan)
+    elif _reachable(config):
+        print()
+        print("A model server is already using the configured local endpoint, but it")
+        print("is not owned by Local Code Agent. It will not be adopted or stopped.")
+        print("Stop that server, then run this chat command again.")
+        print()
+        return False
 
     print(f"Starting {_model_label(config)} on {config.device}...")
     try:
