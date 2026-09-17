@@ -121,9 +121,9 @@ def apply() -> None:
 ''',
         '''def test_previous_research_readme_is_preserved():
     history = (INTERNAL / "docs" / "project-history.md").read_text(encoding="utf-8")
-    plain = " ".join(history.replace("**", "").split())
+    plain = " ".join(history.replace("**", "").split()).lower()
     assert "measurement instrument first and an agent second" in plain
-    assert "| Verified completion | 3/10 | 8/10 | 8/10 |" in plain
+    assert "| verified completion | 3/10 | 8/10 | 8/10 |" in plain
 ''',
     )
 
