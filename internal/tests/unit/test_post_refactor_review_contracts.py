@@ -59,3 +59,11 @@ def test_public_evidence_uses_balanced_generation_one_replication():
 def test_repeated_dataset_points_to_frozen_generation_one_tag():
     experiments = (REPO / "internal" / "experiments" / "README.md").read_text(encoding="utf-8")
     assert "2026-09-08-30b-three-conditions-x3` | `08d5e0fe...` | `instrument-08d5e0fe`" in experiments
+
+
+def test_verification_demo_uses_ctest_discovery_not_exact_summary_wording():
+    source = (REPO / "internal" / "scripts" / "demo-trust-boundary.py").read_text(encoding="utf-8")
+    assert "_ctest_discovered_count" in source
+    assert "[*command, \"-N\"]" in source
+    assert "configured CTest command passed" in source
+    assert "CTest discovered 0 tests" in source
