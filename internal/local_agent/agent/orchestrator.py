@@ -546,6 +546,13 @@ class Orchestrator:
 
         answer = ""
         nudged = False
+        task_lower = task.lower()
+        build_summary_mode = (
+            skill is not None
+            and skill.name == "repo-navigation"
+            and "build" in task_lower
+            and ("repository" in task_lower or "repo" in task_lower)
+        )
 
         while True:
             if state.tool_calls >= self.repo.policy.max_tool_calls:
@@ -667,6 +674,30 @@ class Orchestrator:
                         outcome.to_json(tool_result_max_bytes),
                     )
                 )
+                if build_summary_mode and call.name == "repo_info" and outcome.ok:
+                    # For a high-level repository build summary, repo_info already
+                    # contains the configured build/test profile. Do not leave the
+                    # small model a broad discovery surface after sufficient
+                    # evidence exists: narrow deterministically to reporting only.
+                    toolset = ["submit_answer"]
+                    state.toolset = list(toolset)
+                    schemas = self.registry.schemas(toolset)
+                    ctx.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "The repository build/test profile from repo_info is "
+                                "sufficient for this high-level build summary. Finish "
+                                "now by calling submit_answer with a concise summary "
+                                "grounded in that repo_info result. Do not call another "
+                                "discovery tool."
+                            ),
+                        }
+                    )
+                    self.observer(
+                        "toolset",
+                        {"tools": toolset, "reason": "repo_info sufficient for build summary"},
+                    )
                 if stop:
                     halt = True
                     break
