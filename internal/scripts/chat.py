@@ -148,7 +148,11 @@ def _ensure_server(profile: str, config: ModelConfig, term=None) -> bool:
         if state.get("process_alive"):
             term.status("info", f"Stopping previous {record_device or 'local'} model server")
             serve.stop(plan)
-    elif _reachable(config):
+
+    # A stale ownership record proves nothing about the process currently bound
+    # to the endpoint. Refuse any reachable endpoint that is not the healthy,
+    # compatible owned process accepted above.
+    if _reachable(config):
         term.line()
         term.status("warn", "The configured local endpoint is already in use")
         term.line("  That server is not owned by Local Code Agent, so it will not be adopted or stopped.")
@@ -261,6 +265,7 @@ def converse(name: str, profile: str, config: ModelConfig) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="chat", description="Talk directly to a local model.")
     parser.add_argument("model", nargs="?", default="list", help="model choice, or 'list' to show available choices")
+    parser.add_argument("--ensure-only", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.model == "list":
         return list_profiles()
@@ -270,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
         list_profiles()
         return 2
     profile, _device, config = resolved
+    if args.ensure_only:
+        return 0 if _ensure_server(profile, config) else 2
     return converse(args.model, profile, config)
 
 
