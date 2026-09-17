@@ -43,12 +43,58 @@ class DirectTestResult:
     summary: str
 
 
+_CTEST_SUMMARY = re.compile(
+    r"(\d+)%\s+tests?\s+passed,\s+(\d+)\s+tests?\s+failed\s+out\s+of\s+(\d+)",
+    re.IGNORECASE,
+)
+_CTEST_TOTAL = re.compile(r"total\s+tests\s*:\s*(\d+)", re.IGNORECASE)
+
+
+def _ctest_summary(text: str) -> tuple[str, int, int] | None:
+    for line in reversed(text.splitlines()):
+        match = _CTEST_SUMMARY.search(line)
+        if match:
+            _percent, failed, total = (int(value) for value in match.groups())
+            return line.strip(), failed, total
+    return None
+
+
+def _ctest_discovered_count(root: Path, command: list[str]) -> int | None:
+    """Ask CTest how many tests the same configured invocation can see.
+
+    ``-N`` preserves the command's test directory and multi-config selection
+    (for example ``-C Debug``) but lists tests without executing them. This lets
+    the demo prove that a zero exit came from a non-empty suite without relying
+    on one particular CTest result-summary sentence.
+    """
+    proc = subprocess.run(
+        [*command, "-N"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    combined = proc.stdout + proc.stderr
+    for line in reversed(combined.splitlines()):
+        match = _CTEST_TOTAL.search(line)
+        if match:
+            return int(match.group(1))
+    return None
+
+
 def run_tests_directly(root: Path, command: list[str]) -> DirectTestResult:
     """Run the repository's configured test command without LCA verification.
 
     This is the deliberately naive side of the demo: it observes only the test
     process. It must still run the *same configured command* as the repository,
     including multi-config arguments such as ``-C Debug`` on Windows.
+
+    CTest output formatting varies by version/platform. The load-bearing proof
+    here is therefore: the configured command exited successfully *and* the
+    same CTest invocation discovers at least one test. A conventional CTest
+    summary is displayed when present, but its exact wording is not required.
     """
     proc = subprocess.run(
         command,
@@ -58,17 +104,43 @@ def run_tests_directly(root: Path, command: list[str]) -> DirectTestResult:
         check=False,
     )
     combined = proc.stdout + proc.stderr
-    pattern = re.compile(r"(\d+)% tests passed,\s+(\d+) tests failed out of (\d+)")
-    for line in reversed(combined.splitlines()):
-        match = pattern.search(line)
-        if not match:
-            continue
-        _percent, failed, total = (int(value) for value in match.groups())
-        passed = proc.returncode == 0 and failed == 0 and total > 0
-        return DirectTestResult(passed, line.strip())
-    # The demo is specifically about passing CTest evidence. A zero exit with
-    # no parseable non-empty CTest summary is not proof that this beat happened.
-    return DirectTestResult(False, f"exit code {proc.returncode}; no CTest result summary")
+    parsed = _ctest_summary(combined)
+    discovered = _ctest_discovered_count(root, command)
+
+    if discovered is None:
+        return DirectTestResult(
+            False,
+            f"exit code {proc.returncode}; CTest test discovery could not be verified",
+        )
+    if discovered <= 0:
+        return DirectTestResult(
+            False,
+            f"exit code {proc.returncode}; CTest discovered 0 tests",
+        )
+
+    if parsed is not None:
+        summary, failed, reported_total = parsed
+        # A contradictory summary is never accepted even if the process exit
+        # code is unexpectedly zero. Likewise, do not accept a summary claiming
+        # an empty suite while discovery reports otherwise.
+        ok = (
+            proc.returncode == 0
+            and failed == 0
+            and reported_total > 0
+            and reported_total == discovered
+        )
+        return DirectTestResult(ok, summary)
+
+    if proc.returncode == 0:
+        return DirectTestResult(
+            True,
+            f"configured CTest command passed; {discovered} test(s) discovered",
+        )
+
+    return DirectTestResult(
+        False,
+        f"ctest exit {proc.returncode}; {discovered} test(s) discovered; no passing summary",
+    )
 
 
 def demonstrate(root: Path) -> None:
