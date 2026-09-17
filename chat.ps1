@@ -13,7 +13,15 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $internal = Join-Path $root 'internal'
-$runtimeRoot = Join-Path $env:LOCALAPPDATA 'LocalCodeAgent'
+
+$localAppData = $env:LOCALAPPDATA
+if (-not $localAppData) {
+    $localAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+}
+if (-not $localAppData) {
+    $localAppData = Join-Path $HOME '.local'
+}
+$runtimeRoot = Join-Path $localAppData 'LocalCodeAgent'
 
 $python = @(
     (Join-Path $root '.venv-workstation\Scripts\python.exe'),
