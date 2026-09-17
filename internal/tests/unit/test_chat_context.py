@@ -1,6 +1,7 @@
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -13,6 +14,7 @@ def _context():
     spec = spec_from_file_location("chat_context_test_target", path)
     assert spec and spec.loader
     module = module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
