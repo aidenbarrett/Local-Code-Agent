@@ -63,6 +63,11 @@ def test_human_facing_output_explains_inference_metrics():
     assert "Running repeated model inference" in source
     assert "Resolved execution device" in source
     assert "Result: PASS" in source
+    assert "first request after model startup" in source
+    assert "one-time runtime warm-up and processing the prompt" in source
+    assert "model already warm" in source
+    assert "prompt processing still happens" in source
+    assert "demo observations, not benchmark results" in source
 
     # Keep implementation terminology out of the user-facing result line.
     assert "decode={rate}" not in source

@@ -92,7 +92,7 @@ def demonstrate(root: Path) -> None:
     honest = registry.get("run_test").handler()
     require(honest.ok,
             "verification refused an honest tree; nothing after this would mean anything")
-    say("Raw ctest result", ctest_directly(root))
+    say("Test runner output (ctest)", ctest_directly(root))
     say("Independent verification", "ACCEPTED")
 
     beat(3, "Change the source without rebuilding the binary")
@@ -106,9 +106,12 @@ def demonstrate(root: Path) -> None:
     say("Source changed", "src/ring_buffer.cpp")
     say("Source timestamp", "restored to its original value")
     say("Compiled binary", "unchanged and now stale")
+    print()
+    print("      Restoring the timestamp deliberately hides the edit from a simple")
+    print("      timestamp-only freshness check. The source contents still changed.")
 
     beat(4, "Run the tests again without rebuilding")
-    say("Raw ctest result", ctest_directly(root))
+    say("Test runner output (ctest)", ctest_directly(root))
     print()
     print("      The tests genuinely passed, but they executed the OLD binary.")
     print("      Treating this output alone as proof would report a false success.")
