@@ -8,8 +8,8 @@ skills_dir = "internal/skills"
 
 [profiles.python]
 configure = []
-build = ["python3", "-c", "import compileall,sys; sys.exit(0 if compileall.compile_dir('internal/local_agent', quiet=1) else 1)"]
-test = ["python3", "internal/measurement/run_test_suite.py", "internal/tests"]
+build = ["python", "-c", "import compileall,sys; sys.exit(0 if compileall.compile_dir('internal/local_agent', quiet=1) else 1)"]
+test = ["python", "internal/measurement/run_test_suite.py", "internal/tests"]
 
 [policy]
 allow_build = true
