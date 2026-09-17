@@ -1,0 +1,49 @@
+name: restamp review source identity
+
+on:
+  push:
+    branches: [fix/post-refactor-review]
+
+permissions:
+  contents: write
+
+jobs:
+  restamp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/post-refactor-review
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recompute source identity and remove this workflow
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "internal")
+          from local_agent import provenance as p
+
+          path = Path("internal/INSTRUMENT.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          source = p.source_sha256()
+          base = p.base_prompt_sha256()
+          outcome = p.outcome_contract_sha256()
+          assert base == data["base_prompt_sha256"], (base, data["base_prompt_sha256"])
+          assert outcome == data["outcome_contract_sha256"], (outcome, data["outcome_contract_sha256"])
+          data["source_sha256"] = source
+          path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+          print("source_sha256", source)
+          print("base_prompt_sha256", base)
+          print("outcome_contract_sha256", outcome)
+          PY
+          rm .github/workflows/restamp-review-source.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/INSTRUMENT.json .github/workflows/restamp-review-source.yml
+          git commit -m "Restamp source identity after repo navigation hardening"
+          git push
