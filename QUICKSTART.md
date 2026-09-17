@@ -159,4 +159,4 @@ then retry the same chat command. Normal user guidance should never require an `
 
 and follow the reported setup requirement.
 
-**A source-identity test fails.** Do not casually regenerate experiment identities. `INSTRUMENT.json` declares the current measured source surface; model-facing and outcome-facing contract changes must remain explicit and historical generations must remain reproducible.
+**A source-identity test fails.** Do not casually regenerate experiment identities. `internal/INSTRUMENT.json` declares the current measured source surface; model-facing and outcome-facing contract changes must remain explicit and historical generations must remain reproducible.
