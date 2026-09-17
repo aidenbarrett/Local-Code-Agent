@@ -1,5 +1,10 @@
 from importlib.util import module_from_spec, spec_from_file_location
+import os
 from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -53,8 +58,8 @@ def test_root_chat_entrypoint_and_friendly_models_are_present():
         "qwen3-8b-npu": ("ptl-npu-8b", "NPU"),
         "qwen3-8b-gpu": ("ptl-npu-8b", "GPU"),
         "qwen3-8b-cpu": ("ptl-npu-8b", "CPU"),
-        "qwen3-coder-30b": ("ptl-gpu-30b", "GPU"),
     }
+    assert "qwen3-coder-30b" not in chat.FRIENDLY
 
 
 def test_chat_is_one_command_and_never_teaches_internal_plumbing():
@@ -75,13 +80,56 @@ def test_direct_chat_system_message_describes_the_real_terminal_boundary():
     _, _, config = chat._resolve("qwen3-8b-npu")
     message = chat._system_message(config)["content"]
     assert "plain terminal chat program" in message
-    assert "empty line, or Ctrl-C" in message
+    assert "Ctrl-C while at the prompt" in message
+    assert "no network access" in message
     assert "no tools" in message
     assert "no access to the filesystem" in message
     assert "separate from Local Code Agent" in message
     assert "Do not guess at feature names, buttons or commands" in message
     assert "OpenVINO Model Server" in message
     assert "NPU" in message
+
+
+def test_ctrl_c_during_generation_returns_cleanly_to_the_prompt(monkeypatch, capsys):
+    chat = _load_chat_module()
+    profile, _, config = chat._resolve("qwen3-8b-npu")
+    monkeypatch.setattr(chat, "_ensure_server", lambda *_args, **_kwargs: True)
+
+    responses = iter(["hello", ""])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
+
+    from local_agent.llm import client as client_module
+
+    class InterruptingClient:
+        def __init__(self, _config):
+            pass
+
+        def chat(self, history):
+            assert history[-1]["content"] == "hello"
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(client_module, "OpenAICompatibleClient", InterruptingClient)
+
+    assert chat.converse("qwen3-8b-npu", profile, config) == 0
+    out = capsys.readouterr().out
+    assert "Generation stopped. Back at the prompt." in out
+
+
+def test_install_default_is_transparent_before_machine_mutation():
+    source = (REPO / "install.ps1").read_text(encoding="utf-8")
+    for package in (
+        "Git.Git",
+        "Python.Python.3.12",
+        "Kitware.CMake",
+        "Microsoft.VisualStudio.2022.BuildTools",
+    ):
+        assert package in source
+    assert 'Package source: WinGet source "winget".' in source
+    assert "Read-Host 'Continue with setup? [y/N]'" in source
+    assert "$allowInstallMissing = $true" in source
+    assert "company policy" in source
+    assert ".\\install.ps1 -CheckOnly" in source
+    assert ".\\install.ps1 -InstallMissing" in source
 
 
 def test_local_code_agent_root_facade_explains_why_it_exists():
@@ -120,6 +168,7 @@ def test_public_demo_wrappers_exist_and_hide_implementation_paths_from_docs():
     assert ".\\demo\\show-stale-test-rejection.ps1" in quickstart
     assert ".\\scripts\\" not in quickstart
     assert "python measurement/" not in quickstart
+    assert "qwen3-coder-30b" not in quickstart
 
 
 def test_quickstart_teaches_the_user_journey_in_the_expected_order():
@@ -130,11 +179,66 @@ def test_quickstart_teaches_the_user_journey_in_the_expected_order():
     accelerator = text.index("## 3. Prove which accelerator is running Qwen3-8B")
     verification = text.index("## 4. See independent verification reject stale test results")
     assert install < capabilities < chat < accelerator < verification
+    assert text.index("Read-only preflight first") < text.index("Full setup / validation")
+    assert ".\\install.ps1 -CheckOnly" in text
     assert ".\\install.ps1" in text
     assert ".\\local-code-agent.ps1 capabilities" in text
     assert ".\\chat.ps1 qwen3-8b-npu" in text
     assert "The model can propose actions. It cannot mark its own homework." in text
-    assert "qwen3-coder-30b` is a different model on a different profile" in text
+    assert "qwen3-coder-30b" not in text
+
+
+def test_generation_one_reproduction_points_to_the_frozen_tag():
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "instrument-08d5e0fe" in readme
+    assert "current branch intentionally has a different repository layout and source identity" in readme
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell path-with-spaces regression is Windows-specific")
+def test_root_commands_work_from_a_checkout_path_with_spaces(tmp_path):
+    checkout = tmp_path / "Local Code Agent With Spaces"
+    shutil.copytree(
+        REPO,
+        checkout,
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".venv",
+            ".venv-workstation",
+            ".pytest_cache",
+            "__pycache__",
+        ),
+    )
+
+    powershell = (
+        shutil.which("pwsh")
+        or shutil.which("powershell.exe")
+        or shutil.which("powershell")
+    )
+    assert powershell, "a Windows CI runner must provide PowerShell"
+
+    cases = (
+        ("chat.ps1", (), "Available local model choices"),
+        ("local-code-agent.ps1", ("help",), "Local Code Agent"),
+    )
+    for script, args, expected in cases:
+        result = subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(checkout / script),
+                *args,
+            ],
+            cwd=checkout,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        combined = result.stdout + result.stderr
+        assert result.returncode == 0, combined
+        assert expected in combined
 
 
 def test_previous_research_readme_is_preserved():

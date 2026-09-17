@@ -33,7 +33,6 @@ FRIENDLY: dict[str, tuple[str, str]] = {
     "qwen3-8b-npu": ("ptl-npu-8b", "NPU"),
     "qwen3-8b-gpu": ("ptl-npu-8b", "GPU"),
     "qwen3-8b-cpu": ("ptl-npu-8b", "CPU"),
-    "qwen3-coder-30b": ("ptl-gpu-30b", "GPU"),
 }
 
 BANNER = "Local Model Chat"
@@ -81,8 +80,8 @@ def list_profiles() -> int:
     print("Start a chat with:")
     print("  .\\chat.ps1 qwen3-8b-npu")
     print()
-    print("The three Qwen3-8B choices use the same model artifact and change only")
-    print("the execution device. qwen3-coder-30b selects a different model profile.")
+    print("The Qwen3-8B choices use the same model artifact and change only")
+    print("the requested execution device.")
     print()
     return 0
 
@@ -97,7 +96,8 @@ def _header(name: str, config: ModelConfig) -> None:
     print(f"  Backend     {RUNTIME_LABEL.get(config.runtime, config.runtime)}")
     print("  Status      Ready")
     print()
-    print("Type a message and press Enter. Use an empty line or Ctrl-C to exit.")
+    print("Type a message and press Enter. Use an empty line or Ctrl-C at the prompt to exit.")
+    print("Ctrl-C while a reply is being generated stops that reply and returns to the prompt.")
     print()
 
 
@@ -185,7 +185,7 @@ def _system_message(config: ModelConfig) -> dict[str, str]:
             f"computer. The model is {_model_label(config)}.\n\n"
             "You are running inside a plain terminal chat program. There is no window, "
             "no button and no menu. The person types a line and presses Enter. To leave, "
-            "they press Enter on an empty line, or Ctrl-C.\n\n"
+            "they press Enter on an empty line, or Ctrl-C while at the prompt.\n\n"
             "You have no tools, no access to the filesystem, and no ability to run "
             "commands. This program is separate from Local Code Agent, which is the part "
             "of this project that gives a model controlled repository access and verifies "
@@ -219,6 +219,10 @@ def converse(name: str, profile: str, config: ModelConfig) -> int:
         history.append({"role": "user", "content": said})
         try:
             reply = client.chat(history)
+        except KeyboardInterrupt:
+            print("\nGeneration stopped. Back at the prompt.\n")
+            history.pop()
+            continue
         except Exception as exc:
             print(f"\nRequest failed: {type(exc).__name__}: {exc}\n")
             history.pop()

@@ -26,15 +26,19 @@ The normal user-facing path is entirely at the root or under `demo/`. `internal/
 
 ### 1. Prepare or validate the machine
 
-```powershell
-.\install.ps1
-```
-
-For a read-only preflight:
+Start with a read-only preflight:
 
 ```powershell
 .\install.ps1 -CheckOnly
 ```
+
+Then run the full setup / validation path:
+
+```powershell
+.\install.ps1
+```
+
+Bare setup shows the approved WinGet package plan and asks before allowing machine-level prerequisite installation. If those installs have already been approved and a non-interactive run is required, use `-InstallMissing` explicitly.
 
 ### 2. Chat directly with a local model
 
@@ -43,15 +47,14 @@ For a read-only preflight:
 .\chat.ps1 qwen3-8b-npu
 ```
 
-Other configured choices:
+Other configured demo choices:
 
 ```powershell
 .\chat.ps1 qwen3-8b-gpu
 .\chat.ps1 qwen3-8b-cpu
-.\chat.ps1 qwen3-coder-30b
 ```
 
-The three Qwen3-8B choices use the same model artifact and change only the requested execution device. `qwen3-coder-30b` selects a different model profile.
+The three Qwen3-8B choices use the same model artifact and change only the requested execution device.
 
 Direct chat has no repository tools. It starts or reuses the selected local model server through the same deterministic serving controller used by the rest of the project, then drops straight into the terminal conversation.
 
@@ -173,6 +176,8 @@ The completed generation-1 experiment used one local 30B model on CPU and ten sy
 The strongest measured signal was **action-space narrowing**. Restricting the model to the tools relevant to the task improved verified completion from 3/10 to 8/10, removed the four observed scope violations, and reduced tool calls and wall time substantially.
 
 The experiment did **not** contain an 8B cell, so it provides no evidence that the same result transfers to the smaller model used in the current Panther Lake demo.
+
+Generation 1 is reproduced from the historical tag `instrument-08d5e0fe`. The current branch intentionally has a different repository layout and source identity; recomputing the generation-1 source hash from the current tree is not a valid reproduction procedure.
 
 The historical research-first README and experiment interpretation are preserved under [`internal/docs/project-history.md`](internal/docs/project-history.md). Frozen experiment artifacts remain under [`internal/experiments/`](internal/experiments/).
 

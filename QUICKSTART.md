@@ -15,7 +15,7 @@ All commands below are run from the repository root in PowerShell.
 
 ## 0. Prepare or check the Windows workstation
 
-Read-only preflight:
+Read-only preflight first:
 
 ```powershell
 .\install.ps1 -CheckOnly
@@ -27,13 +27,17 @@ Full setup / validation:
 .\install.ps1
 ```
 
-If prerequisites are missing and you are happy for the script to install the approved packages:
+Bare setup shows the exact machine-level prerequisites it is allowed to install through WinGet and asks before enabling those installs. It also explains that WSL and NPU-driver changes are not automatic.
+
+If those prerequisite installs have already been approved and you need a non-interactive setup run:
 
 ```powershell
 .\install.ps1 -InstallMissing
 ```
 
 The setup path prepares the managed runtime, model serving environment and local Python environment, then qualifies the serving path and runs the C++ validation project. It stops before any scored experiment.
+
+If company policy blocks an approved WinGet package, setup stops with the package name so you can ask IT for that specific prerequisite rather than debugging an unexplained exit code.
 
 ## 1. See what Local Code Agent can do
 
@@ -60,15 +64,14 @@ Start Qwen3-8B on the NPU:
 .\chat.ps1 qwen3-8b-npu
 ```
 
-Other configured choices:
+Other configured demo choices:
 
 ```powershell
 .\chat.ps1 qwen3-8b-gpu
 .\chat.ps1 qwen3-8b-cpu
-.\chat.ps1 qwen3-coder-30b
 ```
 
-The three Qwen3-8B choices use the same model artifact and change only the requested execution device. `qwen3-coder-30b` is a different model on a different profile.
+The three Qwen3-8B choices use the same model artifact and change only the requested execution device. Unrehearsed model profiles are deliberately not advertised on the friendly demo surface.
 
 You do **not** need to start an internal model-server command first. Chat reuses a compatible server owned by Local Code Agent or starts the requested model/device through the deterministic serving controller, waits for readiness, and then presents:
 
@@ -76,7 +79,7 @@ You do **not** need to start an internal model-server command first. Chat reuses
 You >
 ```
 
-Direct chat has no repository tools, filesystem access or command execution. Exit with an empty line or Ctrl-C.
+Direct chat has no repository tools, filesystem access or command execution. Use an empty line or Ctrl-C at the prompt to exit. Ctrl-C during generation stops the current reply cleanly and returns to the prompt.
 
 ## 3. Prove which accelerator is running Qwen3-8B
 
