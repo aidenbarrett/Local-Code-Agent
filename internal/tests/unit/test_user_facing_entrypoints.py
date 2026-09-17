@@ -1,4 +1,6 @@
+import contextlib
 from importlib.util import module_from_spec, spec_from_file_location
+import io
 import os
 from pathlib import Path
 import shutil
@@ -90,7 +92,7 @@ def test_direct_chat_system_message_describes_the_real_terminal_boundary():
     assert "NPU" in message
 
 
-def test_ctrl_c_during_generation_returns_cleanly_to_the_prompt(monkeypatch, capsys):
+def test_ctrl_c_during_generation_returns_cleanly_to_the_prompt(monkeypatch):
     chat = _load_chat_module()
     profile, _, config = chat._resolve("qwen3-8b-npu")
     monkeypatch.setattr(chat, "_ensure_server", lambda *_args, **_kwargs: True)
@@ -110,9 +112,10 @@ def test_ctrl_c_during_generation_returns_cleanly_to_the_prompt(monkeypatch, cap
 
     monkeypatch.setattr(client_module, "OpenAICompatibleClient", InterruptingClient)
 
-    assert chat.converse("qwen3-8b-npu", profile, config) == 0
-    out = capsys.readouterr().out
-    assert "Generation stopped. Back at the prompt." in out
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        assert chat.converse("qwen3-8b-npu", profile, config) == 0
+    assert "Generation stopped. Back at the prompt." in captured.getvalue()
 
 
 def test_install_default_is_transparent_before_machine_mutation():
@@ -130,6 +133,20 @@ def test_install_default_is_transparent_before_machine_mutation():
     assert "company policy" in source
     assert ".\\install.ps1 -CheckOnly" in source
     assert ".\\install.ps1 -InstallMissing" in source
+
+
+def test_readme_answers_first_time_user_questions_before_deep_internals():
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "lets a local AI model work on a code repository using controlled tools" in text
+    assert "## Current setup target" in text
+    assert "Windows 11 on Intel Panther Lake" in text
+    assert "not a claim that arbitrary Windows, Linux or macOS machines" in text
+    assert ".\\install.ps1 -CheckOnly" in text
+    assert ".\\chat.ps1 qwen3-8b-npu" in text
+    assert ".\\local-code-agent.ps1 capabilities" in text
+    assert "Examples of intended workloads include" in text
+    assert "not claims that every task is solved successfully" in text
+    assert "See [`QUICKSTART.md`](QUICKSTART.md) for the full walkthrough" in text
 
 
 def test_local_code_agent_root_facade_explains_why_it_exists():
@@ -171,27 +188,28 @@ def test_public_demo_wrappers_exist_and_hide_implementation_paths_from_docs():
     assert "qwen3-coder-30b" not in quickstart
 
 
-def test_quickstart_teaches_the_user_journey_in_the_expected_order():
+def test_quickstart_teaches_the_detailed_user_journey_in_order():
     text = (REPO / "QUICKSTART.md").read_text(encoding="utf-8")
-    install = text.index("## 0. Prepare or check the Windows workstation")
-    capabilities = text.index("## 1. See what Local Code Agent can do")
-    chat = text.index("## 2. Chat directly with a local model")
-    accelerator = text.index("## 3. Prove which accelerator is running Qwen3-8B")
-    verification = text.index("## 4. See independent verification reject stale test results")
-    assert install < capabilities < chat < accelerator < verification
-    assert text.index("Read-only preflight first") < text.index("Full setup / validation")
-    assert ".\\install.ps1 -CheckOnly" in text
-    assert ".\\install.ps1" in text
-    assert ".\\local-code-agent.ps1 capabilities" in text
-    assert ".\\chat.ps1 qwen3-8b-npu" in text
+    clone = text.index("git clone https://github.com/aidenbarrett/Local-Code-Agent.git")
+    preflight = text.index(".\\install.ps1 -CheckOnly")
+    setup = text.index(".\\install.ps1\n", preflight)
+    chat = text.index(".\\chat.ps1 qwen3-8b-npu")
+    capabilities = text.index(".\\local-code-agent.ps1 capabilities")
+    task = text.index(".\\local-code-agent.ps1 run-task")
+    accelerator = text.index(".\\demo\\run-qwen-on-npu.ps1")
+    verification = text.index(".\\demo\\show-stale-test-rejection.ps1")
+    assert clone < preflight < setup < chat < capabilities < task < accelerator < verification
     assert "The model can propose actions. It cannot mark its own homework." in text
-    assert "qwen3-coder-30b" not in text
+    assert "Windows 11 on Intel Panther Lake" in text
+    assert "What are you?" in text
+    assert "Are you connected to the internet?" in text
+    assert "Can you inspect this repository for me?" in text
 
 
 def test_generation_one_reproduction_points_to_the_frozen_tag():
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     assert "instrument-08d5e0fe" in readme
-    assert "current branch intentionally has a different repository layout and source identity" in readme
+    assert "current tree intentionally has a different repository layout and source identity" in readme
 
 
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell path-with-spaces regression is Windows-specific")
