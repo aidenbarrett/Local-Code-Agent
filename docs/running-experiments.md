@@ -1,5 +1,12 @@
 # Run card: the 30B three-condition smoke
 
+> **Generation 1. Historical.** The package, commit, prompt and test count
+> below are the ones that produced the generation-1 dataset in
+> `experiments/`. They are recorded so that run stays reproducible, and they
+> are not the current instrument. The current identities are in
+> `INSTRUMENT.json`. Do not reuse this card for a generation-2 run without
+> replacing every identity in it.
+
 Package `08d5e0fe6f2be291`, commit `6b74c36e`, prompt `37f984092fed31ea`,
 270 tests.
 
@@ -79,8 +86,8 @@ state is fair across the three without you doing anything.
 The launcher stops at the first failing gate and prints which one. It also
 prints this, and it means it:
 
-> No run happened. Any probe or suite JSON already in ~/experiment-runs is from an
-> EARLIER run. Do not send it as this run.
+> No completed run happened. Any JSON already in ~/experiment-runs may be partial
+> or from an earlier run; use the run name and manifest together.
 
 Send the console output. Send nothing from `~/experiment-runs`. A stale file sent as
 a fresh result is worse than no result, because it looks like data.
@@ -98,6 +105,9 @@ Per condition:
 ~/experiment-runs/nuc-llama-30b-narrow-transcripts/
 ~/experiment-runs/nuc-llama-30b-skill.json
 ~/experiment-runs/nuc-llama-30b-skill-transcripts/
+~/experiment-runs/nuc-llama-30b-control-manifest.json
+~/experiment-runs/nuc-llama-30b-narrow-manifest.json
+~/experiment-runs/nuc-llama-30b-skill-manifest.json
 ~/experiment-runs/qualify-nuc-llama-30b.json
 ```
 

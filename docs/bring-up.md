@@ -24,18 +24,18 @@ py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 
-python fixtures\generate_project.py
+python benchmark_fixture\generate_project.py
 python measurement\run_test_suite.py tests
 ```
 
-Expect 77 passed. If cmake or ctest is missing, the integration tests skip and
+Expect 404 passed. If cmake or ctest is missing, the integration tests skip and
 the rest still run.
 
 Then rehearse the whole measurement pipeline with no model at all:
 
 ```powershell
-python tests\evals\run_evaluation.py --rehearse --out rehearsal.json
-python measurement\compare_evals.py rehearsal.json
+python evaluation\run_evaluation.py --rehearse --out rehearsal.json
+python measurement\compare_datasets.py rehearsal.json
 ```
 
 The scores are meaningless (there is no model), but if this completes you know
@@ -132,7 +132,7 @@ Four of those flags matter more than they look:
 Then qualify it:
 
 ```powershell
-python measurement\qualify.py --profile nuc-llama-30b `
+python measurement\qualify_server.py --profile nuc-llama-30b `
   --json qualify-llama-30b.json `
   --dump-dir qualify-dumps
 ```
@@ -178,7 +178,7 @@ The model card shows OVMS with GPU and direct GenAI with CPU. Treat it as a
 test.
 
 ```powershell
-local-agent --repo fixtures\cpp_project --base-url http://127.0.0.1:8000/v3 `
+local-agent --repo benchmark_fixture\cpp_project --base-url http://127.0.0.1:8000/v3 `
   --model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov doctor
 ```
 
@@ -194,11 +194,11 @@ agent development are different problems and there is no reason to couple them.
 ## Stage 3: first real agent run
 
 ```powershell
-cd fixtures\cpp_project
+cd benchmark_fixture\cpp_project
 python scripts\apply_scenario.py compile_error
 cd ..\..
 
-local-agent --repo fixtures\cpp_project --profile nuc-cpu-30b `
+local-agent --repo benchmark_fixture\cpp_project --profile nuc-cpu-30b `
   run "the build is broken, find the first compiler error and explain it" `
   --transcript run1.json
 ```
@@ -214,7 +214,7 @@ you are looking for:
 Then characterise the hardware before you characterise the model:
 
 ```powershell
-python measurement\bench_model.py --profile nuc-cpu-30b --repeats 5 `
+python measurement\benchmark_model.py --profile nuc-cpu-30b --repeats 5 `
   --out bench-nuc-ddr4.json --markdown bench-nuc-ddr4.md
 ```
 
@@ -227,7 +227,7 @@ fixing that is worth more than any other optimisation available to you.
 Then turn the task into a number:
 
 ```powershell
-python tests\evals\run_evaluation.py --profile nuc-cpu-30b --repeat 3 `
+python evaluation\run_evaluation.py --profile nuc-cpu-30b --repeat 3 `
   --label "Qwen3-Coder 30B INT4, CPU, DDR4-3200" --out evals-nuc.json
 ```
 
@@ -294,15 +294,15 @@ python measurement/serve.py pull --profile ptl-gpu-30b
 python measurement/serve.py start --profile ptl-gpu-30b
 python measurement/serve.py start --profile ptl-cpu-30b
 
-python measurement\run_suite.py --profile ptl-gpu-30b `
+python measurement\run_benchmark_suite.py --profile ptl-gpu-30b `
   --label "Qwen3-Coder 30B INT4, Arc B390" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-gpu
 
-python measurement\run_suite.py --profile ptl-cpu-30b `
+python measurement\run_benchmark_suite.py --profile ptl-cpu-30b `
   --label "Qwen3-Coder 30B INT4, CPU" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-cpu
 
-python measurement\compare_evals.py results\*\evals.json --markdown comparison.md
+python measurement\compare_datasets.py results\*\evals.json --markdown comparison.md
 ```
 
 Measure latency and package energy on each device; neither winner nor ratio is
@@ -316,7 +316,7 @@ With both servers up, run the deployment you would actually ship: cheap skills
 on the NPU, hard ones on the iGPU, escalation when the small model fails.
 
 ```powershell
-python measurement\run_suite.py --profile ptl-gpu-30b --cheap-profile ptl-npu-8b `
+python measurement\run_benchmark_suite.py --profile ptl-gpu-30b --cheap-profile ptl-npu-8b `
   --label "Two-tier: 8B on NPU, 30B on B390" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-tiered
 ```
@@ -324,13 +324,13 @@ python measurement\run_suite.py --profile ptl-gpu-30b --cheap-profile ptl-npu-8b
 The report gives you the ledger:
 
 ```
-Tasks                   9
+Tasks                   10
 Blocked (environment)   0
-Attempted               9
+Attempted               10
 
-Cheap tier alone        x/9
+Cheap tier alone        x/10
 Escalated success       y/z
-Local success total     n/9
+Local success total     n/10
 Cloud would be needed   m%
 
 Model calls             cheap a, strong b
@@ -363,13 +363,17 @@ mistake: three weeks optimising something that does not exist yet.
 
 ## Stage 5: the editor
 
-`local_agent/rpc/stdio.py` is already the seam. A VS Code extension spawns
-`python -m local_agent.rpc.stdio`, writes one JSON object per line, and renders
-the `tool`, `observe` and `approval_required` events. The extension holds no
-logic, which is the point: a bug can never be "only in the extension".
+`local_agent/rpc/stdio.py` contains the intended JSON-lines RPC seam, but the
+module is **not currently a runnable `python -m` entrypoint**: it defines
+`main()` without invoking it. Do not wire an editor extension to
+`python -m local_agent.rpc.stdio` yet; that command exits successfully without
+serving anything.
 
-Over Remote SSH the extension runs on the remote host, so the tunnel only has
-to carry the RPC, not the model traffic.
+When that entrypoint is deliberately wired, the VS Code extension should own
+no agent logic: it should spawn the stdio server, write one JSON object per
+line, and render the `tool`, `observe` and `approval_required` events. Over
+Remote SSH the extension runs on the remote host, so the tunnel only has to
+carry the RPC, not the model traffic.
 
 ---
 

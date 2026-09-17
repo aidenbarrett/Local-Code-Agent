@@ -21,7 +21,7 @@ Everything else in the reports is derived from those plus the eval scores.
 ## Rules
 
 **Discard the first call.** It pays model load, graph compilation and blob
-cache misses. `bench_model.py` does this automatically and says so in its
+cache misses. `benchmark_model.py` does this automatically and says so in its
 output. If you quote a cold first call as if it were steady state you will be
 correctly torn apart for it.
 
@@ -68,7 +68,7 @@ context_budget_tokens  max_tool_result_tokens  temperature
 `thinking` is in that list for a reason. Qwen3 will happily reason its way
 through a one-line instruction, and comparing an 8B with thinking on against a
 30B with thinking off, then attributing the difference to the model or the
-device, would be a rotten mistake. `qualify.py` measures whether it fires and
+device, would be a rotten mistake. `qualify_server.py` measures whether it fires and
 how many characters it burns, and the client strips reasoning out of the answer
 so it can never be graded as one.
 
@@ -98,7 +98,7 @@ python measurement/run_benchmark_suite.py --profile nuc-cpu-30b \
 python measurement/compare_datasets.py results/*/evals.json --markdown comparison.md
 ```
 
-`run_suite.py` does everything below in order and writes one directory you can
+`run_benchmark_suite.py` does everything below in order and writes one directory you can
 attach to a mail. The rest of this document is what it does and why, so that
 you can defend it when somebody asks.
 
