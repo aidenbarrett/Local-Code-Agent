@@ -4,7 +4,7 @@ Which model runs on which device, and why. Verified against Intel's own
 documentation and model cards rather than inferred from names. Read this before
 changing a preset or pointing a model at a new device.
 
-`docs/bring-up.md` is the procedure. This is the reference the procedure has to
+`internal/docs/bring-up.md` is the procedure. This is the reference the procedure has to
 obey.
 
 ## Device and model compatibility
@@ -89,7 +89,7 @@ not a measured accelerator result.
 
 ## Energy measurement exists; the hardware result does not
 
-The repository now has an HWiNFO CSV capture path in `measurement/energy.py` and
+The repository now has an HWiNFO CSV capture path in `internal/measurement/energy.py` and
 the serving controller can wrap an explicitly supplied sampler command. It
 records a linked completion manifest and treats absent sensors as `unobserved`,
 never zero. Synthetic capture has exercised the plumbing, but no physical NPU or
@@ -106,15 +106,17 @@ Whatever is used, record `energy_joules`, `sampler`, `sample_hz` and
 
 ## Serving controller status
 
-`measurement/serve.py` is now the device-selectable launcher for OVMS profiles.
+`internal/measurement/serve.py` is the device-selectable launcher for OVMS profiles.
 It derives launch arguments from `MODEL_PRESETS`, owns per-profile ports/cache
 and process state, and supports start/status/stop/logs/pull plus exact dry-runs.
-`scripts/work-laptop-one-shot.ps1` delegates to that controller rather than
+`internal/work-laptop-one-shot.ps1` delegates to that controller rather than
 keeping a second NPU-only command table.
 
-The remaining work is physical validation on the Panther Lake laptop: start the
-real NPU and GPU servers, prove inference on each intended profile, and capture
-HWiNFO power data. That is hardware evidence, not missing launcher architecture.
+The Panther Lake **NPU Qwen3-8B path has been physically exercised on Windows**,
+including real local inference. The remaining hardware work is to finish the same
+physical rehearsal for the other intended accelerator paths and to capture
+HWiNFO power data. Those are hardware-evidence gaps, not missing launcher
+architecture.
 
 ## Sources
 
