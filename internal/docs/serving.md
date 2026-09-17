@@ -9,7 +9,7 @@ No controller or bootstrap command runs a scored evaluation.
 ## First NPU start
 
 ```powershell
-.\scripts\work-laptop-one-shot.ps1 -InstallMissing
+.\install.ps1 -InstallMissing
 ```
 
 This retains prerequisite checks, optional installations, model download, model
@@ -23,14 +23,14 @@ existing explicit switches. Existing venvs need the updated editable install.
 ## Daily commands
 
 ```powershell
-python measurement/serve.py start --profile ptl-npu-8b --dry-run
-python measurement/serve.py pull --profile ptl-npu-8b
-python measurement/serve.py start --profile ptl-npu-8b
-python measurement/serve.py pull --profile ptl-gpu-30b
-python measurement/serve.py start --profile ptl-gpu-30b
-python measurement/serve.py status --all
-python measurement/serve.py logs --profile ptl-npu-8b --tail 60
-python measurement/serve.py stop --profile ptl-npu-8b
+python internal/measurement/serve.py start --profile ptl-npu-8b --dry-run
+python internal/measurement/serve.py pull --profile ptl-npu-8b
+python internal/measurement/serve.py start --profile ptl-npu-8b
+python internal/measurement/serve.py pull --profile ptl-gpu-30b
+python internal/measurement/serve.py start --profile ptl-gpu-30b
+python internal/measurement/serve.py status --all
+python internal/measurement/serve.py logs --profile ptl-npu-8b --tail 60
+python internal/measurement/serve.py stop --profile ptl-npu-8b
 ```
 
 Pass `--executable C:\path\to\ovms.exe` if the server is not on PATH. Keep the
@@ -131,12 +131,12 @@ at least one sample before and after the command. Availability/approval of
 HWiNFO on the work laptop remains a hardware/user check. Nothing installs it.
 
 ```powershell
-python measurement/energy.py --out results/cpu-energy-001.json `
+python internal/measurement/energy.py --out results/cpu-energy-001.json `
   --hwinfo-csv C:\logs\sensors.csv --sensor "CPU Package Power [W]" `
   --timestamp-format "%d.%m.%Y %H:%M:%S.%f" `
   -- python -c "sum(i*i for i in range(100000000))"
 
-python measurement/energy.py --out results/no-sampler-001.json `
+python internal/measurement/energy.py --out results/no-sampler-001.json `
   -- python -c "print('unscored smoke')"
 ```
 
@@ -160,7 +160,7 @@ per-success denominators belong to the experiment owner, outside this PR.
 
 ## Review and laptop checklist
 
-Run `python -m pytest tests/test_serving.py tests/test_energy.py`. Dedicated CI
+Run `python -m pytest internal/tests/test_serving.py internal/tests/test_energy.py`. Dedicated CI
 runs these on native Windows and Linux, including child-process/HTTP integration
 and a PowerShell 5.1 syntax check. Sandboxes with mismatched PID namespaces may
 skip the three OS process tests locally; CI forbids that escape.
