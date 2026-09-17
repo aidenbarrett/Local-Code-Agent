@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CORE = ROOT / "scripts" / "bootstrap-work-laptop-core.ps1"
+CORE = ROOT / "bootstrap-work-laptop-core.ps1"
 
 
 def _text():

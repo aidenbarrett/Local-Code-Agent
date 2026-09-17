@@ -18,7 +18,8 @@ $ProgressPreference = "SilentlyContinue"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $BaseBootstrap = Join-Path $PSScriptRoot "bootstrap-work-laptop.ps1"
-$Controller = Join-Path $RepoRoot "measurement\serve.py"
+$Controller = Join-Path $PSScriptRoot "measurement\serve.py"
+$QualificationScript = Join-Path $PSScriptRoot "measurement\qualify_server.py"
 $Profile = "ptl-npu-8b"
 $VenvPython = Join-Path $RepoRoot ".venv-workstation\Scripts\python.exe"
 $ToolDir = Join-Path $RuntimeRoot "tools"
@@ -99,6 +100,7 @@ Say "runtime: $RuntimeRoot"
 
 if (!(Test-Path $BaseBootstrap)) { Fail "missing $BaseBootstrap" }
 if (!(Test-Path $Controller)) { Fail "missing $Controller" }
+if (!(Test-Path $QualificationScript)) { Fail "missing $QualificationScript" }
 
 # Stage 1 owns Windows/Python/OpenVINO/NPU/OVMS inventory and user-space setup.
 $baseArgs = @("-RuntimeRoot",$RuntimeRoot)
@@ -196,14 +198,14 @@ EnsureDir $QualificationDump
 Say "running Local Code Agent server qualification"
 Push-Location $RepoRoot
 try {
-    & $VenvPython measurement\qualify_server.py --profile $Profile --base-url $BaseUrl --model $ModelId --context-probes "1000,4000,7000" --json $QualificationJson --dump-dir $QualificationDump
+    & $VenvPython $QualificationScript --profile $Profile --base-url $BaseUrl --model $ModelId --context-probes "1000,4000,7000" --json $QualificationJson --dump-dir $QualificationDump
     $qualExit = $LASTEXITCODE
 } finally { Pop-Location }
 if ($qualExit -ne 0) { Fail "server qualification failed ($qualExit). See $QualificationJson and $QualificationDump" }
 
 # Prove the exact local benchmark toolchain can configure/build/test before any
 # scored row is allowed to exist.
-$fixtureSource = Join-Path $RepoRoot "benchmark_fixture\cpp_project"
+$fixtureSource = Join-Path $PSScriptRoot "benchmark_fixture\cpp_project"
 $fixtureSmoke = Join-Path $CacheDir "fixture-smoke"
 if (Test-Path $fixtureSmoke) { Remove-Item $fixtureSmoke -Recurse -Force }
 Copy-Item $fixtureSource $fixtureSmoke -Recurse

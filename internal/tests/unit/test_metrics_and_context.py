@@ -662,14 +662,14 @@ def test_the_source_hash_ignores_generated_state():
     import local_agent.provenance as prov
 
     before = source_sha256()
-    junk = prov._ROOT / "benchmark_fixture" / "cpp_project" / ".local-agent" / "runs" / "x"
+    junk = prov._ROOT / "internal" / "benchmark_fixture" / "cpp_project" / ".local-agent" / "runs" / "x"
     junk.mkdir(parents=True, exist_ok=True)
     try:
         (junk / "combined.log").write_text("noise")
         assert source_sha256() == before
     finally:
         import shutil
-        shutil.rmtree(prov._ROOT / "benchmark_fixture" / "cpp_project" / ".local-agent",
+        shutil.rmtree(prov._ROOT / "internal" / "benchmark_fixture" / "cpp_project" / ".local-agent",
                       ignore_errors=True)
 
 
@@ -690,10 +690,13 @@ def test_the_source_hash_covers_everything_that_can_change_a_result():
     # check for `evaluation/oracle.py`. Exact membership is portable and
     # stricter.
     rels = {path.relative_to(_ROOT).as_posix() for path in _files()}
-    for expected in ("measurement/qualify_server.py", "measurement/run_experiment.sh",
-                     "evaluation/run_evaluation.py", "evaluation/task_contracts.py",
-                     "local_agent/agent/orchestrator.py",
-                     "skills/diagnose-test-failure/SKILL.md"):
+    for expected in ("internal/measurement/qualify_server.py",
+                     "internal/measurement/run_experiment.sh",
+                     "internal/evaluation/run_evaluation.py",
+                     "internal/evaluation/task_contracts.py",
+                     "internal/local_agent/agent/orchestrator.py",
+                     "internal/skills/diagnose-test-failure/SKILL.md",
+                     "pyproject.toml"):
         assert expected in rels, f"{expected} is not in the hashed set"
 
 
@@ -809,9 +812,9 @@ def test_the_instrument_declaration_is_outside_the_hashed_surface(tmp_path):
 
     from local_agent import provenance
 
-    root = Path(provenance.__file__).resolve().parent.parent
-    declaration = root / "INSTRUMENT.json"
-    workflow = root / ".github" / "workflows" / "tests.yml"
+    repo_root = Path(provenance.__file__).resolve().parents[2]
+    declaration = repo_root / "internal" / "INSTRUMENT.json"
+    workflow = repo_root / ".github" / "workflows" / "tests.yml"
     assert declaration.is_file(), "the declaration CI checks against has to exist"
 
     before = provenance.source_sha256()
@@ -841,8 +844,8 @@ def test_the_declared_identity_matches_this_tree():
 
     from local_agent import provenance
 
-    root = Path(provenance.__file__).resolve().parent.parent
-    declared = json.loads((root / "INSTRUMENT.json").read_text())
+    repo_root = Path(provenance.__file__).resolve().parents[2]
+    declared = json.loads((repo_root / "internal" / "INSTRUMENT.json").read_text())
 
     assert declared["source_sha256"] == provenance.source_sha256(), \
         "source_sha256 has drifted from INSTRUMENT.json"
@@ -935,7 +938,7 @@ def test_the_fixture_generator_writes_lf_on_every_host():
     write canonical, and the generator runs after checkout in every CI job.
 
     `Path.write_text` opens in text mode, and text mode on Windows translates
-    "\\n" to "\\r\\n" on the way out. `benchmark_fixture/cpp_project` is inside
+    "\\n" to "\\r\\n" on the way out. `internal/benchmark_fixture/cpp_project` is inside
     the hashed surface, so five unqualified writes rewrote 24 of the 76 hashed
     files as CRLF on Windows and moved `source_sha256` every time the generator
     ran there.
@@ -948,7 +951,7 @@ def test_the_fixture_generator_writes_lf_on_every_host():
 
     from local_agent.provenance import _ROOT
 
-    source = (_ROOT / "benchmark_fixture" / "generate_project.py").read_text(
+    source = (_ROOT / "internal" / "benchmark_fixture" / "generate_project.py").read_text(
         encoding="utf-8"
     )
 
@@ -984,7 +987,7 @@ def test_the_generator_write_helper_emits_the_bytes_it_was_given(tmp_path):
 
     spec = importlib.util.spec_from_file_location(
         "_generate_project_under_test",
-        _ROOT / "benchmark_fixture" / "generate_project.py",
+        _ROOT / "internal" / "benchmark_fixture" / "generate_project.py",
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

@@ -9,7 +9,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Root = Split-Path -Parent $ScriptDir
+$InternalRoot = Split-Path -Parent $ScriptDir
+$Root = Split-Path -Parent $InternalRoot
 $Candidates = @(
     (Join-Path $Root ".venv-workstation\Scripts\python.exe"),
     (Join-Path $Root ".venv\Scripts\python.exe")
@@ -27,7 +28,7 @@ $OvmsDir = Join-Path $RuntimeRoot "tools\ovms-2026.3.0"
 $OvmsExe = Get-ChildItem $OvmsDir -Recurse -Filter ovms.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 $SetupVars = Get-ChildItem $OvmsDir -Recurse -Filter setupvars.ps1 -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $OvmsExe -or -not $SetupVars) {
-    throw "OVMS 2026.3.0 installation is incomplete under $OvmsDir. Run scripts\work-laptop-one-shot.ps1 first."
+    throw "OpenVINO Model Server is not installed under $OvmsDir. Run .\install.ps1 first."
 }
 
 $HadPythonHome = Test-Path Env:PYTHONHOME
@@ -45,6 +46,9 @@ if ($HadPythonHome) { $env:PYTHONHOME = $PythonHomeBefore }
 else { Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue }
 if ($HadPythonPath) { $env:PYTHONPATH = $PythonPathBefore }
 else { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
+
+$ExistingPythonPath = if (Test-Path Env:PYTHONPATH) { $env:PYTHONPATH } else { $null }
+$env:PYTHONPATH = if ($ExistingPythonPath) { "$InternalRoot;$ExistingPythonPath" } else { $InternalRoot }
 
 $DemoArgs = @(
     (Join-Path $ScriptDir "demo-accelerator.py")

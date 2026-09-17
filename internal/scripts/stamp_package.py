@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Write PACKAGE.json so a shipped zip can name the commit it came from.
-
-Run immediately before packaging. A zip without this still reports its
-source_sha256, which is the hash that actually proves what ran; the commit is
-the human-readable half.
-"""
+"""Write PACKAGE.json so a shipped zip can name the commit it came from."""
 
 from __future__ import annotations
 
@@ -14,8 +9,9 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+ROOT = Path(__file__).resolve().parents[2]
+INTERNAL = ROOT / "internal"
+sys.path.insert(0, str(INTERNAL))
 
 from local_agent.provenance import source_sha256  # noqa: E402
 

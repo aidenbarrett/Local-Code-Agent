@@ -1,63 +1,66 @@
 # Quickstart
 
-This page is for somebody opening the repository for the first time.
+This is the detailed first-run walkthrough for somebody who has decided to try Local Code Agent.
 
-The simplest mental model is:
+## What this guide assumes
 
+The current setup path targets **Windows 11 on Intel Panther Lake** and uses PowerShell. The friendly local-model path serves Qwen3-8B through OpenVINO Model Server and can request the NPU, GPU or CPU on that machine.
+
+The architecture is intended to support other runtimes and devices, but this guide should not be read as a promise that unrelated hardware or operating systems have been qualified.
+
+The public surface is deliberately small:
+
+- **`install.ps1`** prepares and validates the local runtime.
 - **`chat.ps1`** talks directly to a local model.
 - **`local-code-agent.ps1`** gives a model controlled repository access, approved tools, task procedures / skills, and independent verification.
-- **The accelerator demo** proves which device is actually running the model.
-- **The verification demo** proves that passing test output is not blindly trusted.
+- **`demo/`** contains demonstration entrypoints.
 
-All commands below are run from the repository root. Windows commands are shown in PowerShell.
+Everything else lives under `internal/` and is not required for normal first use.
 
----
+## 0. Clone the repository
 
-## 0. Check or prepare the Windows workstation
-
-If this machine has already been prepared for the demo, skip to step 1.
+From PowerShell:
 
 ```powershell
-.\scripts\work-laptop-one-shot.ps1 -CheckOnly
+git clone https://github.com/aidenbarrett/Local-Code-Agent.git
+cd Local-Code-Agent
 ```
 
-This checks the workstation without installing or changing anything. If required:
+All commands below are run from that repository root.
+
+## 1. Check and prepare the Windows workstation
+
+Start with the read-only preflight:
 
 ```powershell
-.\scripts\work-laptop-one-shot.ps1 -InstallMissing
+.\install.ps1 -CheckOnly
 ```
 
-That prepares the managed runtime, downloads the required model artifacts, qualifies the serving path and runs the fixture smoke checks. Allow time for the model download. It stops before any scored experiment.
+This checks the machine without enabling setup changes.
 
-For the full setup details, see `docs/work-laptop-bootstrap.md`.
-
----
-
-## 1. See what Local Code Agent can do
-
-Start with the root entrypoint:
+Then run the full setup / validation path:
 
 ```powershell
-.\local-code-agent.ps1
+.\install.ps1
 ```
 
-Then print the live capability set:
+Bare setup shows the exact machine-level prerequisites it is allowed to install through WinGet and asks before enabling those installs. The approved list currently includes Git, Python 3.12, CMake and Visual Studio 2022 C++ Build Tools.
+
+It also explains that WSL installation and NPU-driver changes are not automatic. The NPU driver is never installed by the script; `-OpenDriverPage` only opens the relevant driver page. WSL installation is attempted only when `-AttemptWslInstall` is supplied explicitly.
+
+If those prerequisite installs have already been approved and you need a non-interactive setup run:
 
 ```powershell
-.\local-code-agent.ps1 capabilities
+.\install.ps1 -InstallMissing
 ```
 
-This prints the approved tools available to the model, the installed task procedures / skills, and the things the controller deliberately does not permit.
+The setup path prepares the managed runtime, model serving environment and local Python environment, downloads the configured Qwen3-8B model when required, qualifies the serving path and runs the C++ validation project. It stops before any scored experiment.
 
-The supported list comes from the live implementation rather than a hand-written feature list.
+If company policy blocks an approved WinGet package, setup stops with the package name so you can ask IT for that specific prerequisite rather than debugging an unexplained exit code.
 
-No model or accelerator is required for this step.
+## 2. Chat directly with the local model
 
----
-
-## 2. Chat directly with a local model
-
-List the available user-facing choices:
+List the friendly demo choices:
 
 ```powershell
 .\chat.ps1
@@ -69,105 +72,149 @@ Start Qwen3-8B on the NPU:
 .\chat.ps1 qwen3-8b-npu
 ```
 
-Other configured choices:
+Other configured demo choices:
 
 ```powershell
 .\chat.ps1 qwen3-8b-gpu
 .\chat.ps1 qwen3-8b-cpu
-.\chat.ps1 qwen3-coder-30b
 ```
 
-The three Qwen3-8B choices use the same model artifact and client while changing only the requested execution device. `qwen3-coder-30b` is a different model on a different profile.
+The three choices use the same Qwen3-8B model artifact and change only the requested execution device. Unrehearsed model profiles are deliberately not advertised on the friendly demo surface.
 
-Chat is deliberately separate from Local Code Agent: it gives you the model conversation without repository tools, skills or verification.
+You do **not** need to start an internal model-server command first. Chat reuses a compatible server owned by Local Code Agent or starts the requested model/device through the deterministic serving controller, waits for readiness, and then presents:
 
-If the selected model server is not running, chat prints the exact user-facing command to start it and leave it running.
+```text
+You >
+```
 
----
+Direct chat has no repository tools, filesystem access or command execution. Use an empty line or Ctrl-C at the prompt to exit. Ctrl-C during generation stops the current reply cleanly and returns to the prompt.
 
-## 3. Prove which accelerator is running Qwen3-8B
+Useful boundary checks for a first rehearsal are:
 
-Open **Task Manager > Performance** and select the device you want to watch, then run:
+```text
+What are you?
+Are you connected to the internet?
+What can you do?
+Can you inspect this repository for me?
+```
+
+The direct chat should describe itself as a local model with no network, filesystem or tool access, and should not claim to be the controlled coding agent.
+
+## 3. See the controlled coding-agent surface
 
 ```powershell
-.\scripts\demo-accelerator.ps1 -Device NPU -Seconds 45
+.\local-code-agent.ps1
+.\local-code-agent.ps1 capabilities
 ```
 
-The same demo can target the GPU or CPU:
+This prints the live approved tools, installed task procedures / skills, and the things the controller deliberately does not permit.
+
+No model is required just to inspect the capability surface.
+
+The important distinction is:
+
+- `chat.ps1` = direct model conversation
+- `local-code-agent.ps1` = model + controlled repository access + approved tools + skills + deterministic verification
+
+## 4. Run a controlled repository task
+
+A simple first task is:
 
 ```powershell
-.\scripts\demo-accelerator.ps1 -Device GPU -Seconds 45
-.\scripts\demo-accelerator.ps1 -Device CPU -Seconds 45
+.\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation
 ```
 
-The script requests the device explicitly and reports the device OpenVINO actually resolved before generating repeated model responses.
+Examples of intended workloads include repository navigation, build/test diagnosis or repair with independent verification, and controlled Git/repository review. These are intended use cases, not guarantees that every model solves every task.
 
-It also shows time to first token and generation speed. The first request after model startup can be slower because it may include one-time runtime warm-up as well as prompt processing. Later requests use an already-initialised runtime, but still process their prompts.
+The model never receives arbitrary shell access and never decides for itself that its work passed verification.
 
-Add `-KeepServer` if you want to leave that model server running afterwards for `chat.ps1`:
+## 5. Prove which accelerator is running Qwen3-8B
+
+Open **Task Manager > Performance** and select the device you want to watch, then run one of:
 
 ```powershell
-.\scripts\demo-accelerator.ps1 -Device NPU -Seconds 5 -KeepServer
+.\demo\run-qwen-on-npu.ps1
+.\demo\run-qwen-on-gpu.ps1
+.\demo\run-qwen-on-cpu.ps1
 ```
 
-These timings are demo observations on an uncontrolled machine, not benchmark results. Controlled performance and energy measurement is separate work.
-
----
-
-## 4. See independent verification reject stale test results
+You can change how long repeated inference runs:
 
 ```powershell
-.\local-code-agent.ps1 verification-demo
+.\demo\run-qwen-on-npu.ps1 -Seconds 45
 ```
 
-This demo uses a disposable C++ project and does not involve a model. It shows why Local Code Agent does not treat passing test output as proof by itself:
+Add `-KeepServer` if you want the selected server left running afterwards:
+
+```powershell
+.\demo\run-qwen-on-npu.ps1 -Seconds 5 -KeepServer
+```
+
+The report shows the requested device and the device OpenVINO actually resolved. The first request after startup can be slower because it may include one-time runtime warm-up plus prompt processing. Later requests use an already-initialised runtime but still process their prompts.
+
+Timing values are live demo observations on an uncontrolled machine, not benchmark results.
+
+## 6. See independent verification reject stale test results
+
+```powershell
+.\demo\show-stale-test-rejection.ps1
+```
+
+This uses a disposable C++ project and no model. It demonstrates why passing test output is not accepted as proof by itself:
 
 1. Build a clean project and run its tests successfully.
-2. Change a source file without rebuilding the binary.
-3. Restore the source timestamp, deliberately hiding the edit from a simple timestamp-only freshness check.
+2. Change source without rebuilding the binary.
+3. Restore the source timestamp so a timestamp-only check would see nothing suspicious.
 4. Run `ctest` again. It still reports success because it executes the old binary.
-5. Local Code Agent independently rejects that test result as stale and identifies the changed source file.
-6. Rebuild honestly. Compilation fails, proving that the earlier passing tests were not valid evidence for the current source.
+5. Local Code Agent rejects that result as stale because the current source hashes no longer match the successful build record.
+6. Rebuild honestly. Compilation fails, proving the earlier passing tests were invalid evidence for the current source.
 
-The timestamps in step 3 look innocent on purpose. The refusal is **not** based on file age: a successful full build records a sha256 for every build input, and verification compares the current source hashes against that recorded set. Restoring an mtime therefore does not make changed source look current.
-
-The point is simple:
+The freshness gate is deliberately **not** a file-age comparison. A successful full build records a sha256 for every build input and verification compares the current source set against that record.
 
 > **The model can propose actions. It cannot mark its own homework.**
 
-The script asserts every stage and aborts if the demonstration does not behave as described.
+## 7. Optional guided demo
 
----
+```powershell
+.\demo\run-complete-local-code-agent-demo.ps1
+```
+
+This walks through local NPU inference, the controlled capability surface and the stale-evidence rejection demo.
 
 ## What to read next
 
 | File | Why it exists |
 |---|---|
-| `README.md` | Current implementation and measured evidence |
-| `docs/verification.md` | How independent proof is decided |
-| `docs/serving-and-accelerators.md` | Model, runtime and accelerator details |
-| `docs/project-history.md` | Experimental history and preserved earlier README material |
+| `README.md` | Product purpose, shortest happy path, architecture and measured evidence |
+| `internal/docs/verification.md` | How independent proof is decided |
+| `internal/docs/serving-and-accelerators.md` | Model, runtime and accelerator details |
+| `internal/docs/project-history.md` | Experimental history and preserved earlier README material |
 | `AGENTS.md` | Developer guidance for working on the codebase |
-| `experiments/` | Frozen experiment artifacts |
-
----
 
 ## If something does not work
 
-**`chat.ps1` says the model server is not running.** Use the start command it prints, wait for the server to become ready, then retry the same `chat.ps1` command.
+**The preflight says the machine is not ready.** Follow the named prerequisite or driver action. `-CheckOnly` does not install or open anything.
 
-**The accelerator demo refuses immediately.** The managed OVMS runtime may not be installed. Run:
+**Setup is blocked by company policy.** Use the package name printed by `install.ps1` when asking IT for approval or installation, then rerun:
 
 ```powershell
-.\scripts\work-laptop-one-shot.ps1 -CheckOnly
+.\install.ps1 -CheckOnly
+```
+
+**Chat cannot start the selected model.** Run:
+
+```powershell
+.\install.ps1
+```
+
+then retry the same chat command. Normal user guidance should never require an `internal/` command.
+
+**An accelerator demo refuses immediately.** Run:
+
+```powershell
+.\install.ps1 -CheckOnly
 ```
 
 and follow the reported setup requirement.
 
-**The capabilities command says the benchmark fixture is missing.** Create it with:
-
-```powershell
-python benchmark_fixture\generate_project.py
-```
-
-**A source-identity test fails.** Do not casually regenerate experiment identities. `INSTRUMENT.json` defines the current measured source surface and historical experiment generations must remain reproducible.
+**A source-identity test fails while developing the project.** Do not casually regenerate experiment identities. `internal/INSTRUMENT.json` declares the current measured source surface; model-facing and outcome-facing contract changes must remain explicit and historical generations must remain reproducible.
