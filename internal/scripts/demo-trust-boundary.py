@@ -1,22 +1,12 @@
 #!/usr/bin/env python3
 """Demo: the model can propose actions. It cannot mark its own homework.
 
-Runs entirely against a disposable copy of the benchmark fixture. No model, no
+Runs entirely against a disposable copy of the benchmark project. No model, no
 evaluator, no experiment path, nothing written inside the repository. Safe to
 rehearse as often as you like.
 
-    python scripts/demo-trust-boundary.py
-    python scripts/demo-trust-boundary.py --keep      # leave the copy on disk
-
-The point of the demo is beat 4. `ctest` genuinely reports 4/4 passed, and that
-result is stale: the binaries predate the source edit. An agent reading it would
-report success. Local Code Agent independently verifies the build evidence and
-refuses the tree.
-
-The demo asserts every claim it makes. If any beat does not behave as described
-it aborts with a named reason rather than printing whatever happened, because a
-demonstration of deterministic verification that narrates its own surprises
-would be making exactly the mistake it exists to expose.
+The important moment is that the test runner genuinely reports success against
+an old binary, while Local Code Agent independently refuses that stale result.
 """
 from __future__ import annotations
 
@@ -33,7 +23,7 @@ REPO = Path(__file__).resolve().parent.parent
 FIXTURE = REPO / "benchmark_fixture" / "cpp_project"
 sys.path.insert(0, str(REPO))
 
-RULE = "=" * 78
+from terminal_ui import ui  # noqa: E402
 
 
 class DemoInvariant(Exception):
@@ -43,17 +33,6 @@ class DemoInvariant(Exception):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise DemoInvariant(message)
-
-
-def beat(number: int, title: str) -> None:
-    print()
-    print(RULE)
-    print(f"  {number}.  {title}")
-    print(RULE)
-
-
-def say(label: str, value: str) -> None:
-    print(f"      {label:<30} {value}")
 
 
 def ctest_directly(root: Path) -> str:
@@ -72,30 +51,33 @@ def demonstrate(root: Path) -> None:
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
-    print()
-    print("  LOCAL CODE AGENT  ·  INDEPENDENT VERIFICATION DEMO")
-    print()
-    print("  This shows why passing test output is not automatically accepted as proof.")
-    print("  A disposable copy of the benchmark C++ project is used. No model is involved.")
-    say("Disposable working copy", str(root))
+    term = ui()
+    term.banner(
+        "INDEPENDENT VERIFICATION DEMO",
+        "Passing test output is not automatically accepted as proof.",
+    )
+    term.status("info", "A disposable C++ project is used. No model is involved.")
+    term.line()
 
     registry, _, _ = build_registry(load_repo_config(root))
 
-    beat(1, "Build a clean copy of the project")
+    term.section("1 · BUILD A CLEAN PROJECT")
     started = time.time()
     require(registry.get("configure_project").handler().ok, "configure failed")
     require(registry.get("build_target").handler().ok,
-            "the clean build failed; the fixture or the toolchain is wrong")
-    say("Build result", f"PASS  ({time.time() - started:.1f}s)")
+            "the clean build failed; the project or toolchain is wrong")
+    term.status("ok", f"Clean build verified ({time.time() - started:.1f}s)")
 
-    beat(2, "Run the tests on the current source")
+    term.line()
+    term.section("2 · RUN TESTS ON THE CURRENT SOURCE")
     honest = registry.get("run_test").handler()
     require(honest.ok,
             "verification refused an honest tree; nothing after this would mean anything")
-    say("Test runner output (ctest)", ctest_directly(root))
-    say("Independent verification", "ACCEPTED")
+    term.field("Test runner", ctest_directly(root))
+    term.status("ok", "Independent verification accepted the result")
 
-    beat(3, "Change the source without rebuilding the binary")
+    term.line()
+    term.section("3 · CHANGE SOURCE WITHOUT REBUILDING")
     source = root / "src" / "ring_buffer.cpp"
     original_mtime = source.stat().st_mtime_ns
     source.write_text(
@@ -103,45 +85,51 @@ def demonstrate(root: Path) -> None:
         encoding="utf-8", newline="\n",
     )
     os.utime(source, ns=(original_mtime, original_mtime))
-    say("Source changed", "src/ring_buffer.cpp")
-    say("Source timestamp", "restored to its original value")
-    say("Compiled binary", "unchanged and now stale")
-    print()
-    print("      Restoring the timestamp deliberately hides the edit from a simple")
-    print("      timestamp-only freshness check. The source contents still changed.")
+    term.field("Source changed", "src/ring_buffer.cpp")
+    term.field("Source timestamp", "restored to its original value")
+    term.field("Compiled program", "unchanged and now out of date")
+    term.line()
+    term.status("warn", "The timestamp looks unchanged, but the source contents are different")
 
-    beat(4, "Run the tests again without rebuilding")
-    say("Test runner output (ctest)", ctest_directly(root))
-    print()
-    print("      The tests genuinely passed, but they executed the OLD binary.")
-    print("      Treating this output alone as proof would report a false success.")
+    term.line()
+    term.section("4 · RUN THE TESTS AGAIN WITHOUT REBUILDING")
+    term.field("Test runner", ctest_directly(root))
+    term.line()
+    term.status("warn", "The tests passed, but they executed the OLD compiled program")
+    term.line("  Treating that output alone as proof would report a false success.")
 
-    beat(5, "Ask Local Code Agent to verify the same result")
+    term.line()
+    term.section("5 · ASK LOCAL CODE AGENT TO VERIFY THE SAME RESULT")
     verified = registry.get("run_test").handler()
     stale = verified.data.get("stale_sources") or []
     require(not verified.ok,
             "VERIFICATION ACCEPTED A STALE TREE. Do not show this demo; investigate.")
     require("src/ring_buffer.cpp" in stale,
             f"the edited file was not reported as stale; got {stale}")
-    say("Independent verification", "REFUSED")
+    term.status("warn", "Independent verification REFUSED the passing test result")
     for path in stale:
-        say("Stale source detected", path)
-    print()
-    print("      " + verified.summary.split(" -- ")[0][:200])
+        term.field("Changed source", path)
+    term.line()
+    term.line("  " + verified.summary.split(" -- ")[0][:200])
 
-    beat(6, "Rebuild honestly and expose the real source state")
+    term.line()
+    term.section("6 · REBUILD THE CURRENT SOURCE")
     require(not registry.get("build_target").handler().ok,
             "the edited source compiled; the demo's premise is broken")
-    say("Rebuild result", "FAILED TO COMPILE")
-    print()
-    print("      The source really was broken. The earlier passing tests were stale")
-    print("      evidence, so Local Code Agent was correct to refuse them.")
+    term.status("fail", "Rebuild failed to compile")
+    term.line()
+    term.line("  The source really was broken. The earlier passing tests were stale evidence,")
+    term.line("  so Local Code Agent was correct to refuse them.")
 
-    print()
-    print(RULE)
-    print("  The model can propose actions. It cannot mark its own homework.")
-    print(RULE)
-    print()
+    term.line()
+    term.section("RESULT")
+    term.status("ok", "STALE TEST RESULT REJECTED")
+    term.line()
+    term.line("  The model can propose actions.")
+    term.line("  It cannot mark its own homework.")
+    term.line()
+    term.rule("═", role="cyan")
+    term.line()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -153,8 +141,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if not FIXTURE.is_dir():
-        print(f"fixture not found at {FIXTURE}", file=sys.stderr)
-        print("run: python benchmark_fixture/generate_project.py", file=sys.stderr)
+        print(f"demo project not found at {FIXTURE}", file=sys.stderr)
+        print("run the root installation / validation flow and try again", file=sys.stderr)
         return 2
 
     base = args.workdir or Path(tempfile.mkdtemp(prefix="lca-demo-"))
@@ -164,15 +152,15 @@ def main(argv: list[str] | None = None) -> int:
         demonstrate(root)
         return 0
     except DemoInvariant as exc:
-        print()
-        print(RULE)
-        print(f"  DEMO ABORTED: {exc}")
-        print(RULE)
-        print()
+        term = ui(stream=sys.stderr)
+        term.line()
+        term.section("DEMO ABORTED")
+        term.status("fail", str(exc))
+        term.line()
         return 1
     finally:
         if args.keep:
-            print(f"  copy left at {base}")
+            print(f"  disposable copy left at {base}")
         else:
             shutil.rmtree(base, ignore_errors=True)
 

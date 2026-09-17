@@ -36,41 +36,13 @@ $existingPythonPath = if (Test-Path Env:PYTHONPATH) { $env:PYTHONPATH } else { $
 $env:PYTHONPATH = if ($existingPythonPath) { "$internal;$existingPythonPath" } else { $internal }
 
 function Show-Help {
-    Write-Host ''
-    Write-Host 'Local Code Agent'
-    Write-Host ''
-    Write-Host 'Chat gives direct access to the model.'
-    Write-Host 'Local Code Agent gives the model controlled repository access,'
-    Write-Host 'approved tools, procedural skills and independent verification.'
-    Write-Host ''
-    Write-Host 'Direct model conversation:'
-    Write-Host '  .\chat.ps1 qwen3-8b-npu'
-    Write-Host ''
-    Write-Host 'Commands:'
-    Write-Host ''
-    Write-Host '  capabilities'
-    Write-Host '      Show what the agent can and cannot do.'
-    Write-Host ''
-    Write-Host '  run-task "<task>" [agent options]'
-    Write-Host '      Run a controlled engineering task against the current repository.'
-    Write-Host ''
-    Write-Host '  verification-demo'
-    Write-Host '      Show stale passing tests being rejected as invalid evidence.'
-    Write-Host ''
-    Write-Host '  advanced [arguments]'
-    Write-Host '      Pass arguments directly to the underlying CLI.'
-    Write-Host ''
-    Write-Host 'Examples:'
-    Write-Host '  .\local-code-agent.ps1 capabilities'
-    Write-Host '  .\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation'
-    Write-Host '  .\local-code-agent.ps1 verification-demo'
-    Write-Host ''
+    & $python (Join-Path $internal 'scripts\product-help.py')
 }
 
 switch ($Command.ToLowerInvariant()) {
     'help' {
         Show-Help
-        exit 0
+        exit $LASTEXITCODE
     }
     'capabilities' {
         & $python (Join-Path $internal 'scripts\capabilities.py') @Rest

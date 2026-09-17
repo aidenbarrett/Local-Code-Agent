@@ -81,11 +81,7 @@ Other configured demo choices:
 
 The three choices use the same Qwen3-8B model artifact and change only the requested execution device. Unrehearsed model profiles are deliberately not advertised on the friendly demo surface.
 
-You do **not** need to start an internal model-server command first. Chat reuses a compatible server owned by Local Code Agent or starts the requested model/device through the deterministic serving controller, waits for readiness, and then presents:
-
-```text
-You >
-```
+You do **not** need to start an internal model-server command first. Chat reuses a compatible server owned by Local Code Agent or starts the requested model/device through the deterministic serving controller, waits for readiness, and then presents the chat prompt.
 
 Direct chat has no repository tools, filesystem access or command execution. Use an empty line or Ctrl-C at the prompt to exit. Ctrl-C during generation stops the current reply cleanly and returns to the prompt.
 
@@ -128,7 +124,13 @@ Examples of intended workloads include repository navigation, build/test diagnos
 
 The model never receives arbitrary shell access and never decides for itself that its work passed verification.
 
-## 5. Prove which accelerator is running Qwen3-8B
+## 5. See the same local model run on the NPU, GPU or CPU
+
+This demo keeps the model fixed and changes only the hardware that runs it. On this laptop:
+
+- **NPU** = the dedicated laptop AI accelerator
+- **GPU** = the graphics processor
+- **CPU** = the general-purpose processor
 
 Open **Task Manager > Performance** and select the device you want to watch, then run one of:
 
@@ -150,7 +152,7 @@ Add `-KeepServer` if you want the selected server left running afterwards:
 .\demo\run-qwen-on-npu.ps1 -Seconds 5 -KeepServer
 ```
 
-The report shows the requested device and the device OpenVINO actually resolved. The first request after startup can be slower because it may include one-time runtime warm-up plus prompt processing. Later requests use an already-initialised runtime but still process their prompts.
+The report shows the requested hardware target and the device OpenVINO actually uses. The first request is labelled **COLD START** because it can include one-time runtime warm-up plus prompt processing. Later requests are labelled **WARM** because the runtime is already initialised, though each request still processes its prompt.
 
 Timing values are live demo observations on an uncontrolled machine, not benchmark results.
 
@@ -209,7 +211,7 @@ This walks through local NPU inference, the controlled capability surface and th
 
 then retry the same chat command. Normal user guidance should never require an `internal/` command.
 
-**An accelerator demo refuses immediately.** Run:
+**The CPU/GPU/NPU hardware demo cannot start.** Run:
 
 ```powershell
 .\install.ps1 -CheckOnly

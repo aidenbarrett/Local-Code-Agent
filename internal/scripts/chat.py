@@ -28,6 +28,7 @@ if str(SOURCE_ROOT) not in sys.path:
 
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
 from measurement import serve  # noqa: E402
+from terminal_ui import device_label, ui  # noqa: E402
 
 FRIENDLY: dict[str, tuple[str, str]] = {
     "qwen3-8b-npu": ("ptl-npu-8b", "NPU"),
@@ -35,7 +36,6 @@ FRIENDLY: dict[str, tuple[str, str]] = {
     "qwen3-8b-cpu": ("ptl-npu-8b", "CPU"),
 }
 
-BANNER = "Local Model Chat"
 RUNTIME_LABEL = {
     "ovms": "OpenVINO Model Server",
     "llamacpp": "llama.cpp",
@@ -64,41 +64,40 @@ def _model_label(config: ModelConfig) -> str:
 
 
 def list_profiles() -> int:
-    print()
-    print("Available local model choices")
-    print()
-    print(f"  {'command':<22} {'model':<36} {'device':<8}")
-    print(f"  {'-' * 22} {'-' * 36} {'-' * 8}")
+    term = ui()
+    term.banner(
+        "LOCAL MODEL CHAT",
+        "Available local model choices use the same Qwen3-8B on different hardware.",
+    )
+    term.section("AVAILABLE LOCAL MODEL CHOICES")
     for friendly in FRIENDLY:
         resolved = _resolve(friendly)
         if resolved is None:
-            print(f"  {friendly:<22} {'(configuration unavailable)':<36} {'-':<8}")
+            term.field(friendly, "configuration unavailable", role="red")
             continue
         _profile, device, config = resolved
-        print(f"  {friendly:<22} {_model_label(config):<36} {device:<8}")
-    print()
-    print("Start a chat with:")
-    print("  .\\chat.ps1 qwen3-8b-npu")
-    print()
-    print("The Qwen3-8B choices use the same model artifact and change only")
-    print("the requested execution device.")
-    print()
+        term.field(friendly, f"{_model_label(config)} · {device_label(device)}")
+    term.line()
+    term.section("START CHAT")
+    term.line(r"  .\chat.ps1 qwen3-8b-npu")
+    term.footer_note("Chat is direct model conversation. Repository access is not enabled here.")
+    term.line()
     return 0
 
 
-def _header(name: str, config: ModelConfig) -> None:
-    print()
-    print(BANNER)
-    print()
-    print(f"  Selection   {name}")
-    print(f"  Model       {_model_label(config)}")
-    print(f"  Device      {config.device}")
-    print(f"  Backend     {RUNTIME_LABEL.get(config.runtime, config.runtime)}")
-    print("  Status      Ready")
-    print()
-    print("Type a message and press Enter. Use an empty line or Ctrl-C at the prompt to exit.")
-    print("Ctrl-C while a reply is being generated stops that reply and returns to the prompt.")
-    print()
+def _session_header(name: str, config: ModelConfig, term) -> None:
+    term.line()
+    term.section("CHAT SESSION")
+    term.field("Selection", name)
+    term.field("Model", _model_label(config))
+    term.field("Running on", device_label(config.device), role="cyan")
+    term.field("Backend", RUNTIME_LABEL.get(config.runtime, config.runtime))
+    term.field("Status", "Ready", role="green")
+    term.line()
+    term.status("info", "Direct chat only · no repository access, tools or verification")
+    term.status("info", "Empty line or Ctrl-C at the prompt exits")
+    term.status("info", "Ctrl-C while generating stops that reply and returns to the prompt")
+    term.line()
 
 
 def _reachable(config: ModelConfig) -> bool:
@@ -122,8 +121,9 @@ def _runtime_root() -> Path:
     return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LocalCodeAgent"
 
 
-def _ensure_server(profile: str, config: ModelConfig) -> bool:
+def _ensure_server(profile: str, config: ModelConfig, term=None) -> bool:
     """Reuse only an owned compatible server; otherwise start through the controller."""
+    term = term or ui()
     executable = os.environ.get("LCA_OVMS_EXECUTABLE") if config.runtime == "ovms" else None
     plan = serve.make_plan(
         profile,
@@ -143,35 +143,36 @@ def _ensure_server(profile: str, config: ModelConfig) -> bool:
             and record_device == config.device
             and record_model == config.model
         ):
+            term.status("ok", f"Local model server already ready on {config.device}")
             return True
         if state.get("process_alive"):
-            print(f"Stopping the previous {record_device or 'local'} model server...")
+            term.status("info", f"Stopping previous {record_device or 'local'} model server")
             serve.stop(plan)
     elif _reachable(config):
-        print()
-        print("A model server is already using the configured local endpoint, but it")
-        print("is not owned by Local Code Agent. It will not be adopted or stopped.")
-        print("Stop that server, then run this chat command again.")
-        print()
+        term.line()
+        term.status("warn", "The configured local endpoint is already in use")
+        term.line("  That server is not owned by Local Code Agent, so it will not be adopted or stopped.")
+        term.line("  Stop that server, then run this chat command again.")
+        term.line()
         return False
 
-    print(f"Starting {_model_label(config)} on {config.device}...")
+    term.status("active", f"Starting {_model_label(config)} on {device_label(config.device)}")
     try:
         state = serve.start(plan, config, wait_seconds=900)
     except (serve.Refusal, OSError) as exc:
-        print()
-        print("Model server could not be started.", file=sys.stderr)
-        print(f"  {exc}", file=sys.stderr)
-        print(file=sys.stderr)
-        print("Run the root setup command and try again:", file=sys.stderr)
-        print(r"  .\install.ps1", file=sys.stderr)
-        print(file=sys.stderr)
+        term.line()
+        term.status("fail", "Model server could not be started")
+        term.line(f"  {exc}")
+        term.line()
+        term.line("  Run the root setup command and try again:")
+        term.line(r"    .\install.ps1")
+        term.line()
         return False
 
     if not state.get("healthy"):
-        print("Model server did not become ready.", file=sys.stderr)
+        term.status("fail", "Model server did not become ready")
         return False
-    print("Model server ready.")
+    term.status("ok", "Model server ready")
     return True
 
 
@@ -200,15 +201,22 @@ def _system_message(config: ModelConfig) -> dict[str, str]:
 def converse(name: str, profile: str, config: ModelConfig) -> int:
     from local_agent.llm.client import OpenAICompatibleClient
 
-    if not _ensure_server(profile, config):
+    term = ui()
+    term.banner(
+        "LOCAL MODEL CHAT",
+        "Runs locally on this computer. Repository access is not enabled in chat.",
+    )
+    term.section("MODEL STARTUP")
+    if not _ensure_server(profile, config, term=term):
         return 2
-    _header(name, config)
+    _session_header(name, config, term)
 
     client = OpenAICompatibleClient(config)
     history: list[dict[str, str]] = [_system_message(config)]
     while True:
         try:
-            said = input("You > ").strip()
+            prompt = term.paint("YOU  › ", "magenta", bold=True)
+            said = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
@@ -220,24 +228,33 @@ def converse(name: str, profile: str, config: ModelConfig) -> int:
         try:
             reply = client.chat(history)
         except KeyboardInterrupt:
-            print("\nGeneration stopped. Back at the prompt.\n")
+            term.line()
+            term.status("warn", "Generation stopped. Back at the prompt.")
+            term.line()
             history.pop()
             continue
         except Exception as exc:
-            print(f"\nRequest failed: {type(exc).__name__}: {exc}\n")
+            term.line()
+            term.status("fail", f"Request failed: {type(exc).__name__}: {exc}")
+            term.line()
             history.pop()
             continue
 
         text = (reply.content or "").strip()
-        print()
-        print(text if text else "(The model returned no visible answer.)")
+        term.line()
+        term.line(term.paint("MODEL", "cyan", bold=True))
+        term.line()
+        term.line(text if text else "(The model returned no visible answer.)")
         stats = reply.stats
         if stats.ttft_s is not None and stats.decode_tok_s is not None:
-            print()
-            print(f"  Device: {config.device}")
-            print(f"  Time to first token: {stats.ttft_s:.2f} s")
-            print(f"  Generation speed:    {stats.decode_tok_s:.1f} tokens/s")
-        print()
+            term.line()
+            term.line(
+                "  "
+                + term.paint(config.device, "cyan", bold=True)
+                + f" · first token {stats.ttft_s:.2f} s"
+                + f" · {stats.decode_tok_s:.1f} tokens/s"
+            )
+        term.line()
         history.append({"role": "assistant", "content": text})
 
 

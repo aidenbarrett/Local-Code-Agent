@@ -73,7 +73,7 @@ Current implemented surfaces include:
 - stale-build detection based on source content hashes
 - canonical evidence IDs
 - Windows and Linux test coverage
-- explicit serving and accelerator qualification paths
+- explicit model-serving and CPU/GPU/NPU hardware validation paths
 - preserved experiment provenance and source identity
 
 This describes implemented behaviour. It does not imply production readiness or general coding-model capability.
@@ -133,7 +133,7 @@ The public demos turn specific project properties into runnable features:
 .\demo\run-complete-local-code-agent-demo.ps1
 ```
 
-The accelerator demos show which device OpenVINO actually resolves for the same Qwen3-8B model. Their timing values are live observations on an uncontrolled machine, not benchmark results.
+The local AI hardware demos run the same Qwen3-8B model while changing only the requested CPU, GPU or NPU target. They show which device OpenVINO actually uses. Their timing values are live observations on an uncontrolled machine, not benchmark results.
 
 The stale-test demo shows why passing test output is not accepted as proof when the source tree has changed underneath it.
 
