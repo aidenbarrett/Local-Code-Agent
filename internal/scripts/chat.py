@@ -202,8 +202,12 @@ def _messages_for_turn(history: list[dict[str, str]], said: str, persona: Person
 def _load_requested_persona(value: str | None, term) -> Persona | None:
     if not value or value.lower() == "off":
         return None
-    if value.lower() == "neutral":
-        path = SOURCE_ROOT / "personas" / "neutral.toml"
+    named = {
+        "neutral": SOURCE_ROOT / "personas" / "neutral.toml",
+        "aiden": SOURCE_ROOT / "personas" / "aiden.toml",
+    }
+    if value.lower() in named:
+        path = named[value.lower()]
     else:
         path = Path(value).expanduser()
     try:
@@ -263,7 +267,7 @@ def converse(name: str, profile: str, config: ModelConfig, persona: Persona | No
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="chat", description="Talk directly to a local model.")
     parser.add_argument("model", nargs="?", default="list", help="model choice, or 'list' to show available choices")
-    parser.add_argument("--persona", default="off", metavar="NAME_OR_PATH", help="optional chat-only tone profile: 'neutral', 'off', or a persona TOML path")
+    parser.add_argument("--persona", default="off", metavar="NAME_OR_PATH", help="optional chat-only tone profile: 'aiden', 'neutral', 'off', or a persona TOML path")
     parser.add_argument("--ensure-only", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.model == "list":
