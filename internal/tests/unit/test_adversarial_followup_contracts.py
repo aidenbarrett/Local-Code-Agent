@@ -48,5 +48,5 @@ def test_public_readme_uses_the_balanced_three_repeat_generation_one_result():
     assert "22/30 (0.733)" in text
     assert "23/29 (0.793)" in text
     assert "small and unresolved" in text
-    assert "NUC/WSL2 Ubuntu" in text
+    assert "NUC under WSL2 Ubuntu with llama.cpp" in text
     assert "not independent tasks" in text
