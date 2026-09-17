@@ -1,3 +1,4 @@
+# Triggered after the workflow exists on the branch so the one-shot restamp runs.
 name: restamp review source identity
 
 on:
