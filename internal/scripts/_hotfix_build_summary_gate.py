@@ -21,9 +21,21 @@ old = '''                ctx.append(\n                    ctxmod.tool_result_mes
 new = '''                ctx.append(\n                    ctxmod.tool_result_message(\n                        call.id,\n                        call.name,\n                        outcome.to_json(tool_result_max_bytes),\n                    )\n                )\n                if build_summary_mode and call.name == "repo_info" and outcome.ok:\n                    # For a high-level repository build summary, repo_info already\n                    # contains the configured build/test profile. Do not leave the\n                    # small model a broad discovery surface after sufficient\n                    # evidence exists: narrow deterministically to reporting only.\n                    toolset = ["submit_answer"]\n                    state.toolset = list(toolset)\n                    schemas = self.registry.schemas(toolset)\n                    ctx.append(\n                        {\n                            "role": "user",\n                            "content": (\n                                "The repository build/test profile from repo_info is "\n                                "sufficient for this high-level build summary. Finish "\n                                "now by calling submit_answer with a concise summary "\n                                "grounded in that repo_info result. Do not call another "\n                                "discovery tool."\n                            ),\n                        }\n                    )\n                    self.observer(\n                        "toolset",\n                        {"tools": toolset, "reason": "repo_info sufficient for build summary"},\n                    )\n                if stop:\n                    halt = True\n                    break\n'''
 if text.count(old) != 1:
     raise SystemExit(f"post-tool narrowing insertion expected once, got {text.count(old)}")
+text = text.replace(old, new)
 ORCH.write_text(text, encoding="utf-8")
 
-TEST.write_text('''from pathlib import Path\n\n\ndef test_repo_build_summary_is_deterministically_narrowed_after_repo_info():\n    source = Path("internal/local_agent/agent/orchestrator.py").read_text(encoding="utf-8")\n    assert 'build_summary_mode' in source\n    assert 'toolset = ["submit_answer"]' in source\n    assert 'repo_info sufficient for build summary' in source\n    assert 'Do not call another discovery tool.' in source\n''', encoding="utf-8")
+# Assert the exact repaired file before doing any test-runner work.
+written = ORCH.read_text(encoding="utf-8")
+for marker in (
+    'build_summary_mode',
+    'toolset = ["submit_answer"]',
+    'repo_info sufficient for build summary',
+    'Do not call another discovery tool.',
+):
+    if marker not in written:
+        raise SystemExit(f"orchestrator repair missing marker: {marker}")
+
+TEST.write_text('''import inspect\n\nfrom local_agent.agent.orchestrator import Orchestrator\n\n\ndef test_repo_build_summary_is_deterministically_narrowed_after_repo_info():\n    source = inspect.getsource(Orchestrator._run_once)\n    assert "build_summary_mode" in source\n    assert "submit_answer" in source\n    assert "repo_info sufficient for build summary" in source\n    assert "Do not call another discovery tool." in source\n''', encoding="utf-8")
 
 instrument = json.loads(INSTRUMENT.read_text(encoding="utf-8"))
 old_base = instrument["base_prompt_sha256"]
