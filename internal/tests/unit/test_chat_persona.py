@@ -131,3 +131,30 @@ def test_named_persona_preset_loads():
     assert persona.name == "aiden"
     assert persona.version == "3"
     assert len(persona.style) > 1000
+
+
+def test_chat_sampling_default_is_separate_from_agent_profile():
+    chat = _chat()
+    _, _, base = _config(chat)
+
+    assert base.temperature == 0.2
+    assert chat.CHAT_DEFAULT_TEMPERATURE == 0.7
+
+
+def test_chat_temperature_override_does_not_mutate_named_profile(monkeypatch):
+    chat = _chat()
+    captured = []
+
+    monkeypatch.setattr(chat, "_ensure_server", lambda *a, **k: captured.append(a[1].temperature) or True)
+    monkeypatch.setattr(chat, "converse", lambda _name, _profile, config, _persona: captured.append(config.temperature) or 0)
+
+    assert chat.main(["qwen3-8b-npu", "--temperature", "0.7"]) == 0
+    assert captured == [0.7, 0.7]
+    assert chat.MODEL_PRESETS["ptl-npu-8b"].temperature == 0.2
+
+
+def test_chat_temperature_rejects_out_of_range_value():
+    chat = _chat()
+
+    with pytest.raises(SystemExit):
+        chat.main(["qwen3-8b-npu", "--temperature", "2.1"])

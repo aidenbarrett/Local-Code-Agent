@@ -39,6 +39,8 @@ FRIENDLY: dict[str, tuple[str, str]] = {
     "qwen3-8b-cpu": ("ptl-npu-8b", "CPU"),
 }
 
+CHAT_DEFAULT_TEMPERATURE = 0.7
+
 RUNTIME_LABEL = {
     "ovms": "OpenVINO Model Server",
     "llamacpp": "llama.cpp",
@@ -97,6 +99,7 @@ def _session_header(name: str, config: ModelConfig, term, persona: Persona | Non
     term.field("Running on", device_label(config.device), role="cyan")
     term.field("Backend", RUNTIME_LABEL.get(config.runtime, config.runtime))
     term.field("Persona", persona.label if persona else "off")
+    term.field("Temperature", f"{config.temperature:g} · chat-only")
     term.field("Status", "Ready", role="green")
     term.line()
     term.status("info", "Direct chat only · no repository access, tools or verification")
@@ -268,6 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="chat", description="Talk directly to a local model.")
     parser.add_argument("model", nargs="?", default="list", help="model choice, or 'list' to show available choices")
     parser.add_argument("--persona", default="off", metavar="NAME_OR_PATH", help="optional chat-only tone profile: 'aiden', 'neutral', 'off', or a persona TOML path")
+    parser.add_argument("--temperature", type=float, default=CHAT_DEFAULT_TEMPERATURE, help=f"chat-only sampling temperature (default: {CHAT_DEFAULT_TEMPERATURE:g}); agent/evaluation profiles are unchanged")
     parser.add_argument("--ensure-only", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.model == "list":
@@ -278,6 +282,9 @@ def main(argv: list[str] | None = None) -> int:
         list_profiles()
         return 2
     profile, _device, config = resolved
+    if not 0.0 <= args.temperature <= 2.0:
+        parser.error("--temperature must be between 0.0 and 2.0")
+    config = replace(config, temperature=args.temperature)
     if args.ensure_only:
         return 0 if _ensure_server(profile, config) else 2
     term = ui()
