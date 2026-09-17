@@ -15,6 +15,17 @@ def test_repo_navigation_distinguishes_path_discovery_from_content_search():
     assert "Call `repo_info` first" in skill
 
 
+def test_repo_navigation_stops_when_build_profile_already_answers_question():
+    skill = (REPO / "internal" / "skills" / "repo-navigation" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "that is sufficient" in skill
+    assert "Finish with\n   `submit_answer` immediately" in skill
+    assert "Do **not** enumerate\n   source files, tests, or the whole repository" in skill
+    assert "Never repeat the same `list_files` query with a larger limit" in skill
+    assert "Once the requested question is answered by current evidence" in skill
+
+
 def test_search_text_tool_contract_says_pattern_is_content_not_filename():
     source = (REPO / "internal" / "local_agent" / "tools" / "search.py").read_text(
         encoding="utf-8"
