@@ -80,17 +80,21 @@ This describes implemented behaviour. It does not imply production readiness or 
 
 ## Measured evidence so far
 
-The completed generation-1 experiment used one local 30B model on CPU and ten synthetic C++ tasks:
+The strongest completed generation-1 evidence is the balanced three-repeat replication of the same ten synthetic C++ tasks with one local 30B model on CPU:
 
 | Condition | Verified completion |
 |---|---:|
-| Control | 3/10 |
-| Narrow tools | 8/10 |
-| Narrow tools + written skill | 8/10 |
+| Control | 9/30 (0.300) |
+| Narrow tools | 22/30 (0.733) |
+| Narrow tools + written skill | 23/29 (0.793) |
 
-The strongest measured signal was **action-space narrowing**. Restricting the model to the tools relevant to the task improved verified completion from 3/10 to 8/10, removed the four observed scope violations, and reduced tool calls and wall time substantially.
+Restricting the available action space produced the large observed movement: **+0.433** from control to narrow. Across the repeated fixture, control recorded 11 scope violations while narrow and skill recorded none. The written procedure added **+0.060** over narrow in aggregate, but the frozen findings treat that movement as small and unresolved rather than evidence of a general procedure effect. One skill row was infrastructure-invalid and is excluded from its denominator.
 
-The experiment did **not** contain an 8B cell, so it provides no evidence that the same result transfers to the smaller model used in the current Panther Lake demo.
+The earlier smoke run at the same frozen instrument identity was 3/10, 8/10 and 8/10. The three-repeat run rotated condition order and reproduced the same overall shape; the repeats are repeated observations of the same ten fixtures, not independent tasks or a population-level statistical claim.
+
+These generation-1 measurements were taken on the historical NUC/WSL2 Ubuntu path using Qwen3-Coder-30B (`UD-Q4_K_XL`) through llama.cpp. They are **not** measurements of the current Panther Lake Windows/OVMS path. No 8B cell was run, so the result provides no evidence that the same effect transfers to the smaller model used in the current demo.
+
+Frozen analysis: [`internal/experiments/2026-09-08-30b-three-conditions-x3/findings.md`](internal/experiments/2026-09-08-30b-three-conditions-x3/findings.md).
 
 Generation 1 is reproduced from the historical tag `instrument-08d5e0fe`. The current tree intentionally has a different repository layout and source identity; recomputing the generation-1 source hash from the current tree is not a valid reproduction procedure.
 

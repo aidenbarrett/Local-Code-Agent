@@ -112,9 +112,10 @@ and process state, and supports start/status/stop/logs/pull plus exact dry-runs.
 `scripts/work-laptop-one-shot.ps1` delegates to that controller rather than
 keeping a second NPU-only command table.
 
-The remaining work is physical validation on the Panther Lake laptop: start the
-real NPU and GPU servers, prove inference on each intended profile, and capture
-HWiNFO power data. That is hardware evidence, not missing launcher architecture.
+The Panther Lake **NPU** path has been physically exercised on Windows. The
+remaining hardware work is to rehearse the current public path end to end,
+physically confirm the intended GPU/CPU serving paths, and capture HWiNFO power
+data. Those are hardware-evidence tasks, not missing launcher architecture.
 
 ## Sources
 

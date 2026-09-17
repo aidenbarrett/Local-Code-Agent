@@ -8,7 +8,7 @@ Order matters here. Every step is a gate: if it fails, you stop and fix that,
 rather than carrying an unproven assumption into the next one.
 
 The one thing worth repeating from the plan: **the agent works today with no
-model at all.** `python measurement/run_test_suite.py tests` exercises the whole state
+model at all.** `python internal/measurement/run_test_suite.py tests` exercises the whole state
 machine, the policy engine, every tool and a real `cmake`/`ctest` build using a
 scripted client. So model bring-up is a separate problem from agent bring-up,
 and you can fail at one without being blocked on the other.
@@ -24,8 +24,8 @@ py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 
-python benchmark_fixture\generate_project.py
-python measurement\run_test_suite.py tests
+python internal/benchmark_fixture\generate_project.py
+python internal/measurement\run_test_suite.py tests
 ```
 
 Expect 404 passed. If cmake or ctest is missing, the integration tests skip and
@@ -34,8 +34,8 @@ the rest still run.
 Then rehearse the whole measurement pipeline with no model at all:
 
 ```powershell
-python evaluation\run_evaluation.py --rehearse --out rehearsal.json
-python measurement\compare_datasets.py rehearsal.json
+python internal/evaluation\run_evaluation.py --rehearse --out rehearsal.json
+python internal/measurement\compare_datasets.py rehearsal.json
 ```
 
 The scores are meaningless (there is no model), but if this completes you know
@@ -132,7 +132,7 @@ Four of those flags matter more than they look:
 Then qualify it:
 
 ```powershell
-python measurement\qualify_server.py --profile nuc-llama-30b `
+python internal/measurement\qualify_server.py --profile nuc-llama-30b `
   --json qualify-llama-30b.json `
   --dump-dir qualify-dumps
 ```
@@ -178,7 +178,7 @@ The model card shows OVMS with GPU and direct GenAI with CPU. Treat it as a
 test.
 
 ```powershell
-local-agent --repo benchmark_fixture\cpp_project --base-url http://127.0.0.1:8000/v3 `
+local-agent --repo internal/benchmark_fixture\cpp_project --base-url http://127.0.0.1:8000/v3 `
   --model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov doctor
 ```
 
@@ -194,11 +194,11 @@ agent development are different problems and there is no reason to couple them.
 ## Stage 3: first real agent run
 
 ```powershell
-cd benchmark_fixture\cpp_project
+cd internal\benchmark_fixture\cpp_project
 python scripts\apply_scenario.py compile_error
 cd ..\..
 
-local-agent --repo benchmark_fixture\cpp_project --profile nuc-cpu-30b `
+local-agent --repo internal/benchmark_fixture\cpp_project --profile nuc-cpu-30b `
   run "the build is broken, find the first compiler error and explain it" `
   --transcript run1.json
 ```
@@ -214,7 +214,7 @@ you are looking for:
 Then characterise the hardware before you characterise the model:
 
 ```powershell
-python measurement\benchmark_model.py --profile nuc-cpu-30b --repeats 5 `
+python internal/measurement\benchmark_model.py --profile nuc-cpu-30b --repeats 5 `
   --out bench-nuc-ddr4.json --markdown bench-nuc-ddr4.md
 ```
 
@@ -227,7 +227,7 @@ fixing that is worth more than any other optimisation available to you.
 Then turn the task into a number:
 
 ```powershell
-python evaluation\run_evaluation.py --profile nuc-cpu-30b --repeat 3 `
+python internal/evaluation\run_evaluation.py --profile nuc-cpu-30b --repeat 3 `
   --label "Qwen3-Coder 30B INT4, CPU, DDR4-3200" --out evals-nuc.json
 ```
 
@@ -274,9 +274,9 @@ OVMS is the primary NPU route. Use the preset controller so the command and
 agent budget have one owner:
 
 ```powershell
-python measurement/serve.py start --profile ptl-npu-8b --dry-run
-python measurement/serve.py pull --profile ptl-npu-8b
-python measurement/serve.py start --profile ptl-npu-8b
+python internal/measurement/serve.py start --profile ptl-npu-8b --dry-run
+python internal/measurement/serve.py pull --profile ptl-npu-8b
+python internal/measurement/serve.py start --profile ptl-npu-8b
 local-agent --profile ptl-npu-8b doctor
 ```
 
@@ -290,19 +290,19 @@ Then the same model family on the iGPU, which is the path Intel documents for
 the coder model through OVMS:
 
 ```powershell
-python measurement/serve.py pull --profile ptl-gpu-30b
-python measurement/serve.py start --profile ptl-gpu-30b
-python measurement/serve.py start --profile ptl-cpu-30b
+python internal/measurement/serve.py pull --profile ptl-gpu-30b
+python internal/measurement/serve.py start --profile ptl-gpu-30b
+python internal/measurement/serve.py start --profile ptl-cpu-30b
 
-python measurement\run_benchmark_suite.py --profile ptl-gpu-30b `
+python internal/measurement\run_benchmark_suite.py --profile ptl-gpu-30b `
   --label "Qwen3-Coder 30B INT4, Arc B390" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-gpu
 
-python measurement\run_benchmark_suite.py --profile ptl-cpu-30b `
+python internal/measurement\run_benchmark_suite.py --profile ptl-cpu-30b `
   --label "Qwen3-Coder 30B INT4, CPU" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-cpu
 
-python measurement\compare_datasets.py results\*\evals.json --markdown comparison.md
+python internal/measurement\compare_datasets.py results\*\evals.json --markdown comparison.md
 ```
 
 Measure latency and package energy on each device; neither winner nor ratio is
@@ -316,7 +316,7 @@ With both servers up, run the deployment you would actually ship: cheap skills
 on the NPU, hard ones on the iGPU, escalation when the small model fails.
 
 ```powershell
-python measurement\run_benchmark_suite.py --profile ptl-gpu-30b --cheap-profile ptl-npu-8b `
+python internal/measurement\run_benchmark_suite.py --profile ptl-gpu-30b --cheap-profile ptl-npu-8b `
   --label "Two-tier: 8B on NPU, 30B on B390" --memory-note "LPDDR5X, 64 GB" `
   --outdir results\ptl-tiered
 ```

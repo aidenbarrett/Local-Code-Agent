@@ -50,6 +50,7 @@ produced each dataset is tagged:
 | Dataset | `source_sha256` | Tag |
 |---|---|---|
 | `2026-09-08-30b-three-conditions` | `08d5e0fe...` | `instrument-08d5e0fe` |
+| `2026-09-08-30b-three-conditions-x3` | `08d5e0fe...` | `instrument-08d5e0fe` |
 
 ```bash
 git checkout instrument-08d5e0fe

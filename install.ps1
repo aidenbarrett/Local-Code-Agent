@@ -61,6 +61,14 @@ $allowInstallMissing = $InstallMissing
 if (-not $CheckOnly) {
     Show-InstallPlan
     if (-not $InstallMissing) {
+        if (-not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
+            Write-Host ''
+            Write-Host 'Interactive setup confirmation is unavailable in this session.'
+            Write-Host 'Run .\install.ps1 -CheckOnly for a read-only preflight.'
+            Write-Host 'After approval, run .\install.ps1 -InstallMissing for non-interactive setup.'
+            Write-Host ''
+            exit 2
+        }
         $answer = Read-Host 'Continue with setup? [y/N]'
         if ($null -eq $answer -or @('y','yes') -notcontains $answer.Trim().ToLowerInvariant()) {
             Write-Host ''

@@ -57,7 +57,10 @@ switch ($Command.ToLowerInvariant()) {
             Write-Host ''
             exit 2
         }
-        & $python -m local_agent.cli run @Rest
+        # The public workstation path provisions Qwen3-8B on the Panther Lake
+        # endpoint. Keep the product facade on that known profile instead of
+        # falling through to the generic CLI's historical 30B/port-8000 default.
+        & $python -m local_agent.cli --profile ptl-npu-8b run @Rest
         exit $LASTEXITCODE
     }
     'verification-demo' {

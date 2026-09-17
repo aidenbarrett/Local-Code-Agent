@@ -1,4 +1,10 @@
-# Local Code Agent
+# Historical project snapshot
+
+> **Historical document.** This preserves the generation-1/research-first project
+> framing and the repository layout that existed at that time. Paths, commands,
+> test counts and status statements below are historical, not current setup
+> instructions. For the current product surface use the root `README.md` and
+> `QUICKSTART.md`; reproduce generation 1 from `instrument-08d5e0fe`.
 
 A local engineering agent for C++ repositories, built as a **measurement
 instrument first and an agent second**.
@@ -83,8 +89,8 @@ same eight tasks passing, and 72 calls falling to 67. On this fixture,
 capability was stable and cost was not. That is one repeat, on the large model,
 on a fixture it saturates.
 
-Full analysis: [`experiments/2026-09-08-30b-three-conditions/findings.md`](experiments/2026-09-08-30b-three-conditions/findings.md)
-Raw data: [`experiments/2026-09-08-30b-three-conditions/data/`](experiments/2026-09-08-30b-three-conditions/data/)
+Full analysis: [`experiments/2026-09-08-30b-three-conditions/findings.md`](../experiments/2026-09-08-30b-three-conditions/findings.md)
+Raw data: [`experiments/2026-09-08-30b-three-conditions/data/`](../experiments/2026-09-08-30b-three-conditions/data/)
 
 ---
 
@@ -183,7 +189,7 @@ A compile error is `OK` + `FAIL`: valid evidence. A missing cmake is `BLOCKED` +
 `UNKNOWN`: not a model failure, and excluded from the capability denominator.
 `UNKNOWN` is explicit and never silently upgraded.
 
-One shared classifier in [`local_agent/verification.py`](local_agent/verification.py)
+One shared classifier in [`local_agent/verification.py`](../local_agent/verification.py)
 turns a call into a typed `ProofKind`, consumed by the orchestrator, the
 evaluator and the offline re-scorer alike:
 
@@ -201,8 +207,8 @@ are all `NO_CURRENT_PROOF`. Proof does not survive a later edit: change the tree
 after proving it and the proof dies with the epoch it belonged to.
 
 Each of those rules exists because it was found letting something through.
-[`docs/verification.md`](docs/verification.md) gives the detail;
-[`docs/review-history.md`](docs/review-history.md) gives the defect log.
+[`docs/verification.md`](verification.md) gives the detail;
+[`docs/review-history.md`](review-history.md) gives the defect log.
 
 ---
 
@@ -236,7 +242,7 @@ python evaluation/run_evaluation.py --profile nuc-llama-30b \
     --condition narrow --out results.json
 ```
 
-[`docs/running-experiments.md`](docs/running-experiments.md) is the operational
+[`docs/running-experiments.md`](running-experiments.md) is the operational
 version, using the launcher that gates every step and refuses to run against a
 stale package.
 
@@ -255,7 +261,7 @@ stale package.
 Next: a fifteen to twenty task pilot across two models and all three
 conditions, designed so the written procedure has something to contribute that
 removing tools cannot. The design, and its open questions, are in
-[`docs/pilot-design.md`](docs/pilot-design.md).
+[`docs/pilot-design.md`](pilot-design.md).
 
 ---
 
@@ -278,7 +284,7 @@ evidence of fixed. The implementer, for its part, twice had to retract things
 it had stated confidently: once a claim that a dataset had been re-scored when
 it had not, and once a proposed definition of "verification disagreement" that
 would have reported four failures where there were none. Both retractions are
-in [`docs/review-history.md`](docs/review-history.md), because a defect log
+in [`docs/review-history.md`](review-history.md), because a defect log
 that only contains other people's mistakes is not a defect log.
 
 The human contribution that mattered most was not code. It was deciding when
@@ -300,14 +306,14 @@ a larger and more flattering headline number, and would have been wrong.
 
 | | |
 |---|---|
-| [`docs/experiment-design.md`](docs/experiment-design.md) | conditions, contrasts, grading, and what would falsify the thesis |
-| [`docs/verification.md`](docs/verification.md) | what counts as proof, and why each rule exists |
-| [`docs/measurement-protocol.md`](docs/measurement-protocol.md) | how the performance numbers are taken, and why the usual ones are wrong |
-| [`docs/review-history.md`](docs/review-history.md) | six rounds of adversarial review, every defect, and what closed it |
-| [`docs/pilot-design.md`](docs/pilot-design.md) | the next fixture, in draft, with open questions |
-| [`docs/running-experiments.md`](docs/running-experiments.md) | running one condition on a real machine |
-| [`docs/bring-up.md`](docs/bring-up.md) | getting each backend serving |
-| [`docs/external-review-brief.md`](docs/external-review-brief.md) | the brief for a one-shot hostile methods review |
+| [`docs/experiment-design.md`](experiment-design.md) | conditions, contrasts, grading, and what would falsify the thesis |
+| [`docs/verification.md`](verification.md) | what counts as proof, and why each rule exists |
+| [`docs/measurement-protocol.md`](measurement-protocol.md) | how the performance numbers are taken, and why the usual ones are wrong |
+| [`docs/review-history.md`](review-history.md) | six rounds of adversarial review, every defect, and what closed it |
+| [`docs/pilot-design.md`](pilot-design.md) | the next fixture, in draft, with open questions |
+| [`docs/running-experiments.md`](running-experiments.md) | running one condition on a real machine |
+| [`docs/bring-up.md`](bring-up.md) | getting each backend serving |
+| [`docs/external-review-brief.md`](external-review-brief.md) | the brief for a one-shot hostile methods review |
 
 # Licence
 
