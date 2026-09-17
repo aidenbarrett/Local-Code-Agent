@@ -17,12 +17,26 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e ".[dev]"
-      - run: python -m pytest tests/test_serving.py tests/test_energy.py
+      - run: python -m pytest internal/tests/test_serving.py internal/tests/test_energy.py
       - name: Native PowerShell 5.1 syntax
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts/work-laptop-one-shot.ps1), [ref]$tokens, [ref]$errors) | Out-Null
-          if ($errors.Count) { $errors | Format-List; exit 1 }
+          $files = @(
+            'install.ps1',
+            'chat.ps1',
+            'local-code-agent.ps1',
+            'internal/scripts/work-laptop-one-shot.ps1',
+            'internal/scripts/demo-accelerator.ps1',
+            'demo/run-qwen-on-npu.ps1',
+            'demo/run-qwen-on-gpu.ps1',
+            'demo/run-qwen-on-cpu.ps1',
+            'demo/show-stale-test-rejection.ps1',
+            'demo/run-complete-local-code-agent-demo.ps1'
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { $errors | Format-List; exit 1 }
+          }
