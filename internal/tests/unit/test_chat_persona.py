@@ -129,5 +129,5 @@ def test_named_persona_preset_loads():
     assert warnings == []
     assert persona is not None
     assert persona.name == "aiden"
-    assert persona.version == "2"
+    assert persona.version == "3"
     assert len(persona.style) > 1000
