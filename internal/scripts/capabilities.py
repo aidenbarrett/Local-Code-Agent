@@ -18,6 +18,8 @@ REPO = Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+from terminal_ui import ui  # noqa: E402
+
 FIXTURE = REPO / "benchmark_fixture" / "cpp_project"
 
 PLAIN_ENGLISH = {
@@ -58,34 +60,36 @@ def main() -> int:
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
 
+    term = ui()
+    term.banner(
+        "CONTROLLED CODING AGENT",
+        "Approved tools, task procedures and independent verification.",
+    )
+
     if not FIXTURE.is_dir():
-        print("\nThe benchmark fixture is not present yet.", file=sys.stderr)
-        print("Run the root setup command:", file=sys.stderr)
-        print(r"  .\install.ps1", file=sys.stderr)
-        print(file=sys.stderr)
+        term.status("fail", "The local validation project is not present yet")
+        term.line("  Run the root setup command:")
+        term.line(r"    .\install.ps1")
+        term.line()
         return 2
 
     registry, _, _ = build_registry(load_repo_config(FIXTURE))
     names = sorted(registry.names())
 
-    print()
-    print("Local Code Agent capabilities")
-    print()
-    print("These capabilities are read from the implementation that is actually installed.")
-    print()
-    print(f"Approved tools ({len(names)})")
-    print()
+    term.section(f"Approved tools ({len(names)})")
+    term.status("info", "This list is read from the implementation that is actually installed")
+    term.line()
     for name in names:
-        print(f"  [x] {PLAIN_ENGLISH.get(name, name):<66} {name}")
+        term.status("ok", PLAIN_ENGLISH.get(name, name))
+        term.line(f"      {term.paint(name, 'dim')}")
 
     library = SkillLibrary.discover(REPO / "skills")
     names_of_skills = library.names()
-    print()
-    print(f"Task procedures / skills ({len(names_of_skills)})")
-    print()
-    print("A skill gives the model a procedure for one kind of task and can reduce the")
-    print("tools available to it. The controller still owns policy and verification.")
-    print()
+    term.line()
+    term.section(f"Task procedures / skills ({len(names_of_skills)})")
+    term.line("  A skill gives the model a procedure for one kind of task and can reduce")
+    term.line("  the tools available to it. The controller still owns policy and verification.")
+    term.line()
     for skill_name in names_of_skills:
         skill = library.get(skill_name)
         allowed = len(skill.tools) if skill and skill.tools else len(names)
@@ -93,19 +97,22 @@ def main() -> int:
         description = (skill.description if skill else "") or ""
         if len(description) > 52:
             description = description[:49].rstrip() + "..."
-        print(f"  [x] {skill_name:<26} {description:<52} {note}")
+        term.status("ok", skill_name)
+        if description:
+            term.line(f"      {description}")
+        term.line(f"      {term.paint(note, 'dim')}")
 
-    print()
-    print("Not supported, by design")
-    print()
+    term.line()
+    term.section("Not supported, by design")
     for title, why in NOT_SUPPORTED:
-        print(f"  [ ] {title}")
-        print(f"      {why}")
+        term.status("warn", title)
+        term.line(f"      {why}")
+        term.line()
 
-    print()
-    print("See independent verification reject stale test results:")
-    print(r"  .\local-code-agent.ps1 verification-demo")
-    print()
+    term.section("See verification in action")
+    term.line("  See independent verification reject stale test results:")
+    term.line(r"    .\local-code-agent.ps1 verification-demo")
+    term.line()
     return 0
 
 
