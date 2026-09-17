@@ -19,7 +19,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$entry = Join-Path $root 'internal\scripts\work-laptop-one-shot.ps1'
+$entry = Join-Path $root 'internal\work-laptop-one-shot.ps1'
 
 if (-not (Test-Path $entry)) {
     throw "Local Code Agent installation files are incomplete: $entry is missing."
