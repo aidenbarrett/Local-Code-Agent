@@ -20,3 +20,12 @@ def test_controller_forwards_saved_ovms_python_environment_to_runtime_children()
     assert '("LCA_OVMS_PYTHONHOME", "PYTHONHOME")' in text
     assert '("LCA_OVMS_PYTHONPATH", "PYTHONPATH")' in text
     assert 'env=runtime_process_env(plan)' in text
+
+
+def test_windows_fixture_smoke_uses_explicit_debug_configuration():
+    text = (ROOT / "scripts" / "work-laptop-one-shot.ps1").read_text(encoding="utf-8")
+
+    # Visual Studio generators are multi-config: build and CTest must name the
+    # same configuration or CTest reports every test as "Not Run".
+    assert "cmake --build build --config Debug --parallel 4" in text
+    assert "ctest --test-dir build -C Debug --output-on-failure" in text
