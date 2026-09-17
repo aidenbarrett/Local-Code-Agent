@@ -5,7 +5,7 @@ This page is for somebody opening the repository for the first time.
 The simplest mental model is:
 
 - **`chat.ps1`** talks directly to a local model.
-- **Local Code Agent** adds controlled repository access, approved tools, task procedures / skills, and independent verification.
+- **`local-code-agent.ps1`** gives a model controlled repository access, approved tools, task procedures / skills, and independent verification.
 - **The accelerator demo** proves which device is actually running the model.
 - **The verification demo** proves that passing test output is not blindly trusted.
 
@@ -35,8 +35,16 @@ For the full setup details, see `docs/work-laptop-bootstrap.md`.
 
 ## 1. See what Local Code Agent can do
 
+Start with the root entrypoint:
+
 ```powershell
-python scripts\capabilities.py
+.\local-code-agent.ps1
+```
+
+Then print the live capability set:
+
+```powershell
+.\local-code-agent.ps1 capabilities
 ```
 
 This prints the approved tools available to the model, the installed task procedures / skills, and the things the controller deliberately does not permit.
@@ -103,7 +111,7 @@ These timings are demo observations on an uncontrolled machine, not benchmark re
 ## 4. See independent verification reject stale test results
 
 ```powershell
-python scripts\demo-trust-boundary.py
+.\local-code-agent.ps1 verification-demo
 ```
 
 This demo uses a disposable C++ project and does not involve a model. It shows why Local Code Agent does not treat passing test output as proof by itself:
@@ -148,7 +156,7 @@ The script asserts every stage and aborts if the demonstration does not behave a
 
 and follow the reported setup requirement.
 
-**`capabilities.py` says the benchmark fixture is missing.** Create it with:
+**The capabilities command says the benchmark fixture is missing.** Create it with:
 
 ```powershell
 python benchmark_fixture\generate_project.py
