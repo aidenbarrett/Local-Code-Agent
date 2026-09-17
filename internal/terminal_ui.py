@@ -104,7 +104,7 @@ class TerminalUI:
 
     def section(self, title: str) -> None:
         label = f"[ {title.upper()} ]"
-        fill = max(0, self.width - len(label) - 3)
+        fill = max(0, self.width - len(label) - 2)
         rail = "╠═" + label + "═" * fill
         self.line(self.paint(rail, "cyan", bold=True))
         self.line()
