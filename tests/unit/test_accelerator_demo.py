@@ -55,6 +55,12 @@ def test_windows_wrapper_uses_managed_ovms_runtime():
     assert "$OvmsExe.FullName" in ps1
 
 
+def test_windows_wrapper_can_leave_server_running_for_chat():
+    ps1 = (ROOT / "scripts" / "demo-accelerator.ps1").read_text(encoding="utf-8")
+    assert "[switch]$KeepServer" in ps1
+    assert 'if ($KeepServer) { $DemoArgs += "--keep-server" }' in ps1
+
+
 def test_human_facing_output_explains_inference_metrics():
     source = SCRIPT.read_text(encoding="utf-8")
     assert "Time to first token" in source
@@ -69,7 +75,6 @@ def test_human_facing_output_explains_inference_metrics():
     assert "prompt processing still happens" in source
     assert "demo observations, not benchmark results" in source
 
-    # Keep implementation terminology out of the user-facing result line.
     assert "decode={rate}" not in source
     assert "completion={stats.completion_tokens}" not in source
     assert "visible={useful}" not in source
