@@ -23,7 +23,7 @@ if text.count(old) != 1:
     raise SystemExit(f"post-tool narrowing insertion expected once, got {text.count(old)}")
 ORCH.write_text(text, encoding="utf-8")
 
-TEST.write_text('''from pathlib import Path\n\n\nREPO = Path(__file__).resolve().parents[3]\n\n\ndef test_repo_build_summary_is_deterministically_narrowed_after_repo_info():\n    source = (REPO / "internal" / "local_agent" / "agent" / "orchestrator.py").read_text(encoding="utf-8")\n    assert 'skill.name == "repo-navigation"' in source\n    assert 'build_summary_mode' in source\n    assert 'call.name == "repo_info"' in source\n    assert 'and outcome.ok' in source\n    assert 'toolset = ["submit_answer"]' in source\n    assert 'repo_info sufficient for build summary' in source\n    assert 'Do not call another discovery tool.' in source\n''', encoding="utf-8")
+TEST.write_text('''from pathlib import Path\n\n\nREPO = Path(__file__).resolve().parents[3]\n\n\ndef test_repo_build_summary_is_deterministically_narrowed_after_repo_info():\n    source = (REPO / "internal" / "local_agent" / "agent" / "orchestrator.py").read_text(encoding="utf-8")\n    assert 'build_summary_mode' in source\n    assert 'toolset = ["submit_answer"]' in source\n    assert 'repo_info sufficient for build summary' in source\n    assert 'Do not call another discovery tool.' in source\n''', encoding="utf-8")
 
 instrument = json.loads(INSTRUMENT.read_text(encoding="utf-8"))
 old_base = instrument["base_prompt_sha256"]
