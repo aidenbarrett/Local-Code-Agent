@@ -35,6 +35,16 @@ def test_chat_listing_keeps_internal_python_entrypoint_out_of_user_guidance():
     assert "Available local model choices" in source
 
 
+def test_local_code_agent_root_facade_explains_why_it_exists():
+    wrapper = (ROOT / "local-code-agent.ps1").read_text(encoding="utf-8")
+    assert "controlled repository access" in wrapper
+    assert "capabilities" in wrapper
+    assert "run-task" in wrapper
+    assert "verification-demo" in wrapper
+    assert "scripts\\capabilities.py" in wrapper
+    assert "scripts\\demo-trust-boundary.py" in wrapper
+
+
 def test_capabilities_use_plain_user_facing_language():
     source = (ROOT / "scripts" / "capabilities.py").read_text(encoding="utf-8")
     assert "Approved tools" in source
@@ -50,6 +60,9 @@ def test_quickstart_teaches_the_user_journey_in_the_expected_order():
     accelerator = text.index("## 3. Prove which accelerator is running Qwen3-8B")
     verification = text.index("## 4. See independent verification reject stale test results")
     assert capabilities < chat < accelerator < verification
+    assert ".\\local-code-agent.ps1 capabilities" in text
+    assert ".\\chat.ps1 qwen3-8b-npu" in text
+    assert ".\\local-code-agent.ps1 verification-demo" in text
     assert "The model can propose actions. It cannot mark its own homework." in text
     assert "qwen3-coder-30b` selects a different model profile" in text
 
