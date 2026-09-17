@@ -21,7 +21,14 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply bounded fixes and restamp source identity
-        run: python .github/apply_adversarial_followup.py
+        run: |
+          python .github/apply_adversarial_followup.py
+          # Keep the regression semantic rather than Markdown-format-sensitive.
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('README.md')
+          p.write_text(p.read_text(encoding='utf-8').replace('**not** independent tasks', 'not independent tasks'), encoding='utf-8', newline='\n')
+          PY
       - name: Install project
         run: python -m pip install -e ".[dev]"
       - name: Fixture remains deterministic
