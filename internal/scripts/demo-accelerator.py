@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Human-facing accelerator smoke demo.
+"""Human-facing local AI hardware demo.
 
 Runs the same locally cached Qwen3-8B OpenVINO model on one explicitly selected
-accelerator and keeps inference busy long enough to watch the matching graph in
-Task Manager, HWiNFO, intel_gpu_top, or another OS monitor.
+CPU, GPU or NPU target and keeps inference busy long enough to watch the matching
+hardware activity in the operating-system monitor.
 
 This is a demo/smoke path, not an experiment runner and not scored evidence.
 """
@@ -17,28 +17,24 @@ from pathlib import Path
 import sys
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SOURCE_ROOT))
 
 from local_agent.config import MODEL_PRESETS  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
 from measurement import serve  # noqa: E402
+from terminal_ui import LCA_LOGO, WIDTH, device_label, ui  # noqa: E402
 
 BASE_PROFILE = "ptl-npu-8b"
 DEMO_PROFILE = BASE_PROFILE
 DEVICES = ("CPU", "GPU", "NPU")
-WIDTH = 60
 PROMPT = (
     "Produce a compact C++ code review checklist with exactly 20 numbered items. "
     "Do not use tools. Do not explain your reasoning."
 )
 
-LOGO = (
-    " _      ____    _",
-    "| |    / ___|  / \\",
-    "| |___| |___  / _ \\",
-    "|_____|\\____|/_/ \\_\\",
-)
+# Compatibility alias for existing tests and any external presentation checks.
+LOGO = LCA_LOGO
 
 
 def default_runtime_root() -> Path:
@@ -54,7 +50,7 @@ def demo_config(device: str):
     return replace(
         base,
         device=device,
-        device_note=f"{device} accelerator demo",
+        device_note=f"{device} local AI hardware demo",
         thinking=False,
         stream=True,
     )
@@ -62,28 +58,12 @@ def demo_config(device: str):
 
 def monitor_hint(device: str) -> str:
     if os.name == "nt":
-        return f"Task Manager -> Performance -> {device}"
+        return f"Task Manager > Performance > {device}"
     if device == "GPU":
         return "your Linux GPU monitor (for Intel, intel_gpu_top if installed)"
     if device == "NPU":
-        return "your Linux NPU/OpenVINO telemetry tool"
-    return "top/htop or your CPU monitor"
-
-
-def section(title: str) -> None:
-    print(title)
-    print("-" * WIDTH)
-
-
-def print_banner() -> None:
-    print()
-    for line in LOGO:
-        print(f"  {line}")
-    print()
-    print("  LOCAL CODE AGENT")
-    print()
-    print("=" * WIDTH)
-    print()
+        return "your Linux NPU / OpenVINO telemetry tool"
+    return "top / htop or your CPU monitor"
 
 
 def stop_owned_previous(plan):
@@ -107,32 +87,35 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
         executable=executable,
         model_dir=model_dir,
     )
+    term = ui()
 
-    print_banner()
+    term.banner(
+        "LOCAL AI HARDWARE DEMO",
+        "Same local Qwen3-8B model. Only the hardware target changes.",
+    )
 
-    section("MODEL SETUP")
-    print("  Model             Qwen3-8B (INT4)")
-    print("  Backend           OpenVINO Model Server")
-    print(f"  Requested device  {cfg.device}")
-    print(f"  Hardware view     {monitor_hint(cfg.device)}")
+    term.section("MODEL & HARDWARE")
+    term.field("Model", "Qwen3-8B (INT4)")
+    term.field("Running on", device_label(cfg.device), role="cyan")
+    term.field("Backend", "OpenVINO Model Server")
+    term.field("Watch live", monitor_hint(cfg.device))
 
     stopped_pid = stop_owned_previous(plan)
 
-    print()
-    section("STARTUP")
+    term.line()
+    term.section("STARTUP")
     if stopped_pid:
-        print("  Previous server   stopped")
-        print()
-    print("  [1/3] Starting validated model server...")
+        term.status("info", "Previous Local Code Agent model server stopped cleanly")
+        term.line()
+    term.status("active", "[1/3] Starting the local model server")
     state = serve.start(plan, cfg, wait_seconds=900)
-    print(f"        Ready at         {cfg.base_url}")
-    print(f"        Process ID       {state['pid']}")
-    print(f"        Device confirmed {state['resolved_device']}")
+    term.status("ok", "Model server ready")
+    term.status("ok", f"Hardware target confirmed: {state['resolved_device']}")
 
-    print()
-    section("INFERENCE RUN")
-    print(f"  [2/3] Running repeated model inference for {seconds:.0f} seconds")
-    print(f"        Watch now: {monitor_hint(cfg.device)}")
+    term.line()
+    term.section("LIVE INFERENCE")
+    term.status("active", f"[2/3] Generating repeated responses for {seconds:.0f} seconds")
+    term.field("Watch hardware", monitor_hint(cfg.device))
 
     client = OpenAICompatibleClient(cfg)
     deadline = time.monotonic() + seconds
@@ -160,49 +143,47 @@ def run_device(device: str, *, seconds: float, runtime_root: Path,
                 length = (f"{stats.completion_tokens} tokens"
                           if stats.completion_tokens is not None else "n/a")
 
-                print()
+                term.line()
                 if calls == 1:
-                    print("  Request 1 | COLD START")
+                    term.request_header(calls, "COLD START")
                     note = "One-time runtime warm-up + prompt processing"
                 else:
-                    print(f"  Request {calls} | WARM")
+                    term.request_header(calls, "WARM")
                     note = "Runtime already initialised; prompt processing still happens"
-                print(f"    First token       {ttft}")
-                print(f"    Generation speed  {rate}")
-                print(f"    Output length     {length}")
-                print(f"    Note              {note}")
+                term.field("First token", ttft)
+                term.field("Generation speed", rate)
+                term.field("Output length", length)
+                term.field("Note", note)
             except Exception as exc:
                 failures += 1
-                print()
-                print(f"  Request {calls} | FAILED")
-                print(f"    {type(exc).__name__}: {exc}")
+                term.line()
+                term.request_header(calls, "FAILED")
+                term.status("fail", f"{type(exc).__name__}: {exc}")
                 break
     finally:
-        print()
-        section("SERVER")
+        term.line()
+        term.section("MODEL SERVER")
         if keep_server:
-            print(f"  Model server left running at {cfg.base_url}")
+            term.status("active", "Model server left running for local chat")
         else:
             serve.stop(plan)
-            print("  Model server stopped cleanly")
+            term.status("ok", "Model server stopped cleanly")
 
     if calls == 0 or failures:
         return 1
 
-    print()
-    section("SUMMARY")
-    print("  [3/3] RESULT          PASS")
-    print(f"        Device          {cfg.device}")
-    print(f"        Requests        {calls} completed successfully")
+    term.line()
+    term.section("RESULT")
+    term.status("ok", "[3/3] DEMO COMPLETE")
+    term.field("Hardware target", device_label(cfg.device))
+    term.field("Responses", f"{calls} completed successfully")
     if rates:
-        print(f"        Average speed   {sum(rates) / len(rates):.1f} tokens/s")
+        term.field("Average speed", f"{sum(rates) / len(rates):.1f} tokens/s")
     if ttfts:
-        print(f"        Best first token {min(ttfts):.2f} s")
-    print()
-    print("  Timing values are live demo observations, not benchmark results.")
-    print()
-    print("=" * WIDTH)
-    print()
+        term.field("Best first token", f"{min(ttfts):.2f} s")
+    term.footer_note("Live demo observations · not benchmark results.")
+    term.rule("═", role="cyan")
+    term.line()
     return 0
 
 
@@ -213,22 +194,22 @@ def main(argv: list[str] | None = None) -> int:
         default="NPU",
         type=str.upper,
         choices=(*DEVICES, "ALL"),
-        help="accelerator to demonstrate; ALL runs CPU, GPU, then NPU sequentially",
+        help="hardware target to demonstrate; ALL runs CPU, GPU, then NPU sequentially",
     )
     parser.add_argument("--seconds", type=float, default=45.0,
-                        help="repeated inference time per device (default: 45)")
+                        help="repeated inference time per hardware target (default: 45)")
     parser.add_argument("--runtime-root", type=Path, default=default_runtime_root())
-    parser.add_argument("--executable", help="override the OVMS executable")
+    parser.add_argument("--executable", help="override the OpenVINO Model Server executable")
     parser.add_argument("--model-dir", type=Path,
                         help="override the already-downloaded OpenVINO model directory")
     parser.add_argument("--keep-server", action="store_true",
-                        help="leave the final server running after the load ends")
+                        help="leave the final model server running after the demo")
     args = parser.parse_args(argv)
 
     if args.seconds <= 0:
         parser.error("--seconds must be positive")
     if args.device == "ALL" and args.keep_server:
-        parser.error("--keep-server is only meaningful for one selected device")
+        parser.error("--keep-server is only meaningful for one selected hardware target")
 
     devices = DEVICES if args.device == "ALL" else (args.device,)
     try:
@@ -245,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
                 return rc
         return 0
     except (serve.Refusal, OSError, ValueError) as exc:
-        print(f"Demo refused to run: {exc}", file=sys.stderr)
+        print(f"Demo could not run: {exc}", file=sys.stderr)
         return 2
 
 
