@@ -256,8 +256,11 @@ class TerminalUI:
         self.line("  " + self.paint(text, role, bold=True))
 
     def footer_note(self, text: str) -> None:
+        """Render secondary explanatory copy with deliberate terminal wrapping."""
         self.line()
-        self.line("  " + self.paint(text, "dim"))
+        width = max(20, self.width - 4)
+        for line in textwrap.wrap(text, width=width, replace_whitespace=False) or [""]:
+            self.line("  " + self.paint(line, "dim"))
 
 
 def ui(*, stream: TextIO | None = None, colour: bool | None = None,
