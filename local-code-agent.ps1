@@ -14,6 +14,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$internal = Join-Path $root 'internal'
 
 $python = @(
     (Join-Path $root '.venv-workstation\Scripts\python.exe'),
@@ -26,19 +27,23 @@ if (-not $python) {
 if (-not $python) {
     Write-Host ''
     Write-Host 'No Python environment found.'
-    Write-Host 'Run the workstation setup first, or install Python 3.11+.'
+    Write-Host 'Run .\install.ps1 first, or install Python 3.11+.'
     Write-Host ''
     exit 2
 }
+
+$existingPythonPath = if (Test-Path Env:PYTHONPATH) { $env:PYTHONPATH } else { $null }
+$env:PYTHONPATH = if ($existingPythonPath) { "$internal;$existingPythonPath" } else { $internal }
 
 function Show-Help {
     Write-Host ''
     Write-Host 'Local Code Agent'
     Write-Host ''
-    Write-Host 'Use a local AI model to work with a code repository through approved'
-    Write-Host 'tools, task procedures and independent verification.'
+    Write-Host 'Chat gives direct access to the model.'
+    Write-Host 'Local Code Agent gives the model controlled repository access,'
+    Write-Host 'approved tools, procedural skills and independent verification.'
     Write-Host ''
-    Write-Host 'Direct model conversation is separate:'
+    Write-Host 'Direct model conversation:'
     Write-Host '  .\chat.ps1 qwen3-8b-npu'
     Write-Host ''
     Write-Host 'Commands:'
@@ -53,7 +58,7 @@ function Show-Help {
     Write-Host '      Show stale passing tests being rejected as invalid evidence.'
     Write-Host ''
     Write-Host '  advanced [arguments]'
-    Write-Host '      Pass arguments directly to the existing internal CLI.'
+    Write-Host '      Pass arguments directly to the underlying CLI.'
     Write-Host ''
     Write-Host 'Examples:'
     Write-Host '  .\local-code-agent.ps1 capabilities'
@@ -68,7 +73,7 @@ switch ($Command.ToLowerInvariant()) {
         exit 0
     }
     'capabilities' {
-        & $python (Join-Path $root 'scripts\capabilities.py') @Rest
+        & $python (Join-Path $internal 'scripts\capabilities.py') @Rest
         exit $LASTEXITCODE
     }
     'run-task' {
@@ -84,7 +89,7 @@ switch ($Command.ToLowerInvariant()) {
         exit $LASTEXITCODE
     }
     'verification-demo' {
-        & $python (Join-Path $root 'scripts\demo-trust-boundary.py') @Rest
+        & $python (Join-Path $internal 'scripts\demo-trust-boundary.py') @Rest
         exit $LASTEXITCODE
     }
     'advanced' {
