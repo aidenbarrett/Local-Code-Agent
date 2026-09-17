@@ -1,3 +1,4 @@
+import builtins
 import contextlib
 from importlib.util import module_from_spec, spec_from_file_location
 import io
@@ -98,7 +99,7 @@ def test_ctrl_c_during_generation_returns_cleanly_to_the_prompt(monkeypatch):
     monkeypatch.setattr(chat, "_ensure_server", lambda *_args, **_kwargs: True)
 
     responses = iter(["hello", ""])
-    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
+    monkeypatch.setattr(builtins, "input", lambda _prompt: next(responses))
 
     from local_agent.llm import client as client_module
 
@@ -137,10 +138,11 @@ def test_install_default_is_transparent_before_machine_mutation():
 
 def test_readme_answers_first_time_user_questions_before_deep_internals():
     text = (REPO / "README.md").read_text(encoding="utf-8")
+    plain = " ".join(text.replace("**", "").split())
     assert "lets a local AI model work on a code repository using controlled tools" in text
     assert "## Current setup target" in text
     assert "Windows 11 on Intel Panther Lake" in text
-    assert "not a claim that arbitrary Windows, Linux or macOS machines" in text
+    assert "not a claim that arbitrary Windows, Linux or macOS machines" in plain
     assert ".\\install.ps1 -CheckOnly" in text
     assert ".\\chat.ps1 qwen3-8b-npu" in text
     assert ".\\local-code-agent.ps1 capabilities" in text
