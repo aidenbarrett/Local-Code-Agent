@@ -1,13 +1,8 @@
 name: tests
 
-# The suite compiles and runs real C++ through CMake and CTest. That is the
-# point: the adversarial tests reproduce build and test cheats against a real
-# toolchain, and mocking it would test the mock. Nothing here needs a model.
-#
-# Real pytest is authoritative. measurement/run_test_suite.py remains valuable
-# for air-gapped/offline machines, but it implements only a compatibility subset
-# of pytest and therefore gets its own non-authoritative job. A compatibility
-# pass can never hide a native pytest failure again.
+# The suite compiles and runs real C++ through CMake and CTest. Real pytest is
+# authoritative on Linux and Windows; the compatibility runner remains an
+# offline subset only.
 
 on:
   push:
@@ -41,7 +36,7 @@ jobs:
         run: python -m pip install -e ".[dev]"
 
       - name: Build the fixture repository
-        run: python benchmark_fixture/generate_project.py
+        run: python internal/benchmark_fixture/generate_project.py
 
       - name: Authoritative test suite
         run: python -m pytest -q
@@ -61,10 +56,10 @@ jobs:
         run: python -m pip install -e ".[dev]"
 
       - name: Build the fixture repository
-        run: python benchmark_fixture/generate_project.py
+        run: python internal/benchmark_fixture/generate_project.py
 
       - name: Compatibility suite
-        run: python measurement/run_test_suite.py tests
+        run: python internal/measurement/run_test_suite.py internal/tests
 
   integrity:
     name: fixture and instrument integrity (${{ matrix.os }})
@@ -84,23 +79,17 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]"
 
-      # The fixture is hashed; its generator is not. If these differ then the
-      # instrument identity depends on whether somebody happened to run the
-      # generator before hashing it.
       - name: Generated fixture matches the committed one
         run: |
-          python benchmark_fixture/generate_project.py
-          git diff --exit-code -- benchmark_fixture/cpp_project
+          python internal/benchmark_fixture/generate_project.py
+          git diff --exit-code -- internal/benchmark_fixture/cpp_project
 
-      # Provenance is load-bearing: every dataset is reconciled against these
-      # hashes. Keep this as a separate gate so a test-runner implementation can
-      # never redefine what a green identity check means.
       - name: Instrument identity matches INSTRUMENT.json
         shell: bash
         run: |
           python - <<'PY'
-          import json, sys
-          sys.path.insert(0, ".")
+          import json
+          import sys
           from local_agent import provenance as p
 
           with open("INSTRUMENT.json", encoding="utf-8") as fh:
@@ -130,14 +119,11 @@ jobs:
           generation_axes = {"base_prompt_sha256", "outcome_contract_sha256"}
           if any(key in generation_axes for key, _, _ in drift):
               print("A model-facing or outcome-facing contract moved. That ENDS")
-              print("A GENERATION: either what the model sees/submits or what the")
-              print("evaluator calls correct changed. Data does not cross that")
-              print("boundary as confirmatory evidence in either direction.")
-              print("Increment 'generation' in INSTRUMENT.json and record the")
-              print("change in docs/experiment-design.md.")
+              print("A GENERATION once rows exist. Generation 2 currently has zero")
+              print("collected rows, so this branch may freeze the prompt before its")
+              print("first row; INSTRUMENT.json must be updated in the same change.")
           else:
               print("source_sha256 moved without a contract-axis move. Update the")
-              print("source hash in INSTRUMENT.json; whether archived rows can be")
-              print("re-scored is decided from their retained evidence, not guessed.")
+              print("source hash in INSTRUMENT.json after confirming the move is intended.")
           sys.exit(1)
           PY
