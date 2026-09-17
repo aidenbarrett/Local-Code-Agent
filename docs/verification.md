@@ -88,11 +88,11 @@ classifier must too. Testing `"rerun_failed" in arguments` would reject a
 genuine full suite for mentioning the parameter, and these models fill in
 defaults constantly.
 
-**Stale.** ctest does not compile. A pass against binaries older than the source
-is a fact about the old binaries. Both a stale pass and a stale failure are
-`UNKNOWN`: a red suite from an old binary is no more informative than a green
-one, and reporting it as a failure would send a diagnosis after a defect that
-may already be fixed.
+**Stale.** ctest does not compile. A pass against binaries built from different
+source content is a fact about those old binaries. Both a stale pass and a
+stale failure are `UNKNOWN`: a red suite from an old binary is no more
+informative than a green one, and reporting it as a failure would send a
+diagnosis after a defect that may already be fixed.
 
 **Unbuilt.** No successful full build recorded means freshness is unknown, not
 that nothing is stale. That distinction is the whole of it: reading "no record"
@@ -102,7 +102,7 @@ as "nothing wrong" let a tree nobody had built return a green suite.
 `configure_project(profile="release")` moves the marker without compiling, and
 the leftover debug binaries would otherwise come back as a passing release run.
 A profile is verified only when a successful **full build of that profile** is
-recorded and newer than every source file.
+recorded and the source files still hash to what that build recorded.
 
 **Empty.** ctest exits 0 having run nothing and reports "all tests passed (0
 tests)". True, and it verified nothing.
@@ -114,32 +114,43 @@ repeat guard. The tree that was proved is not the tree being submitted.
 ## The build record
 
 `build/.local-agent-build-ok`, written only by an untargeted successful build,
-carrying the profile it produced and the timestamp the filesystem assigned:
+carrying the profile it produced, the time the filesystem assigned, and a
+sha256 of every source file that went into that build:
 
 ```json
-{"profile": "debug", "at": 1788769725.49}
+{"profile": "debug", "at_ns": 1788769725490000000,
+ "source_hashes": {"src/ring_buffer.cpp": "9f2c...", "include/ring_buffer.h": "41ab..."}}
 ```
 
-Three properties, each of which was learned the hard way.
+A stamp missing `at_ns` or `source_hashes` is not parsed as a build record at
+all. Three properties, each of which was learned the hard way.
 
 **Written only by an untargeted build.** Refreshing it after
 `build_target(target="test_text_util")` made an unrelated stale test binary
 look fresh.
 
-**Dated from its content, never its mtime.** The stamp is an ordinary file
+**Trusted for its content, never for its own mtime.** The stamp is an ordinary file
 inside the repository and `propose_patch` was happy to rewrite it. Three calls,
 nothing compiled, and the staleness gate opened. Writes into the build
 directory, the run journal and `.git` are now refused outright with a typed
 `PROTECTED_PATH` reason, and even a write that bypasses the tools moves no
 baseline.
 
-**The timestamp comes from the filesystem, not `time.time()`.** Source
-staleness compares filesystem mtimes. Two clocks agree on local disk and can
-disagree on a network mount or a drifted guest clock, and a build recorded
-later than it happened would hide a real stale source.
+**Staleness is decided by content, never by a clock.** The check hashes the
+current source files and compares them against the `source_hashes` recorded
+when the binaries were built. It deliberately does not compare timestamps: two
+clocks agree on local disk and disagree on a network mount or a drifted guest
+clock, mtime granularity can make a real edit compare equal, and an mtime is
+trivially restored by anything that wants the tree to look untouched.
+`at_ns` is recorded from the filesystem rather than `time.time()`, but it is
+audit and display metadata and nothing is decided from it.
 
-A stamp that cannot be parsed, or that carries no usable profile and timestamp,
-is unknown provenance rather than a free pass.
+Because the comparison is a set union over both maps, a source file that is
+added and one that is deleted are both caught, not just an edit to a file that
+was already there.
+
+A stamp that cannot be parsed, or that carries no usable profile, no `at_ns` or
+no `source_hashes`, is unknown provenance rather than a free pass.
 
 ## Verification is not task completion
 
