@@ -114,10 +114,10 @@ def converse(name: str, profile: str, config: ModelConfig) -> int:
     reachable = _reachable(config)
     _header(name, profile, config, reachable)
     if not reachable:
-        print("The model configuration is known, but nothing is serving it yet.")
+        print(f"No model server is running for {name}.")
         print()
-        print("Start the configured model server with:")
-        print(f"  python measurement/serve.py start --profile {profile} --device {config.device}")
+        print("Start one with:")
+        print(f"  .\\scripts\\demo-accelerator.ps1 -Device {config.device} -Seconds 5 -KeepServer")
         print()
         print("Then run the same chat command again.")
         print()
