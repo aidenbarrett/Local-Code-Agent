@@ -135,5 +135,7 @@ class TerminalUI:
         self.line("  " + self.paint(text, "dim"))
 
 
-def ui(*, stream: TextIO = sys.stdout, colour: bool | None = None, width: int = WIDTH) -> TerminalUI:
-    return TerminalUI(stream=stream, colour=colour, width=width)
+def ui(*, stream: TextIO | None = None, colour: bool | None = None,
+       width: int = WIDTH) -> TerminalUI:
+    target = sys.stdout if stream is None else stream
+    return TerminalUI(stream=target, colour=colour, width=width)
