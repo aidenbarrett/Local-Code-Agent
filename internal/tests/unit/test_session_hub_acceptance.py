@@ -42,3 +42,10 @@ def test_required_event_vocabulary_is_a_floor_not_an_exact_count():
 def test_private_session_storage_is_not_reachable_from_application_code():
     acceptance = _acceptance()
     assert acceptance._application_reaches_private_storage() == []
+
+
+def test_outcome_acceptance_is_behavioural_not_prose_presence():
+    acceptance = _acceptance()
+    # This executes the product/schema mapping and construction invariants. It
+    # deliberately does not inspect design prose for words such as NO_VERDICT.
+    acceptance.outcome_gates()
