@@ -408,3 +408,39 @@ Recorded here because the lesson is not the bug. It is that a confident
 mechanism telling the same lie is worse than a weak one, and that the right
 question was never "how do we compare more carefully" but "what actually proves
 these bytes were compiled".
+
+
+## Round 12: direct-chat prompt salience and current product follow-ups
+
+Physical Panther Lake NPU testing of the optional Aiden direct-chat persona exposed
+two prompt-design effects that are deliberately kept separate from the agent
+evaluation evidence.
+
+At chat temperature 0.7, removing the persona's embedded calibration examples
+removed the previously reproduced calibration-shaped greeting. Removing the
+separate Answer quality block in a second, single-variable change was followed
+by a run in which unrelated casual turns stopped spontaneously returning to NPU,
+INT4, OpenVINO, logs, tests and troubleshooting. These are qualitative physical
+observations from direct chat, not capability measurements and not evidence about
+the frozen generation-1 experiment.
+
+The current persona is intentionally parked rather than tuned further against a
+small synthetic conversation. Two known-open behaviours remain:
+
+- replies often end in a generic invitation/question; the remaining persona itself
+  contains quoted negative examples of that pattern, so prompt salience is a
+  plausible mechanism but has not been isolated yet;
+- "Aye" can become a repeated opening, and ordinary regional phrases can still be
+  interpreted too literally by the 8B model.
+
+Future persona changes should be driven by normal-use failures and isolated where
+practical. Do not treat the present tone as "nailed" or turn these observations
+into agent/evaluation claims.
+
+A separate adversarial review reported that the public `run-task` entrypoint
+would fall through to the default 30B/port-8000 configuration. That report was
+stale against current main: `internal/scripts/run-task-ui.py` already prepares
+`qwen3-8b-npu` through `chat.ps1 --ensure-only` and invokes the developer CLI
+with explicit `--profile ptl-npu-8b`. Unit contracts cover both properties.
+Keep those regressions: the public task path must never silently depend on the
+unprovisioned default model.
