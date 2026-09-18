@@ -1,1 +1,329 @@
-<REDACTED>
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lca:session:events:1",
+  "title": "Proposed LCA session event contract v1 (design only)",
+  "$defs": {
+    "Reason": {
+      "enum": [
+        "none",
+        "requested",
+        "completed",
+        "policy_denied",
+        "user_denied",
+        "missing_dependency",
+        "invalid_input",
+        "unavailable_capability",
+        "routing_uncertain",
+        "endpoint_unavailable",
+        "inference_timeout",
+        "tool_timeout",
+        "task_timeout",
+        "cancelled",
+        "cleanup_unknown",
+        "controller_crash",
+        "verification_failed",
+        "verification_passed",
+        "verification_not_required",
+        "missing_evidence",
+        "stale_evidence",
+        "storage_error",
+        "protocol_mismatch",
+        "scope_changed",
+        "queue_full",
+        "watch_overlap",
+        "missed_schedule",
+        "no_previous_run",
+        "contract_changed"
+      ]
+    },
+    "TurnRef": {
+      "type": "object",
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "turn_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "turn_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "turn_index",
+        "turn_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "availability": {
+          "enum": [
+            "retained",
+            "expired",
+            "unavailable"
+          ]
+        }
+      },
+      "required": [
+        "artifact_id",
+        "sha256",
+        "media_type",
+        "size_bytes",
+        "availability"
+      ],
+      "additionalProperties": false
+    },
+    "Origin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "user_direct"
+            },
+            "turn_ref": {
+              "$ref": "#/$defs/TurnRef"
+            }
+          },
+          "required": [
+            "kind",
+            "turn_ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "user_rule"
+            },
+            "turn_ref": {
+              "$ref": "#/$defs/TurnRef"
+            },
+            "rule_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "kind",
+            "turn_ref",
+            "rule_id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "model_proposal"
+            },
+            "turn_ref": {
+              "$ref": "#/$defs/TurnRef"
+            },
+            "proposal_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "kind",
+            "turn_ref",
+            "proposal_id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "watch"
+            },
+            "job_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "run_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "kind",
+            "job_id",
+            "run_id"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "VerdictBlock": {
+      "type": "object",
+      "properties": {
+        "verdict": {
+          "enum": [
+            "VERIFIED",
+            "FAILED",
+            "REFUSED",
+            "NO_VERDICT",
+            "NOT_REQUIRED"
+          ]
+        },
+        "reason_code": {
+          "$ref": "#/$defs/Reason"
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 128
+        },
+        "tree_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rendered_lines": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "maxItems": 12
+        }
+      },
+      "required": [
+        "verdict",
+        "reason_code",
+        "scope",
+        "evidence_ids",
+        "tree_sha256",
+        "rendered_lines"
+      ],
+      "additionalProperties": false
+    },
+    "TaskCompletion": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed",
+            "blocked",
+            "cancelled",
+            "timed_out",
+            "interrupted",
+            "unknown"
+          ]
+        },
+        "verdict_block": {
+          "$ref": "#/$defs/VerdictBlock"
+        },
+        "worker_artifact_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        }
+      },
+      "required": [
+        "task_id",
+        "status",
+        "verdict_block",
+        "worker_artifact_ref",
+        "result_ref"
+      ],
+      "additionalProperties": false
+    },
+    "Counts": {
+      "type": "object",
+      "properties": {
+        "new_failures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recovered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "still_failing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "added_tests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "removed_tests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed_paths": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "new_failures",
+        "recovered",
+        "still_failing",
+        "added_tests",
+        "removed_tests",
+        "changed_paths"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": []
+}
