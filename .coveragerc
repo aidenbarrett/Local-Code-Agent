@@ -1,0 +1,26 @@
+# Coverage configuration. Reporting only: no fail_under until a measured baseline
+# exists and a floor has been justified against it.
+[run]
+branch = True
+source =
+    internal/local_agent
+    internal/evaluation
+    internal/measurement
+    internal/scripts
+omit =
+    */__pycache__/*
+    */build/*
+    internal/benchmark_fixture/cpp_project/*
+    internal/tests/*
+parallel = True
+relative_files = True
+
+[report]
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    def __repr__

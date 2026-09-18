@@ -1,112 +1,78 @@
 # Local Code Agent
 
-Direction set: 2026-09-18. Baseline inspected on GitHub: `26fd55f0fc9705801e104d26afee377dac5db077`.
+Direction set: 2026-09-18. Current implementation source of truth: live GitHub `main` plus explicitly identified open PRs.
 
-Design refinement: [session hub design](internal/docs/session-hub-design.md),
-[typed event contract](internal/docs/session-contract/README.md) and
-[file/PR layout](internal/docs/session-hub-file-layout.md) are the current target.
-They supersede the earlier model-first routing and web/desktop client plan.
-This refinement is design-only; the prototype below has not been upgraded to it.
+The current product target is an in-process Textual Session Hub around the existing deterministic controller. The model may propose work; deterministic code owns admission, permissions, execution, verification, provenance and durable state.
 
 ## Product goal
 
-Make LCA useful for building and testing LCA, then for recurring engineering work
-on the Windows-to-Linux development setup. One continuous conversation is the
-product surface. A deterministic controller retains ownership of permissions,
-workspaces, skills, execution and verification.
+Make LCA useful for building and testing LCA, then for recurring engineering work on the Windows-to-Linux development setup. One continuous conversation is the user surface, but conversation prose is not the authority for repository state or task success.
 
-**Short-term priority: the conversation product and its engineering loop.** New
-measurement campaigns, pilot expansion and comparative model claims are paused.
-Operational tests and telemetry remain necessary engineering tools. They do not
-constitute a benchmark or demonstrate a local-model capability gain.
+Measurement collection is paused while the product loop is built. Historical experiments remain frozen and reproducible from their recorded tags and artifacts. Product hardening may move `source_sha256`; model-facing or outcome-facing experimental contract changes require deliberate generation handling.
 
-The previous measurement-first prioritisation is superseded for product work;
-the historical evidence and experimental integrity rules remain binding.
+## Implemented foundation on `main`
+
+PRs #46-#48 established the current Session Hub foundation:
+
+- persisted direct-chat conversations with lock-scoped ownership; existing conversations load only after the exclusive lock is acquired
+- one explicit save path for owned conversations; abandoned in-memory edits are not auto-saved
+- product-side outcomes are closed and typed, including `NO_VERDICT`
+- successful outcomes require verification to have been established
+- product outcomes have explicit lifecycle/verdict projections and bounded CLI exit classes
+- route provenance is recorded before deterministic routing becomes richer
+- controller/worker exceptions fail closed to unknown/no-verdict semantics rather than success-shaped completion
+- Generation-2 evaluator success is executable-frozen as `pass` and `escalated_pass`, with the outcome-contract hash pinned before any Gen2 model rows exist
+- evaluator ledger reporting cannot silently drop an unfamiliar outcome; unclassified rows remain visible
+- behavioural Session Hub acceptance gates replaced prose-presence checks
+
+Source mutation and commits remain disabled on the conversation product path.
+
+## Active implementation sequence
+
+PR #49 is the durable event-service slice. It is intentionally separate from routing/UI work and is not part of `main` until merged. Its target is:
+
+1. executable validation of the reviewed `lca.session.events/1` envelope/payload contract
+2. one durable writer owning event sequence, task admission and terminal persistence
+3. admission-before-execution and idempotent request identity
+4. live/replay equivalence from persisted events
+5. crash recovery to an explicit unknown/NO_VERDICT state with no automatic effect replay
+6. non-blocking task submission and bounded thread-safe subscriptions for the future Textual loop
+
+After that, the planned slices are deterministic routing + fixed watch execution, fixture-driven Textual UI, then live wiring/endpoint arbitration/cancellation acceptance.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    UI["Textual terminal hub"] --> G["Conversation gateway"]
+    UI["Textual terminal hub"] --> S["Session service / durable event writer"]
+    S --> G["Conversation gateway"]
     G --> C["Deterministic task controller"]
-    C --> P["Policy, workspace and approval state"]
-    C --> W["Worker: skill and restricted tools"]
+    C --> P["Policy / grants / execution ownership"]
+    C --> W["Worker: narrowed skills and restricted tools"]
     W --> V["Independent verification"]
     V --> C
-    C --> G
-    C --> E["Structured activity and evidence"]
-    E --> UI
+    C --> S
+    S --> UI
 ```
 
-Target routing is deterministic-first with a direct user Work path; a conversation
-model can propose a fallback intent and has no repository tools. The existing
-hardened orchestrator executes repository tasks. The gateway cannot set a
-verification flag, choose an experimental condition, widen permissions or
-approve itself. User corrections become controller constraints, not just prose
-in an LLM history. That last step requires the planned task/approval state machine;
-the initial synchronous prototype does not claim to implement interruption.
+Conversation turns and task artifacts are separate authorities. Raw user/assistant turns remain in the conversation store. Task admission, activity, evidence, verdict and terminal state are sibling durable records referenced by stable IDs. Controller verdict/evidence is not stuffed back into model chat history.
 
-Start with one endpoint and two independent contexts. Chat and worker requests
-are sequential. This is compatible with a single served weight instance; actual
-runtime allocation and KV cache reuse must be observed, not assumed. Separate
-chat/worker endpoints are supported by the prototype. Scheduling, resource
-arbitration and automatic strong-tier escalation are later controller features.
+Target routing remains deterministic-first: control commands, explicit Work/Chat choice, anchored rules, model proposal fallback, then clarification. A model proposal is advice, not permission.
 
-## What exists on the product branch
-
-- Strict conversation proposals and bounded, in-memory conversational history.
-- A synchronous gateway and direct adapter to the existing hardened orchestrator.
-- Fresh worker context per task; separate conversation context across turns.
-- Fixed repository configuration, source/history mutations disabled, configured
-  execution opt-in and intersected with repository policy.
-- Sequenced activity events, task IDs and namespaced evidence references.
-- Controller-rendered result status, independent of model wording.
-- A Python self-check adapter using compileall and real pytest/JUnit. No CTest
-  reinterpretation and no compatibility-runner output passed off as real pytest.
-- Interface-only skeletons for persistence, scheduling, approvals, workspaces,
-  telemetry and client transport. These are design contracts, not active services.
-
-See [CURRENT_STATE.md](CURRENT_STATE.md) for operation and limitations.
-
-## Next milestones
-
-1. Wire existing chat_context persistence into plain chat.py; history is turns only.
-2. Add a fixed-job scheduled runner and stable same-job deltas, without a chat model.
-3. Implement the gateway contract, sibling task artifacts, cancellation and endpoint leases.
-4. Add an in-process Textual hub with mandatory activity/evidence and watch panes.
-5. Add telemetry last, after enforced exclusion from measured/scored runs.
-
-Isolated editing and VS Code Remote SSH remain later goals. No web frontend,
-Electron or browser engine is part of the current scope.
-
-The implementation sequence, contracts, acceptance gates and failure paths are
-in [the session hub design](internal/docs/session-hub-design.md)
-and [the file/PR layout](internal/docs/session-hub-file-layout.md).
-
-## Engineering rules that still apply
+## Engineering rules
 
 - Models propose; deterministic code controls effects and evaluates proof.
 - Uncertain routing abstains. Invalid contracts fail closed.
+- Durable admission is the fence before execution. Replay must never re-execute effects.
+- An admitted task without a durable terminal record after restart is unknown, not retryable success/failure.
 - Proof belongs to the repository state and verification scope that produced it.
-- A passing read tool does not mean a build passed. A model answer is not proof.
-- An approval must bind to an exact action and current state; a chat message must
-  not become a reusable permission token.
+- Cancellation is an execution property, not a UI label; unknown process cleanup means `NO_VERDICT`.
 - Do not overwrite user edits, staging or history. Never silently reset worktrees.
-- No arbitrary model-generated shell, automatic push, autonomous self-upgrade,
-  or remote/cloud fallback without an explicit controller policy.
-- Preserve frozen experiments and hashes. Product workflows are not experimental
-  cells; do not mix them into earlier denominators or silently rescore old data.
-- Keep source provenance declarations current. New methodology used for future
-  measurements needs its own explicitly frozen experimental generation.
+- No arbitrary model-generated shell, automatic push, autonomous self-upgrade or hidden cloud fallback.
+- Preserve frozen experiments and hashes. Product workflows do not retroactively change historical denominators or methodology.
 
 ## Historical evidence
 
-The historical 30B CPU smoke's 3/10 Control, 8/10 Narrow, 8/10 Skill result supports
-an action-space narrowing signal on that fixture. It is not evidence of an 8B/NPU
-gain, written-procedure superiority, or autonomous product readiness. Nothing in
-the conversation branch changes that interpretation.
+Generation 1 used Qwen3-Coder-30B on the NUC under WSL2 Ubuntu/llama.cpp. The frozen legacy `succeeded` accounting gives Control 9/30, Narrow 22/30 and Skill 23/29, with action-space narrowing the strongest measured signal. A later typed `verified_completion` characterization gives 1/30, 12/30 and 9/29 on the same frozen rows; the narrowing direction survives while the written-skill contrast changes sign. This characterization does not rescore or rewrite Generation 1.
 
-Historical detail remains in `internal/docs/project-history.md`, the frozen
-`internal/experiments/` artifacts and their recorded source identities. Current
-implementation is always the live repository. Uploaded snapshots are only useful
-after comparison with that source of truth.
+Historical detail remains in `internal/docs/project-history.md`, the frozen `internal/experiments/` artifacts and recorded source identities.
