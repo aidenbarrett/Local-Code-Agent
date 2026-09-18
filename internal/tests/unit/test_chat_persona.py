@@ -211,12 +211,14 @@ def test_persistent_chat_resumes_raw_turns_without_persisting_contract(monkeypat
     assert chat.converse("qwen3-8b-npu", profile, config) == 0
     files = list((tmp_path / "chat").glob("*.json"))
     assert len(files) == 1
-    session = chat.load_session(tmp_path, files[0].stem)
-    assert [(turn.role, turn.content) for turn in session.turns] == [
-        ("user", "first"),
-        ("assistant", "reply"),
-    ]
-    assert all(turn.role != "system" for turn in session.turns)
+    with chat.conversation(tmp_path, files[0].stem) as opened:
+        session = opened.session
+        assert [(turn.role, turn.content) for turn in session.turns] == [
+            ("user", "first"),
+            ("assistant", "reply"),
+        ]
+        assert all(turn.role != "system" for turn in session.turns)
+        conversation_id = session.conversation_id
     assert captured[0] == [
         _golden_persona_off_messages()[0],
         {"role": "user", "content": "first"},
@@ -229,7 +231,7 @@ def test_persistent_chat_resumes_raw_turns_without_persisting_contract(monkeypat
         "qwen3-8b-npu",
         profile,
         config,
-        conversation_id=session.conversation_id,
+        conversation_id=conversation_id,
     ) == 0
     assert [item["role"] for item in captured[0]] == [
         "system",
@@ -250,7 +252,7 @@ def test_resume_refuses_persona_provenance_mismatch(monkeypatch, tmp_path):
         config.device,
         persona_sha256=chat._persona_sha256(persona),
     )
-    chat.save_session(tmp_path, session)
+    chat.create_session(tmp_path, session)
 
     monkeypatch.setattr(chat, "_ensure_server", lambda *a, **k: True)
     monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
