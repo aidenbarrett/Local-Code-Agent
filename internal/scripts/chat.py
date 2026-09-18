@@ -36,12 +36,11 @@ from scripts.chat_context import (  # noqa: E402
     ContextRefusal,
     append_turn,
     compose,
-    conversation_lock,
+    conversation,
+    create_session,
     ensure_append_fits,
     ensure_runtime,
-    load_session,
     new_session,
-    save_session,
 )
 from terminal_ui import device_label, ui  # noqa: E402
 
@@ -265,12 +264,7 @@ def converse(
     persona_sha = _persona_sha256(persona)
     try:
         if conversation_id:
-            session = load_session(runtime_root, conversation_id)
-            if session.persona_sha256 != persona_sha:
-                raise ContextRefusal(
-                    "conversation persona does not match the requested persona; "
-                    "resume it with the same --persona value or start a new conversation"
-                )
+            cid = conversation_id
         else:
             session = new_session(
                 profile,
@@ -278,24 +272,31 @@ def converse(
                 config.device,
                 persona_sha256=persona_sha,
             )
-            save_session(runtime_root, session)
+            create_session(runtime_root, session)
+            cid = session.conversation_id
     except ContextRefusal as exc:
         term.status("fail", f"Conversation refused: {exc}")
         return 2
 
-    _session_header(name, config, term, persona)
-    term.field("Conversation", session.conversation_id)
-    if conversation_id:
-        term.status("ok", f"Resumed {len(session.turns)} stored turns")
-    else:
-        term.status("info", "New conversation · use --conversation with this ID to resume it")
-    term.line()
-
-    client = OpenAICompatibleClient(config)
     try:
-        with conversation_lock(runtime_root, session.conversation_id):
+        with conversation(runtime_root, cid) as opened:
+            session = opened.session
+            if session.persona_sha256 != persona_sha:
+                raise ContextRefusal(
+                    "conversation persona does not match the requested persona; "
+                    "resume it with the same --persona value or start a new conversation"
+                )
+
+            _session_header(name, config, term, persona)
+            term.field("Conversation", session.conversation_id)
+            if conversation_id:
+                term.status("ok", f"Resumed {len(session.turns)} stored turns")
+            else:
+                term.status("info", "New conversation · use --conversation with this ID to resume it")
+            term.line()
+
+            client = OpenAICompatibleClient(config)
             runtime_index = ensure_runtime(session, profile, config.model, config.device)
-            save_session(runtime_root, session)
             while True:
                 try:
                     prompt = term.paint("YOU  › ", "magenta", bold=True)
@@ -346,7 +347,14 @@ def converse(
 
                 append_turn(session, "user", said, runtime_index)
                 append_turn(session, "assistant", text, runtime_index)
-                save_session(runtime_root, session)
+                try:
+                    opened.save()
+                except (ContextRefusal, OSError) as exc:
+                    term.line()
+                    term.status("fail", f"Conversation could not be saved: {exc}")
+                    term.status("info", "The previous persisted version was kept; this chat session will close.")
+                    term.line()
+                    return 2
 
                 term.line()
                 term.line(term.paint("MODEL", "cyan", bold=True))
