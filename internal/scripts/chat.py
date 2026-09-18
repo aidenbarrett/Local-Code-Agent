@@ -320,7 +320,7 @@ def converse(
                     reply = client.chat(composed.messages)
                 except KeyboardInterrupt:
                     term.line()
-                    term.status("warn", "Generation stopped. Nothing from this turn was saved.")
+                    term.status("warn", "Generation stopped. Back at the prompt. Nothing from this turn was saved.")
                     term.line()
                     continue
                 except Exception as exc:
