@@ -146,7 +146,13 @@ def test_chat_temperature_override_does_not_mutate_named_profile(monkeypatch):
     captured = []
 
     monkeypatch.setattr(chat, "_ensure_server", lambda *a, **k: captured.append(a[1].temperature) or True)
-    monkeypatch.setattr(chat, "converse", lambda _name, _profile, config, _persona: captured.append(config.temperature) or 0)
+    # Server setup now lives inside converse. Mocking converse bypassed the
+    # first assertion's producer and broke CI. Exercise the real startup path,
+    # capture the client configuration, and exit before any inference call.
+    from local_agent.llm import client
+    monkeypatch.setattr(client, "OpenAICompatibleClient", lambda config: captured.append(config.temperature))
+    import builtins
+    monkeypatch.setattr(builtins, "input", lambda _prompt: "")
 
     assert chat.main(["qwen3-8b-npu", "--temperature", "0.7"]) == 0
     assert captured == [0.7, 0.7]

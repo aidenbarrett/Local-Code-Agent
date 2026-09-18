@@ -1,5 +1,17 @@
 # Local Code Agent
 
+## Conversation product direction
+
+The short-term priority is a continuous conversation that can inspect, build and
+test this project through its deterministic controller. Measurement collection is
+paused. [Project overview](PROJECT_OVERVIEW.md) and [current state](CURRENT_STATE.md)
+describe the new direction and the exact implemented limits.
+
+The new terminal prototype is `.\local-code-agent.ps1 session`. It needs an
+already-running endpoint; see the current-state guide for setup. `/check` runs
+LCA's real Python checks with execution enabled. Source edits, commits, background
+steering and the GUI are planned stages, not enabled features in this prototype.
+
 **Chat locally. Give models controlled access to code. Verify their work independently.**
 
 Local Code Agent lets a local AI model work on a code repository using controlled tools and task procedures, while deterministic code decides what the model may do and whether its work actually passed verification.

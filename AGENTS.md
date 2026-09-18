@@ -1,8 +1,15 @@
 # AGENTS.md
 
-Local-Code-Agent is a **measurement instrument first and an agent second**. It asks
-one question: how much real, repetitive C++ engineering work can be completed
-locally, with verified results, without a premium cloud model.
+Local-Code-Agent is currently **product-first: build the conversation gateway and
+the self-engineering loop**. New measurement campaigns are paused by the project
+owner's 2026-09-18 direction. Historical evidence and measurement contracts remain
+protected. Operational regression tests and honest verification are still required.
+
+Read root `PROJECT_OVERVIEW.md` and `CURRENT_STATE.md` before substantial work.
+For product architecture and the implementation sequence, read
+`internal/docs/conversation-product-architecture.md` and
+`internal/docs/conversation-product-backlog.md`. Interface-only skeletons are not
+working features. Keep that distinction explicit in reviews and user-facing claims.
 
 The root is the product surface. Implementation, measurement, tests, research
 documentation and frozen evidence live under `internal/`.

@@ -25,6 +25,7 @@ def main() -> int:
 
     term.line()
     term.section("COMMANDS")
+    term.field("session", "Continuous conversation and controlled tasks (prototype; server must be running)")
     term.field("capabilities", "Show what the agent can and cannot do")
     term.field("run-task", "Run a controlled engineering task against this repository")
     term.field("verification-demo", "Show stale passing tests being rejected as invalid evidence")

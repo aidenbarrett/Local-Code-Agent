@@ -40,6 +40,10 @@ function Show-Help {
 }
 
 switch ($Command.ToLowerInvariant()) {
+    'session' {
+        & $python -m local_agent.session.cli @Rest
+        exit $LASTEXITCODE
+    }
     'help' {
         Show-Help
         exit $LASTEXITCODE
