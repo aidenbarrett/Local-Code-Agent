@@ -2,17 +2,18 @@
 """Executable acceptance gates for the Session Hub milestone.
 
 Each implementation slice extends this file with assertions for behaviour it
-actually ships. The script is intentionally dependency-free so CI and local
-bring-up can run the same gates.
+actually ships. CI and local bring-up run the same gates against product code.
 """
 from __future__ import annotations
 
 import ast
+import hashlib
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
 import sys
 import tempfile
+from uuid import uuid4
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -189,15 +190,97 @@ def outcome_gates() -> None:
     require(unknown.projection.terminal_state == TerminalState.INTERRUPTED, "unknown execution projects to interrupted lifecycle state")
 
 
+def durable_event_gates() -> None:
+    from local_agent.session.event_contract import EventContractError, build_event
+    from local_agent.session.service import DurableSessionService
+    from local_agent.session.storage import SQLiteSessionStore
+
+    stream_id = str(uuid4())
+    session_id = str(uuid4())
+    with tempfile.TemporaryDirectory(prefix="lca-hub-events-") as temp:
+        store = SQLiteSessionStore(Path(temp) / "session.db")
+        service = DurableSessionService(store, stream_id=stream_id, session_id=session_id)
+        subscriber = service.subscribe(capacity=8)
+        try:
+            try:
+                build_event(
+                    stream_id=stream_id,
+                    sequence=1,
+                    producer_epoch=service.producer_epoch,
+                    session_id=session_id,
+                    kind="session.opened",
+                    payload={"not": "the contract"},
+                )
+            except EventContractError:
+                pass
+            else:
+                raise AcceptanceFailure("invalid durable event payload was accepted")
+            require(True, "durable envelopes are validated against the v1 schema")
+
+            request_bytes = b"accept-session-hub"
+            request_ref = {
+                "artifact_id": str(uuid4()),
+                "sha256": hashlib.sha256(request_bytes).hexdigest(),
+                "media_type": "application/json",
+                "size_bytes": len(request_bytes),
+                "availability": "retained",
+            }
+            admission_payload = {
+                "origin": {
+                    "kind": "user_direct",
+                    "turn_ref": {
+                        "conversation_id": "accept",
+                        "turn_index": 0,
+                        "turn_sha256": "a" * 64,
+                    },
+                },
+                "request_ref": request_ref,
+                "contract_sha256": "b" * 64,
+                "repository_id": "accept-repo",
+                "skill": "inspect",
+                "execution_epoch": 0,
+                "deadline_utc": "2030-01-01T00:00:00Z",
+            }
+            receipt = service.submit_task(
+                request_id="accept-request",
+                payload_sha256=hashlib.sha256(request_bytes).hexdigest(),
+                admission_payload=admission_payload,
+            )
+            require(receipt.task_id is not None, "non-blocking admission returns a task id immediately")
+            receipt.wait(5)
+            live = subscriber.drain()
+            replayed = service.replay()
+            require(live == replayed, "committed live delivery and durable replay are identical")
+            require(
+                [row["task_id"] for row in store.unterminated_tasks()] == [receipt.task_id],
+                "durable admission is visible before execution",
+            )
+
+            recovered = service.recover_unknown_tasks()
+            require(recovered == [receipt.task_id], "restart recovery finds admitted tasks without terminal state")
+            kinds = [event["kind"] for event in service.replay()]
+            require(kinds == ["task.admitted", "task.verdict", "task.closed"], "recovery records verdict and closure without replaying effects")
+            completion = service.replay()[1]["payload"]["completion"]
+            require(
+                completion["verdict_block"]["verdict"] == "NO_VERDICT"
+                and completion["verdict_block"]["reason_code"] == "controller_crash",
+                "crash recovery resolves to NO_VERDICT with controller_crash provenance",
+            )
+            require(not store.unterminated_tasks(), "recovered unknown task becomes durably terminal")
+        finally:
+            service.close()
+
+
 def main() -> int:
     try:
         schema_gates()
         conversation_ownership_gates()
         outcome_gates()
+        durable_event_gates()
     except (AcceptanceFailure, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1
-    print("Session Hub foundation acceptance gates passed.")
+    print("Session Hub acceptance gates passed.")
     return 0
 
 
