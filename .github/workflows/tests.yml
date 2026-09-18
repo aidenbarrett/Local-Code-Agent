@@ -1,18 +1,47 @@
 name: tests
 
-# The suite compiles and runs real C++ through CMake and CTest. Real pytest is
-# authoritative on Linux and Windows; the compatibility runner remains an
-# offline subset only.
-
+# Real pytest is authoritative on Linux and Windows. Cheap structural gates run
+# first so broken contracts do not consume the full matrix.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
+  gates:
+    name: fast gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Session Hub acceptance gates
+        run: python internal/scripts/accept-session-hub.py
+      - name: Session event contract
+        run: python -m pytest -q internal/tests/unit/test_session_contract_schema.py
+      - name: Product outcome and generation contracts
+        run: |
+          python -m pytest -q \
+            internal/tests/unit/test_outcomes.py \
+            internal/tests/unit/test_ledger_outcome_partition.py \
+            internal/tests/unit/test_generation2_contract_freeze.py
+      - name: Syntax scan
+        run: python -m pytest -q internal/tests/unit/test_no_syntax_warnings.py
+
   pytest:
     name: pytest (${{ matrix.os }})
+    needs: gates
     strategy:
       fail-fast: false
       matrix:
@@ -21,48 +50,73 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Toolchain identity
         run: |
           python --version
           cmake --version
           ctest --version
-
       - name: Install
         run: python -m pip install -e ".[dev]"
-
       - name: Build the fixture repository
         run: python internal/benchmark_fixture/generate_project.py
-
       - name: Authoritative test suite
         run: python -m pytest -q
 
+  coverage:
+    name: coverage (report only)
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install -e ".[coverage]"
+      - name: Build the fixture repository
+        run: python internal/benchmark_fixture/generate_project.py
+      - name: Measure coverage
+        run: python -m pytest -q --cov --cov-report=xml --cov-report=term-missing:skip-covered
+      - name: Report what is uncovered
+        run: python internal/scripts/coverage-report.py coverage.xml --against internal/coverage-baseline.json
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: warn
+
   compatibility-runner:
     name: compatibility runner (offline subset)
+    needs: gates
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install
         run: python -m pip install -e ".[dev]"
-
       - name: Build the fixture repository
         run: python internal/benchmark_fixture/generate_project.py
-
       - name: Compatibility suite
         run: python internal/measurement/run_test_suite.py internal/tests
 
   integrity:
     name: fixture and instrument integrity (${{ matrix.os }})
+    needs: gates
     strategy:
       fail-fast: false
       matrix:
@@ -71,19 +125,17 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install
         run: python -m pip install -e ".[dev]"
-
       - name: Generated fixture matches the committed one
         run: |
           python internal/benchmark_fixture/generate_project.py
           git diff --exit-code -- internal/benchmark_fixture/cpp_project
-
       - name: Instrument identity matches internal/INSTRUMENT.json
         shell: bash
         run: |
@@ -99,31 +151,21 @@ jobs:
               "base_prompt_sha256": p.base_prompt_sha256(),
               "outcome_contract_sha256": p.outcome_contract_sha256(),
           }
-
           drift = []
           for key, value in actual.items():
               print(f"{key:<24} {value}")
               if declared.get(key) != value:
                   drift.append((key, declared.get(key), value))
-
           if not drift:
               print(f"\nmatches internal/INSTRUMENT.json, generation {declared['generation']}")
               sys.exit(0)
-
           print("\nINSTRUMENT DRIFT\n")
           for key, want, got in drift:
-              print(f"  {key}")
-              print(f"    declared  {want}")
-              print(f"    computed  {got}")
-          print()
+              print(f"  {key}\n    declared  {want}\n    computed  {got}")
           generation_axes = {"base_prompt_sha256", "outcome_contract_sha256"}
           if any(key in generation_axes for key, _, _ in drift):
-              print("A model-facing or outcome-facing contract moved. That ENDS")
-              print("A GENERATION once rows exist. Generation 2 currently has zero")
-              print("collected rows, so this branch may freeze the prompt before its")
-              print("first row; internal/INSTRUMENT.json must be updated in the same change.")
+              print("A model-facing or outcome-facing contract moved; review generation semantics before updating the declaration.")
           else:
-              print("source_sha256 moved without a contract-axis move. Update the")
-              print("source hash in internal/INSTRUMENT.json after confirming the move is intended.")
+              print("source_sha256 moved without a contract-axis move; update the source declaration after confirming the move is intended.")
           sys.exit(1)
           PY
