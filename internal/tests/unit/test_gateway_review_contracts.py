@@ -29,7 +29,7 @@ class _Controller:
     def __init__(self):
         self.calls = []
 
-    def run(self, task, self_check=False):
+    def run(self, task, self_check=False, **kwargs):
         self.calls.append(task)
         return TaskResult("t1", "fail", "The build broke.", False,
                           ("read_file:0", "run_test:1"), {})
