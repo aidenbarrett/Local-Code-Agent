@@ -75,7 +75,7 @@ class OpenConversation:
     _disk_cap_bytes: int = DEFAULT_DISK_CAP_BYTES
 
     def save(self) -> Path:
-        return _save_session(
+        return _write_session(
             self._runtime_root,
             self.session,
             disk_cap_bytes=self._disk_cap_bytes,
@@ -199,7 +199,7 @@ def ensure_append_fits(
         )
 
 
-def _save_session(
+def _write_session(
     runtime_root: Path,
     session: Session,
     *,
@@ -228,10 +228,10 @@ def create_session(
     path = session_path(runtime_root, session.conversation_id)
     if path.exists():
         raise ContextRefusal(f"conversation {session.conversation_id} already exists")
-    return _save_session(runtime_root, session, disk_cap_bytes=disk_cap_bytes)
+    return _write_session(runtime_root, session, disk_cap_bytes=disk_cap_bytes)
 
 
-def _load_session(runtime_root: Path, conversation_id: str) -> Session:
+def _read_session(runtime_root: Path, conversation_id: str) -> Session:
     path = session_path(runtime_root, conversation_id)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -329,7 +329,7 @@ def conversation(
     disk_cap_bytes: int = DEFAULT_DISK_CAP_BYTES,
 ) -> Iterator[OpenConversation]:
     with _conversation_lock(runtime_root, conversation_id):
-        session = _load_session(runtime_root, conversation_id)
+        session = _read_session(runtime_root, conversation_id)
         yield OpenConversation(
             session=session,
             _runtime_root=Path(runtime_root),
