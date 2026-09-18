@@ -48,6 +48,7 @@ class TerminalState(str, Enum):
     CANCELLED = "cancelled"
     TIMED_OUT = "timed_out"
     INTERRUPTED = "interrupted"
+    UNKNOWN = "unknown"
 
 
 class Verdict(str, Enum):
@@ -70,9 +71,13 @@ OUTCOME_PROJECTIONS: dict[ProductOutcome, OutcomeProjection] = {
     ProductOutcome.ESCALATED_FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
     ProductOutcome.FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
     ProductOutcome.BLOCKED: OutcomeProjection(TerminalState.BLOCKED, Verdict.REFUSED),
-    ProductOutcome.NO_VERDICT: OutcomeProjection(TerminalState.INTERRUPTED, Verdict.NO_VERDICT),
+    ProductOutcome.NO_VERDICT: OutcomeProjection(TerminalState.UNKNOWN, Verdict.NO_VERDICT),
 }
-UNREACHABLE_TERMINAL_STATES = frozenset({TerminalState.CANCELLED, TerminalState.TIMED_OUT})
+UNREACHABLE_TERMINAL_STATES = frozenset({
+    TerminalState.CANCELLED,
+    TerminalState.TIMED_OUT,
+    TerminalState.INTERRUPTED,
+})
 
 
 def task_exit_code(outcome: ProductOutcome | str) -> int:
