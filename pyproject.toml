@@ -17,6 +17,19 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+# Coverage is reported, never gated, until a baseline exists and a floor has been
+# argued for. A threshold invented before the first measurement is a number
+# somebody games rather than a bar somebody clears.
+coverage = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+# Test-time parallelism is deliberately opt-in. The C++ integration tests build
+# real projects and isolation under xdist has not yet been demonstrated.
+parallel = [
+    "pytest>=8.0",
+    "pytest-xdist>=3.6",
+]
 
 [project.scripts]
 local-agent = "local_agent.cli:main"

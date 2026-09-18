@@ -1,129 +1,72 @@
 # Current state
 
-Product direction: **conversation gateway and self-engineering loop**.
-Date: 2026-09-18. Branch: `feature/conversation-gateway`.
-Baseline: GitHub main `26fd55f0fc9705801e104d26afee377dac5db077`.
+Date: 2026-09-18. Authoritative implementation: live GitHub `main`; active follow-up work is called out by PR number rather than silently treated as merged.
 
-## Design refinement (not implemented)
+## Product direction
 
-Claude's session-hub brief is incorporated in
-[the accepted design](internal/docs/session-hub-design.md),
-[event contract](internal/docs/session-contract/README.md) and
-[file/PR layout](internal/docs/session-hub-file-layout.md).
-The design commit changes documentation/schema artifacts only. A separate review
-fix commit hardens the existing prototype; only its source identity moves. The
-base-prompt and outcome identities remain unchanged.
+The active direction is the **Session Hub**: one continuous conversation surface around a deterministic controller, with task admission, execution, evidence, verdict and recovery represented separately from model prose.
 
-Decisions: in-process Textual; deterministic-first routing with a direct Work
-path; task artifacts referenced by conversation turns; controller-only verdict
-blocks; mandatory activity and watch panes; fixed scheduled jobs with comparable
-delta identity; real cancellation/NO_VERDICT; exclusive endpoint leases;
-telemetry off and quiesced for measured/scored workflows.
+PRs #46-#48 are merged. They replaced the earlier design-only state with a real execution/session foundation. PR #49 is open and implements the durable event-service slice; it is not part of `main` until merged.
 
-Existing `scripts/chat_context.py` is present but not wired into direct chat on
-the inspected main. Finish that before UI work. The current prototype below still
-uses model-first classification and in-memory history; its EventBuffer is not the
-new proposed `lca.session.events/1` schema. No scheduled job has been installed.
+## What `main` implements now
 
-## Implemented prototype
+- Direct chat persistence is wired. Existing conversations are opened under an exclusive lock before loading, preventing the stale-writer lost-update race.
+- Raw persisted load/save primitives are private. Owned contexts save explicitly; abandoning an edit does not auto-save it.
+- Product-side task outcomes are a closed vocabulary with explicit `NO_VERDICT`.
+- A success-shaped product result cannot be constructed unless verification was established.
+- Product outcomes project explicitly into lifecycle/verdict state and CLI exit classes.
+- Worker/controller exceptions produce unknown/no-verdict semantics rather than a normal finished-success shape.
+- Current task routing records provenance (`model_proposal` or `user_direct`) before richer deterministic routing is added.
+- Generation-2 evaluator success is executable-frozen as exactly `pass` and `escalated_pass`; the frozen outcome-contract hash is pinned in tests.
+- Ledger reporting has an `unclassified` partition so an unfamiliar observed outcome cannot disappear silently.
+- Session Hub acceptance gates execute real behavioural/structural checks rather than merely searching prose for desired words.
 
-The terminal session joins conversation to the existing controlled worker.
-Natural-language turns can delegate repository inspection or configured builds
-and tests. `/check` runs the Python self-check deterministically without asking a
-model to choose commands. Separate chat/worker endpoint options exist.
+Source mutation, staging and commit behaviour remain disabled on the conversation product path.
 
-Repository source edits, staging and commits are disabled on this path. Builds
-and tests execute trusted checkout code and may themselves have side effects;
-this is an operation policy boundary, not an OS sandbox.
+## Active PR #49: durable event service
 
-## Prototype review fixes
+The open durable-service slice is building the executable `lca.session.events/1` path:
 
-Character budgets and serialized UTF-8 byte caps are separate; four chars/token is
-an explicit sizing estimate, not a measured context-occupancy ratio. The byte cap
-is independent: JSON escaping and per-message overhead can make it bind first,
-even below the content-character cap. Controller
-verdict/evidence lines are shown to the user but excluded from later model history.
-Evidence keeps canonical `name:index` IDs with a separate task namespace, including
-in the final activity event. Budget refusals are remembered before returning and
-emit `turn.refused`; normal bounded-history eviction still applies. This does not
-provide a durable audit trail or preserve unlimited conversation.
+- JSON Schema validation before durable commit/publication
+- SQLite WAL session/task storage
+- one writer owning sequence assignment and persistence
+- idempotent admission keyed by request identity and payload digest
+- replay from committed events
+- bounded thread-safe subscriptions with explicit overflow/gap handling
+- recovery of admitted-without-terminal tasks to `NO_VERDICT`/unknown effects, never automatic retry
+- non-blocking submission so a future Textual event loop does not wait on controller/tool execution
 
-Event allocation, snapshots and synchronous sink delivery are synchronized, and
-events carry UTC wall time alongside monotonic time. Sinks must remain bounded and
-must not wait for another producer to emit. The future hub uses queued delivery.
-Blocked-worker reasons are projected without raw arguments. Keyboard interrupts
-produce an interrupted terminal event on the handled path; cleanup is not claimed.
+Exact-head CI remains authoritative for that branch. None of the above open-PR behaviour should be described as merged until the PR lands.
 
-## Run it
+## Known product gaps
 
-From an installed source checkout on Windows, prepare the existing owned server:
+- The existing gateway still needs full convergence onto the persisted conversation authority; controller task/verdict artifacts must remain outside model history.
+- Deterministic-first Work/Chat/rule routing is not complete.
+- Process-tree ownership and truthful cancellation are not complete. Current generic tool execution still uses blocking subprocess calls; cancellation cannot claim cleanup it did not prove.
+- Endpoint lease/queue arbitration for shared OVMS use is not complete.
+- Textual UI, watch/activity panes and fixed watch execution are later slices.
+- No hidden source-mutation path exists behind these interfaces.
 
-```powershell
-.\chat.ps1 qwen3-8b-npu --ensure-only
-.\local-code-agent.ps1 session --repo .
-```
+## Verification semantics
 
-Allow configured commands in a trusted checkout:
+Controller verdicts are deterministic product claims, not model prose. `NO_VERDICT` means no reliable final verification can be established. Historical evidence never becomes current-tree proof merely because it was previously green.
 
-```powershell
-.\local-code-agent.ps1 session --repo . --allow-execution
-```
+The worker already tracks whether verification was attempted separately from whether it succeeded. Product plumbing is being hardened so those facts remain distinct at the Session Hub boundary.
 
-Then try `Find internal/personas/aiden.toml and review it`, `What changed on this
-branch?`, or `/check`. The profile must already have a reachable model server.
-Server startup is still separate in v0; unifying it is future integration work.
+## Experimental status
 
-Model-free check with a nonzero exit code on failed/blocked verification:
+Measurement collection is paused. Frozen historical runs are not rescored in place.
 
-```powershell
-.\local-code-agent.ps1 session --repo . --allow-execution --check
-```
+Generation 1's published pooled table uses its historical weighted `succeeded` accounting: Control 9/30, Narrow 22/30, Skill 23/29. A newer typed `verified_completion` characterization of the same frozen rows gives 1/30, 12/30 and 9/29. That characterization is useful for understanding endpoint semantics but does not rewrite Generation 1.
 
-Portable source-checkout invocation:
+Generation 2 currently has no collected model rows. Its success vocabulary and outcome-contract identity are pinned before collection begins, so accidental evaluator changes fail loudly rather than silently changing the generation.
 
-```sh
-PYTHONPATH=internal python -m local_agent.session.cli --repo . --allow-execution --check
-```
+## Next integration order
 
-Two existing endpoints (explicit deployment choices, not automatic loading):
+1. Finish and verify #49 durable event service and recovery.
+2. Add deterministic Work/Chat/rule routing and fixed watch execution on top of recorded route provenance.
+3. Add task/run process ownership, endpoint arbitration and truthful cancellation semantics where not already completed by the foundation.
+4. Build the fixture-driven Textual shell against the durable event interface.
+5. Wire the live controller/endpoint path and run physical-laptop acceptance.
 
-```powershell
-.\local-code-agent.ps1 session --profile ptl-npu-8b --base-url http://127.0.0.1:8000/v1 --worker-profile nuc-llama-30b --worker-base-url http://127.0.0.1:8001/v1
-```
-
-Use the actual ports and model IDs configured by your servers. A friendly profile
-name does not prove which device served a request. A cloud profile explicitly
-sends conversation/repository content to its configured service; there is no
-automatic cloud fallback.
-
-## Limits
-
-- Sequential turns; cannot type steering into a running task yet.
-- No GUI, device utilisation collector, durable session or reconnect service.
-- Ctrl-C exits; cooperative cancellation and process-tree cleanup are unfinished.
-- Worker contexts reset. Conversation keeps bounded recent text, not durable facts
-  or permissions. Ambiguous follow-ups may need clarification.
-- Read results/answers may contain repository text. Do not enable an untrusted
-  endpoint or checkout. Activity events omit raw tool arguments/output by default.
-- Self-check proof covers tracked/nonignored file bytes and index/HEAD at the
-  start/end of the check. It does not attest ignored dependencies, transient
-  changes restored mid-run, external services, or operating system integrity.
-- Python self-check has a separate result contract. The old configured `run_test`
-  path remains CTest-oriented; use `/check` for LCA itself. No old result is rescored.
-- Approval, workspace, scheduler, storage, telemetry and transport modules contain
-  interfaces and development notes only. No mutation feature is hidden behind them.
-
-## Validation and next action
-
-Baseline CI was inspected: native Linux/Windows pytest and the compatibility job
-failed at the persona temperature test. The test bypassed startup by mocking
-`converse`; this branch exercises real startup and preserves both assertions.
-Serving and instrument-integrity jobs on the baseline were green.
-
-See [branch validation](internal/docs/conversation-branch-validation.md) for the
-checks actually run. Recheck exact branch-head CI before describing it as green.
-There is no claim of a successful live NPU conversation from this environment.
-
-Next: plain chat persistence, fixed watch runner, gateway contract, then Textual.
-See the new file/PR layout rather than executing the superseded M0-M5 sequence.
-Measurement collection is paused. Frozen evidence remains untouched.
+Historical experiments and their artifacts remain frozen. New instrumentation or methodology belongs to a new experimental generation, never a silent reinterpretation of old evidence.

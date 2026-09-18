@@ -1,4 +1,5 @@
 from pathlib import Path
+import tomllib
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -15,10 +16,12 @@ def test_public_run_task_uses_the_profile_installed_by_first_run_setup():
 
 
 def test_repository_self_profile_uses_windows_compatible_python_command():
-    text = (REPO / ".local-agent.toml").read_text(encoding="utf-8")
-    assert 'build = ["python",' in text
-    assert 'test = ["python",' in text
-    assert '"python3"' not in text
+    config = tomllib.loads((REPO / ".local-agent.toml").read_text(encoding="utf-8"))
+    profile_name = config["repo"]["default_profile"]
+    profile = config["profiles"][profile_name]
+    assert profile["build"][0] == "python"
+    assert profile["test"][0] == "python"
+    assert all(arg != "python3" for command in (profile["build"], profile["test"]) for arg in command)
 
 
 def test_stale_evidence_demo_does_not_forward_a_null_argument():
@@ -37,17 +40,38 @@ def test_windows_wrappers_handle_runtime_location_and_noninteractive_setup_expli
     assert "-InstallMissing for non-interactive setup" in install
 
 
+def _workflow_trigger_block(path: Path, trigger: str) -> list[str]:
+    """Parse the small top-level `on:` YAML subset without pinning whitespace."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    on_index = next(
+        i for i, line in enumerate(lines)
+        if line.strip() == "on:" and not line.startswith((" ", "\t"))
+    )
+    end = len(lines)
+    for i in range(on_index + 1, len(lines)):
+        line = lines[i]
+        if line.strip() and not line.startswith((" ", "\t", "#")):
+            end = i
+            break
+    on_lines = lines[on_index + 1:end]
+    for i, line in enumerate(on_lines):
+        if line.strip() == f"{trigger}:":
+            indent = len(line) - len(line.lstrip())
+            block = []
+            for child in on_lines[i + 1:]:
+                if child.strip() and len(child) - len(child.lstrip()) <= indent:
+                    break
+                block.append(child.strip())
+            return block
+    raise AssertionError(f"workflow has no {trigger!r} trigger")
+
+
 def test_serving_power_shell_gate_also_runs_after_merge_to_main():
-    text = (REPO / ".github" / "workflows" / "serving.yml").read_text(encoding="utf-8")
-    assert "push:\n    branches: [main]" in text
+    block = _workflow_trigger_block(REPO / ".github" / "workflows" / "serving.yml", "push")
+    compact = " ".join(block).replace(" ", "")
+    assert "branches:[main]" in compact or any(line == "- main" for line in block)
 
 
-def test_public_readme_uses_the_balanced_three_repeat_generation_one_result():
-    text = (REPO / "README.md").read_text(encoding="utf-8")
-    assert "same ten synthetic C++ tasks" in text
-    assert "90 case rows" in text
-    assert "9/30 (0.300)" in text
-    assert "22/30 (0.733)" in text
-    assert "23/29 (0.793)" in text
-    assert "small and unresolved" in text
-    assert "NUC under WSL2 Ubuntu with llama.cpp" in text
+# The README replication table used to be checked here with literal cell strings.
+# `test_public_claims_match_frozen_evidence.py` now recomputes those public claims
+# from the frozen rows and separately pins the prose-only caveats.
