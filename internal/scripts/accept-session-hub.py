@@ -19,6 +19,8 @@ REPO = Path(__file__).resolve().parents[2]
 INTERNAL = REPO / "internal"
 SCHEMA = INTERNAL / "docs" / "session-contract" / "v1" / "events.schema.json"
 CHAT_CONTEXT = INTERNAL / "scripts" / "chat_context.py"
+if str(INTERNAL) not in sys.path:
+    sys.path.insert(0, str(INTERNAL))
 
 V1_REQUIRED_EVENT_KINDS = {
     "session.opened",
@@ -144,10 +146,43 @@ def conversation_ownership_gates() -> None:
             )
 
 
+def outcome_gates() -> None:
+    from local_agent.session.contracts import (
+        OUTCOME_PROJECTIONS,
+        UNREACHABLE_TERMINAL_STATES,
+        ProductOutcome,
+        TaskResult,
+        TerminalState,
+        task_exit_code,
+    )
+
+    require(set(OUTCOME_PROJECTIONS) == set(ProductOutcome), "every product outcome has one lifecycle projection")
+    produced = {projection.terminal_state for projection in OUTCOME_PROJECTIONS.values()}
+    unreachable = set(UNREACHABLE_TERMINAL_STATES)
+    require(produced | unreachable == set(TerminalState), "every v1 terminal state is produced or explicitly unreachable")
+    require(produced.isdisjoint(unreachable), "unreachable terminal states have no producer mapping")
+    require(
+        all(all(p.terminal_state != state for p in OUTCOME_PROJECTIONS.values()) for state in unreachable),
+        "unreachable-for-now markers cannot coexist with producers",
+    )
+    require(set(task_exit_code(outcome) for outcome in ProductOutcome).issubset({0, 1, 2}), "every product outcome has a bounded CLI exit class")
+
+    try:
+        TaskResult("accept", ProductOutcome.PASS, "unproved", False)
+    except ValueError:
+        pass
+    else:
+        raise AcceptanceFailure("unproved success cannot construct a product result")
+
+    unknown = TaskResult("accept", ProductOutcome.NO_VERDICT, "unknown", False)
+    require(unknown.projection.terminal_state == TerminalState.INTERRUPTED, "unknown execution projects to interrupted lifecycle state")
+
+
 def main() -> int:
     try:
         schema_gates()
         conversation_ownership_gates()
+        outcome_gates()
     except (AcceptanceFailure, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1
