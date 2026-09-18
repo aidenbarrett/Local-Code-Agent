@@ -14,7 +14,6 @@ from local_agent.session.events import EventBuffer
 from local_agent.session.gateway import ConversationGateway
 
 
-
 class _Chat:
     def __init__(self, replies):
         self.replies = list(replies)
@@ -138,7 +137,13 @@ def test_budget_refusal_is_recorded_without_model_or_controller_call():
     chat = _Chat(['{"kind":"reply","text":"hello"}'])
     controller = _Controller()
     events = EventBuffer("s")
-    gateway = ConversationGateway(chat, controller, events, request_chars=len(SYSTEM) + 5)
+    gateway = ConversationGateway(
+        chat,
+        controller,
+        events,
+        history_chars=1,
+        request_chars=len(SYSTEM) + 5,
+    )
     said = "message too long"
     answer = gateway.turn(said)
     assert gateway._history == [(said, answer)]
