@@ -47,7 +47,7 @@ def _golden_persona_off_messages():
     ]
 
 
-def test_persona_off_preserves_exact_messages_handed_to_client(monkeypatch):
+def test_persona_off_preserves_exact_messages_handed_to_client(monkeypatch, tmp_path):
     chat = _chat()
     profile, _, config = _config(chat)
     captured = []
@@ -67,6 +67,7 @@ def test_persona_off_preserves_exact_messages_handed_to_client(monkeypatch):
     import local_agent.llm.client as client_module
 
     monkeypatch.setattr(chat, "_ensure_server", lambda *a, **k: True)
+    monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
     monkeypatch.setattr(client_module, "OpenAICompatibleClient", FakeClient)
     answers = iter(["hello", ""])
     monkeypatch.setattr(builtins, "input", lambda _prompt: next(answers))
@@ -81,7 +82,9 @@ def test_persona_is_separate_and_contract_remains_first():
     persona = chat.Persona(name="test", version="1", style="Be terse.")
     contract = chat._system_message(config)
 
-    messages = chat._messages_for_turn([contract], "hello", persona)
+    session = chat.new_session("ptl-npu-8b", config.model, config.device)
+    composed = chat._messages_for_turn(session, "hello", persona, config)
+    messages = composed.messages
 
     assert messages[0] == contract
     assert messages[1]["role"] == "system"
@@ -145,7 +148,7 @@ def test_chat_temperature_override_does_not_mutate_named_profile(monkeypatch):
     chat = _chat()
     captured = []
 
-    monkeypatch.setattr(chat, "converse", lambda _name, _profile, config, _persona: captured.append(config.temperature) or 0)
+    monkeypatch.setattr(chat, "converse", lambda _name, _profile, config, _persona, **_kwargs: captured.append(config.temperature) or 0)
 
     assert chat.main(["qwen3-8b-npu", "--temperature", "0.7"]) == 0
     assert captured == [0.7]
@@ -178,3 +181,84 @@ def test_aiden_v3_persona_does_not_embed_agent_answer_quality_rules():
     assert "provenance problems" not in persona.style
     assert "evaluator or harness effects" not in persona.style
     assert "false self-certification" not in persona.style
+
+
+def test_persistent_chat_resumes_raw_turns_without_persisting_contract(monkeypatch, tmp_path):
+    chat = _chat()
+    profile, _, config = _config(chat)
+    captured = []
+    answers = iter(["first", ""])
+
+    class FakeClient:
+        def __init__(self, _config):
+            pass
+
+        def chat(self, messages):
+            captured.append(messages)
+            return SimpleNamespace(
+                content="reply",
+                stats=SimpleNamespace(ttft_s=None, decode_tok_s=None),
+            )
+
+    import builtins
+    import local_agent.llm.client as client_module
+
+    monkeypatch.setattr(chat, "_ensure_server", lambda *a, **k: True)
+    monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
+    monkeypatch.setattr(client_module, "OpenAICompatibleClient", FakeClient)
+    monkeypatch.setattr(builtins, "input", lambda _prompt: next(answers))
+
+    assert chat.converse("qwen3-8b-npu", profile, config) == 0
+    files = list((tmp_path / "chat").glob("*.json"))
+    assert len(files) == 1
+    session = chat.load_session(tmp_path, files[0].stem)
+    assert [(turn.role, turn.content) for turn in session.turns] == [
+        ("user", "first"),
+        ("assistant", "reply"),
+    ]
+    assert all(turn.role != "system" for turn in session.turns)
+    assert captured[0] == [
+        _golden_persona_off_messages()[0],
+        {"role": "user", "content": "first"},
+    ]
+
+    captured.clear()
+    answers = iter(["second", ""])
+    monkeypatch.setattr(builtins, "input", lambda _prompt: next(answers))
+    assert chat.converse(
+        "qwen3-8b-npu",
+        profile,
+        config,
+        conversation_id=session.conversation_id,
+    ) == 0
+    assert [item["role"] for item in captured[0]] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert captured[0][0] == _golden_persona_off_messages()[0]
+
+
+def test_resume_refuses_persona_provenance_mismatch(monkeypatch, tmp_path):
+    chat = _chat()
+    profile, _, config = _config(chat)
+    persona = chat.Persona(name="test", version="1", style="Be terse.")
+    session = chat.new_session(
+        profile,
+        config.model,
+        config.device,
+        persona_sha256=chat._persona_sha256(persona),
+    )
+    chat.save_session(tmp_path, session)
+
+    monkeypatch.setattr(chat, "_ensure_server", lambda *a, **k: True)
+    monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
+
+    assert chat.converse(
+        "qwen3-8b-npu",
+        profile,
+        config,
+        persona=None,
+        conversation_id=session.conversation_id,
+    ) == 2

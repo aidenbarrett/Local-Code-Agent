@@ -85,6 +85,14 @@ You do **not** need to start an internal model-server command first. Chat reuses
 
 Direct chat has no repository tools, filesystem access or command execution. Use an empty line or Ctrl-C at the prompt to exit. Ctrl-C during generation stops the current reply cleanly and returns to the prompt.
 
+Each direct-chat run creates a persisted conversation and prints its conversation ID. Resume that exact raw user/assistant history later with:
+
+```powershell
+.\chat.ps1 qwen3-8b-npu --persona aiden --conversation <ID>
+```
+
+Resume with the same persona used to create the conversation. The system contract and persona message are derived again on every request rather than stored in conversation history. A failed or interrupted generation is not appended as a half-completed exchange. Old complete exchanges may be omitted from the model prompt when the deterministic context budget is reached, while the raw persisted conversation remains intact.
+
 Useful boundary checks for a first rehearsal are:
 
 ```text
