@@ -158,3 +158,12 @@ def test_chat_temperature_rejects_out_of_range_value():
 
     with pytest.raises(SystemExit):
         chat.main(["qwen3-8b-npu", "--temperature", "2.1"])
+
+
+def test_aiden_v3_does_not_embed_calibration_answers():
+    chat = _chat()
+    persona = chat.load_persona(chat.SOURCE_ROOT / "personas" / "aiden.toml")
+
+    assert 'Natural:' not in persona.style
+    assert 'Wrong:' not in persona.style
+    assert 'Not much lad. What\'s happening?' not in persona.style
