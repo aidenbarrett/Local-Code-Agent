@@ -48,7 +48,6 @@ class TerminalState(str, Enum):
     CANCELLED = "cancelled"
     TIMED_OUT = "timed_out"
     INTERRUPTED = "interrupted"
-    UNKNOWN = "unknown"
 
 
 class Verdict(str, Enum):
@@ -65,24 +64,15 @@ class OutcomeProjection:
     verdict: Verdict
 
 
-# One product vocabulary, one explicit projection into the v1 lifecycle.
-# CANCELLED/TIMED_OUT/INTERRUPTED remain schema-declared but are intentionally
-# unreachable from a completed TaskResult until process ownership makes those
-# lifecycle claims truthful. UNKNOWN is the honest result projection when a
-# reliable final verdict cannot be established.
 OUTCOME_PROJECTIONS: dict[ProductOutcome, OutcomeProjection] = {
     ProductOutcome.PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
     ProductOutcome.ESCALATED_PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
     ProductOutcome.ESCALATED_FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
     ProductOutcome.FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
     ProductOutcome.BLOCKED: OutcomeProjection(TerminalState.BLOCKED, Verdict.REFUSED),
-    ProductOutcome.NO_VERDICT: OutcomeProjection(TerminalState.UNKNOWN, Verdict.NO_VERDICT),
+    ProductOutcome.NO_VERDICT: OutcomeProjection(TerminalState.INTERRUPTED, Verdict.NO_VERDICT),
 }
-UNREACHABLE_TERMINAL_STATES = frozenset({
-    TerminalState.CANCELLED,
-    TerminalState.TIMED_OUT,
-    TerminalState.INTERRUPTED,
-})
+UNREACHABLE_TERMINAL_STATES = frozenset({TerminalState.CANCELLED, TerminalState.TIMED_OUT})
 
 
 def task_exit_code(outcome: ProductOutcome | str) -> int:
@@ -104,7 +94,6 @@ class Proposal:
 
     @classmethod
     def parse(cls, raw: str) -> "Proposal":
-        # Reject extra fields, fences, batches and embedded policy/tool requests.
         def unique(pairs):
             result = {}
             for key, value in pairs:
@@ -129,7 +118,6 @@ class Proposal:
 
 @dataclass(frozen=True)
 class EvidenceRef:
-    """Composite identity. evidence_id retains the worker's exact name:index."""
     task_id: str
     evidence_id: str
 
@@ -139,14 +127,9 @@ class TaskResult:
     task_id: str
     outcome: ProductOutcome | str
     answer: str
-    # True means successful verification was established for this result.
     verified_at_completion: bool = False
     evidence_ids: tuple[str, ...] = ()
     metrics: dict[str, Any] = field(default_factory=dict)
-    # None preserves positional compatibility for existing callers. When unset,
-    # successful verification implies that a verification attempt necessarily ran.
-    # Failures may explicitly distinguish "verification ran and failed" from
-    # "verification never reached a usable result".
     verification_ran: bool | None = None
 
     def __post_init__(self) -> None:
@@ -174,11 +157,6 @@ class TaskResult:
         return OUTCOME_PROJECTIONS[self.outcome]
 
     def render(self) -> str:
-        # Composed here, in code, from typed fields. No model writes this line and
-        # no model is asked to summarise it. The evidence count is included
-        # because a claim nobody can count is not a checkable claim; the ids
-        # remain canonical. Their task namespace is a separate field, never a
-        # prefix consumers have to strip. Controller fields are not chat history.
         if self.verified_at_completion:
             proof = "passed at task completion"
         elif self.verification_ran:
