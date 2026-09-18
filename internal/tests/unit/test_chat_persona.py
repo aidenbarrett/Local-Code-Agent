@@ -167,3 +167,15 @@ def test_aiden_v3_does_not_embed_calibration_answers():
     assert 'Natural:' not in persona.style
     assert 'Wrong:' not in persona.style
     assert 'Not much lad. What\'s happening?' not in persona.style
+
+
+def test_aiden_v3_persona_does_not_embed_agent_answer_quality_rules():
+    chat = _chat()
+    persona = chat.load_persona(chat.SOURCE_ROOT / "personas" / "aiden.toml")
+
+    assert "Answer quality:" not in persona.style
+    assert "measured results" not in persona.style
+    assert "hidden coupling" not in persona.style
+    assert "provenance problems" not in persona.style
+    assert "evaluator or harness effects" not in persona.style
+    assert "false self-certification" not in persona.style
