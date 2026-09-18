@@ -5,6 +5,25 @@ This is not the current prototype's EventBuffer format. No runtime emits this
 schema yet. The version is reserved for implementation/review, not declared stable
 because this document exists. Freeze it when the first producer/consumer PR agrees.
 
+## Design guard and migration gate
+
+`internal/tests/unit/test_session_contract_schema.py` runs in both test runners.
+It checks strict JSON parsing, the reviewed event/required-field inventory, closed
+object shapes, local references, and separation from prototype event names. Its
+AST inventory includes the current worker projection and rejects unknown dynamic
+`.emit` expressions. This is a guard for the current producer convention, not
+whole-program dataflow analysis; aliased emitters and new producer packages need
+explicit coverage. These checks are not full Draft 2020-12 metaschema validation
+or runtime payload validation.
+
+The first runtime migration must replace the disjointness assertion with tests
+that validate every emitted envelope/payload plus producer authority, consumer
+handling and lifecycle traces below. Neither partial nor complete name overlap
+proves conformance. A capability-negotiated subset can be valid if every emitted
+kind is validated and every unsupported operation fails explicitly. Do not just
+remove the guard or rename events to bypass it. Packaging must also satisfy the
+schema-provenance and built-artifact gates in the file-layout document.
+
 ## Envelope and ownership
 
 Every event has exactly: `schema_id="lca.session.events"`, `schema_version=1`,

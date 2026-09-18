@@ -107,3 +107,27 @@ was not copied; the declaration was recomputed from the actual combined tree.
 The preceding design commit adds the proposed 19-variant event schema and design
 only. JSON syntax, local references and unique vocabulary were checked; full JSON
 Schema validation and implementation conformance are future gates.
+
+## Second review: design-contract guard
+
+Based on remote head `6ebca648acc1088d72acbe17309f67ab719a7130`.
+The supplied ZIP contains four test functions, despite the review reporting five.
+The integrated guard has seven tests: strict JSON/identity structure, exhaustive
+unique kind branches, reviewed required envelope/payload fields, closed object
+shapes, local reference resolution, prototype/schema disjointness, and the
+README's explicit design-only boundary. Dynamic worker names use the AST table;
+unaccounted dynamic `.emit` expressions fail instead of being silently omitted.
+
+Linux x86_64 / Python 3.12.14: real pytest **7 passed**, offline compatibility
+runner **7 passed** for `internal/tests/unit/test_session_contract_schema.py`.
+Eight isolated mutations were rejected: malformed JSON, duplicate kind, missing
+kind, deleting a payload property and its required entry together, dangling ref,
+literal name overlap, dynamic projection overlap, and an unknown dynamic emitter.
+No production files were mutated during these checks.
+
+This is structural drift protection, not full JSON Schema validation or runtime
+conformance. A name inventory cannot establish producer authority or lifecycle
+semantics. The migration gate now states that explicitly. No dependency, runtime
+behavior, schema bytes or identity declaration changed. All three identities were
+recomputed and match. The reviewer's 691-test result was not rerun here; targeted
+checks are sufficient for this tests-and-documentation change. No CI polling.

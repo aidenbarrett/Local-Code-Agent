@@ -39,7 +39,9 @@ this is an operation policy boundary, not an OS sandbox.
 ## Prototype review fixes
 
 Character budgets and serialized UTF-8 byte caps are separate; four chars/token is
-an explicit sizing estimate, not a measured context-occupancy ratio. Controller
+an explicit sizing estimate, not a measured context-occupancy ratio. The byte cap
+is independent: JSON escaping and per-message overhead can make it bind first,
+even below the content-character cap. Controller
 verdict/evidence lines are shown to the user but excluded from later model history.
 Evidence keeps canonical `name:index` IDs with a separate task namespace, including
 in the final activity event. Budget refusals are remembered before returning and
