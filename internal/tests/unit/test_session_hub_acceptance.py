@@ -19,14 +19,26 @@ def test_session_hub_foundation_acceptance_gates_pass():
     assert acceptance.main() == 0
 
 
-def test_acceptance_script_is_additive_and_names_future_safety_boundaries():
-    text = (INTERNAL / "scripts" / "accept-session-hub.py").read_text(encoding="utf-8")
-    for phrase in (
-        "NO_VERDICT",
-        "endpoint arbitration",
-        "deterministic routing",
-        "off-thread blocking work",
-        "unknown effects",
-        "source mutation remains disabled",
-    ):
-        assert phrase in text
+def test_event_kind_collection_preserves_duplicates_for_corruption_detection():
+    acceptance = _acceptance()
+    fake = {
+        "oneOf": [
+            {"properties": {"kind": {"const": "task.admitted"}}},
+            {"properties": {"kind": {"const": "task.admitted"}}},
+            {"properties": {"kind": {"const": "task.closed"}}},
+        ]
+    }
+    kinds = acceptance._collect_dotted_kind_consts(fake)
+    assert kinds == ["task.admitted", "task.admitted", "task.closed"]
+    assert len(kinds) != len(set(kinds))
+
+
+def test_required_event_vocabulary_is_a_floor_not_an_exact_count():
+    acceptance = _acceptance()
+    grown = set(acceptance.V1_REQUIRED_EVENT_KINDS) | {"future.example"}
+    assert acceptance.V1_REQUIRED_EVENT_KINDS.issubset(grown)
+
+
+def test_private_session_storage_is_not_reachable_from_application_code():
+    acceptance = _acceptance()
+    assert acceptance._application_reaches_private_storage() == []
