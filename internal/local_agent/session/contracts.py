@@ -65,11 +65,6 @@ class OutcomeProjection:
     verdict: Verdict
 
 
-# One product vocabulary, one explicit projection into the v1 lifecycle.
-# CANCELLED/TIMED_OUT/INTERRUPTED remain schema-declared but are intentionally
-# unreachable from a completed TaskResult until process ownership makes those
-# lifecycle claims truthful. UNKNOWN is the honest result projection when a
-# reliable final verdict cannot be established.
 OUTCOME_PROJECTIONS: dict[ProductOutcome, OutcomeProjection] = {
     ProductOutcome.PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
     ProductOutcome.ESCALATED_PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
