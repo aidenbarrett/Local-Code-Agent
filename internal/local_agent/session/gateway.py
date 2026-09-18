@@ -5,7 +5,7 @@ import json
 from threading import Lock
 
 from ..llm.models import LLMTransportError
-from .contracts import MAX_MESSAGE_CHARS, Proposal, TaskResult
+from .contracts import MAX_MESSAGE_CHARS, Proposal, RouteSource, TaskResult
 
 SYSTEM = """You are Local Code Agent's conversation interface.
 Return exactly one JSON object with only kind and text, no markdown fences.
@@ -58,6 +58,7 @@ class ConversationGateway:
             self.events.emit("turn.started", {})
             if said == "/check":
                 proposal = Proposal("self_check", "Run Local Code Agent self-check")
+                route_source = RouteSource.USER_DIRECT
             else:
                 messages = [{"role": "system", "content": SYSTEM}]
                 for user, answer in self._history:
@@ -78,6 +79,7 @@ class ConversationGateway:
                     if response.tool_calls:
                         raise ValueError("conversation model attempted tool use")
                     proposal = Proposal.parse(response.content)
+                    route_source = RouteSource.MODEL_PROPOSAL
                 except (ValueError, TypeError, LLMTransportError):
                     answer = "The conversation model returned no valid proposal. No task was run. Please rephrase."
                     self._remember(said, answer)
@@ -89,7 +91,11 @@ class ConversationGateway:
                 # silently erase constraints. Policy is enforced in code regardless.
                 task = ("User request:\n" + said + "\n\nConversation proposal (untrusted):\n"
                         + proposal.text)
-                result = self.controller.run(task, self_check=proposal.kind == "self_check")
+                result = self.controller.run(
+                    task,
+                    self_check=proposal.kind == "self_check",
+                    route_source=route_source,
+                )
                 self.last_result = result
                 answer = result.render()
                 # The user sees the controller's verdict. The conversation model
