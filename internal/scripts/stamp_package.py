@@ -16,18 +16,44 @@ sys.path.insert(0, str(INTERNAL))
 from local_agent.provenance import source_sha256  # noqa: E402
 
 
+def _git(*args: str) -> str:
+    """Return Git stdout or fail closed when repository provenance is unknown."""
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"cannot establish Git provenance: {type(exc).__name__}") from exc
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"cannot establish Git provenance: git {' '.join(args)} exited {proc.returncode}"
+        )
+    return proc.stdout
+
+
 def main() -> int:
-    rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
-                         capture_output=True, text=True)
-    status = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
-                            capture_output=True, text=True)
+    try:
+        commit = _git("rev-parse", "HEAD").strip()
+        status = _git("status", "--porcelain")
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    if not commit:
+        print("ERROR: cannot establish Git provenance: empty commit id", file=sys.stderr)
+        return 2
+
     payload = {
-        "commit": rev.stdout.strip() or None,
-        "dirty": bool(status.stdout.strip()),
+        "commit": commit,
+        "dirty": bool(status.strip()),
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source_sha256": source_sha256(),
     }
-    (ROOT / "PACKAGE.json").write_text(json.dumps(payload, indent=2) + "\n")
+    (ROOT / "PACKAGE.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(payload, indent=2))
     return 0
 
