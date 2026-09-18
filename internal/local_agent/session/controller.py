@@ -8,7 +8,7 @@ from ..agent import Orchestrator, SkillLibrary, default_search_path
 from ..agent.policy import deny_all_approvals
 from ..config import RepoConfig
 from ..tools import build_registry
-from .contracts import TaskResult
+from .contracts import ProductOutcome, RouteSource, TaskResult
 from .events import EventBuffer
 
 
@@ -26,9 +26,19 @@ class TaskController:
         self.allow_execution = allow_execution
         self.context_budget_tokens = context_budget_tokens
 
-    def run(self, task: str, *, self_check: bool = False) -> TaskResult:
+    def run(
+        self,
+        task: str,
+        *,
+        self_check: bool = False,
+        route_source: RouteSource | str = RouteSource.MODEL_PROPOSAL,
+    ) -> TaskResult:
+        source = route_source if isinstance(route_source, RouteSource) else RouteSource(route_source)
         task_id = uuid4().hex
-        self.events.emit("task.started", {}, task_id)
+        # Prototype event name for now; #49 migrates producers to the durable v1
+        # task.admitted contract. Recording the route source already makes the
+        # current model-selected behaviour observable instead of implicit.
+        self.events.emit("task.started", {"route_source": source.value}, task_id)
         try:
             if self_check:
                 from .selfcheck import run_self_check
@@ -57,27 +67,48 @@ class TaskController:
                     allow_escalation=False,
                 )
                 run = worker.run(task)
+                verified = bool(run.outcome.succeeded and run.state.verified)
+                product_outcome = ProductOutcome(run.outcome.value)
+                if product_outcome.succeeded and not verified:
+                    # A worker answer without controller proof is useful analysis,
+                    # not a success claim. Until an admitted verification plan can
+                    # prove NOT_REQUIRED, fail closed to NO_VERDICT.
+                    product_outcome = ProductOutcome.NO_VERDICT
                 result = TaskResult(
-                    task_id, run.outcome.value, run.answer,
-                    bool(run.outcome.succeeded and run.state.verified),
+                    task_id, product_outcome, run.answer,
+                    verified,
                     tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
                     run.state.metrics.as_dict(),
                 )
         except KeyboardInterrupt:
             # Before `except Exception`, because reading it the other way round
             # invites somebody to widen that clause to BaseException and silently
-            # swallow the interrupt. `task.interrupted` is the terminal event for
-            # this task on this handled exit path. Process death can leave a
-            # started task without a terminal event; it is never proof of success.
-            self.events.emit("task.interrupted", {"process_cleanup_confirmed": False}, task_id)
+            # swallow the interrupt. Cleanup is not proven by catching Ctrl-C.
+            self.events.emit("task.interrupted", {
+                "outcome": ProductOutcome.NO_VERDICT.value,
+                "process_cleanup_confirmed": False,
+            }, task_id)
             raise
         except Exception as exc:
             # Report type only: exception text may include credentials/paths.
-            result = TaskResult(task_id, "error", f"Task stopped: {type(exc).__name__}.")
+            # A controller/worker exception can leave effects in flight, so it is
+            # explicitly unknown and must not use the normal finished event.
+            result = TaskResult(
+                task_id,
+                ProductOutcome.NO_VERDICT,
+                f"Task stopped: {type(exc).__name__}.",
+                False,
+            )
+            self.events.emit("task.interrupted", {
+                "outcome": result.outcome.value,
+                "process_cleanup_confirmed": False,
+            }, task_id)
+            return result
         self.events.emit("task.finished", {
-            "outcome": result.outcome,
+            "outcome": result.outcome.value,
             "verified_at_completion": result.verified_at_completion,
             "evidence_count": len(result.evidence_ids),
             "evidence_ids": list(result.evidence_ids),
+            "route_source": source.value,
         }, task_id)
         return result
