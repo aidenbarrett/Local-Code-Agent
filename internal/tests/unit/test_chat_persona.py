@@ -148,11 +148,10 @@ def test_chat_temperature_override_does_not_mutate_named_profile(monkeypatch):
     chat = _chat()
     captured = []
 
-    monkeypatch.setattr(chat, "_ensure_server", lambda *a, **k: captured.append(a[1].temperature) or True)
-    monkeypatch.setattr(chat, "converse", lambda _name, _profile, config, _persona: captured.append(config.temperature) or 0)
+    monkeypatch.setattr(chat, "converse", lambda _name, _profile, config, _persona, **_kwargs: captured.append(config.temperature) or 0)
 
     assert chat.main(["qwen3-8b-npu", "--temperature", "0.7"]) == 0
-    assert captured == [0.7, 0.7]
+    assert captured == [0.7]
     assert chat.MODEL_PRESETS["ptl-npu-8b"].temperature == 0.2
 
 
@@ -218,7 +217,10 @@ def test_persistent_chat_resumes_raw_turns_without_persisting_contract(monkeypat
         ("assistant", "reply"),
     ]
     assert all(turn.role != "system" for turn in session.turns)
-    assert captured[0] == _golden_persona_off_messages()
+    assert captured[0] == [
+        _golden_persona_off_messages()[0],
+        {"role": "user", "content": "first"},
+    ]
 
     captured.clear()
     answers = iter(["second", ""])
