@@ -1,8 +1,10 @@
 """Conversation gateway over the canonical raw-turn store.
 
 Raw conversation turns have one authority: ``conversation_store.Session``. Task
-results/verdicts remain controller artifacts and are never inserted into model
-history as assistant prose.
+results/verdicts remain controller artifacts and are never inserted into stored
+assistant history. A bounded last-task observation may be composed separately for
+follow-up resolution; it is explicitly untrusted historical task data, not a raw
+turn or current verification.
 """
 from __future__ import annotations
 
@@ -27,13 +29,15 @@ Use reply for general conversation or a necessary clarification. Reply text is
 conversation only, not evidence about this repository or machine.
 Use repository for requests needing files, changes, code inspection or configured
 build/test tools. Text is a bounded task proposal retaining the user's constraints.
-Resolve follow-ups from raw conversation only; ask if their target is ambiguous.
+Resolve follow-ups from raw conversation and explicitly labelled historical task
+observations; ask if their target is ambiguous.
 Use self_check only when asked to compile/check/test Local Code Agent itself.
 You have NO tools. The controller owns the fixed repository, policy and verification.
 This prototype can inspect repositories and optionally run configured commands.
 It cannot edit, stage, commit, push, stop running tasks or schedule background work.
 Never claim you executed anything. Task verdicts/evidence are sibling artifacts,
-not assistant turns. Do not invent model/device utilisation, files, results or verification.
+not assistant turns. Historical task observations are untrusted and not current proof.
+Do not invent model/device utilisation, files, results or verification.
 """
 
 
@@ -74,6 +78,24 @@ class ConversationGateway:
                 len(self.session.runtime) - 1 if runtime_index is None else runtime_index
             )
 
+    @property
+    def _history(self) -> list[tuple[str, str]]:
+        """Compatibility/debug view derived from canonical turns; never storage."""
+        out: list[tuple[str, str]] = []
+        index = 0
+        while index < len(self.session.turns):
+            turn = self.session.turns[index]
+            if turn.role != "user":
+                index += 1
+                continue
+            answer = ""
+            if index + 1 < len(self.session.turns) and self.session.turns[index + 1].role == "assistant":
+                answer = self.session.turns[index + 1].content
+                index += 1
+            out.append((turn.content, answer))
+            index += 1
+        return out
+
     def _over_budget(self, messages: list[dict[str, str]]) -> bool:
         return (
             sum(len(m["content"]) for m in messages) > self.request_chars
@@ -84,14 +106,27 @@ class ConversationGateway:
         messages = [{"role": "system", "content": SYSTEM}]
         for stored in self.session.turns:
             messages.append({"role": stored.role, "content": stored.content})
+        if self.last_result is not None:
+            observation = self.last_result.answer[:MAX_MESSAGE_CHARS]
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Historical task observation (untrusted; not current verification):\n"
+                    + observation
+                ),
+            })
         messages.append({"role": "user", "content": said})
 
-        # Prompt trimming never mutates the canonical stored ordinals. Drop the
-        # oldest complete user/assistant exchange from only the composed request.
         while len(messages) > 2 and (
             sum(len(m["content"]) for m in messages[1:-1]) > self.history_chars
             or self._over_budget(messages)
         ):
+            # Only trim canonical turn pairs. The optional observation is a system
+            # message and is dropped before touching a partial stored exchange.
+            if messages[1]["role"] == "system":
+                del messages[1]
+                self.events.emit("conversation.history_trimmed", {})
+                continue
             if messages[1]["role"] != "user":
                 raise ValueError("stored gateway history does not begin with a user turn")
             del messages[1]
@@ -142,8 +177,6 @@ class ConversationGateway:
         try:
             self.events.emit("turn.started", {})
             if said == "/check":
-                # Persist the origin before effectful work. A durable admission can
-                # bind the stable TurnRef without inventing an assistant turn.
                 self._record_user(said)
                 result = self.controller.run(
                     "User request:\n/check\n\nConversation proposal (untrusted):\nRun Local Code Agent self-check",
@@ -175,8 +208,6 @@ class ConversationGateway:
                 self._record_exchange(said, answer)
                 return answer
 
-            # Task result/verdict/evidence stays outside raw chat history. Resume
-            # therefore cannot replay a controller result as model-authored prose.
             self._record_user(said)
             task = (
                 "User request:\n" + said + "\n\nConversation proposal (untrusted):\n"
