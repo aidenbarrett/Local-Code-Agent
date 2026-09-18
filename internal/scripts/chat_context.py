@@ -33,9 +33,11 @@ create_session = _impl.create_session
 compose = _impl.compose
 
 # Private aliases remain only for deterministic failure/interleaving injection in
-# the direct-chat regression suite. Application code uses the owned context.
-_load_session = _impl._load_session
-_save_session = _impl._save_session
+# the direct-chat regression suite. Application code uses the owned context. The
+# canonical product module deliberately uses different private names so the
+# acceptance gate can prove no application caller reaches these test hooks.
+_load_session = _impl._read_session
+_save_session = _impl._write_session
 _conversation_lock = _impl._conversation_lock
 
 
