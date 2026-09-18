@@ -17,7 +17,8 @@ def test_public_run_task_uses_the_profile_installed_by_first_run_setup():
 
 def test_repository_self_profile_uses_windows_compatible_python_command():
     config = tomllib.loads((REPO / ".local-agent.toml").read_text(encoding="utf-8"))
-    profile = config["build_profiles"]["repository-self"]
+    profile_name = config["repo"]["default_profile"]
+    profile = config["profiles"][profile_name]
     assert profile["build"][0] == "python"
     assert profile["test"][0] == "python"
     assert all(arg != "python3" for command in (profile["build"], profile["test"]) for arg in command)
@@ -40,14 +41,12 @@ def test_windows_wrappers_handle_runtime_location_and_noninteractive_setup_expli
 
 
 def _workflow_trigger_block(path: Path, trigger: str) -> list[str]:
-    """Parse the small top-level `on:` YAML subset without pinning whitespace.
-
-    This is deliberately narrower than a general YAML parser: it follows indentation
-    to locate one trigger and returns its child lines, so formatting changes do not
-    alter the assertion while a semantic removal of the trigger does.
-    """
+    """Parse the small top-level `on:` YAML subset without pinning whitespace."""
     lines = path.read_text(encoding="utf-8").splitlines()
-    on_index = next(i for i, line in enumerate(lines) if line.strip() == "on:" and not line.startswith((" ", "\t")))
+    on_index = next(
+        i for i, line in enumerate(lines)
+        if line.strip() == "on:" and not line.startswith((" ", "\t"))
+    )
     end = len(lines)
     for i in range(on_index + 1, len(lines)):
         line = lines[i]
