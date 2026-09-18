@@ -177,7 +177,8 @@ VerdictBlock = { verdict, reason_code, scope, evidence_ids, tree_digest?, render
 Only the controller creates `TaskCompletion` and `VerdictBlock`. The deterministic
 renderer creates `rendered_lines` from typed verifier output; clients render those
 lines verbatim, plain text, in their own result widget. Canonical evidence IDs are
-included even when empty (explicit `Evidence: none`). The block has no model prose
+included even when empty (explicit `Evidence: none`). Preserve worker `name:index`
+IDs exactly; carry the task namespace separately, never in an ID prefix. The block has no model prose
 slot and the chat model is never asked to supply, include, rewrite or summarise it.
 
 Requiring an LLM to include a fixed string is insufficient: it could still write

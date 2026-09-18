@@ -27,12 +27,13 @@ Do not invent model/device utilisation, files, results or verification.
 
 class ConversationGateway:
     def __init__(self, chat_client, controller, events, *, history_chars: int = 16_000,
-                 request_bytes: int = 24_000):
-        if history_chars < 1 or request_bytes < 1:
+                 request_bytes: int = 96_000, request_chars: int = 24_000):
+        if history_chars < 1 or request_bytes < 1 or request_chars < 1:
             raise ValueError("history budget too small")
         self.chat_client, self.controller, self.events = chat_client, controller, events
         self.history_chars = history_chars
         self.request_bytes = request_bytes
+        self.request_chars = request_chars
         self._history: list[tuple[str, str]] = []
         self._busy = Lock()
         self.last_result: TaskResult | None = None
@@ -41,6 +42,12 @@ class ConversationGateway:
         self._history.append((said, answer[:MAX_MESSAGE_CHARS]))
         while self._history and sum(len(a) + len(b) for a, b in self._history) > self.history_chars:
             self._history.pop(0)
+
+    def _over_budget(self, messages: list[dict[str, str]]) -> bool:
+        # Character policy and serialized UTF-8 transport cap are distinct. This
+        # is not token accounting; backend context limits remain authoritative.
+        return (sum(len(m["content"]) for m in messages) > self.request_chars
+                or len(json.dumps(messages, ensure_ascii=False).encode("utf-8")) > self.request_bytes)
 
     def turn(self, said: str) -> str:
         if not isinstance(said, str) or not said.strip() or len(said) > MAX_MESSAGE_CHARS:
@@ -57,11 +64,14 @@ class ConversationGateway:
                     messages.extend([{"role": "user", "content": user},
                                      {"role": "assistant", "content": answer}])
                 messages.append({"role": "user", "content": said})
-                while len(messages) > 2 and len(json.dumps(messages).encode()) > self.request_bytes:
+                while len(messages) > 2 and self._over_budget(messages):
                     del messages[1:3]
                     self.events.emit("conversation.history_trimmed", {})
-                if len(json.dumps(messages).encode()) > self.request_bytes:
-                    return "Message exceeds this profile's conversation budget. Please shorten it. No task was run."
+                if self._over_budget(messages):
+                    answer = "Message exceeds this profile's conversation budget. Please shorten it. No task was run."
+                    self._remember(said, answer)
+                    self.events.emit("turn.refused", {"reason": "context_budget", "task_started": False})
+                    return answer
                 try:
                     response = self.chat_client.chat(messages, tools=None)
                     self.events.emit("conversation.metrics", response.stats.as_dict())
@@ -82,6 +92,12 @@ class ConversationGateway:
                 result = self.controller.run(task, self_check=proposal.kind == "self_check")
                 self.last_result = result
                 answer = result.render()
+                # The user sees the controller's verdict. The conversation model
+                # does not: it needs the substance of the last task to resolve a
+                # follow-up like "fix it", and it needs no reason at all to hold
+                # a verdict line it might later paraphrase into a reply.
+                self._remember(said, result.answer)
+                return answer
             self._remember(said, answer)
             return answer
         finally:

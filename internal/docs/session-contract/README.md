@@ -79,7 +79,11 @@ optional labelled worker-analysis artifact and immutable result artifact.
 evidence IDs, optional tree digest and controller-rendered lines. Its schema and
 rendered text are validated together: the result must match the verifier record,
 rendered output must match the deterministic renderer, and every evidence ID must
-resolve inside that task/attempt. Model-generated text never populates this type.
+resolve inside that task/attempt. IDs retain the worker canonical `name:index`
+format unchanged. Cross-task references are structured `(task_id, evidence_id)`
+pairs, never concatenated strings. Retries that reset history require a new task
+ID; execution epochs within a task must not reset its evidence index.
+Model-generated text never populates this type.
 
 Additional required checks (not expressible solely as independent JSON fields):
 

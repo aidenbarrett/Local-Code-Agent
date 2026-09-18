@@ -10,10 +10,12 @@ not the temporary local snapshot commit used for diff inspection.
 Host: Linux x86_64, Python 3.12.14, real pytest 9.1.1. Existing pure-Python test
 dependencies were made available through PYTHONPATH in this managed environment.
 
-Real pytest: **245 passed, 1 skipped** across the following explicit set:
+After the review fixes, real pytest: **255 passed, 1 skipped** across the
+following explicit set (the earlier prototype run was 245 passed, 1 skipped):
 
 ```text
 internal/tests/unit/test_session_gateway.py
+internal/tests/unit/test_gateway_review_contracts.py
 internal/tests/unit/test_session_selfcheck.py
 internal/tests/integration/test_session_python_check.py
 internal/tests/unit/test_chat_persona.py
@@ -29,7 +31,7 @@ internal/tests/unit/test_run_task_ui.py
 internal/tests/unit/test_runtime_agnostic.py
 ```
 
-Run using `python -m pytest -q -o addopts=''` followed by those paths. The new
+Run using `python -m pytest -q -o addopts=''` followed by those paths. The original
 session tests account for 32 tests and include real compileall/pytest subprocesses
 in small Git checkouts for both pass and fail outcomes. Worker tests use controlled
 model responses through the real hardened controller and repository tools.
@@ -74,3 +76,34 @@ in the same change. The base prompt and outcome-contract hashes remain unchanged
 No frozen data, historical tag, measurement scoring or CI workflow was edited.
 Future measurements of this product flow require an explicit new experiment
 definition and frozen generation; do not mix these operational checks into old rows.
+
+## Review integration
+
+The supplied review bundle was checked against the prototype before integration.
+Its reported 684-test result is the reviewer's result, not a locally reproduced
+full-suite result. Our explicit subset above includes nine new review regressions;
+those nine also passed the offline compatibility runner. Behavior checks replace
+source-string checks for budgets, blocked-event projection and interrupt handling.
+A real-controller test now uses the actual `submit_answer.evidence_ids` field
+instead of the ignored `evidence` key and asserts unchanged canonical IDs across
+two distinct task namespaces.
+
+Budget sizing now distinguishes characters from serialized UTF-8 bytes. The
+four-character token conversion is a heuristic; the review's exact 25% occupancy
+claim is not established. History retains task prose but excludes the appended
+controller verdict/evidence block. An over-budget exchange is recorded before
+returning, with a refusal event; bounded in-memory eviction is still possible.
+
+Evidence IDs are canonical `name:index` values, paired structurally with `task_id`.
+The self-check, TaskResult, terminal event and tests agree on that convention.
+The event ring locks allocation and reads, serializes synchronous sink delivery,
+and records UTC wall time. Concurrent duplicate allocation was not reproduced in
+the earlier code; this is an explicit synchronization contract, not a claimed
+reproduction. A slow-sink regression checks concurrent snapshots and delivery order.
+
+Only source_sha256 changes in this runtime follow-up. Neither agent/context.py
+nor any of the hashed prompt functions was edited. The supplied INSTRUMENT.json
+was not copied; the declaration was recomputed from the actual combined tree.
+The preceding design commit adds the proposed 19-variant event schema and design
+only. JSON syntax, local references and unique vocabulary were checked; full JSON
+Schema validation and implementation conformance are future gates.

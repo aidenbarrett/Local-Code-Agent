@@ -114,7 +114,7 @@ def test_gateway_real_controller_uses_separate_contexts_and_real_tools(loaded):
             ChatResponse(tool_calls=[ToolCall("read", "repo_info", {})]),
             ChatResponse(tool_calls=[ToolCall("answer", "submit_answer", {
                 "claim": "success", "summary": "Repository inspected.",
-                "evidence": ["repo_info:0"],
+                "evidence_ids": ["repo_info:0"],
             })]),
         ])
         workers.append(worker)
@@ -128,11 +128,17 @@ def test_gateway_real_controller_uses_separate_contexts_and_real_tools(loaded):
     assert "Repository inspected" in first
     assert gateway.last_result.outcome == "pass"
     assert not gateway.last_result.verified_at_completion  # read != build proof
-    assert gateway.last_result.evidence_ids[0].endswith("/repo_info:0")
+    assert gateway.last_result.evidence_ids == ("repo_info:0",)
+    first_refs = gateway.last_result.evidence_refs
     first_id = gateway.last_result.task_id
     gateway.turn("Inspect again")
     assert len(workers) == 2 and workers[0] is not workers[1]
     assert gateway.last_result.task_id != first_id
+    assert gateway.last_result.evidence_ids == ("repo_info:0",)
+    assert gateway.last_result.evidence_refs != first_refs
+    terminal = events.after(0)[-2]  # task.finished, then turn.finished
+    assert terminal.task_id == gateway.last_result.task_id
+    assert terminal.payload["evidence_ids"] == ["repo_info:0"]
     assert "worker.tool" in [event.kind for event in events.after(0)]
 
 
@@ -141,7 +147,7 @@ def test_execution_denial_survives_uncertain_routing(loaded):
     worker = ScriptedClient([
         ChatResponse(tool_calls=[ToolCall("execute", "build_target", {})]),
         ChatResponse(tool_calls=[ToolCall("answer", "submit_answer", {
-            "claim": "needs_action", "summary": "Build was blocked.", "evidence": [],
+            "claim": "needs_action", "summary": "Build was blocked.", "evidence_ids": [],
         })]),
     ])
     events = EventBuffer("s")

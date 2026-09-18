@@ -39,6 +39,13 @@ class Proposal:
 
 
 @dataclass(frozen=True)
+class EvidenceRef:
+    """Composite identity. evidence_id retains the worker's exact name:index."""
+    task_id: str
+    evidence_id: str
+
+
+@dataclass(frozen=True)
 class TaskResult:
     task_id: str
     outcome: str
@@ -48,7 +55,17 @@ class TaskResult:
     evidence_ids: tuple[str, ...] = ()
     metrics: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def evidence_refs(self) -> tuple[EvidenceRef, ...]:
+        return tuple(EvidenceRef(self.task_id, local_id) for local_id in self.evidence_ids)
+
     def render(self) -> str:
+        # Composed here, in code, from typed fields. No model writes this line and
+        # no model is asked to summarise it. The evidence count is included
+        # because a claim nobody can count is not a checkable claim; the ids
+        # remain canonical. Their task namespace is a separate field, never a
+        # prefix consumers have to strip. Controller fields are not chat history.
         proof = "passed at task completion" if self.verified_at_completion else "not established"
         return (f"{self.answer}\n\n[Controller: {self.outcome}; verification: {proof}; "
-                f"task: {self.task_id}]")
+                f"evidence: {len(self.evidence_ids)} item(s); task: {self.task_id}]\n"
+                f"Evidence IDs: {', '.join(self.evidence_ids) or 'none'}")

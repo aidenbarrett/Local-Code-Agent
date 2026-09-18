@@ -43,7 +43,7 @@ class TaskController:
                     fields = {
                         "route": ("skill", "tier"), "tool": ("name",),
                         "observe": ("ok",), "llm": ("total_s", "ttft_s", "prompt_tokens", "completion_tokens"),
-                        "escalate": ("from", "to"), "blocked": (),
+                        "escalate": ("from", "to"), "blocked": ("reason", "skill"),
                         "router_uncertain": ("skill", "score"),
                     }
                     if kind in fields:
@@ -60,18 +60,24 @@ class TaskController:
                 result = TaskResult(
                     task_id, run.outcome.value, run.answer,
                     bool(run.outcome.succeeded and run.state.verified),
-                    tuple(f"{task_id}/{h.name}:{i}" for i, h in enumerate(run.state.history)),
+                    tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
                     run.state.metrics.as_dict(),
                 )
+        except KeyboardInterrupt:
+            # Before `except Exception`, because reading it the other way round
+            # invites somebody to widen that clause to BaseException and silently
+            # swallow the interrupt. `task.interrupted` is the terminal event for
+            # this task on this handled exit path. Process death can leave a
+            # started task without a terminal event; it is never proof of success.
+            self.events.emit("task.interrupted", {"process_cleanup_confirmed": False}, task_id)
+            raise
         except Exception as exc:
             # Report type only: exception text may include credentials/paths.
             result = TaskResult(task_id, "error", f"Task stopped: {type(exc).__name__}.")
-        except KeyboardInterrupt:
-            self.events.emit("task.interrupted", {"process_cleanup_confirmed": False}, task_id)
-            raise
         self.events.emit("task.finished", {
             "outcome": result.outcome,
             "verified_at_completion": result.verified_at_completion,
             "evidence_count": len(result.evidence_ids),
+            "evidence_ids": list(result.evidence_ids),
         }, task_id)
         return result

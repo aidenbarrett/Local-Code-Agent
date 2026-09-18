@@ -13,6 +13,22 @@ from .events import EventBuffer
 from .gateway import ConversationGateway
 
 
+CHARS_PER_TOKEN_ESTIMATE = 4
+
+
+def conversation_budgets(context_budget_tokens: int) -> dict[str, int]:
+    """Explicit approximate character policy, plus a separate UTF-8 byte cap.
+
+    Four chars/token is a sizing heuristic, not tokenizer output or a lower bound.
+    Code and multilingual text can differ substantially. No occupancy claim follows.
+    """
+    if context_budget_tokens < 1:
+        raise ValueError("context token budget must be positive")
+    request_chars = min(24_000, context_budget_tokens * CHARS_PER_TOKEN_ESTIMATE)
+    return {"history_chars": min(16_000, request_chars),
+            "request_chars": request_chars, "request_bytes": request_chars * 4 + 1024}
+
+
 def safe_terminal(text: str) -> str:
     # Strip escape/control characters from model text and repository output.
     return "".join(c for c in text if c in "\n\t" or (c.isprintable() and c != "\x1b"))
@@ -48,8 +64,7 @@ def main(argv=None) -> int:
         print(safe_terminal(result.render()))
         return 0 if result.outcome == "pass" else 1
     gateway = ConversationGateway(OpenAICompatibleClient(chat_config), controller, events,
-                                  history_chars=min(16_000, chat_config.context_budget_tokens),
-                                  request_bytes=chat_config.context_budget_tokens)
+                                  **conversation_budgets(chat_config.context_budget_tokens))
     print("LOCAL CODE AGENT | Conversation session (prototype)")
     print(f"Repository: {repo.root}")
     print("Execution: " + ("configured commands enabled" if args.allow_execution else "disabled"))

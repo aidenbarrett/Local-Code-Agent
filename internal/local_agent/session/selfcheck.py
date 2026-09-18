@@ -90,6 +90,6 @@ def run_self_check(repo, task_id, events) -> TaskResult:
                f"Exit: {tested.exit_code}. Repository unchanged during check: {unchanged}. "
                f"Log: {tested.combined_path}")
     return TaskResult(task_id, "pass" if proved else "fail", summary, proved,
-                      (f"{task_id}/compile", f"{task_id}/pytest"),
+                      ("compile:0", "pytest:1"),
                       {"compile_s": compiled.elapsed_s, "pytest_s": tested.elapsed_s,
                        "tree_sha256": before, "tests": counts})

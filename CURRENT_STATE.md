@@ -10,8 +10,9 @@ Claude's session-hub brief is incorporated in
 [the accepted design](internal/docs/session-hub-design.md),
 [event contract](internal/docs/session-contract/README.md) and
 [file/PR layout](internal/docs/session-hub-file-layout.md).
-The follow-up changes documentation/schema artifacts only. Source, prompt and
-outcome identities remain those of the existing prototype commit `d4a4cfa`.
+The design commit changes documentation/schema artifacts only. A separate review
+fix commit hardens the existing prototype; only its source identity moves. The
+base-prompt and outcome identities remain unchanged.
 
 Decisions: in-process Textual; deterministic-first routing with a direct Work
 path; task artifacts referenced by conversation turns; controller-only verdict
@@ -34,6 +35,22 @@ model to choose commands. Separate chat/worker endpoint options exist.
 Repository source edits, staging and commits are disabled on this path. Builds
 and tests execute trusted checkout code and may themselves have side effects;
 this is an operation policy boundary, not an OS sandbox.
+
+## Prototype review fixes
+
+Character budgets and serialized UTF-8 byte caps are separate; four chars/token is
+an explicit sizing estimate, not a measured context-occupancy ratio. Controller
+verdict/evidence lines are shown to the user but excluded from later model history.
+Evidence keeps canonical `name:index` IDs with a separate task namespace, including
+in the final activity event. Budget refusals are remembered before returning and
+emit `turn.refused`; normal bounded-history eviction still applies. This does not
+provide a durable audit trail or preserve unlimited conversation.
+
+Event allocation, snapshots and synchronous sink delivery are synchronized, and
+events carry UTC wall time alongside monotonic time. Sinks must remain bounded and
+must not wait for another producer to emit. The future hub uses queued delivery.
+Blocked-worker reasons are projected without raw arguments. Keyboard interrupts
+produce an interrupted terminal event on the handled path; cleanup is not claimed.
 
 ## Run it
 

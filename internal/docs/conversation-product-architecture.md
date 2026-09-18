@@ -104,8 +104,9 @@ tree digests, source/config identities, actual endpoint identities, usage and
 halt reason. A structured result survives even if final prose generation fails.
 
 `EvidenceRef`: session/task/attempt/tool-call namespace, artifact digest, local
-tool evidence ID, verification scope, tree epoch and timestamp. V0 prefixes
-existing canonical IDs with task UUID; durable artifact resolution is M2 work.
+tool evidence ID, verification scope, tree epoch and timestamp. V0 keeps canonical
+`name:index` IDs unchanged and carries `task_id` in a separate EvidenceRef field;
+durable artifact resolution follows the superseding session-hub design.
 Never resolve a citation from one task into another task's same `read_file:0`.
 
 ## 5. State and interruption
