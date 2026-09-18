@@ -5,17 +5,18 @@
 The short-term priority is a continuous conversation that can inspect, build and
 test this project through its deterministic controller. Measurement collection is
 paused. [Project overview](PROJECT_OVERVIEW.md) and [current state](CURRENT_STATE.md)
-describe the new direction and the exact implemented limits.
+describe the implemented limits and the active Session Hub work.
 
 The current target is a Textual terminal hub with mandatory activity and watch
 panes. [Design, event contract and implementation PR layout](internal/docs/session-hub-design.md)
-now specify deterministic-first routing, fixed scheduled jobs and task artifacts
-separate from conversation turns. This follow-up is design-only.
+specify deterministic-first routing, fixed watch jobs and task artifacts separate
+from conversation turns. The execution/session foundation is now implemented;
+the durable event service is the active follow-up.
 
-The new terminal prototype is `.\local-code-agent.ps1 session`. It needs an
-already-running endpoint; see the current-state guide for setup. `/check` runs
-LCA's real Python checks with execution enabled. Source edits, commits, background
-steering and the GUI are planned stages, not enabled features in this prototype.
+The terminal prototype is `.\local-code-agent.ps1 session`. It needs an
+already-running endpoint. `/check` runs LCA's real Python checks with execution
+enabled. Source edits, commits, background steering and the Textual UI are not yet
+enabled product features.
 
 **Chat locally. Give models controlled access to code. Verify their work independently.**
 
@@ -83,25 +84,25 @@ Current implemented surfaces include:
 
 - Qwen3-8B local serving paths for the Panther Lake NPU, GPU and CPU
 - direct terminal chat through friendly model/device names
-- one-command chat server startup through the deterministic serving controller
-- an OpenAI-compatible model boundary shared by the project
-- 20 approved repository / Git / build / test tools
-- 8 task procedures / skills
-- deterministic policy and tool narrowing
-- independent build/test verification
-- stale-build detection based on source content hashes
-- canonical evidence IDs
+- persisted direct-chat conversations with lock-scoped ownership
+- a synchronous conversation gateway and controlled coding-worker adapter
+- closed product-side outcome semantics including explicit `NO_VERDICT`
+- route-source provenance for current model-selected and user-direct work
+- independent build/test verification and current-tree checks
+- canonical evidence IDs and structured activity events
 - Windows and Linux test coverage
 - explicit model-serving and CPU/GPU/NPU hardware validation paths
 - preserved experiment provenance and source identity
 
-This describes implemented behaviour. It does not imply production readiness or general coding-model capability.
+This describes implemented behaviour. It does not imply production readiness or general coding-model capability. Durable Session Hub replay/recovery and the Textual UI are still follow-up work.
 
 ## Measured evidence so far
 
-Generation 1 used one local Qwen3-Coder-30B model on CPU against the same ten synthetic C++ tasks under three controlled conditions. The initial smoke produced **3/10 control, 8/10 narrow, 8/10 skill**. A later frozen replication used the same instrument identity, three balanced repeats and 90 case rows:
+Generation 1 used one local Qwen3-Coder-30B model on CPU against the same ten synthetic C++ tasks under three controlled conditions. The initial smoke produced **3/10 control, 8/10 narrow, 8/10 skill**. A later frozen replication used the same instrument identity, three balanced repeats and 90 case rows.
 
-| Condition | Per repeat | Pooled verified completion |
+The table below preserves the **Generation-1 legacy weighted `succeeded` accounting that was recorded with those frozen results**. It is not the newer typed `verified_completion` endpoint.
+
+| Condition | Per repeat | Pooled Gen1 legacy `succeeded` |
 |---|---|---:|
 | Control | 2/10, 4/10, 3/10 | **9/30 (0.300)** |
 | Narrow tools | 7/10, 7/10, 8/10 | **22/30 (0.733)** |
@@ -109,7 +110,9 @@ Generation 1 used one local Qwen3-Coder-30B model on CPU against the same ten sy
 
 One Skill row was `INVALID_SERVER_UNAVAILABLE` and is excluded from its denominator rather than counted as a task failure.
 
-The strongest measured signal remained **action-space narrowing**: `Narrow - Control = +0.433` in the balanced replication, with 11 scope violations in 30 Control rows and 0 in the 59 valid Narrow/Skill rows. The incremental written-procedure contrast was small and unresolved: `Skill - Narrow = +0.060`. The repeated data shows named, opposite per-case movements rather than a clear general procedure effect, so the defensible conclusion is **no clear aggregate procedure effect on this fixture**, not that written procedures have zero effect.
+Under that frozen Gen1 accounting, the strongest measured signal remained **action-space narrowing**: `Narrow - Control = +0.433`, with 11 scope violations in 30 Control rows and 0 in the 59 valid Narrow/Skill rows. The incremental written-procedure contrast was small and unresolved: `Skill - Narrow = +0.060`. The repeated data shows named, opposite per-case movements rather than a clear general procedure effect, so the defensible conclusion is **no clear aggregate procedure effect on this fixture**, not that written procedures have zero effect.
+
+For characterization only, the newer typed E3 `verified_completion` endpoint applied to the same frozen rows yields **1/30 Control, 12/30 Narrow and 9/29 Skill**. Under that accounting, `Narrow - Control = +0.367` while `Skill - Narrow = -0.090`. This does **not** replace or rescore the frozen Generation-1 result; it makes explicit that the historical `succeeded` field and the newer endpoint answer different questions. The narrowing signal has the same direction under both accountings, while the written-skill contrast does not.
 
 These generation-1 runs were collected on the NUC under WSL2 Ubuntu with llama.cpp and the 30B UD-Q4_K_XL model. They are not measurements of the current Panther Lake / Windows / OVMS / Qwen3-8B demo stack, and they contained no 8B cell.
 
