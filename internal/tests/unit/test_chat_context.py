@@ -246,7 +246,7 @@ def test_atomic_replace_failure_keeps_previous_version(monkeypatch, tmp_path):
 
     with ctx.conversation(tmp_path, session.conversation_id) as opened:
         ctx.append_turn(opened.session, "user", "new", 0)
-        monkeypatch.setattr(ctx.os, "replace", lambda *_: (_ for _ in ()).throw(OSError("crash")))
+        monkeypatch.setattr(ctx._impl.os, "replace", lambda *_: (_ for _ in ()).throw(OSError("crash")))
         with pytest.raises(OSError, match="crash"):
             opened.save()
 
