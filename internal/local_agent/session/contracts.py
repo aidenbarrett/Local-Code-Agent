@@ -3,9 +3,91 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 MAX_MESSAGE_CHARS = 8_000
+
+
+class RouteSource(str, Enum):
+    """Who selected a repository task route.
+
+    This is provenance, not permission. The current prototype is mostly
+    ``model_proposal``; explicit/direct and rule routes become visible as they
+    are implemented instead of silently changing behaviour.
+    """
+
+    RULE = "rule"
+    MODEL_PROPOSAL = "model_proposal"
+    USER_DIRECT = "user_direct"
+
+
+class ProductOutcome(str, Enum):
+    """Closed product-side task outcome vocabulary.
+
+    This is deliberately separate from the frozen evaluation contract. Session
+    Hub may represent uncertainty without redefining generation-2 success.
+    """
+
+    PASS = "pass"
+    ESCALATED_PASS = "escalated_pass"
+    ESCALATED_FAIL = "escalated_fail"
+    FAIL = "fail"
+    BLOCKED = "blocked"
+    NO_VERDICT = "no_verdict"
+
+    @property
+    def succeeded(self) -> bool:
+        return self in (ProductOutcome.PASS, ProductOutcome.ESCALATED_PASS)
+
+
+class TerminalState(str, Enum):
+    COMPLETED = "completed"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    CANCELLED = "cancelled"
+    TIMED_OUT = "timed_out"
+    INTERRUPTED = "interrupted"
+
+
+class Verdict(str, Enum):
+    VERIFIED = "VERIFIED"
+    FAILED = "FAILED"
+    REFUSED = "REFUSED"
+    NO_VERDICT = "NO_VERDICT"
+    NOT_REQUIRED = "NOT_REQUIRED"
+
+
+@dataclass(frozen=True)
+class OutcomeProjection:
+    terminal_state: TerminalState
+    verdict: Verdict
+
+
+# One product vocabulary, one explicit projection into the v1 lifecycle.
+# CANCELLED/TIMED_OUT remain schema-declared but are intentionally unreachable
+# until process ownership makes those claims truthful.
+OUTCOME_PROJECTIONS: dict[ProductOutcome, OutcomeProjection] = {
+    ProductOutcome.PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
+    ProductOutcome.ESCALATED_PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
+    ProductOutcome.ESCALATED_FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
+    ProductOutcome.FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
+    ProductOutcome.BLOCKED: OutcomeProjection(TerminalState.BLOCKED, Verdict.REFUSED),
+    ProductOutcome.NO_VERDICT: OutcomeProjection(TerminalState.INTERRUPTED, Verdict.NO_VERDICT),
+}
+UNREACHABLE_TERMINAL_STATES = frozenset({TerminalState.CANCELLED, TerminalState.TIMED_OUT})
+
+
+def task_exit_code(outcome: ProductOutcome | str) -> int:
+    """Stable CLI projection: success=0, observed failure=1, blocked/unknown=2."""
+    value = outcome if isinstance(outcome, ProductOutcome) else ProductOutcome(outcome)
+    if value.succeeded:
+        return 0
+    if value in (ProductOutcome.FAIL, ProductOutcome.ESCALATED_FAIL):
+        return 1
+    if value in (ProductOutcome.BLOCKED, ProductOutcome.NO_VERDICT):
+        return 2
+    raise AssertionError(f"unmapped product outcome: {value}")
 
 
 @dataclass(frozen=True)
@@ -48,16 +130,32 @@ class EvidenceRef:
 @dataclass(frozen=True)
 class TaskResult:
     task_id: str
-    outcome: str
+    outcome: ProductOutcome | str
     answer: str
-    # Historical observation at task completion, never proof for a later turn.
+    # True means successful verification was established for this result.
     verified_at_completion: bool = False
     evidence_ids: tuple[str, ...] = ()
     metrics: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        try:
+            outcome = self.outcome if isinstance(self.outcome, ProductOutcome) else ProductOutcome(self.outcome)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"undeclared product outcome: {self.outcome!r}") from exc
+        object.__setattr__(self, "outcome", outcome)
+        if outcome.succeeded != bool(self.verified_at_completion):
+            raise ValueError(
+                "successful product outcome and verified_at_completion must agree; "
+                "use no_verdict when success proof is not established"
+            )
+
     @property
     def evidence_refs(self) -> tuple[EvidenceRef, ...]:
         return tuple(EvidenceRef(self.task_id, local_id) for local_id in self.evidence_ids)
+
+    @property
+    def projection(self) -> OutcomeProjection:
+        return OUTCOME_PROJECTIONS[self.outcome]
 
     def render(self) -> str:
         # Composed here, in code, from typed fields. No model writes this line and
@@ -66,6 +164,6 @@ class TaskResult:
         # remain canonical. Their task namespace is a separate field, never a
         # prefix consumers have to strip. Controller fields are not chat history.
         proof = "passed at task completion" if self.verified_at_completion else "not established"
-        return (f"{self.answer}\n\n[Controller: {self.outcome}; verification: {proof}; "
+        return (f"{self.answer}\n\n[Controller: {self.outcome.value}; verification: {proof}; "
                 f"evidence: {len(self.evidence_ids)} item(s); task: {self.task_id}]\n"
                 f"Evidence IDs: {', '.join(self.evidence_ids) or 'none'}")
