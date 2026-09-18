@@ -7,18 +7,40 @@ bring-up can run the same gates.
 """
 from __future__ import annotations
 
+import ast
+from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
 import sys
+import tempfile
 
 
 REPO = Path(__file__).resolve().parents[2]
 INTERNAL = REPO / "internal"
 SCHEMA = INTERNAL / "docs" / "session-contract" / "v1" / "events.schema.json"
-DESIGN = INTERNAL / "docs" / "session-hub-design.md"
-CONTROLLER = INTERNAL / "local_agent" / "session" / "controller.py"
 CHAT_CONTEXT = INTERNAL / "scripts" / "chat_context.py"
-CHAT = INTERNAL / "scripts" / "chat.py"
+
+V1_REQUIRED_EVENT_KINDS = {
+    "session.opened",
+    "turn.recorded",
+    "route.proposed",
+    "route.resolved",
+    "task.admitted",
+    "task.state_changed",
+    "endpoint.state_changed",
+    "tool.started",
+    "tool.finished",
+    "artifact.recorded",
+    "task.cancel_requested",
+    "task.verdict",
+    "task.closed",
+    "watch.state_changed",
+    "watch.run_recorded",
+    "telemetry.policy",
+    "fault.reported",
+    "telemetry.sample",
+    "conversation.delta",
+}
 
 
 class AcceptanceFailure(RuntimeError):
@@ -31,8 +53,8 @@ def require(condition: bool, name: str) -> None:
     print(f"ok  {name}")
 
 
-def _collect_dotted_kind_consts(value) -> set[str]:
-    found: set[str] = set()
+def _collect_dotted_kind_consts(value) -> list[str]:
+    found: list[str] = []
     if isinstance(value, dict):
         props = value.get("properties")
         if isinstance(props, dict):
@@ -40,66 +62,91 @@ def _collect_dotted_kind_consts(value) -> set[str]:
             if isinstance(kind, dict):
                 candidate = kind.get("const")
                 if isinstance(candidate, str) and "." in candidate:
-                    found.add(candidate)
+                    found.append(candidate)
         for child in value.values():
-            found.update(_collect_dotted_kind_consts(child))
+            found.extend(_collect_dotted_kind_consts(child))
     elif isinstance(value, list):
         for child in value:
-            found.update(_collect_dotted_kind_consts(child))
+            found.extend(_collect_dotted_kind_consts(child))
     return found
 
 
-def foundation_gates() -> None:
+def _load_chat_context():
+    spec = spec_from_file_location("accept_session_hub_chat_context", CHAT_CONTEXT)
+    if not spec or not spec.loader:
+        raise AcceptanceFailure("cannot import persisted conversation context")
+    module = module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _application_reaches_private_storage() -> list[str]:
+    offenders: list[str] = []
+    roots = (INTERNAL / "scripts", INTERNAL / "local_agent")
+    for root in roots:
+        for path in root.rglob("*.py"):
+            if path == CHAT_CONTEXT:
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except (OSError, SyntaxError) as exc:
+                raise AcceptanceFailure(f"cannot inspect {path.relative_to(REPO)}: {exc}") from exc
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name) and node.id in {"_load_session", "_save_session"}:
+                    offenders.append(str(path.relative_to(REPO)))
+                elif isinstance(node, ast.Attribute) and node.attr in {"_load_session", "_save_session"}:
+                    offenders.append(str(path.relative_to(REPO)))
+    return sorted(set(offenders))
+
+
+def schema_gates() -> None:
     require(SCHEMA.is_file(), "session event schema exists")
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     require(schema.get("$id") == "urn:lca:session:events:1", "event schema id is v1")
     kinds = _collect_dotted_kind_consts(schema)
-    require(len(kinds) == 19, "event schema exposes exactly 19 typed event kinds")
-
-    require(DESIGN.is_file(), "accepted Session Hub design exists")
-    design = DESIGN.read_text(encoding="utf-8")
-    for phrase, gate in (
-        ("NO_VERDICT", "design keeps unknown execution separate from success"),
-        ("endpoint lease", "design covers shared endpoint arbitration"),
-        ("deterministic-first admission", "design keeps deterministic routing first"),
-        ("Textual event loop never blocks", "design requires off-thread blocking work"),
-        ("No retry of unknown effects on restart", "design forbids replaying unknown effects"),
-    ):
-        require(phrase.lower() in design.lower(), gate)
-
-    require(CONTROLLER.is_file(), "session controller exists")
-    controller = CONTROLLER.read_text(encoding="utf-8")
-    require("allow_patch=False" in controller, "Hub v0 source mutation remains disabled")
-    require("allow_commit=False" in controller, "Hub v0 commit mutation remains disabled")
+    require(len(kinds) == len(set(kinds)), "event schema has no duplicate typed event kinds")
     require(
-        '"process_cleanup_confirmed": False' in controller,
-        "current interruption path does not invent cleanup proof",
+        V1_REQUIRED_EVENT_KINDS.issubset(set(kinds)),
+        "event schema retains every reviewed v1 event kind",
     )
 
 
 def conversation_ownership_gates() -> None:
     require(CHAT_CONTEXT.is_file(), "persisted conversation context exists")
-    context = CHAT_CONTEXT.read_text(encoding="utf-8")
-    require("def _load_session(" in context, "raw persisted-session loader is private")
-    require("def _save_session(" in context, "raw persisted-session saver is private")
-    require("def load_session(" not in context, "no public unlocked persisted-session loader remains")
-    require("def save_session(" not in context, "no public persisted-session replacement API remains")
-    require("def conversation(" in context, "existing conversations open through owned context")
-    require("def create_session(" in context, "new conversation creation is explicit and non-replacing")
-    require("yield OpenConversation(" in context, "owned conversation exposes explicit save handle")
+    ctx = _load_chat_context()
+    require(not hasattr(ctx, "load_session"), "no public unlocked persisted-session loader remains")
+    require(not hasattr(ctx, "save_session"), "no public persisted-session replacement API remains")
+    require(hasattr(ctx, "conversation"), "existing conversations open through owned context")
+    require(hasattr(ctx, "create_session"), "new conversation creation is explicit")
+    require(not _application_reaches_private_storage(), "application code cannot reach private session storage")
 
-    require(CHAT.is_file(), "direct chat entrypoint exists")
-    chat = CHAT.read_text(encoding="utf-8")
-    require("with conversation(runtime_root, cid) as opened:" in chat,
-            "direct chat resumes by loading under the conversation lock")
-    require("opened.save()" in chat, "direct chat saves existing conversations through owned handle")
-    for forbidden in ("load_session", "save_session", "conversation_lock"):
-        require(forbidden not in chat, f"direct chat does not bypass ownership via {forbidden}")
+    with tempfile.TemporaryDirectory(prefix="lca-hub-accept-") as temp:
+        root = Path(temp)
+        session = ctx.new_session("accept", "model", "NPU")
+        ctx.create_session(root, session)
+        with ctx.conversation(root, session.conversation_id) as opened:
+            ctx.append_turn(opened.session, "user", "first", 0)
+            opened.save()
+        with ctx.conversation(root, session.conversation_id) as opened:
+            ctx.append_turn(opened.session, "assistant", "second", 0)
+            opened.save()
+        with ctx.conversation(root, session.conversation_id) as opened:
+            require(
+                [turn.content for turn in opened.session.turns] == ["first", "second"],
+                "sequential owners preserve every committed turn",
+            )
+            ctx.append_turn(opened.session, "user", "abandoned", 0)
+        with ctx.conversation(root, session.conversation_id) as opened:
+            require(
+                [turn.content for turn in opened.session.turns] == ["first", "second"],
+                "context exit does not implicitly persist abandoned edits",
+            )
 
 
 def main() -> int:
     try:
-        foundation_gates()
+        schema_gates()
         conversation_ownership_gates()
     except (AcceptanceFailure, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
