@@ -102,9 +102,13 @@ def _application_reaches_private_storage() -> list[str]:
     return sorted(set(offenders))
 
 
+def _schema() -> dict:
+    return json.loads(SCHEMA.read_text(encoding="utf-8"))
+
+
 def schema_gates() -> None:
     require(SCHEMA.is_file(), "session event schema exists")
-    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    schema = _schema()
     require(schema.get("$id") == "urn:lca:session:events:1", "event schema id is v1")
     kinds = _collect_dotted_kind_consts(schema)
     require(len(kinds) == len(set(kinds)), "event schema has no duplicate typed event kinds")
@@ -156,6 +160,13 @@ def outcome_gates() -> None:
         task_exit_code,
     )
 
+    schema_states = set(
+        _schema()["$defs"]["TaskCompletion"]["properties"]["status"]["enum"]
+    )
+    require(
+        {state.value for state in TerminalState} == schema_states,
+        "product terminal-state vocabulary exactly matches the v1 schema",
+    )
     require(set(OUTCOME_PROJECTIONS) == set(ProductOutcome), "every product outcome has one lifecycle projection")
     produced = {projection.terminal_state for projection in OUTCOME_PROJECTIONS.values()}
     unreachable = set(UNREACHABLE_TERMINAL_STATES)
@@ -183,7 +194,7 @@ def main() -> int:
         schema_gates()
         conversation_ownership_gates()
         outcome_gates()
-    except (AcceptanceFailure, OSError, ValueError, json.JSONDecodeError) as exc:
+    except (AcceptanceFailure, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1
     print("Session Hub foundation acceptance gates passed.")
