@@ -1,28 +1,15 @@
-# Desktop client skeleton
+# Textual hub client: design placeholder
 
-Status: design only. No frontend package, desktop process or local listener yet.
-Build after the service protocol, not by scraping PowerShell output.
+No UI runtime is implemented here. The current target is Textual in Windows
+Terminal or an SSH terminal, in-process with the gateway/controller and subscribing
+directly to validated events. No web frontend, Electron or terminal emulator.
 
-Proposed module map:
+Mandatory: conversation, activity/evidence, watch, controller-owned verdict widget.
+Optional: telemetry strip, with collectors off/quiesced during measured/scored runs.
+Named palette roles in one future themes/lca.json file; high-contrast/NO_COLOR
+fallback. Export Windows Terminal scheme JSON from the same source, never duplicate it.
 
-- `client/transport`: typed command/RPC client, authenticated events, reconnect.
-- `state/session`: reducer driven only by versioned controller events/snapshot.
-- `components/Conversation`: text and explicit historical task references.
-- `components/Activity`: read-only task/attempt/tool groups and timestamps.
-- `components/TaskResult`: typed outcome, verification scope and artifact links.
-- `components/Approval`: exact pending diff/action; disables stale requests.
-- `components/RuntimeStrip`: host, endpoint, device, TTFT, token rate, CPU/RAM,
-  available GPU/NPU counters, sample age and missing-data state.
-- `components/DiffReview`: escaping, size bounds, paths, explicit selection.
-- `tests/fixtures`: recorded synthetic protocol streams, never invented telemetry
-  presented as a live device reading.
-
-Choose the Windows desktop wrapper after a packaging/accessibility spike.
-Business logic stays in Python. Do not add a second policy engine in JavaScript.
-Native packaging is not required for the initial loopback web client.
-
-Minimum scenarios before release: reconnect mid-task; stale approval; cancellation
-in progress; missing telemetry; a failed test despite optimistic model prose;
-duplicate event; out-of-order event; a repository file containing malicious HTML.
-
-See `../docs/conversation-product-architecture.md` sections 10 and 11.
+See [current design](../docs/session-hub-design.md),
+[event contract](../docs/session-contract/README.md) and
+[implementation destinations](../docs/session-hub-file-layout.md).
+Wire plain chat persistence and fixed watch execution before building these panes.

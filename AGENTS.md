@@ -6,10 +6,16 @@ owner's 2026-09-18 direction. Historical evidence and measurement contracts rema
 protected. Operational regression tests and honest verification are still required.
 
 Read root `PROJECT_OVERVIEW.md` and `CURRENT_STATE.md` before substantial work.
-For product architecture and the implementation sequence, read
-`internal/docs/conversation-product-architecture.md` and
-`internal/docs/conversation-product-backlog.md`. Interface-only skeletons are not
+For current product architecture, contract and implementation sequence, read
+`internal/docs/session-hub-design.md`, `internal/docs/session-contract/README.md`
+and `internal/docs/session-hub-file-layout.md`. These supersede conflicting earlier
+model-first/web-client choices and the M0-M5 build order. Interface-only skeletons are not
 working features. Keep that distinction explicit in reviews and user-facing claims.
+
+Current client target: in-process Textual, mandatory activity and watch panes.
+Do not change `internal/local_agent/agent/context.py` or move base_prompt_sha256
+for this product stream. Evaluation must not import gateway/persona/chat context/UI.
+If implementation requires violating those boundaries, stop for a generation decision.
 
 The root is the product surface. Implementation, measurement, tests, research
 documentation and frozen evidence live under `internal/`.

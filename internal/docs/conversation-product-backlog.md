@@ -1,5 +1,9 @@
 # Delivery backlog: one conversation, useful engineering work
 
+> Superseded implementation sequence. Use [the session hub file/PR layout](session-hub-file-layout.md)
+> and [current design](session-hub-design.md). Preserve the material below as first-pass
+> history; do not start a web/desktop transport or follow M0-M5 from this document.
+
 Execute in dependency order. This is the short-term product plan, not an
 experimental preregistration. Do not collect comparison rows from these workflows.
 

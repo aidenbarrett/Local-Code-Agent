@@ -7,6 +7,11 @@ test this project through its deterministic controller. Measurement collection i
 paused. [Project overview](PROJECT_OVERVIEW.md) and [current state](CURRENT_STATE.md)
 describe the new direction and the exact implemented limits.
 
+The current target is a Textual terminal hub with mandatory activity and watch
+panes. [Design, event contract and implementation PR layout](internal/docs/session-hub-design.md)
+now specify deterministic-first routing, fixed scheduled jobs and task artifacts
+separate from conversation turns. This follow-up is design-only.
+
 The new terminal prototype is `.\local-code-agent.ps1 session`. It needs an
 already-running endpoint; see the current-state guide for setup. `/check` runs
 LCA's real Python checks with execution enabled. Source edits, commits, background

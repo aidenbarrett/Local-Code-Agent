@@ -1,5 +1,13 @@
 # Conversation product architecture
 
+> Historical first design. [Session hub design](session-hub-design.md),
+> [event contract](session-contract/README.md) and
+> [file/PR layout](session-hub-file-layout.md) supersede conflicting target choices.
+> In particular: deterministic-first routing, in-process Textual (no web client),
+> existing chat persistence first, fixed watch runner next, mandatory watch/activity,
+> sibling task records and measurement-excluded telemetry. Prototype descriptions
+> below still describe d4a4cfa; this document is not the current build-order authority.
+
 Status: accepted direction, staged implementation. 2026-09-18.
 Baseline inspected: `26fd55f0fc9705801e104d26afee377dac5db077`.
 

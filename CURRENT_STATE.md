@@ -4,6 +4,26 @@ Product direction: **conversation gateway and self-engineering loop**.
 Date: 2026-09-18. Branch: `feature/conversation-gateway`.
 Baseline: GitHub main `26fd55f0fc9705801e104d26afee377dac5db077`.
 
+## Design refinement (not implemented)
+
+Claude's session-hub brief is incorporated in
+[the accepted design](internal/docs/session-hub-design.md),
+[event contract](internal/docs/session-contract/README.md) and
+[file/PR layout](internal/docs/session-hub-file-layout.md).
+The follow-up changes documentation/schema artifacts only. Source, prompt and
+outcome identities remain those of the existing prototype commit `d4a4cfa`.
+
+Decisions: in-process Textual; deterministic-first routing with a direct Work
+path; task artifacts referenced by conversation turns; controller-only verdict
+blocks; mandatory activity and watch panes; fixed scheduled jobs with comparable
+delta identity; real cancellation/NO_VERDICT; exclusive endpoint leases;
+telemetry off and quiesced for measured/scored workflows.
+
+Existing `scripts/chat_context.py` is present but not wired into direct chat on
+the inspected main. Finish that before UI work. The current prototype below still
+uses model-first classification and in-memory history; its EventBuffer is not the
+new proposed `lca.session.events/1` schema. No scheduled job has been installed.
+
 ## Implemented prototype
 
 The terminal session joins conversation to the existing controlled worker.
@@ -32,7 +52,7 @@ Allow configured commands in a trusted checkout:
 
 Then try `Find internal/personas/aiden.toml and review it`, `What changed on this
 branch?`, or `/check`. The profile must already have a reachable model server.
-Server startup is still separate in v0; a unified lifecycle is milestone M1.
+Server startup is still separate in v0; unifying it is future integration work.
 
 Model-free check with a nonzero exit code on failed/blocked verification:
 
@@ -85,5 +105,6 @@ See [branch validation](internal/docs/conversation-branch-validation.md) for the
 checks actually run. Recheck exact branch-head CI before describing it as green.
 There is no claim of a successful live NPU conversation from this environment.
 
-Next: laptop smoke of this prototype, then implement M1/M2 before enabling edits.
+Next: plain chat persistence, fixed watch runner, gateway contract, then Textual.
+See the new file/PR layout rather than executing the superseded M0-M5 sequence.
 Measurement collection is paused. Frozen evidence remains untouched.

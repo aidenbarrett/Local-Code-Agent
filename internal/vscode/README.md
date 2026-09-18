@@ -2,6 +2,10 @@
 
 Status: design only. No extension manifest or installable VSIX in this branch.
 
+Deferred by the session-hub refinement. The immediate client is in-process Textual,
+not a webview/desktop client. The extension ideas below are future possibilities,
+not dependencies or approved implementation scope for the first hub.
+
 Required implementation pieces:
 
 1. Workspace-host extension activation and explicit repository admission.

@@ -2,6 +2,12 @@
 
 Direction set: 2026-09-18. Baseline inspected on GitHub: `26fd55f0fc9705801e104d26afee377dac5db077`.
 
+Design refinement: [session hub design](internal/docs/session-hub-design.md),
+[typed event contract](internal/docs/session-contract/README.md) and
+[file/PR layout](internal/docs/session-hub-file-layout.md) are the current target.
+They supersede the earlier model-first routing and web/desktop client plan.
+This refinement is design-only; the prototype below has not been upgraded to it.
+
 ## Product goal
 
 Make LCA useful for building and testing LCA, then for recurring engineering work
@@ -21,7 +27,7 @@ the historical evidence and experimental integrity rules remain binding.
 
 ```mermaid
 flowchart TD
-    UI["Terminal / desktop / VS Code"] --> G["Conversation gateway"]
+    UI["Textual terminal hub"] --> G["Conversation gateway"]
     G --> C["Deterministic task controller"]
     C --> P["Policy, workspace and approval state"]
     C --> W["Worker: skill and restricted tools"]
@@ -32,7 +38,8 @@ flowchart TD
     E --> UI
 ```
 
-The conversation model proposes intent; it has no repository tools. The existing
+Target routing is deterministic-first with a direct user Work path; a conversation
+model can propose a fallback intent and has no repository tools. The existing
 hardened orchestrator executes repository tasks. The gateway cannot set a
 verification flag, choose an experimental condition, widen permissions or
 approve itself. User corrections become controller constraints, not just prose
@@ -63,16 +70,18 @@ See [CURRENT_STATE.md](CURRENT_STATE.md) for operation and limitations.
 
 ## Next milestones
 
-1. Run this terminal slice on the laptop and fix observed integration failures.
-2. Add a background task service, endpoint leases, durable state and cancellation.
-3. Add isolated worktrees, exact approved diffs, path constraints and a verified
-   self-edit/test/review loop. The running controller must not edit itself.
-4. Add the desktop chat/activity/telemetry surface over the same gateway.
-5. Add VS Code Remote SSH and explicit heterogeneous endpoint escalation.
+1. Wire existing chat_context persistence into plain chat.py; history is turns only.
+2. Add a fixed-job scheduled runner and stable same-job deltas, without a chat model.
+3. Implement the gateway contract, sibling task artifacts, cancellation and endpoint leases.
+4. Add an in-process Textual hub with mandatory activity/evidence and watch panes.
+5. Add telemetry last, after enforced exclusion from measured/scored runs.
+
+Isolated editing and VS Code Remote SSH remain later goals. No web frontend,
+Electron or browser engine is part of the current scope.
 
 The implementation sequence, contracts, acceptance gates and failure paths are
-in [the product architecture](internal/docs/conversation-product-architecture.md)
-and [the delivery backlog](internal/docs/conversation-product-backlog.md).
+in [the session hub design](internal/docs/session-hub-design.md)
+and [the file/PR layout](internal/docs/session-hub-file-layout.md).
 
 ## Engineering rules that still apply
 
