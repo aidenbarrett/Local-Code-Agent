@@ -48,6 +48,7 @@ class TerminalState(str, Enum):
     CANCELLED = "cancelled"
     TIMED_OUT = "timed_out"
     INTERRUPTED = "interrupted"
+    UNKNOWN = "unknown"
 
 
 class Verdict(str, Enum):
@@ -64,15 +65,24 @@ class OutcomeProjection:
     verdict: Verdict
 
 
+# One product vocabulary, one explicit projection into the v1 lifecycle.
+# CANCELLED/TIMED_OUT/INTERRUPTED remain schema-declared but are intentionally
+# unreachable from a completed TaskResult until process ownership makes those
+# lifecycle claims truthful. UNKNOWN is the honest result projection when a
+# reliable final verdict cannot be established.
 OUTCOME_PROJECTIONS: dict[ProductOutcome, OutcomeProjection] = {
     ProductOutcome.PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
     ProductOutcome.ESCALATED_PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
     ProductOutcome.ESCALATED_FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
     ProductOutcome.FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
     ProductOutcome.BLOCKED: OutcomeProjection(TerminalState.BLOCKED, Verdict.REFUSED),
-    ProductOutcome.NO_VERDICT: OutcomeProjection(TerminalState.INTERRUPTED, Verdict.NO_VERDICT),
+    ProductOutcome.NO_VERDICT: OutcomeProjection(TerminalState.UNKNOWN, Verdict.NO_VERDICT),
 }
-UNREACHABLE_TERMINAL_STATES = frozenset({TerminalState.CANCELLED, TerminalState.TIMED_OUT})
+UNREACHABLE_TERMINAL_STATES = frozenset({
+    TerminalState.CANCELLED,
+    TerminalState.TIMED_OUT,
+    TerminalState.INTERRUPTED,
+})
 
 
 def task_exit_code(outcome: ProductOutcome | str) -> int:
