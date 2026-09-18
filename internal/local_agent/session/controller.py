@@ -79,6 +79,10 @@ class TaskController:
                     verified,
                     tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
                     run.state.metrics.as_dict(),
+                    # The orchestrator has always tracked this separately; the
+                    # product boundary used to discard it. A reproduced failure
+                    # is a check that ran and did not establish success.
+                    verification_ran=bool(run.state.verification_attempted),
                 )
         except KeyboardInterrupt:
             # Before `except Exception`, because reading it the other way round
@@ -106,6 +110,9 @@ class TaskController:
             return result
         self.events.emit("task.finished", {
             "outcome": result.outcome.value,
+            "terminal_state": result.projection.terminal_state.value,
+            "verdict": result.projection.verdict.value,
+            "verification_ran": result.verification_ran,
             "verified_at_completion": result.verified_at_completion,
             "evidence_count": len(result.evidence_ids),
             "evidence_ids": list(result.evidence_ids),
