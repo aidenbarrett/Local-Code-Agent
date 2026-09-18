@@ -26,6 +26,16 @@ class TaskStateConflict(RuntimeError):
     pass
 
 
+class _ClosingConnection(sqlite3.Connection):
+    """Commit/rollback like sqlite3.Connection, then always release the handle."""
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            return super().__exit__(exc_type, exc, tb)
+        finally:
+            self.close()
+
+
 class SQLiteSessionStore:
     def __init__(self, path: Path | str):
         self.path = Path(path)
@@ -33,7 +43,12 @@ class SQLiteSessionStore:
         self._initialise()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        conn = sqlite3.connect(
+            self.path,
+            timeout=30,
+            isolation_level=None,
+            factory=_ClosingConnection,
+        )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
