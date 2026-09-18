@@ -145,11 +145,10 @@ def test_chat_temperature_override_does_not_mutate_named_profile(monkeypatch):
     chat = _chat()
     captured = []
 
-    monkeypatch.setattr(chat, "_ensure_server", lambda *a, **k: captured.append(a[1].temperature) or True)
     monkeypatch.setattr(chat, "converse", lambda _name, _profile, config, _persona: captured.append(config.temperature) or 0)
 
     assert chat.main(["qwen3-8b-npu", "--temperature", "0.7"]) == 0
-    assert captured == [0.7, 0.7]
+    assert captured == [0.7]
     assert chat.MODEL_PRESETS["ptl-npu-8b"].temperature == 0.2
 
 
