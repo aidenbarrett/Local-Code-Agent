@@ -82,6 +82,8 @@ def run_self_check(repo, task_id, events) -> TaskResult:
     try:
         counts = junit_counts(report)
     except (OSError, ValueError, KeyError, ET.ParseError):
+        # pytest was launched but produced nothing readable, so no check was
+        # completed: verification did not run to a usable result.
         return TaskResult(task_id, "fail", f"No usable pytest report. Log: {tested.combined_path}")
     proved = (tested.ok and counts["tests"] > counts["skipped"]
               and not counts["failures"] and not counts["errors"] and unchanged)
@@ -89,7 +91,10 @@ def run_self_check(repo, task_id, events) -> TaskResult:
                f"{counts['failures']} failures, {counts['errors']} errors, {counts['skipped']} skipped. "
                f"Exit: {tested.exit_code}. Repository unchanged during check: {unchanged}. "
                f"Log: {tested.combined_path}")
+    # Compilation and the test run are the check. It ran either way; whether it
+    # established success is the separate `proved` bit.
     return TaskResult(task_id, "pass" if proved else "fail", summary, proved,
                       ("compile:0", "pytest:1"),
                       {"compile_s": compiled.elapsed_s, "pytest_s": tested.elapsed_s,
-                       "tree_sha256": before, "tests": counts})
+                       "tree_sha256": before, "tests": counts},
+                      verification_ran=True)

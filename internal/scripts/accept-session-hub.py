@@ -2,17 +2,18 @@
 """Executable acceptance gates for the Session Hub milestone.
 
 Each implementation slice extends this file with assertions for behaviour it
-actually ships. The script is intentionally dependency-free so CI and local
-bring-up can run the same gates.
+actually ships. CI and local bring-up run the same gates against product code.
 """
 from __future__ import annotations
 
 import ast
+import hashlib
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
 import sys
 import tempfile
+from uuid import uuid4
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -23,25 +24,12 @@ if str(INTERNAL) not in sys.path:
     sys.path.insert(0, str(INTERNAL))
 
 V1_REQUIRED_EVENT_KINDS = {
-    "session.opened",
-    "turn.recorded",
-    "route.proposed",
-    "route.resolved",
-    "task.admitted",
-    "task.state_changed",
-    "endpoint.state_changed",
-    "tool.started",
-    "tool.finished",
-    "artifact.recorded",
-    "task.cancel_requested",
-    "task.verdict",
-    "task.closed",
-    "watch.state_changed",
-    "watch.run_recorded",
-    "telemetry.policy",
-    "fault.reported",
-    "telemetry.sample",
-    "conversation.delta",
+    "session.opened", "turn.recorded", "route.proposed", "route.resolved",
+    "task.admitted", "task.state_changed", "endpoint.state_changed",
+    "tool.started", "tool.finished", "artifact.recorded",
+    "task.cancel_requested", "task.verdict", "task.closed",
+    "watch.state_changed", "watch.run_recorded", "telemetry.policy",
+    "fault.reported", "telemetry.sample", "conversation.delta",
 }
 
 
@@ -85,8 +73,7 @@ def _load_chat_context():
 
 def _application_reaches_private_storage() -> list[str]:
     offenders: list[str] = []
-    roots = (INTERNAL / "scripts", INTERNAL / "local_agent")
-    for root in roots:
+    for root in (INTERNAL / "scripts", INTERNAL / "local_agent"):
         for path in root.rglob("*.py"):
             if path == CHAT_CONTEXT:
                 continue
@@ -112,10 +99,7 @@ def schema_gates() -> None:
     require(schema.get("$id") == "urn:lca:session:events:1", "event schema id is v1")
     kinds = _collect_dotted_kind_consts(schema)
     require(len(kinds) == len(set(kinds)), "event schema has no duplicate typed event kinds")
-    require(
-        V1_REQUIRED_EVENT_KINDS.issubset(set(kinds)),
-        "event schema retains every reviewed v1 event kind",
-    )
+    require(V1_REQUIRED_EVENT_KINDS.issubset(set(kinds)), "event schema retains every reviewed v1 event kind")
 
 
 def conversation_ownership_gates() -> None:
@@ -138,44 +122,26 @@ def conversation_ownership_gates() -> None:
             ctx.append_turn(opened.session, "assistant", "second", 0)
             opened.save()
         with ctx.conversation(root, session.conversation_id) as opened:
-            require(
-                [turn.content for turn in opened.session.turns] == ["first", "second"],
-                "sequential owners preserve every committed turn",
-            )
+            require([turn.content for turn in opened.session.turns] == ["first", "second"], "sequential owners preserve every committed turn")
             ctx.append_turn(opened.session, "user", "abandoned", 0)
         with ctx.conversation(root, session.conversation_id) as opened:
-            require(
-                [turn.content for turn in opened.session.turns] == ["first", "second"],
-                "context exit does not implicitly persist abandoned edits",
-            )
+            require([turn.content for turn in opened.session.turns] == ["first", "second"], "context exit does not implicitly persist abandoned edits")
 
 
 def outcome_gates() -> None:
     from local_agent.session.contracts import (
-        OUTCOME_PROJECTIONS,
-        UNREACHABLE_TERMINAL_STATES,
-        ProductOutcome,
-        TaskResult,
-        TerminalState,
-        task_exit_code,
+        OUTCOME_PROJECTIONS, UNREACHABLE_TERMINAL_STATES, ProductOutcome,
+        TaskResult, TerminalState, task_exit_code,
     )
 
-    schema_states = set(
-        _schema()["$defs"]["TaskCompletion"]["properties"]["status"]["enum"]
-    )
-    require(
-        {state.value for state in TerminalState} == schema_states,
-        "product terminal-state vocabulary exactly matches the v1 schema",
-    )
+    schema_states = set(_schema()["$defs"]["TaskCompletion"]["properties"]["status"]["enum"])
+    require({state.value for state in TerminalState} == schema_states, "product terminal-state vocabulary exactly matches the v1 schema")
     require(set(OUTCOME_PROJECTIONS) == set(ProductOutcome), "every product outcome has one lifecycle projection")
     produced = {projection.terminal_state for projection in OUTCOME_PROJECTIONS.values()}
     unreachable = set(UNREACHABLE_TERMINAL_STATES)
     require(produced | unreachable == set(TerminalState), "every v1 terminal state is produced or explicitly unreachable")
     require(produced.isdisjoint(unreachable), "unreachable terminal states have no producer mapping")
-    require(
-        all(all(p.terminal_state != state for p in OUTCOME_PROJECTIONS.values()) for state in unreachable),
-        "unreachable-for-now markers cannot coexist with producers",
-    )
+    require(all(all(p.terminal_state != state for p in OUTCOME_PROJECTIONS.values()) for state in unreachable), "unreachable-for-now markers cannot coexist with producers")
     require(set(task_exit_code(outcome) for outcome in ProductOutcome).issubset({0, 1, 2}), "every product outcome has a bounded CLI exit class")
 
     try:
@@ -186,7 +152,125 @@ def outcome_gates() -> None:
         raise AcceptanceFailure("unproved success cannot construct a product result")
 
     unknown = TaskResult("accept", ProductOutcome.NO_VERDICT, "unknown", False)
-    require(unknown.projection.terminal_state == TerminalState.INTERRUPTED, "unknown execution projects to interrupted lifecycle state")
+    require(unknown.projection.terminal_state == TerminalState.UNKNOWN, "NO_VERDICT projects to explicit unknown lifecycle state")
+    require(TerminalState.INTERRUPTED in unreachable, "interrupted is not used as the generic unknown-result bucket")
+
+
+def _admission_payload(request_ref: dict) -> dict:
+    return {
+        "origin": {
+            "kind": "user_direct",
+            "turn_ref": {"conversation_id": "accept", "turn_index": 0, "turn_sha256": "a" * 64},
+        },
+        "request_ref": request_ref,
+        "contract_sha256": "b" * 64,
+        "repository_id": "accept-repo",
+        "skill": "inspect",
+        "execution_epoch": 0,
+        "deadline_utc": "2030-01-01T00:00:00Z",
+    }
+
+
+def durable_event_gates() -> None:
+    from local_agent.session.contracts import ProductOutcome, TaskResult
+    from local_agent.session.event_contract import EventContractError, build_event
+    from local_agent.session.service import DurableSessionService, DurableTaskExecutor
+    from local_agent.session.storage import SQLiteSessionStore
+
+    stream_id = str(uuid4())
+    session_id = str(uuid4())
+    with tempfile.TemporaryDirectory(prefix="lca-hub-events-") as temp:
+        store = SQLiteSessionStore(Path(temp) / "session.db")
+        service = DurableSessionService(store, stream_id=stream_id, session_id=session_id)
+        subscriber = service.subscribe(capacity=16)
+        try:
+            try:
+                build_event(
+                    stream_id=stream_id, sequence=1, producer_epoch=service.producer_epoch,
+                    session_id=session_id, kind="session.opened", payload={"not": "the contract"},
+                )
+            except EventContractError:
+                pass
+            else:
+                raise AcceptanceFailure("invalid durable event payload was accepted")
+            require(True, "durable envelopes are validated against the v1 schema")
+
+            request_bytes = b"accept-session-hub"
+            request_ref = {
+                "artifact_id": str(uuid4()),
+                "sha256": hashlib.sha256(request_bytes).hexdigest(),
+                "media_type": "application/json",
+                "size_bytes": len(request_bytes),
+                "availability": "retained",
+            }
+            admission_payload = _admission_payload(request_ref)
+            receipt = service.submit_task(
+                request_id="accept-request",
+                payload_sha256=hashlib.sha256(request_bytes).hexdigest(),
+                admission_payload=admission_payload,
+            )
+            require(receipt.task_id is not None, "non-blocking admission returns a task id immediately")
+            receipt.wait(5)
+            live = subscriber.drain()
+            replayed = service.replay()
+            require(live == replayed, "committed live delivery and durable replay are identical")
+            require([row["task_id"] for row in store.unterminated_tasks()] == [receipt.task_id], "durable admission is visible before execution")
+
+            recovered = service.recover_unknown_tasks()
+            require(recovered == [receipt.task_id], "restart recovery finds admitted tasks without terminal state")
+            events = service.replay()
+            require([event["kind"] for event in events] == ["task.admitted", "task.verdict", "task.closed"], "recovery records verdict and closure without replaying effects")
+            completion = events[1]["payload"]["completion"]
+            require(completion["status"] == "unknown" and completion["verdict_block"]["verdict"] == "NO_VERDICT", "crash recovery resolves to explicit unknown/NO_VERDICT")
+            require(events[2]["payload"]["status"] == "unknown" and events[2]["payload"]["cleanup"] == "unknown", "unknown recovery closes with cleanup unknown")
+            require(not store.unterminated_tasks(), "recovered unknown task becomes durably terminal")
+        finally:
+            service.close()
+
+    # Separate store proves the execution fence rather than relying on event order
+    # from a manually submitted task above.
+    with tempfile.TemporaryDirectory(prefix="lca-hub-exec-") as temp:
+        store = SQLiteSessionStore(Path(temp) / "session.db")
+        service = DurableSessionService(store, stream_id=str(uuid4()), session_id=str(uuid4()))
+        seen: list[str] = []
+
+        class Controller:
+            def run(self, task, *, self_check=False, route_source=None, task_id=None):
+                assert task_id is not None
+                assert [row["task_id"] for row in store.unterminated_tasks()] == [task_id]
+                seen.append(task_id)
+                return TaskResult(task_id, ProductOutcome.FAIL, "observed failure", False, verification_ran=True)
+
+        try:
+            request = b"executor"
+            request_ref = {
+                "artifact_id": str(uuid4()),
+                "sha256": hashlib.sha256(request).hexdigest(),
+                "media_type": "application/json",
+                "size_bytes": len(request),
+                "availability": "retained",
+            }
+            executor = DurableTaskExecutor(service, Controller())
+            handle = executor.submit(
+                task="inspect", request_id="executor-request",
+                payload_sha256=hashlib.sha256(request).hexdigest(),
+                admission_payload=_admission_payload(request_ref),
+                route_source="user_direct",
+            )
+            handle.wait(10)
+            require(seen == [handle.task_id], "controller execution begins only after durable admission")
+            events = service.replay()
+            require([event["kind"] for event in events] == ["task.admitted", "task.state_changed", "task.verdict", "task.closed"], "controller result follows admitted-running-verdict-close lifecycle")
+            retry = executor.submit(
+                task="inspect", request_id="executor-request",
+                payload_sha256=hashlib.sha256(request).hexdigest(),
+                admission_payload=_admission_payload(request_ref),
+                route_source="user_direct",
+            )
+            retry.wait(10)
+            require(seen == [handle.task_id], "idempotent admission never replays controller effects")
+        finally:
+            service.close()
 
 
 def main() -> int:
@@ -194,10 +278,11 @@ def main() -> int:
         schema_gates()
         conversation_ownership_gates()
         outcome_gates()
+        durable_event_gates()
     except (AcceptanceFailure, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1
-    print("Session Hub foundation acceptance gates passed.")
+    print("Session Hub acceptance gates passed.")
     return 0
 
 

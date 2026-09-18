@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from ..agent import Orchestrator, SkillLibrary, default_search_path
 from ..agent.policy import deny_all_approvals
@@ -32,12 +32,15 @@ class TaskController:
         *,
         self_check: bool = False,
         route_source: RouteSource | str = RouteSource.MODEL_PROPOSAL,
+        task_id: str | None = None,
     ) -> TaskResult:
         source = route_source if isinstance(route_source, RouteSource) else RouteSource(route_source)
-        task_id = uuid4().hex
-        # Prototype event name for now; #49 migrates producers to the durable v1
-        # task.admitted contract. Recording the route source already makes the
-        # current model-selected behaviour observable instead of implicit.
+        if task_id is None:
+            task_id = uuid4().hex
+        else:
+            # Durable Session Hub task ids are UUIDs assigned at admission. The
+            # controller may consume that identity but never replace it.
+            UUID(task_id)
         self.events.emit("task.started", {"route_source": source.value}, task_id)
         try:
             if self_check:
@@ -48,8 +51,6 @@ class TaskController:
                 skills = SkillLibrary.discover_many(default_search_path(self.repo.root, self.repo.skills_dir))
 
                 def observe(kind, payload):
-                    # Explicit projection: tool arguments/results can contain secrets
-                    # and must not automatically enter the activity feed.
                     fields = {
                         "route": ("skill", "tier"), "tool": ("name",),
                         "observe": ("ok",), "llm": ("total_s", "ttft_s", "prompt_tokens", "completion_tokens"),
@@ -70,29 +71,21 @@ class TaskController:
                 verified = bool(run.outcome.succeeded and run.state.verified)
                 product_outcome = ProductOutcome(run.outcome.value)
                 if product_outcome.succeeded and not verified:
-                    # A worker answer without controller proof is useful analysis,
-                    # not a success claim. Until an admitted verification plan can
-                    # prove NOT_REQUIRED, fail closed to NO_VERDICT.
                     product_outcome = ProductOutcome.NO_VERDICT
                 result = TaskResult(
                     task_id, product_outcome, run.answer,
                     verified,
                     tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
                     run.state.metrics.as_dict(),
+                    verification_ran=bool(run.state.verification_attempted),
                 )
         except KeyboardInterrupt:
-            # Before `except Exception`, because reading it the other way round
-            # invites somebody to widen that clause to BaseException and silently
-            # swallow the interrupt. Cleanup is not proven by catching Ctrl-C.
             self.events.emit("task.interrupted", {
                 "outcome": ProductOutcome.NO_VERDICT.value,
                 "process_cleanup_confirmed": False,
             }, task_id)
             raise
         except Exception as exc:
-            # Report type only: exception text may include credentials/paths.
-            # A controller/worker exception can leave effects in flight, so it is
-            # explicitly unknown and must not use the normal finished event.
             result = TaskResult(
                 task_id,
                 ProductOutcome.NO_VERDICT,
@@ -106,6 +99,9 @@ class TaskController:
             return result
         self.events.emit("task.finished", {
             "outcome": result.outcome.value,
+            "terminal_state": result.projection.terminal_state.value,
+            "verdict": result.projection.verdict.value,
+            "verification_ran": result.verification_ran,
             "verified_at_completion": result.verified_at_completion,
             "evidence_count": len(result.evidence_ids),
             "evidence_ids": list(result.evidence_ids),
