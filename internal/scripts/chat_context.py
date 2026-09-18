@@ -65,6 +65,26 @@ class Composed:
     budget_chars: int
 
 
+@dataclass
+class OpenConversation:
+    """A persisted conversation loaded while its exclusive lock is held.
+
+    Saving is explicit. Context-manager exit never writes implicitly, so an
+    exception or abandoned in-memory edit cannot persist a half-mutated session.
+    """
+
+    session: Session
+    _runtime_root: Path
+    _disk_cap_bytes: int = DEFAULT_DISK_CAP_BYTES
+
+    def save(self) -> Path:
+        return _save_session(
+            self._runtime_root,
+            self.session,
+            disk_cap_bytes=self._disk_cap_bytes,
+        )
+
+
 def new_session(
     profile: str,
     model: str,
@@ -160,7 +180,12 @@ def ensure_append_fits(
         )
 
 
-def save_session(runtime_root: Path, session: Session, *, disk_cap_bytes: int = DEFAULT_DISK_CAP_BYTES) -> Path:
+def _save_session(
+    runtime_root: Path,
+    session: Session,
+    *,
+    disk_cap_bytes: int = DEFAULT_DISK_CAP_BYTES,
+) -> Path:
     path = session_path(runtime_root, session.conversation_id)
     encoded = _encoded_session(session)
     if len(encoded) > disk_cap_bytes:
@@ -174,7 +199,24 @@ def save_session(runtime_root: Path, session: Session, *, disk_cap_bytes: int = 
     return path
 
 
-def load_session(runtime_root: Path, conversation_id: str) -> Session:
+def create_session(
+    runtime_root: Path,
+    session: Session,
+    *,
+    disk_cap_bytes: int = DEFAULT_DISK_CAP_BYTES,
+) -> Path:
+    """Persist a newly allocated conversation exactly once.
+
+    Existing conversations can only be saved through ``conversation()`` while
+    their exclusive lock is held; this function refuses replacement.
+    """
+    path = session_path(runtime_root, session.conversation_id)
+    if path.exists():
+        raise ContextRefusal(f"conversation {session.conversation_id} already exists")
+    return _save_session(runtime_root, session, disk_cap_bytes=disk_cap_bytes)
+
+
+def _load_session(runtime_root: Path, conversation_id: str) -> Session:
     path = session_path(runtime_root, conversation_id)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -229,7 +271,7 @@ def load_session(runtime_root: Path, conversation_id: str) -> Session:
 
 
 @contextmanager
-def conversation_lock(runtime_root: Path, conversation_id: str) -> Iterator[None]:
+def _conversation_lock(runtime_root: Path, conversation_id: str) -> Iterator[None]:
     """Non-blocking per-conversation lock; OS releases it after a crash."""
     path = session_path(runtime_root, conversation_id).with_suffix(".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +297,27 @@ def conversation_lock(runtime_root: Path, conversation_id: str) -> Iterator[None
             yield
         finally:
             unlock()
+
+
+@contextmanager
+def conversation(
+    runtime_root: Path,
+    conversation_id: str,
+    *,
+    disk_cap_bytes: int = DEFAULT_DISK_CAP_BYTES,
+) -> Iterator[OpenConversation]:
+    """Open an existing conversation with load and save scoped to one lock.
+
+    Loading occurs only after the exclusive lock is acquired. The yielded handle
+    exposes explicit ``save()``; exiting the context does not auto-save.
+    """
+    with _conversation_lock(runtime_root, conversation_id):
+        session = _load_session(runtime_root, conversation_id)
+        yield OpenConversation(
+            session=session,
+            _runtime_root=Path(runtime_root),
+            _disk_cap_bytes=disk_cap_bytes,
+        )
 
 
 def compose(

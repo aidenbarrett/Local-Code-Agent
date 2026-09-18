@@ -834,6 +834,10 @@ def build_ledger(rows: list[dict], tiered: bool = False) -> dict:
     escalated = [r for r in rows if r.get("outcome", "").startswith("escalated")]
     cheap_only = [r for r in rows if r.get("outcome") == "pass"]
     single = [r for r in rows if r.get("outcome") == "fail"]
+    classified_ids = {id(r) for r in blocked + escalated + cheap_only + single}
+    unclassified = [r for r in rows if id(r) not in classified_ids]
+    if len(blocked) + len(escalated) + len(cheap_only) + len(single) + len(unclassified) != total:
+        raise AssertionError("ledger outcome buckets do not partition counted rows")
 
     cheap_success = [r for r in cheap_only if r.get("succeeded")]
     escalated_success = [r for r in escalated if r.get("succeeded")]
@@ -891,6 +895,8 @@ def build_ledger(rows: list[dict], tiered: bool = False) -> dict:
         ],
         "blocked": len(blocked),
         "blocked_cases": [r["case"] for r in blocked],
+        "unclassified": len(unclassified),
+        "unclassified_cases": [r["case"] for r in unclassified],
         "tiered": tiered,
         "scope_violations": len(scope_violations),
         "scope_violation_cases": [r["case"] for r in scope_violations],
@@ -952,6 +958,8 @@ def render_ledger(l: dict) -> str:
         f"Tasks counted:          {l['tasks']}",
         f"Blocked (environment):  {l['blocked']}"
         + (f"  {', '.join(l['blocked_cases'])}" if l["blocked_cases"] else ""),
+        f"Unclassified outcomes:  {l.get('unclassified', 0)}"
+        + (f"  {', '.join(l.get('unclassified_cases') or [])}" if l.get("unclassified_cases") else ""),
         f"Attempted:              {l['attempted']}",
         f"Precondition failures:  {l['precondition_failures']}",
         f"Scope violations:       {l['scope_violations']}"
@@ -1188,42 +1196,27 @@ def main() -> int:
     )
     if diag_capability is not None:
         verdict = "usable" if diag_capability >= KILL_THRESHOLD else "below the kill threshold"
-        print(
-            f"diagnostic subset: capability {diag_capability:.3f} over "
-            f"{len(diagnostic)} run(s) -> {verdict} (threshold {KILL_THRESHOLD}); "
-            f"answer quality {diag_score:.3f}"
-        )
+        print(f"\ndiagnostic capability: {diag_capability:.3f} -> {verdict}")
+        print(f"diagnostic answer quality: {diag_score:.3f} (descriptive only)")
 
-    attempts_declared: dict[str, int] = {}
-    for row in rows:
-        case_name = row.get("case")
-        attempt_index = row.get("attempt")
-        if isinstance(case_name, str) and isinstance(attempt_index, int) and not isinstance(attempt_index, bool):
-            attempts_declared[case_name] = max(
-                attempts_declared.get(case_name, 0), attempt_index + 1
-            )
+    print(f"\nresults: {out_path}")
 
-    write_atomic(
-        Path(args.out),
-        {
-            **identity,
-            "complete": not stopped,
-            "attempts_declared": dict(sorted(attempts_declared.items())),
-            "stopped_early": stopped,
-            "overall": overall,
-            "tasks_without_escalation": ledger["cheap_only_success"],
-            "tasks_routed": ledger["attempted"],
-            "ledger": ledger,
-            "diagnostic_quality_score": diag_score,
-            "diagnostic_capability_rate": diag_capability,
-            # Kept under the old name so earlier datasets stay comparable, but
-            # it is the quality average and it does not drive the kill gate.
-            "diagnostic_score": diag_score,
-            "rows": rows,
+    # The terminal JSON is the source of truth. Never overwrite it with a
+    # derived ledger or summary; add those fields to the copy and preserve rows.
+    final_payload = {
+        **identity,
+        "complete": not stopped,
+        "stopped_early": stopped,
+        "attempts_declared": {
+            case.name: sum(1 for row in rows if row.get("case") == case.name)
+            for case in selected
         },
-    )
-    print(f"written: {args.out}")
-    return 0
+        "overall": round(overall, 3),
+        "ledger": ledger,
+        "rows": rows,
+    }
+    write_atomic(out_path, final_payload)
+    return 2 if stopped else 0
 
 
 if __name__ == "__main__":

@@ -6,7 +6,16 @@ import pytest
 
 from local_agent.llm.client import ScriptedClient
 from local_agent.llm.models import ChatResponse, ToolCall
-from local_agent.session.contracts import Proposal, TaskResult
+from local_agent.session.contracts import (
+    OUTCOME_PROJECTIONS,
+    UNREACHABLE_TERMINAL_STATES,
+    ProductOutcome,
+    Proposal,
+    RouteSource,
+    TaskResult,
+    TerminalState,
+    task_exit_code,
+)
 from local_agent.session.controller import TaskController
 from local_agent.session.events import EventBuffer
 from local_agent.session.gateway import ConversationGateway
@@ -38,6 +47,36 @@ def test_proposal_fails_closed(raw):
         Proposal.parse(raw)
 
 
+def test_task_result_rejects_undeclared_or_unproved_success():
+    with pytest.raises(ValueError, match="undeclared product outcome"):
+        TaskResult("t", "passed", "wrong spelling")
+    with pytest.raises(ValueError, match="verified_at_completion"):
+        TaskResult("t", ProductOutcome.PASS, "no proof", False)
+    with pytest.raises(ValueError, match="verified_at_completion"):
+        TaskResult("t", ProductOutcome.FAIL, "failed", True)
+
+
+def test_product_outcome_projection_is_total_both_ways():
+    assert set(OUTCOME_PROJECTIONS) == set(ProductOutcome)
+    produced = {projection.terminal_state for projection in OUTCOME_PROJECTIONS.values()}
+    declared = set(TerminalState)
+    assert produced | set(UNREACHABLE_TERMINAL_STATES) == declared
+    assert produced.isdisjoint(UNREACHABLE_TERMINAL_STATES)
+    for state in UNREACHABLE_TERMINAL_STATES:
+        assert all(p.terminal_state != state for p in OUTCOME_PROJECTIONS.values())
+
+
+def test_cli_exit_code_mapping_covers_every_product_outcome():
+    codes = {outcome: task_exit_code(outcome) for outcome in ProductOutcome}
+    assert set(codes) == set(ProductOutcome)
+    assert codes[ProductOutcome.PASS] == 0
+    assert codes[ProductOutcome.ESCALATED_PASS] == 0
+    assert codes[ProductOutcome.FAIL] == 1
+    assert codes[ProductOutcome.ESCALATED_FAIL] == 1
+    assert codes[ProductOutcome.BLOCKED] == 2
+    assert codes[ProductOutcome.NO_VERDICT] == 2
+
+
 def test_chat_cannot_call_tools_or_smuggle_policy():
     controller = SimpleNamespace(run=lambda *a, **k: (_ for _ in ()).throw(AssertionError("no task")))
     model = Chat(ChatResponse(content='{"kind":"repository","text":"inspect"}',
@@ -60,6 +99,24 @@ def test_followup_preserves_controller_result_without_model_recertification():
     assert "leave README alone" in tasks[0]
     assert "Conversation only" in gateway.turn("Why?")
     assert any("Compiler rejected" in m["content"] for m in model.calls[1][0])
+
+
+def test_gateway_records_route_source_before_rules_exist():
+    calls = []
+    def run(task, **kwargs):
+        calls.append(kwargs)
+        return TaskResult("t1", "fail", "failed", False)
+
+    gateway = ConversationGateway(
+        Chat(reply("repository", "Inspect")), SimpleNamespace(run=run), EventBuffer("s")
+    )
+    gateway.turn("inspect repository")
+    assert calls == [{"self_check": False, "route_source": RouteSource.MODEL_PROPOSAL}]
+
+    calls.clear()
+    direct = ConversationGateway(Chat(), SimpleNamespace(run=run), EventBuffer("s"))
+    direct.turn("/check")
+    assert calls == [{"self_check": True, "route_source": RouteSource.USER_DIRECT}]
 
 
 def test_concurrent_turn_rejected_and_lock_released_after_error():
@@ -126,7 +183,7 @@ def test_gateway_real_controller_uses_separate_contexts_and_real_tools(loaded):
     gateway = ConversationGateway(chat, controller, events)
     first = gateway.turn("Tell me how this repository builds")
     assert "Repository inspected" in first
-    assert gateway.last_result.outcome == "pass"
+    assert gateway.last_result.outcome == ProductOutcome.NO_VERDICT
     assert not gateway.last_result.verified_at_completion  # read != build proof
     assert gateway.last_result.evidence_ids == ("repo_info:0",)
     first_refs = gateway.last_result.evidence_refs
@@ -139,6 +196,7 @@ def test_gateway_real_controller_uses_separate_contexts_and_real_tools(loaded):
     terminal = events.after(0)[-2]  # task.finished, then turn.finished
     assert terminal.task_id == gateway.last_result.task_id
     assert terminal.payload["evidence_ids"] == ["repo_info:0"]
+    assert terminal.payload["route_source"] == "model_proposal"
     assert "worker.tool" in [event.kind for event in events.after(0)]
 
 
@@ -164,14 +222,21 @@ def test_check_bypasses_model_and_still_uses_controller_policy(loaded):
     gateway = ConversationGateway(model, TaskController(repo, None, events), events)
     assert "blocked" in gateway.turn("/check")
     assert not model.calls
+    started = next(e for e in events.after(0) if e.kind == "task.started")
+    assert started.payload["route_source"] == "user_direct"
 
 
-def test_worker_exception_is_terminal_and_presenter_does_not_get_secret(loaded):
+def test_worker_exception_is_unknown_and_presenter_does_not_get_secret(loaded):
     sandbox, repo, _reg, _store, _skills = loaded
     def broken():
         raise RuntimeError("SECRET")
     events = EventBuffer("s")
     result = TaskController(repo, broken, events).run("inspect repository")
-    assert result.outcome == "error"
+    assert result.outcome == ProductOutcome.NO_VERDICT
     assert "SECRET" not in result.answer
-    assert events.after(0)[-1].kind == "task.finished"
+    terminal = events.after(0)[-1]
+    assert terminal.kind == "task.interrupted"
+    assert terminal.payload == {
+        "outcome": "no_verdict",
+        "process_cleanup_confirmed": False,
+    }
