@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from ..config import MODEL_PRESETS, find_repo_root, load_repo_config
 from ..llm.client import OpenAICompatibleClient
+from .contracts import task_exit_code
 from .controller import TaskController
 from .events import EventBuffer
 from .gateway import ConversationGateway
@@ -62,7 +63,7 @@ def main(argv=None) -> int:
     if args.check:
         result = controller.run("Check Local Code Agent", self_check=True)
         print(safe_terminal(result.render()))
-        return 0 if result.outcome == "pass" else 1
+        return task_exit_code(result.outcome)
     gateway = ConversationGateway(OpenAICompatibleClient(chat_config), controller, events,
                                   **conversation_budgets(chat_config.context_budget_tokens))
     print("LOCAL CODE AGENT | Conversation session (prototype)")
