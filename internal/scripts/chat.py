@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+import hashlib
 import os
 from pathlib import Path
 import sys
@@ -31,6 +32,17 @@ if str(SOURCE_ROOT) not in sys.path:
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
 from measurement import serve  # noqa: E402
 from scripts.chat_persona import Persona, PersonaError, load_persona, persona_message  # noqa: E402
+from scripts.chat_context import (  # noqa: E402
+    ContextRefusal,
+    append_turn,
+    compose,
+    conversation_lock,
+    ensure_append_fits,
+    ensure_runtime,
+    load_session,
+    new_session,
+    save_session,
+)
 from terminal_ui import device_label, ui  # noqa: E402
 
 FRIENDLY: dict[str, tuple[str, str]] = {
@@ -194,12 +206,26 @@ def _system_message(config: ModelConfig) -> dict[str, str]:
     }
 
 
-def _messages_for_turn(history: list[dict[str, str]], said: str, persona: Persona | None) -> list[dict[str, str]]:
-    messages = list(history)
-    if persona is not None:
-        messages.insert(1, persona_message(persona))
-    messages.append({"role": "user", "content": said})
-    return messages
+def _persona_sha256(persona: Persona | None) -> str | None:
+    if persona is None:
+        return None
+    rendered = persona_message(persona)["content"].encode("utf-8")
+    return hashlib.sha256(rendered).hexdigest()
+
+
+def _messages_for_turn(
+    session,
+    said: str,
+    persona: Persona | None,
+    config: ModelConfig,
+):
+    """Compose model input from derived contract/persona plus stored raw turns."""
+    return compose(
+        contract=_system_message(config),
+        persona=persona_message(persona) if persona is not None else None,
+        session=session,
+        current_turn=said,
+    )
 
 
 def _load_requested_persona(value: str | None, term) -> Persona | None:
@@ -220,51 +246,125 @@ def _load_requested_persona(value: str | None, term) -> Persona | None:
         return None
 
 
-def converse(name: str, profile: str, config: ModelConfig, persona: Persona | None = None) -> int:
+def converse(
+    name: str,
+    profile: str,
+    config: ModelConfig,
+    persona: Persona | None = None,
+    conversation_id: str | None = None,
+) -> int:
     from local_agent.llm.client import OpenAICompatibleClient
+
     term = ui()
     term.banner("LOCAL MODEL CHAT", "Runs locally on this computer. Repository access is not enabled in chat.")
     term.section("MODEL STARTUP")
     if not _ensure_server(profile, config, term=term):
         return 2
+
+    runtime_root = _runtime_root()
+    persona_sha = _persona_sha256(persona)
+    try:
+        if conversation_id:
+            session = load_session(runtime_root, conversation_id)
+            if session.persona_sha256 != persona_sha:
+                raise ContextRefusal(
+                    "conversation persona does not match the requested persona; "
+                    "resume it with the same --persona value or start a new conversation"
+                )
+        else:
+            session = new_session(
+                profile,
+                config.model,
+                config.device,
+                persona_sha256=persona_sha,
+            )
+            save_session(runtime_root, session)
+    except ContextRefusal as exc:
+        term.status("fail", f"Conversation refused: {exc}")
+        return 2
+
     _session_header(name, config, term, persona)
+    term.field("Conversation", session.conversation_id)
+    if conversation_id:
+        term.status("ok", f"Resumed {len(session.turns)} stored turns")
+    else:
+        term.status("info", "New conversation · use --conversation with this ID to resume it")
+    term.line()
+
     client = OpenAICompatibleClient(config)
-    history: list[dict[str, str]] = [_system_message(config)]
-    while True:
-        try:
-            prompt = term.paint("YOU  › ", "magenta", bold=True)
-            said = input(prompt).strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return 0
-        if not said:
-            print()
-            return 0
-        messages = _messages_for_turn(history, said, persona)
-        try:
-            reply = client.chat(messages)
-        except KeyboardInterrupt:
-            term.line()
-            term.status("warn", "Generation stopped. Back at the prompt.")
-            term.line()
-            continue
-        except Exception as exc:
-            term.line()
-            term.status("fail", f"Request failed: {type(exc).__name__}: {exc}")
-            term.line()
-            continue
-        text = (reply.content or "").strip()
-        term.line()
-        term.line(term.paint("MODEL", "cyan", bold=True))
-        term.line()
-        term.line(text if text else "(The model returned no visible answer.)")
-        stats = reply.stats
-        if stats.ttft_s is not None and stats.decode_tok_s is not None:
-            term.line()
-            term.line("  " + term.paint(config.device, "cyan", bold=True) + f" · first token {stats.ttft_s:.2f} s" + f" · {stats.decode_tok_s:.1f} tokens/s")
-        term.line()
-        history.append({"role": "user", "content": said})
-        history.append({"role": "assistant", "content": text})
+    try:
+        with conversation_lock(runtime_root, session.conversation_id):
+            runtime_index = ensure_runtime(session, profile, config.model, config.device)
+            save_session(runtime_root, session)
+            while True:
+                try:
+                    prompt = term.paint("YOU  › ", "magenta", bold=True)
+                    said = input(prompt).strip()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    return 0
+                if not said:
+                    print()
+                    return 0
+
+                try:
+                    ensure_append_fits(session, [("user", said)], runtime_index)
+                    composed = _messages_for_turn(session, said, persona, config)
+                except ContextRefusal as exc:
+                    term.line()
+                    term.status("warn", f"Conversation refused: {exc}")
+                    term.line()
+                    continue
+
+                try:
+                    reply = client.chat(composed.messages)
+                except KeyboardInterrupt:
+                    term.line()
+                    term.status("warn", "Generation stopped. Nothing from this turn was saved.")
+                    term.line()
+                    continue
+                except Exception as exc:
+                    term.line()
+                    term.status("fail", f"Request failed: {type(exc).__name__}: {exc}")
+                    term.status("info", "Nothing from this turn was saved.")
+                    term.line()
+                    continue
+
+                text = (reply.content or "").strip()
+                try:
+                    ensure_append_fits(
+                        session,
+                        [("user", said), ("assistant", text)],
+                        runtime_index,
+                    )
+                except ContextRefusal as exc:
+                    term.line()
+                    term.status("fail", f"Reply could not be persisted: {exc}")
+                    term.status("info", "The exchange was discarded; start a new conversation or reset before continuing.")
+                    term.line()
+                    continue
+
+                append_turn(session, "user", said, runtime_index)
+                append_turn(session, "assistant", text, runtime_index)
+                save_session(runtime_root, session)
+
+                term.line()
+                term.line(term.paint("MODEL", "cyan", bold=True))
+                term.line()
+                term.line(text if text else "(The model returned no visible answer.)")
+                stats = reply.stats
+                if stats.ttft_s is not None and stats.decode_tok_s is not None:
+                    term.line()
+                    term.line(
+                        "  "
+                        + term.paint(config.device, "cyan", bold=True)
+                        + f" · first token {stats.ttft_s:.2f} s"
+                        + f" · {stats.decode_tok_s:.1f} tokens/s"
+                    )
+                term.line()
+    except ContextRefusal as exc:
+        term.status("fail", f"Conversation refused: {exc}")
+        return 2
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -272,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("model", nargs="?", default="list", help="model choice, or 'list' to show available choices")
     parser.add_argument("--persona", default="off", metavar="NAME_OR_PATH", help="optional chat-only tone profile: 'aiden', 'neutral', 'off', or a persona TOML path")
     parser.add_argument("--temperature", type=float, default=CHAT_DEFAULT_TEMPERATURE, help=f"chat-only sampling temperature (default: {CHAT_DEFAULT_TEMPERATURE:g}); agent/evaluation profiles are unchanged")
+    parser.add_argument("--conversation", metavar="ID", help="resume a persisted direct-chat conversation by ID")
     parser.add_argument("--ensure-only", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.model == "list":
@@ -289,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if _ensure_server(profile, config) else 2
     term = ui()
     persona = _load_requested_persona(args.persona, term)
-    return converse(args.model, profile, config, persona)
+    return converse(args.model, profile, config, persona, conversation_id=args.conversation)
 
 
 if __name__ == "__main__":
