@@ -17,6 +17,8 @@ INTERNAL = REPO / "internal"
 SCHEMA = INTERNAL / "docs" / "session-contract" / "v1" / "events.schema.json"
 DESIGN = INTERNAL / "docs" / "session-hub-design.md"
 CONTROLLER = INTERNAL / "local_agent" / "session" / "controller.py"
+CHAT_CONTEXT = INTERNAL / "scripts" / "chat_context.py"
+CHAT = INTERNAL / "scripts" / "chat.py"
 
 
 class AcceptanceFailure(RuntimeError):
@@ -75,9 +77,30 @@ def foundation_gates() -> None:
     )
 
 
+def conversation_ownership_gates() -> None:
+    require(CHAT_CONTEXT.is_file(), "persisted conversation context exists")
+    context = CHAT_CONTEXT.read_text(encoding="utf-8")
+    require("def _load_session(" in context, "raw persisted-session loader is private")
+    require("def _save_session(" in context, "raw persisted-session saver is private")
+    require("def load_session(" not in context, "no public unlocked persisted-session loader remains")
+    require("def save_session(" not in context, "no public persisted-session replacement API remains")
+    require("def conversation(" in context, "existing conversations open through owned context")
+    require("def create_session(" in context, "new conversation creation is explicit and non-replacing")
+    require("yield OpenConversation(" in context, "owned conversation exposes explicit save handle")
+
+    require(CHAT.is_file(), "direct chat entrypoint exists")
+    chat = CHAT.read_text(encoding="utf-8")
+    require("with conversation(runtime_root, cid) as opened:" in chat,
+            "direct chat resumes by loading under the conversation lock")
+    require("opened.save()" in chat, "direct chat saves existing conversations through owned handle")
+    for forbidden in ("load_session", "save_session", "conversation_lock"):
+        require(forbidden not in chat, f"direct chat does not bypass ownership via {forbidden}")
+
+
 def main() -> int:
     try:
         foundation_gates()
+        conversation_ownership_gates()
     except (AcceptanceFailure, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1
