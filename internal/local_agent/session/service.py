@@ -7,12 +7,14 @@ committed events and must replay after an overflow gap.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, field
 from queue import Empty, Full, Queue
 from threading import Event as ThreadEvent, Lock, Thread
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
+from .contracts import ProductOutcome, RouteSource, TaskResult, Verdict
 from .event_contract import build_event
 from .storage import SQLiteSessionStore
 
@@ -30,6 +32,7 @@ class WriteReceipt:
     task_id: str | None = None
     committed: ThreadEvent = field(default_factory=ThreadEvent)
     error: BaseException | None = None
+    created: bool | None = None
 
     def wait(self, timeout: float | None = None) -> None:
         if not self.committed.wait(timeout):
@@ -127,7 +130,7 @@ class DurableSessionService:
         payload_sha256: str,
         admission_payload: dict[str, Any],
     ) -> WriteReceipt:
-        """Return a stable task id immediately; execution must wait for receipt.commit."""
+        """Return a stable task id immediately; execution must wait for commit."""
         task_id = str(uuid5(UUID(self.stream_id), request_id))
         receipt = WriteReceipt(task_id=task_id)
         return self._enqueue(_Command("admit", receipt, {
@@ -167,7 +170,7 @@ class DurableSessionService:
         }, task_id=task_id)
 
     def recover_unknown_tasks(self) -> list[str]:
-        """Fence old admissions as NO_VERDICT. Never execute or retry their effects."""
+        """Fence old admissions as NO_VERDICT/unknown. Never retry their effects."""
         recovered: list[str] = []
         for task in self.store.unterminated_tasks():
             task_id = str(task["task_id"])
@@ -182,7 +185,7 @@ class DurableSessionService:
             verdict = self.append("task.verdict", {
                 "completion": {
                     "task_id": task_id,
-                    "status": "interrupted",
+                    "status": "unknown",
                     "verdict_block": {
                         "verdict": "NO_VERDICT",
                         "reason_code": "controller_crash",
@@ -200,7 +203,7 @@ class DurableSessionService:
             }, task_id=task_id)
             verdict.wait(10)
             closed = self.close_task(task_id, {
-                "status": "interrupted",
+                "status": "unknown",
                 "result_ref": result_ref,
                 "cleanup": "unknown",
             })
@@ -248,6 +251,7 @@ class DurableSessionService:
                         envelope=event,
                         expected_sequence=sequence,
                     )
+                    receipt.created = created
                     if created:
                         self._publish(event)
                 else:
@@ -270,3 +274,153 @@ class DurableSessionService:
                 receipt.error = exc
             finally:
                 receipt.committed.set()
+
+
+@dataclass
+class TaskHandle:
+    """Non-blocking task submission handle for UI/service callers."""
+    task_id: str
+    admission: WriteReceipt
+    done: ThreadEvent = field(default_factory=ThreadEvent)
+    result: TaskResult | None = None
+    error: BaseException | None = None
+
+    def wait(self, timeout: float | None = None) -> TaskResult | None:
+        if not self.done.wait(timeout):
+            raise TimeoutError("task did not reach a durable terminal result before timeout")
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+class DurableTaskExecutor:
+    """Execute an admitted controller task off the caller thread.
+
+    The durable admission commits first. Only a newly created admission executes;
+    an idempotent retry returns the existing task id and cannot replay effects.
+    Lifecycle/verdict/closure are then written through the same single writer.
+    """
+
+    def __init__(self, service: DurableSessionService, controller):
+        self.service = service
+        self.controller = controller
+
+    def submit(
+        self,
+        *,
+        task: str,
+        request_id: str,
+        payload_sha256: str,
+        admission_payload: dict[str, Any],
+        self_check: bool = False,
+        route_source: RouteSource | str = RouteSource.MODEL_PROPOSAL,
+    ) -> TaskHandle:
+        admission = self.service.submit_task(
+            request_id=request_id,
+            payload_sha256=payload_sha256,
+            admission_payload=admission_payload,
+        )
+        assert admission.task_id is not None
+        handle = TaskHandle(admission.task_id, admission)
+        Thread(
+            target=self._run,
+            args=(handle, task, self_check, route_source, int(admission_payload["execution_epoch"])),
+            name=f"lca-task-{admission.task_id[:8]}",
+            daemon=True,
+        ).start()
+        return handle
+
+    @staticmethod
+    def _reason_for(result: TaskResult) -> str:
+        if result.projection.verdict == Verdict.VERIFIED:
+            return "verification_passed"
+        if result.projection.verdict == Verdict.FAILED:
+            return "verification_failed"
+        if result.outcome == ProductOutcome.BLOCKED:
+            return "policy_denied"
+        return "cleanup_unknown"
+
+    @staticmethod
+    def _result_ref(result: TaskResult) -> dict[str, Any]:
+        payload = json.dumps({
+            "task_id": result.task_id,
+            "outcome": result.outcome.value,
+            "terminal_state": result.projection.terminal_state.value,
+            "verdict": result.projection.verdict.value,
+            "verification_ran": result.verification_ran,
+            "verified_at_completion": result.verified_at_completion,
+            "evidence_ids": list(result.evidence_ids),
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return {
+            "artifact_id": str(uuid4()),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "media_type": "application/vnd.lca.task-result+json",
+            "size_bytes": len(payload),
+            "availability": "unavailable",
+        }
+
+    def _run(
+        self,
+        handle: TaskHandle,
+        task: str,
+        self_check: bool,
+        route_source: RouteSource | str,
+        execution_epoch: int,
+    ) -> None:
+        try:
+            handle.admission.wait(30)
+            if handle.admission.created is False:
+                # Idempotent request replay: the durable task already exists.
+                # Returning its id is safe; executing it again is not.
+                return
+
+            running = self.service.append("task.state_changed", {
+                "previous": "admitted",
+                "current": "running",
+                "reason_code": "requested",
+                "execution_epoch": execution_epoch,
+            }, task_id=handle.task_id)
+            running.wait(30)
+
+            result = self.controller.run(
+                task,
+                self_check=self_check,
+                route_source=route_source,
+                task_id=handle.task_id,
+            )
+            handle.result = result
+            result_ref = self._result_ref(result)
+            status = result.projection.terminal_state.value
+            reason = self._reason_for(result)
+            verdict = self.service.append("task.verdict", {
+                "completion": {
+                    "task_id": handle.task_id,
+                    "status": status,
+                    "verdict_block": {
+                        "verdict": result.projection.verdict.value,
+                        "reason_code": reason,
+                        "scope": "controller task result at durable completion",
+                        "evidence_ids": list(result.evidence_ids),
+                        "tree_sha256": result.metrics.get("tree_sha256"),
+                        "rendered_lines": [
+                            f"{result.projection.verdict.value}: {result.outcome.value}",
+                            f"Verification ran: {str(bool(result.verification_ran)).lower()}.",
+                        ],
+                    },
+                    "worker_artifact_ref": None,
+                    "result_ref": result_ref,
+                }
+            }, task_id=handle.task_id)
+            verdict.wait(30)
+            closed = self.service.close_task(handle.task_id, {
+                "status": status,
+                "result_ref": result_ref,
+                "cleanup": "unknown" if status == "unknown" else "not_needed",
+            })
+            closed.wait(30)
+        except BaseException as exc:
+            # Do not invent a terminal state if durable reconciliation itself failed.
+            # The admission remains nonterminal and restart recovery will fence it.
+            handle.error = exc
+        finally:
+            handle.done.set()
