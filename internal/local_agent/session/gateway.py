@@ -9,10 +9,10 @@ from __future__ import annotations
 import json
 from threading import Lock
 
-from .contracts import Proposal, RouteSource
+from ..llm.models import LLMTransportError
+from .contracts import MAX_MESSAGE_CHARS, Proposal, RouteSource, TaskResult
 from .conversation_store import (
     OpenConversation,
-    Session,
     append_turn,
     ensure_append_fits,
     new_session,
@@ -20,44 +20,49 @@ from .conversation_store import (
 )
 
 
-SYSTEM = """You are the conversation router for Local Code Agent.
-Return exactly one JSON object and nothing else:
-{"kind":"reply|repository|self_check","text":"..."}
-Use reply for normal conversation. Use repository only when the user wants work on
-this repository. Use self_check only when they explicitly ask to check Local Code
-Agent itself. Never claim repository facts in reply unless they came from a task.
-Keep reply answers concise; repository text is the objective for the controlled
-worker. Do not propose edits, commits or shell commands yourself."""
+SYSTEM = """You are Local Code Agent's conversation interface.
+Return exactly one JSON object with only kind and text, no markdown fences.
+kind is reply, repository, or self_check. text is a nonempty string.
+Use reply for general conversation or a necessary clarification. Reply text is
+conversation only, not evidence about this repository or machine.
+Use repository for requests needing files, changes, code inspection or configured
+build/test tools. Text is a bounded task proposal retaining the user's constraints.
+Resolve follow-ups from raw conversation only; ask if their target is ambiguous.
+Use self_check only when asked to compile/check/test Local Code Agent itself.
+You have NO tools. The controller owns the fixed repository, policy and verification.
+This prototype can inspect repositories and optionally run configured commands.
+It cannot edit, stage, commit, push, stop running tasks or schedule background work.
+Never claim you executed anything. Task verdicts/evidence are sibling artifacts,
+not assistant turns. Do not invent model/device utilisation, files, results or verification.
+"""
 
 
 class ConversationGateway:
     def __init__(
         self,
-        client,
+        chat_client,
         controller,
         events,
         *,
         history_chars: int = 16_000,
+        request_bytes: int = 96_000,
         request_chars: int = 24_000,
-        request_bytes: int = 100_000,
         conversation: OpenConversation | None = None,
         runtime_index: int | None = None,
     ):
-        if min(history_chars, request_chars, request_bytes) < 1:
-            raise ValueError("conversation budgets must be positive")
+        if history_chars < 1 or request_bytes < 1 or request_chars < 1:
+            raise ValueError("history budget too small")
         if history_chars > request_chars:
             raise ValueError("history budget cannot exceed request budget")
-        self.client = client
-        self.controller = controller
-        self.events = events
+        self.chat_client, self.controller, self.events = chat_client, controller, events
         self.history_chars = history_chars
-        self.request_chars = request_chars
         self.request_bytes = request_bytes
+        self.request_chars = request_chars
         self._busy = Lock()
+        self.last_result: TaskResult | None = None
+        self.last_turn_ref: dict[str, object] | None = None
         self._owned = conversation
         if conversation is None:
-            # Tests/legacy prototype callers still get the canonical Session model,
-            # merely without disk persistence. There is no second `_history` list.
             self.session = new_session(
                 "session-gateway", "conversation-router", "shared",
                 budget_chars=request_chars,
@@ -68,33 +73,31 @@ class ConversationGateway:
             self.runtime_index = (
                 len(self.session.runtime) - 1 if runtime_index is None else runtime_index
             )
-        self.last_turn_ref: dict[str, object] | None = None
 
-    def _validate_messages(self, messages: list[dict[str, str]]) -> None:
-        chars = sum(len(m["content"]) for m in messages)
-        if chars > self.request_chars:
-            raise ValueError("conversation request exceeds character budget")
-        raw = json.dumps(messages, ensure_ascii=False).encode("utf-8")
-        if len(raw) > self.request_bytes:
-            raise ValueError("conversation request exceeds byte budget")
+    def _over_budget(self, messages: list[dict[str, str]]) -> bool:
+        return (
+            sum(len(m["content"]) for m in messages) > self.request_chars
+            or len(json.dumps(messages, ensure_ascii=False).encode("utf-8")) > self.request_bytes
+        )
 
     def _messages(self, said: str) -> list[dict[str, str]]:
-        history = [
-            {"role": stored.role, "content": stored.content}
-            for stored in self.session.turns
-        ]
-        history_chars = sum(len(item["content"]) for item in history)
-        while history and history_chars > self.history_chars:
-            if history[0]["role"] != "user":
+        messages = [{"role": "system", "content": SYSTEM}]
+        for stored in self.session.turns:
+            messages.append({"role": stored.role, "content": stored.content})
+        messages.append({"role": "user", "content": said})
+
+        # Prompt trimming never mutates the canonical stored ordinals. Drop the
+        # oldest complete user/assistant exchange from only the composed request.
+        while len(messages) > 2 and (
+            sum(len(m["content"]) for m in messages[1:-1]) > self.history_chars
+            or self._over_budget(messages)
+        ):
+            if messages[1]["role"] != "user":
                 raise ValueError("stored gateway history does not begin with a user turn")
-            removed = history.pop(0)
-            history_chars -= len(removed["content"])
-            if history and history[0]["role"] == "assistant":
-                removed = history.pop(0)
-                history_chars -= len(removed["content"])
-        messages = [{"role": "system", "content": SYSTEM}, *history,
-                    {"role": "user", "content": said}]
-        self._validate_messages(messages)
+            del messages[1]
+            if len(messages) > 2 and messages[1]["role"] == "assistant":
+                del messages[1]
+            self.events.emit("conversation.history_trimmed", {})
         return messages
 
     def _save_appended(self, before: int) -> None:
@@ -103,8 +106,6 @@ class ConversationGateway:
         try:
             self._owned.save()
         except BaseException:
-            # A failed atomic replace leaves disk on the previous version. Match it
-            # in memory too so the gateway cannot continue from an uncommitted turn.
             del self.session.turns[before:]
             raise
 
@@ -119,66 +120,75 @@ class ConversationGateway:
 
     def _record_exchange(self, said: str, answer: str) -> dict[str, object]:
         before = len(self.session.turns)
+        clipped = answer[:MAX_MESSAGE_CHARS]
         ensure_append_fits(
             self.session,
-            [("user", said), ("assistant", answer)],
+            [("user", said), ("assistant", clipped)],
             self.runtime_index,
         )
         append_turn(self.session, "user", said, self.runtime_index)
-        append_turn(self.session, "assistant", answer, self.runtime_index)
+        append_turn(self.session, "assistant", clipped, self.runtime_index)
         self._save_appended(before)
         ref = turn_ref(self.session, before)
         self.last_turn_ref = ref
         return ref
 
     def turn(self, said: str) -> str:
-        if not isinstance(said, str) or not said.strip():
-            raise ValueError("message must be nonempty")
+        if not isinstance(said, str) or not said.strip() or len(said) > MAX_MESSAGE_CHARS:
+            raise ValueError("enter a nonempty message of at most 8000 characters")
         if not self._busy.acquire(blocking=False):
-            raise RuntimeError("another turn is already active")
+            raise RuntimeError("session busy; concurrent turns are not supported yet")
         said = said.strip()
         try:
-            self.events.emit("conversation.turn", {"chars": len(said)})
+            self.events.emit("turn.started", {})
             if said == "/check":
-                # Persist the originating user turn before any effectful work. The
-                # future durable admission handshake binds this TurnRef to task_id.
+                # Persist the origin before effectful work. A durable admission can
+                # bind the stable TurnRef without inventing an assistant turn.
                 self._record_user(said)
                 result = self.controller.run(
-                    "Check Local Code Agent",
+                    "User request:\n/check\n\nConversation proposal (untrusted):\nRun Local Code Agent self-check",
                     self_check=True,
                     route_source=RouteSource.USER_DIRECT,
                 )
+                self.last_result = result
                 return result.render()
 
-            reply = self.client.chat(self._messages(said))
+            messages = self._messages(said)
+            if self._over_budget(messages):
+                answer = "Message exceeds this profile's conversation budget. Please shorten it. No task was run."
+                self._record_exchange(said, answer)
+                self.events.emit("turn.refused", {"reason": "context_budget", "task_started": False})
+                return answer
             try:
-                proposal = Proposal.parse(reply.content)
-            except (ValueError, json.JSONDecodeError):
-                self.events.emit("router.invalid", {})
-                return "I couldn't classify that request safely. Please say whether you want chat or repository work."
+                response = self.chat_client.chat(messages, tools=None)
+                self.events.emit("conversation.metrics", response.stats.as_dict())
+                if response.tool_calls:
+                    raise ValueError("conversation model attempted tool use")
+                proposal = Proposal.parse(response.content)
+            except (ValueError, TypeError, LLMTransportError):
+                answer = "The conversation model returned no valid proposal. No task was run. Please rephrase."
+                self._record_exchange(said, answer)
+                return answer
 
             if proposal.kind == "reply":
-                self._record_exchange(said, proposal.text)
-                self.events.emit("conversation.reply", {"chars": len(proposal.text)})
-                return proposal.text + "\n\n[Conversation only — no repository inspection was run.]"
+                answer = proposal.text + "\n\n[Conversation only; no repository action]"
+                self._record_exchange(said, answer)
+                return answer
 
-            if proposal.kind == "self_check":
-                self._record_user(said)
-                result = self.controller.run(
-                    "Check Local Code Agent",
-                    self_check=True,
-                    route_source=RouteSource.MODEL_PROPOSAL,
-                )
-                return result.render()
-
-            # Controller results are sibling task artifacts. Only the user's actual
-            # work request enters raw turn history; result/verdict text does not get
-            # replayed to the chat model as if it were model-authored conversation.
+            # Task result/verdict/evidence stays outside raw chat history. Resume
+            # therefore cannot replay a controller result as model-authored prose.
             self._record_user(said)
+            task = (
+                "User request:\n" + said + "\n\nConversation proposal (untrusted):\n"
+                + proposal.text
+            )
             result = self.controller.run(
-                proposal.text,
+                task,
+                self_check=proposal.kind == "self_check",
                 route_source=RouteSource.MODEL_PROPOSAL,
             )
+            self.last_result = result
             return result.render()
         finally:
+            self.events.emit("turn.finished", {})
             self._busy.release()
