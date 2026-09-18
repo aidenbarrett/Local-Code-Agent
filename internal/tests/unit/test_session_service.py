@@ -6,7 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from local_agent.session.service import DurableSessionService, SubscriptionGap
+from local_agent.session.contracts import ProductOutcome, TaskResult
+from local_agent.session.service import DurableSessionService, DurableTaskExecutor, SubscriptionGap
 from local_agent.session.storage import SQLiteSessionStore
 
 
@@ -62,6 +63,7 @@ def test_submit_returns_task_id_before_durable_commit_and_publish_follows_commit
         assert receipt.task_id is not None
         assert time.monotonic() - started < 0.25
         receipt.wait(5)
+        assert receipt.created is True
 
         durable = service.replay()
         delivered = sub.drain()
@@ -86,6 +88,8 @@ def test_same_request_id_returns_same_task_and_does_not_duplicate_admission(tmp_
         )
         second.wait(5)
         assert first.task_id == second.task_id
+        assert first.created is True
+        assert second.created is False
         assert [event["kind"] for event in service.replay()] == ["task.admitted"]
     finally:
         service.close()
@@ -135,9 +139,60 @@ def test_crash_recovery_closes_unknown_task_without_reexecution(tmp_path):
             "task.admitted", "task.verdict", "task.closed"
         ]
         completion = events[1]["payload"]["completion"]
+        assert completion["status"] == "unknown"
         assert completion["verdict_block"]["verdict"] == "NO_VERDICT"
         assert completion["verdict_block"]["reason_code"] == "controller_crash"
+        assert events[2]["payload"]["status"] == "unknown"
         assert events[2]["payload"]["cleanup"] == "unknown"
         assert service.store.unterminated_tasks() == []
+    finally:
+        service.close()
+
+
+def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(tmp_path):
+    service, _ = _service(tmp_path)
+    calls: list[str] = []
+
+    class Controller:
+        def run(self, task, *, self_check=False, route_source=None, task_id=None):
+            assert task_id is not None
+            assert [row["task_id"] for row in service.store.unterminated_tasks()] == [task_id]
+            calls.append(task_id)
+            return TaskResult(
+                task_id,
+                ProductOutcome.FAIL,
+                "verification failed",
+                False,
+                verification_ran=True,
+            )
+
+    try:
+        executor = DurableTaskExecutor(service, Controller())
+        payload = _admission_payload()
+        first = executor.submit(
+            task="inspect",
+            request_id="same",
+            payload_sha256="c" * 64,
+            admission_payload=payload,
+            route_source="user_direct",
+        )
+        result = first.wait(10)
+        assert result is not None and result.outcome == ProductOutcome.FAIL
+        assert calls == [first.task_id]
+        assert [event["kind"] for event in service.replay()] == [
+            "task.admitted", "task.state_changed", "task.verdict", "task.closed"
+        ]
+
+        retry = executor.submit(
+            task="inspect",
+            request_id="same",
+            payload_sha256="c" * 64,
+            admission_payload=payload,
+            route_source="user_direct",
+        )
+        assert retry.wait(10) is None
+        assert retry.task_id == first.task_id
+        assert calls == [first.task_id]
+        assert len(service.replay()) == 4
     finally:
         service.close()
