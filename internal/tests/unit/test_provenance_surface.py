@@ -97,6 +97,11 @@ def package_tree(tmp_path):
     dest = tmp_path / "repo"
     dest.mkdir()
     shutil.copy2(REPO / "pyproject.toml", dest / "pyproject.toml")
+    # stamp_package imports the package before asking Git for status, so the
+    # fixture must model the real checkout's ignored interpreter cache. Without
+    # this, import-created __pycache__ makes an otherwise clean synthetic repo
+    # look dirty for a reason unrelated to the stamper contract.
+    (dest / ".gitignore").write_text("__pycache__/\n*.pyc\nPACKAGE.json\n", encoding="utf-8")
     for folder in (
         "internal/local_agent",
         "internal/skills",
