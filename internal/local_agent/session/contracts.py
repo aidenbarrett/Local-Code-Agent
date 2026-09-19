@@ -22,7 +22,7 @@ class RouteSource(str, Enum):
     USER_DIRECT = "user_direct"
 
 
-class ProductOutcome(str, Enum):
+class TaskOutcome(str, Enum):
     """Closed product-side task outcome vocabulary.
 
     This is deliberately separate from the frozen evaluation contract. Session
@@ -38,7 +38,7 @@ class ProductOutcome(str, Enum):
 
     @property
     def succeeded(self) -> bool:
-        return self in (ProductOutcome.PASS, ProductOutcome.ESCALATED_PASS)
+        return self in (TaskOutcome.PASS, TaskOutcome.ESCALATED_PASS)
 
 
 class TerminalState(str, Enum):
@@ -51,7 +51,9 @@ class TerminalState(str, Enum):
     UNKNOWN = "unknown"
 
 
-class Verdict(str, Enum):
+class TaskVerdict(str, Enum):
+    """Deterministic verification verdict for a task completion."""
+
     VERIFIED = "VERIFIED"
     FAILED = "FAILED"
     REFUSED = "REFUSED"
@@ -60,23 +62,23 @@ class Verdict(str, Enum):
 
 
 @dataclass(frozen=True)
-class OutcomeProjection:
+class TaskOutcomeProjection:
     terminal_state: TerminalState
-    verdict: Verdict
+    verdict: TaskVerdict
 
 
-# One product vocabulary, one explicit projection into the v1 lifecycle.
+# One task-outcome vocabulary, one explicit projection into the v1 lifecycle.
 # CANCELLED/TIMED_OUT/INTERRUPTED remain schema-declared but are intentionally
 # unreachable from a completed TaskResult until process ownership makes those
 # lifecycle claims truthful. UNKNOWN is the honest result projection when a
 # reliable final verdict cannot be established.
-OUTCOME_PROJECTIONS: dict[ProductOutcome, OutcomeProjection] = {
-    ProductOutcome.PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
-    ProductOutcome.ESCALATED_PASS: OutcomeProjection(TerminalState.COMPLETED, Verdict.VERIFIED),
-    ProductOutcome.ESCALATED_FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
-    ProductOutcome.FAIL: OutcomeProjection(TerminalState.FAILED, Verdict.FAILED),
-    ProductOutcome.BLOCKED: OutcomeProjection(TerminalState.BLOCKED, Verdict.REFUSED),
-    ProductOutcome.NO_VERDICT: OutcomeProjection(TerminalState.UNKNOWN, Verdict.NO_VERDICT),
+TASK_OUTCOME_PROJECTIONS: dict[TaskOutcome, TaskOutcomeProjection] = {
+    TaskOutcome.PASS: TaskOutcomeProjection(TerminalState.COMPLETED, TaskVerdict.VERIFIED),
+    TaskOutcome.ESCALATED_PASS: TaskOutcomeProjection(TerminalState.COMPLETED, TaskVerdict.VERIFIED),
+    TaskOutcome.ESCALATED_FAIL: TaskOutcomeProjection(TerminalState.FAILED, TaskVerdict.FAILED),
+    TaskOutcome.FAIL: TaskOutcomeProjection(TerminalState.FAILED, TaskVerdict.FAILED),
+    TaskOutcome.BLOCKED: TaskOutcomeProjection(TerminalState.BLOCKED, TaskVerdict.REFUSED),
+    TaskOutcome.NO_VERDICT: TaskOutcomeProjection(TerminalState.UNKNOWN, TaskVerdict.NO_VERDICT),
 }
 UNREACHABLE_TERMINAL_STATES = frozenset({
     TerminalState.CANCELLED,
@@ -85,16 +87,16 @@ UNREACHABLE_TERMINAL_STATES = frozenset({
 })
 
 
-def task_exit_code(outcome: ProductOutcome | str) -> int:
+def task_exit_code(outcome: TaskOutcome | str) -> int:
     """Stable CLI projection: success=0, observed failure=1, blocked/unknown=2."""
-    value = outcome if isinstance(outcome, ProductOutcome) else ProductOutcome(outcome)
+    value = outcome if isinstance(outcome, TaskOutcome) else TaskOutcome(outcome)
     if value.succeeded:
         return 0
-    if value in (ProductOutcome.FAIL, ProductOutcome.ESCALATED_FAIL):
+    if value in (TaskOutcome.FAIL, TaskOutcome.ESCALATED_FAIL):
         return 1
-    if value in (ProductOutcome.BLOCKED, ProductOutcome.NO_VERDICT):
+    if value in (TaskOutcome.BLOCKED, TaskOutcome.NO_VERDICT):
         return 2
-    raise AssertionError(f"unmapped product outcome: {value}")
+    raise AssertionError(f"unmapped task outcome: {value}")
 
 
 @dataclass(frozen=True)
@@ -135,7 +137,7 @@ class EvidenceRef:
 @dataclass(frozen=True)
 class TaskResult:
     task_id: str
-    outcome: ProductOutcome | str
+    outcome: TaskOutcome | str
     answer: str
     verified_at_completion: bool = False
     evidence_ids: tuple[str, ...] = ()
@@ -144,9 +146,9 @@ class TaskResult:
 
     def __post_init__(self) -> None:
         try:
-            outcome = self.outcome if isinstance(self.outcome, ProductOutcome) else ProductOutcome(self.outcome)
+            outcome = self.outcome if isinstance(self.outcome, TaskOutcome) else TaskOutcome(self.outcome)
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"undeclared product outcome: {self.outcome!r}") from exc
+            raise ValueError(f"undeclared task outcome: {self.outcome!r}") from exc
         object.__setattr__(self, "outcome", outcome)
         ran = bool(self.verified_at_completion) if self.verification_ran is None else bool(self.verification_ran)
         object.__setattr__(self, "verification_ran", ran)
@@ -154,7 +156,7 @@ class TaskResult:
             raise ValueError("verified_at_completion requires verification_ran")
         if outcome.succeeded != bool(self.verified_at_completion):
             raise ValueError(
-                "successful product outcome and verified_at_completion must agree; "
+                "successful task outcome and verified_at_completion must agree; "
                 "use no_verdict when success proof is not established"
             )
 
@@ -163,8 +165,8 @@ class TaskResult:
         return tuple(EvidenceRef(self.task_id, local_id) for local_id in self.evidence_ids)
 
     @property
-    def projection(self) -> OutcomeProjection:
-        return OUTCOME_PROJECTIONS[self.outcome]
+    def projection(self) -> TaskOutcomeProjection:
+        return TASK_OUTCOME_PROJECTIONS[self.outcome]
 
     def render(self) -> str:
         if self.verified_at_completion:
