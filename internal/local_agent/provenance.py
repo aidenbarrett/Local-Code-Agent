@@ -25,9 +25,9 @@ from typing import Any
 # behind a redefined root.
 _ROOT = Path(__file__).resolve().parents[2]
 
-# Everything that can change what the agent does. Not the tests, not the docs:
-# a change to those does not change a measured number, and including them would
-# make the hash churn for reasons nobody cares about.
+# Everything that can change what the agent does. Prose docs are excluded, but
+# normative runtime contract assets are behaviour-affecting and must move the
+# source identity when their bytes change.
 _HASHED = (
     ("internal/local_agent", "*.py"),
     # Every file under a skill, not just its SKILL.md. References are loaded on
@@ -38,6 +38,9 @@ _HASHED = (
     # Qualification and experiment launch policy are part of the instrument.
     ("internal/measurement", "*.py"),
     ("internal/measurement", "*.sh"),
+    # The Session Hub v1 validator loads this versioned JSON contract at runtime.
+    # Keep the prose README in the parent directory outside the hashed surface.
+    ("internal/docs/session-contract/v1", "*.json"),
 )
 
 # Root packaging metadata decides what is installed and therefore executes.
