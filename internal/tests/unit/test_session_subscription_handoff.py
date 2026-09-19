@@ -61,7 +61,7 @@ def test_commit_after_boundary_is_not_lost_while_handoff_holds_publish_lock(tmp_
         # serialised behind the handoff and cannot exercise the commit/publication
         # race this test is about.
         boundary_read = threading.Event()
-        commit_allowed = threading.Event()
+        allow_commit = threading.Event()
         commit_done = threading.Event()
         original_append = service.store.append
         original_next_sequence = service.store.next_sequence
@@ -69,7 +69,7 @@ def test_commit_after_boundary_is_not_lost_while_handoff_holds_publish_lock(tmp_
         def delayed_append(envelope, *, expected_sequence):
             if int(envelope["sequence"]) == 2:
                 assert boundary_read.wait(3)
-                assert commit_allowed.wait(3)
+                assert allow_commit.wait(3)
             original_append(envelope, expected_sequence=expected_sequence)
             if int(envelope["sequence"]) == 2:
                 commit_done.set()
@@ -78,7 +78,7 @@ def test_commit_after_boundary_is_not_lost_while_handoff_holds_publish_lock(tmp_
             value = original_next_sequence(stream_id)
             if threading.current_thread().name == "handoff-thread":
                 boundary_read.set()
-                commit_allowed.set()
+                allow_commit.set()
                 assert commit_done.wait(3)
             return value
 
