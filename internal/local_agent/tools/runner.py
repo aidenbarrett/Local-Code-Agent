@@ -10,10 +10,10 @@ call ``setsid()`` and escape that group. Windows process enumeration has the sam
 proof problem until the runner owns a Job Object. Timeout cleanup is therefore
 reported as unconfirmed on both platforms unless stronger OS containment exists.
 
-Child output is written to private capture files and snapshotted into the public
-run artifacts only after the direct child exits or timeout handling completes.
-An escaped descendant can therefore neither hold ``communicate()`` open forever
-nor mutate the evidence files after ``run_command`` returns.
+Child output is written to private temporary files and snapshotted into the
+public run artifacts only after the direct child exits or timeout handling
+completes. An escaped descendant can therefore neither hold ``communicate()``
+open forever nor mutate the evidence files after ``run_command`` returns.
 """
 
 from __future__ import annotations
@@ -22,10 +22,12 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 import psutil
 
@@ -132,17 +134,11 @@ def _bounded_reap(proc: subprocess.Popen) -> None:
         pass
 
 
-def _snapshot_capture(path: Path) -> str:
-    return path.read_bytes().decode("utf-8", errors="replace")
-
-
-def _unlink_capture(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        # Windows may refuse deletion while an escaped process still owns the
-        # handle. The public evidence is already snapshotted to different files.
-        pass
+def _snapshot_capture(capture: BinaryIO) -> str:
+    """Read exactly the bytes present at one instant, even if a child keeps writing."""
+    size = os.fstat(capture.fileno()).st_size
+    capture.seek(0)
+    return capture.read(size).decode("utf-8", errors="replace")
 
 
 def run_command(
@@ -169,8 +165,6 @@ def run_command(
     stdout_path = run_dir / "stdout.log"
     stderr_path = run_dir / "stderr.log"
     combined_path = run_dir / "combined.log"
-    stdout_capture_path = run_dir / ".stdout.capture"
-    stderr_capture_path = run_dir / ".stderr.capture"
 
     env = dict(os.environ)
     env.update(env_overrides or {})
@@ -182,9 +176,13 @@ def run_command(
     timed_out = False
     cleanup_confirmed: bool | None = None
     try:
+        # These captures never live inside the public run directory. If an
+        # escaped descendant retains its inherited descriptor, it can only keep
+        # writing to the private temporary object; the public evidence below is
+        # a bounded snapshot of a fixed byte length.
         with (
-            stdout_capture_path.open("wb") as stdout_capture,
-            stderr_capture_path.open("wb") as stderr_capture,
+            tempfile.TemporaryFile(mode="w+b") as stdout_capture,
+            tempfile.TemporaryFile(mode="w+b") as stderr_capture,
         ):
             proc = subprocess.Popen(
                 [exe, *command[1:]],
@@ -201,20 +199,13 @@ def run_command(
                 cleanup_confirmed = _kill_timed_out_process(proc)
                 _bounded_reap(proc)
                 code = 124
+
+            stdout = _snapshot_capture(stdout_capture)
+            stderr = _snapshot_capture(stderr_capture)
     except OSError as exc:
-        _unlink_capture(stdout_capture_path)
-        _unlink_capture(stderr_capture_path)
         raise BlockedError(
             f"could not start {exe!r}: {exc.strerror or exc}", Reason.SPAWN_FAILURE
         ) from exc
-
-    # Regular-file reads reach the current EOF immediately even if an escaped
-    # descendant still owns an inherited descriptor. Snapshot before unlinking
-    # so returned artifacts are stable after run_command returns.
-    stdout = _snapshot_capture(stdout_capture_path)
-    stderr = _snapshot_capture(stderr_capture_path)
-    _unlink_capture(stdout_capture_path)
-    _unlink_capture(stderr_capture_path)
 
     if timed_out:
         stderr += (
