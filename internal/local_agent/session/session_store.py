@@ -26,6 +26,11 @@ class TaskStateConflict(RuntimeError):
     pass
 
 
+_TERMINAL_TASK_STATES = frozenset({
+    "completed", "failed", "blocked", "cancelled", "timed_out", "interrupted", "unknown",
+})
+
+
 class _ClosingConnection(sqlite3.Connection):
     """Commit/rollback like sqlite3.Connection, then always release the handle."""
 
@@ -80,6 +85,7 @@ class SQLiteSessionStore:
                     payload_sha256 TEXT NOT NULL,
                     stream_id TEXT NOT NULL,
                     admitted_sequence INTEGER NOT NULL,
+                    execution_epoch INTEGER NOT NULL,
                     state TEXT NOT NULL,
                     terminal INTEGER NOT NULL CHECK(terminal IN (0, 1)),
                     verdict_sequence INTEGER,
@@ -88,12 +94,17 @@ class SQLiteSessionStore:
                 );
                 """
             )
-            # Forward-only compatibility for databases created before atomic
-            # terminalization recorded the verdict/result index on the task row.
+            # Forward-only compatibility for databases created before later task
+            # index fields became load-bearing. Existing rows predate epoch fencing,
+            # so epoch zero is their only truthful reconstructable value.
             columns = {
                 str(row["name"])
                 for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
             }
+            if "execution_epoch" not in columns:
+                conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN execution_epoch INTEGER NOT NULL DEFAULT 0"
+                )
             if "verdict_sequence" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN verdict_sequence INTEGER")
             if "result_ref_json" not in columns:
@@ -134,6 +145,38 @@ class SQLiteSessionStore:
         )
         cls._advance_sequence(conn, envelope["stream_id"], int(envelope["sequence"]))
 
+    @staticmethod
+    def _task_row(conn: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
+        return conn.execute(
+            "SELECT task_id, session_id, stream_id, execution_epoch, state, terminal "
+            "FROM tasks WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+
+    @classmethod
+    def _validate_epoch_scoped_task_event(
+        cls,
+        conn: sqlite3.Connection,
+        envelope: dict[str, Any],
+    ) -> sqlite3.Row | None:
+        task_id = envelope.get("task_id")
+        payload = envelope.get("payload")
+        if not task_id or not isinstance(payload, dict) or "execution_epoch" not in payload:
+            return None
+
+        row = cls._task_row(conn, str(task_id))
+        if not row:
+            raise TaskStateConflict("epoch-scoped event names an unknown task")
+        if int(row["terminal"]):
+            raise TaskStateConflict("epoch-scoped event cannot mutate a terminal task")
+        if row["stream_id"] != envelope["stream_id"]:
+            raise TaskStateConflict("task belongs to a different durable stream")
+        if row["session_id"] != envelope.get("session_id"):
+            raise TaskStateConflict("task belongs to a different durable session")
+        if int(payload["execution_epoch"]) != int(row["execution_epoch"]):
+            raise TaskStateConflict("event execution_epoch does not match the durable task epoch")
+        return row
+
     def next_sequence(self, stream_id: str) -> int:
         with self._connect() as conn:
             return self._next_sequence(conn, stream_id)
@@ -142,7 +185,9 @@ class SQLiteSessionStore:
         """Append one validated non-terminal event with CAS sequencing.
 
         Final verdict and closure are intentionally excluded: callers cannot
-        create a half-terminal task by committing one without the other.
+        create a half-terminal task by committing one without the other. Events
+        carrying an execution epoch are fenced against the durable task index.
+        State-change events also advance that index in the same transaction.
         """
         validate_event(envelope)
         if envelope["kind"] in {"task.verdict", "task.closed"}:
@@ -158,7 +203,32 @@ class SQLiteSessionStore:
                 raise SequenceConflict(
                     f"stream {stream_id} expected sequence {expected_sequence}, actual {actual}"
                 )
+
+            row = self._validate_epoch_scoped_task_event(conn, envelope)
+            if envelope["kind"] == "task.state_changed":
+                if row is None:
+                    conn.execute("ROLLBACK")
+                    raise TaskStateConflict("task.state_changed requires a known task and execution epoch")
+                previous = str(envelope["payload"]["previous"])
+                current = str(envelope["payload"]["current"])
+                if previous != str(row["state"]):
+                    conn.execute("ROLLBACK")
+                    raise TaskStateConflict(
+                        f"task state transition expected previous={row['state']!s}, got {previous!s}"
+                    )
+                if current == previous:
+                    conn.execute("ROLLBACK")
+                    raise TaskStateConflict("task state transition must change state")
+                if current in _TERMINAL_TASK_STATES:
+                    conn.execute("ROLLBACK")
+                    raise TaskStateConflict("terminal task state requires atomic finalize_task")
+
             self._insert_event(conn, envelope)
+            if envelope["kind"] == "task.state_changed":
+                conn.execute(
+                    "UPDATE tasks SET state = ? WHERE task_id = ?",
+                    (str(envelope["payload"]["current"]), str(envelope["task_id"])),
+                )
             conn.execute("COMMIT")
 
     def admit(
@@ -180,6 +250,7 @@ class SQLiteSessionStore:
         if int(envelope["sequence"]) != expected_sequence:
             raise SequenceConflict("admission envelope sequence does not match expected sequence")
         task_id = str(envelope["task_id"])
+        execution_epoch = int(envelope["payload"]["execution_epoch"])
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             existing = conn.execute(
@@ -200,11 +271,12 @@ class SQLiteSessionStore:
                 )
             conn.execute(
                 "INSERT INTO tasks(task_id, session_id, request_id, payload_sha256, stream_id, "
-                "admitted_sequence, state, terminal, verdict_sequence, closed_sequence, result_ref_json) "
-                "VALUES(?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)",
+                "admitted_sequence, execution_epoch, state, terminal, verdict_sequence, "
+                "closed_sequence, result_ref_json) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)",
                 (
                     task_id, envelope.get("session_id"), request_id, payload_sha256,
-                    envelope["stream_id"], expected_sequence, "admitted",
+                    envelope["stream_id"], expected_sequence, execution_epoch, "admitted",
                 ),
             )
             self._insert_event(conn, envelope)
@@ -249,7 +321,7 @@ class SQLiteSessionStore:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT terminal, stream_id, session_id FROM tasks WHERE task_id = ?", (task_id,)
+                "SELECT terminal, stream_id, session_id, state FROM tasks WHERE task_id = ?", (task_id,)
             ).fetchone()
             if not row:
                 conn.execute("ROLLBACK")
@@ -257,6 +329,9 @@ class SQLiteSessionStore:
             if int(row["terminal"]):
                 conn.execute("ROLLBACK")
                 raise TaskStateConflict("task is already terminal")
+            if str(row["state"]) in _TERMINAL_TASK_STATES:
+                conn.execute("ROLLBACK")
+                raise TaskStateConflict("task index contains a terminal state without terminal closure")
             if row["stream_id"] != stream_id:
                 conn.execute("ROLLBACK")
                 raise TaskStateConflict("task belongs to a different durable stream")
@@ -310,7 +385,7 @@ class SQLiteSessionStore:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT task_id, session_id, request_id, payload_sha256, stream_id, admitted_sequence, "
-                "state, terminal, verdict_sequence, closed_sequence, result_ref_json "
+                "execution_epoch, state, terminal, verdict_sequence, closed_sequence, result_ref_json "
                 "FROM tasks WHERE task_id = ?",
                 (task_id,),
             ).fetchone()
@@ -331,8 +406,9 @@ class SQLiteSessionStore:
         """
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT task_id, session_id, request_id, payload_sha256, stream_id, admitted_sequence, state "
-                "FROM tasks WHERE terminal = 0 AND stream_id = ? ORDER BY admitted_sequence ASC",
+                "SELECT task_id, session_id, request_id, payload_sha256, stream_id, admitted_sequence, "
+                "execution_epoch, state FROM tasks WHERE terminal = 0 AND stream_id = ? "
+                "ORDER BY admitted_sequence ASC",
                 (stream_id,),
             ).fetchall()
         return [dict(row) for row in rows]
