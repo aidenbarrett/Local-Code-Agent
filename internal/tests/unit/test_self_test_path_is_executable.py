@@ -20,9 +20,7 @@ inside the suite is a fork bomb with extra steps. The temp directory is the poin
 """
 from __future__ import annotations
 
-import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -56,26 +54,15 @@ def config():
 
 
 @pytest.fixture
-def probe_dir():
-    """A scratch test directory *inside* the repository, not in the system temp tree.
+def probe_dir(tmp_path):
+    """A system-temp test directory, deliberately outside the repository.
 
-    Not a style choice. `run_test_suite.py` labels a result with
-    `file.relative_to(root)` and raises ValueError on a path outside the repository
-    root, so pointing the configured command at pytest's `tmp_path` crashes the runner
-    before it reports anything. That is a real robustness bug in the runner and it is
-    reported separately; it is not this test's subject, and working around it here keeps
-    this test about the invariant it is named for.
-
-    `.local-agent/` is in `provenance._SKIP`, so nothing written here reaches the hashed
-    surface or the membership classification.
+    The compatibility runner must be able to execute explicitly supplied test paths
+    that are not children of the checkout. Keeping this probe outside the repository
+    prevents the self-test invariant from depending on a hidden path restriction and
+    exercises the same external-path support as the dedicated runner regression.
     """
-    target = ROOT / ".local-agent" / f"self-test-probe-{os.getpid()}"
-    shutil.rmtree(target, ignore_errors=True)
-    target.mkdir(parents=True)
-    try:
-        yield target
-    finally:
-        shutil.rmtree(target, ignore_errors=True)
+    return tmp_path
 
 
 @pytest.fixture(scope="module")
