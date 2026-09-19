@@ -17,10 +17,15 @@ sent in here to make the product work.
 | `tests/` | unit and integration tests | no |
 | `devtools/` | developer utilities that inspect the repository, such as the rename pre-flight | no |
 | `scripts/` | operator tools, demos, product help, chat entry points | no |
-| `docs/` | design, methodology, review history, bring-up | no, except `session-contract/v1` |
+| `docs/` | design, methodology, review history, bring-up and future-client plans | no, except `session-contract/v1` |
 | `experiments/` | frozen collected evidence | no, and never edited |
 | `personas/` | chat persona configuration | no |
-| `ui/`, `vscode/` | future-client notes | no |
+
+A documentation-only future component belongs under `docs/`, not in a source-looking
+folder. `docs/textual-client-design.md` and `docs/vscode-client-design.md` hold the
+current future-client notes. Runtime paths such as `internal/ui/` or
+`internal/vscode/` should appear only when real implementation code exists and their
+instrument classification has been made deliberately.
 
 "Part of the instrument" means the file's bytes feed `source_sha256`. Editing one
 changes the identity of the thing that produced every measurement. That is not a reason
