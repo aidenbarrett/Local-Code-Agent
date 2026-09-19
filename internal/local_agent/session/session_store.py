@@ -1,8 +1,8 @@
 """Durable Session Hub event/task state.
 
-The store is deliberately boring: SQLite WAL, one transactional sequence check,
+The store is deliberately boring: SQLite WAL, transactional stream sequencing,
 and validated JSON envelopes. It is not a verification oracle and it never
-replays task effects. Admission and its event commit atomically.
+replays task effects. Admission and terminalization are durable atomic fences.
 """
 from __future__ import annotations
 
@@ -82,14 +82,30 @@ class SQLiteSessionStore:
                     admitted_sequence INTEGER NOT NULL,
                     state TEXT NOT NULL,
                     terminal INTEGER NOT NULL CHECK(terminal IN (0, 1)),
-                    closed_sequence INTEGER
+                    verdict_sequence INTEGER,
+                    closed_sequence INTEGER,
+                    result_ref_json TEXT
                 );
                 """
             )
+            # Forward-only compatibility for databases created before atomic
+            # terminalization recorded the verdict/result index on the task row.
+            columns = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
+            }
+            if "verdict_sequence" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN verdict_sequence INTEGER")
+            if "result_ref_json" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN result_ref_json TEXT")
 
     @staticmethod
     def _encoded(envelope: dict[str, Any]) -> str:
         return json.dumps(envelope, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+    @staticmethod
+    def _encoded_value(value: Any) -> str:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
     @staticmethod
     def _next_sequence(conn: sqlite3.Connection, stream_id: str) -> int:
@@ -123,8 +139,14 @@ class SQLiteSessionStore:
             return self._next_sequence(conn, stream_id)
 
     def append(self, envelope: dict[str, Any], *, expected_sequence: int) -> None:
-        """Append exactly one validated event with compare-and-swap sequencing."""
+        """Append one validated non-terminal event with CAS sequencing.
+
+        Final verdict and closure are intentionally excluded: callers cannot
+        create a half-terminal task by committing one without the other.
+        """
         validate_event(envelope)
+        if envelope["kind"] in {"task.verdict", "task.closed"}:
+            raise ValueError("task verdict and closure must use atomic finalize_task")
         stream_id = envelope["stream_id"]
         if int(envelope["sequence"]) != expected_sequence:
             raise SequenceConflict("envelope sequence does not match expected sequence")
@@ -178,7 +200,8 @@ class SQLiteSessionStore:
                 )
             conn.execute(
                 "INSERT INTO tasks(task_id, session_id, request_id, payload_sha256, stream_id, "
-                "admitted_sequence, state, terminal, closed_sequence) VALUES(?, ?, ?, ?, ?, ?, ?, 0, NULL)",
+                "admitted_sequence, state, terminal, verdict_sequence, closed_sequence, result_ref_json) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)",
                 (
                     task_id, envelope.get("session_id"), request_id, payload_sha256,
                     envelope["stream_id"], expected_sequence, "admitted",
@@ -188,39 +211,81 @@ class SQLiteSessionStore:
             conn.execute("COMMIT")
             return task_id, True
 
-    def close_task(self, envelope: dict[str, Any], *, expected_sequence: int) -> None:
-        """Commit a terminal task.closed event and task row in one transaction."""
-        validate_event(envelope)
-        if envelope["kind"] != "task.closed" or not envelope.get("task_id"):
-            raise ValueError("task closure requires a task.closed event with task_id")
-        if int(envelope["sequence"]) != expected_sequence:
-            raise SequenceConflict("closure envelope sequence does not match expected sequence")
-        task_id = str(envelope["task_id"])
+    def finalize_task(
+        self,
+        verdict_envelope: dict[str, Any],
+        closed_envelope: dict[str, Any],
+        *,
+        expected_sequence: int,
+    ) -> None:
+        """Atomically commit final verdict, closure, terminal state and result index."""
+        validate_event(verdict_envelope)
+        validate_event(closed_envelope)
+        if verdict_envelope["kind"] != "task.verdict":
+            raise ValueError("finalization requires task.verdict first")
+        if closed_envelope["kind"] != "task.closed":
+            raise ValueError("finalization requires task.closed second")
+
+        task_id = verdict_envelope.get("task_id")
+        if not task_id or closed_envelope.get("task_id") != task_id:
+            raise ValueError("finalization envelopes must name the same task_id")
+        stream_id = verdict_envelope["stream_id"]
+        if closed_envelope["stream_id"] != stream_id:
+            raise ValueError("finalization envelopes must use the same durable stream")
+        if int(verdict_envelope["sequence"]) != expected_sequence:
+            raise SequenceConflict("verdict sequence does not match expected sequence")
+        if int(closed_envelope["sequence"]) != expected_sequence + 1:
+            raise SequenceConflict("closure sequence must immediately follow verdict")
+
+        completion = verdict_envelope["payload"]["completion"]
+        closure = closed_envelope["payload"]
+        if completion["task_id"] != task_id:
+            raise ValueError("verdict completion task_id must equal the envelope task_id")
+        if completion["status"] != closure["status"]:
+            raise ValueError("verdict and closure terminal status must agree")
+        if completion["result_ref"] != closure["result_ref"]:
+            raise ValueError("verdict and closure result_ref must agree")
+
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT terminal, stream_id FROM tasks WHERE task_id = ?", (task_id,)
+                "SELECT terminal, stream_id, session_id FROM tasks WHERE task_id = ?", (task_id,)
             ).fetchone()
             if not row:
                 conn.execute("ROLLBACK")
-                raise TaskStateConflict("cannot close an unknown task")
+                raise TaskStateConflict("cannot finalize an unknown task")
             if int(row["terminal"]):
                 conn.execute("ROLLBACK")
                 raise TaskStateConflict("task is already terminal")
-            if row["stream_id"] != envelope["stream_id"]:
+            if row["stream_id"] != stream_id:
                 conn.execute("ROLLBACK")
                 raise TaskStateConflict("task belongs to a different durable stream")
-            actual = self._next_sequence(conn, envelope["stream_id"])
+            if row["session_id"] != verdict_envelope.get("session_id") or row["session_id"] != closed_envelope.get("session_id"):
+                conn.execute("ROLLBACK")
+                raise TaskStateConflict("task belongs to a different durable session")
+            prior = conn.execute(
+                "SELECT kind FROM events WHERE task_id = ? AND kind IN ('task.verdict', 'task.closed') LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            if prior:
+                conn.execute("ROLLBACK")
+                raise TaskStateConflict("task already has a terminal event")
+            actual = self._next_sequence(conn, stream_id)
             if actual != expected_sequence:
                 conn.execute("ROLLBACK")
                 raise SequenceConflict(
-                    f"stream {envelope['stream_id']} expected sequence {expected_sequence}, actual {actual}"
+                    f"stream {stream_id} expected sequence {expected_sequence}, actual {actual}"
                 )
-            status = str(envelope["payload"].get("status", "closed"))
-            self._insert_event(conn, envelope)
+
+            self._insert_event(conn, verdict_envelope)
+            self._insert_event(conn, closed_envelope)
             conn.execute(
-                "UPDATE tasks SET state = ?, terminal = 1, closed_sequence = ? WHERE task_id = ?",
-                (status, expected_sequence, task_id),
+                "UPDATE tasks SET state = ?, terminal = 1, verdict_sequence = ?, closed_sequence = ?, "
+                "result_ref_json = ? WHERE task_id = ?",
+                (
+                    str(closure["status"]), expected_sequence, expected_sequence + 1,
+                    self._encoded_value(closure["result_ref"]), task_id,
+                ),
             )
             conn.execute("COMMIT")
 
@@ -240,16 +305,34 @@ class SQLiteSessionStore:
             validate_event(event)
         return events
 
-    def unterminated_tasks(self) -> list[dict[str, Any]]:
-        """Return durable admissions that need crash reconciliation.
+    def task_record(self, task_id: str) -> dict[str, Any] | None:
+        """Return durable task-index state without treating it as verification proof."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT task_id, session_id, request_id, payload_sha256, stream_id, admitted_sequence, "
+                "state, terminal, verdict_sequence, closed_sequence, result_ref_json "
+                "FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+        if not row:
+            return None
+        record = dict(row)
+        record["terminal"] = bool(record["terminal"])
+        encoded = record.pop("result_ref_json")
+        record["result_ref"] = json.loads(encoded) if encoded is not None else None
+        return record
 
-        This method deliberately does not execute, retry or fabricate a terminal
-        result. The service layer must append an explicit NO_VERDICT recovery
-        event/closure before allowing replacement work.
+    def unterminated_tasks(self, stream_id: str) -> list[dict[str, Any]]:
+        """Return this stream's durable admissions needing crash reconciliation.
+
+        Recovery is explicitly stream-scoped: one service may never terminalize a
+        task owned by another stream merely because both share the same database.
+        This method does not execute or retry effects.
         """
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT task_id, session_id, request_id, payload_sha256, stream_id, admitted_sequence, state "
-                "FROM tasks WHERE terminal = 0 ORDER BY admitted_sequence ASC"
+                "FROM tasks WHERE terminal = 0 AND stream_id = ? ORDER BY admitted_sequence ASC",
+                (stream_id,),
             ).fetchall()
         return [dict(row) for row in rows]
