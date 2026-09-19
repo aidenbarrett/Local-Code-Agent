@@ -1,15 +1,18 @@
-"""Guard the design contract before any runtime claims to implement it.
+"""Guard the Session Hub v1 wire contract and its runtime boundary.
 
-These dependency-free checks pin vocabulary, fields and local references. They
-are not a JSON Schema metaschema validator or runtime payload validation. Replace
-the prototype-disjointness guard with producer/consumer conformance tests in the
-migration PR; matching event names alone never establishes conformance.
+These checks pin vocabulary, fields and local references. They are not a JSON Schema
+metaschema validator and they do not replace producer/consumer lifecycle tests. The
+versioned JSON schema is normative; runtime validation must load that exact asset.
+Prototype `.emit` vocabulary remains separately inventoried until those producers are
+migrated, because matching an event name alone never establishes conformance.
 """
 from __future__ import annotations
 
 import ast
 import json
 from pathlib import Path
+
+from local_agent.session import event_contract
 
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMA = ROOT / "internal/docs/session-contract/v1/events.schema.json"
@@ -157,6 +160,8 @@ def test_the_prototype_vocabulary_and_the_v1_contract_stay_disjoint():
         "name overlap, partial or complete, does not implement the contract.")
 
 
-def test_the_contract_readme_still_declares_the_design_only_boundary():
-    readme = (SCHEMA.parent.parent / "README.md").read_text(encoding="utf-8")
-    assert "No runtime emits this" in readme
+def test_runtime_validation_loads_the_normative_versioned_schema():
+    """Implementation status is executable state, not a sentence in a README."""
+    assert event_contract._SCHEMA_PATH.resolve() == SCHEMA.resolve()
+    assert event_contract._SCHEMA == _schema()
+    assert event_contract._VALIDATOR.schema == _schema()
