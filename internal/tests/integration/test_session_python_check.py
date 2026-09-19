@@ -4,8 +4,8 @@ import subprocess
 import pytest
 
 from local_agent.config import BuildProfile, Policy, RepoConfig
-from local_agent.session.controller import TaskController
-from local_agent.session.events import EventBuffer
+from local_agent.session.task_controller import TaskController
+from local_agent.session.event_buffer import EventBuffer
 
 
 @pytest.mark.parametrize("passing", [True, False])

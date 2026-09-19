@@ -14,8 +14,8 @@ from local_agent.session.conversation_store import (
     new_session,
     turn_ref,
 )
-from local_agent.session.events import EventBuffer
-from local_agent.session.gateway import ConversationGateway
+from local_agent.session.event_buffer import EventBuffer
+from local_agent.session.conversation_gateway import ConversationGateway
 
 
 class Chat:

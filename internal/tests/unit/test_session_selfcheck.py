@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from local_agent.config import BuildProfile, Policy, RepoConfig
-from local_agent.session import selfcheck
-from local_agent.session.events import EventBuffer
+from local_agent.session import self_check as selfcheck
+from local_agent.session.event_buffer import EventBuffer
 
 
 def report(path, tests=1, failures=0, skipped=0):

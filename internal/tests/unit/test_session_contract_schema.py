@@ -85,8 +85,8 @@ def _emitted_kinds():
             if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
                 kinds.add(expr.value)
                 continue
-            # The only current dynamic emitter is controller's allowlisted table.
-            assert (path.name == "controller.py" and isinstance(expr, ast.BinOp)
+            # The only current dynamic emitter is task_controller's allowlisted table.
+            assert (path.name == "task_controller.py" and isinstance(expr, ast.BinOp)
                     and isinstance(expr.op, ast.Add)
                     and isinstance(expr.left, ast.Constant) and isinstance(expr.left.value, str)
                     and isinstance(expr.right, ast.Name) and expr.right.id == "kind"), (
