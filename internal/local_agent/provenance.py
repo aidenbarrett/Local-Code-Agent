@@ -38,10 +38,9 @@ _HASHED = (
     # Qualification and experiment launch policy are part of the instrument.
     ("internal/measurement", "*.py"),
     ("internal/measurement", "*.sh"),
-    # The Session Hub validator loads these JSON schemas at runtime. A schema
-    # edit therefore changes executable validation behaviour even though the
-    # normative contract is stored under docs/.
-    ("internal/docs/session-contract", "*.json"),
+    # The Session Hub v1 validator loads this versioned JSON contract at runtime.
+    # Keep the prose README in the parent directory outside the hashed surface.
+    ("internal/docs/session-contract/v1", "*.json"),
 )
 
 # Root packaging metadata decides what is installed and therefore executes.
