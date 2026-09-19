@@ -40,11 +40,11 @@ def _admission_payload() -> dict:
     }
 
 
-def _service(tmp_path, *, subscriber_capacity=8):
+def _service(tmp_path, *, subscriber_capacity=8, store=None):
     stream_id = str(uuid4())
     session_id = str(uuid4())
     service = DurableSessionService(
-        SQLiteSessionStore(tmp_path / "session.db"),
+        store or SQLiteSessionStore(tmp_path / "session.db"),
         stream_id=stream_id,
         session_id=session_id,
     )
@@ -121,14 +121,26 @@ def test_subscription_overflow_is_explicit_gap_not_silent_loss(tmp_path):
         service.close()
 
 
-def test_crash_recovery_closes_unknown_task_without_reexecution(tmp_path):
+def test_terminal_events_cannot_bypass_the_atomic_service_path(tmp_path):
     service, _ = _service(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="finalize_task"):
+            service.append("task.verdict", {}, task_id=str(uuid4()))
+        with pytest.raises(ValueError, match="finalize_task"):
+            service.append("task.closed", {}, task_id=str(uuid4()))
+    finally:
+        service.close()
+
+
+def test_crash_recovery_atomically_closes_unknown_task_without_reexecution(tmp_path):
+    service, sub = _service(tmp_path)
     try:
         admitted = service.submit_task(
             request_id="request-1", payload_sha256="c" * 64,
             admission_payload=_admission_payload(),
         )
         admitted.wait(5)
+        sub.drain()  # isolate recovery publication
         task_id = admitted.task_id
         assert task_id is not None
 
@@ -138,15 +150,47 @@ def test_crash_recovery_closes_unknown_task_without_reexecution(tmp_path):
         assert [event["kind"] for event in events] == [
             "task.admitted", "task.verdict", "task.closed"
         ]
+        assert [event["kind"] for event in sub.drain()] == ["task.verdict", "task.closed"]
         completion = events[1]["payload"]["completion"]
         assert completion["status"] == "unknown"
         assert completion["verdict_block"]["verdict"] == "NO_VERDICT"
         assert completion["verdict_block"]["reason_code"] == "controller_crash"
         assert events[2]["payload"]["status"] == "unknown"
         assert events[2]["payload"]["cleanup"] == "unknown"
-        assert service.store.unterminated_tasks() == []
+        assert service.store.unterminated_tasks(service.stream_id) == []
+        record = service.store.task_record(task_id)
+        assert record is not None and record["terminal"] is True
+        assert record["verdict_sequence"] == 2
+        assert record["closed_sequence"] == 3
+        assert record["result_ref"] == completion["result_ref"]
     finally:
         service.close()
+
+
+def test_recovery_never_claims_a_task_owned_by_another_stream(tmp_path):
+    store = SQLiteSessionStore(tmp_path / "shared.db")
+    one, _ = _service(tmp_path, store=store)
+    two, _ = _service(tmp_path, store=store)
+    try:
+        first = one.submit_task(
+            request_id="one", payload_sha256="c" * 64,
+            admission_payload=_admission_payload(),
+        )
+        second = two.submit_task(
+            request_id="two", payload_sha256="d" * 64,
+            admission_payload=_admission_payload(),
+        )
+        first.wait(5)
+        second.wait(5)
+
+        assert one.recover_unknown_tasks() == [first.task_id]
+        assert one.store.task_record(first.task_id)["terminal"] is True
+        assert one.store.task_record(second.task_id)["terminal"] is False
+        assert [row["task_id"] for row in store.unterminated_tasks(two.stream_id)] == [second.task_id]
+        assert [event["kind"] for event in two.replay()] == ["task.admitted"]
+    finally:
+        one.close()
+        two.close()
 
 
 def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(tmp_path):
@@ -156,7 +200,7 @@ def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(
     class Controller:
         def run(self, task, *, self_check=False, route_source=None, task_id=None):
             assert task_id is not None
-            assert [row["task_id"] for row in service.store.unterminated_tasks()] == [task_id]
+            assert [row["task_id"] for row in service.store.unterminated_tasks(service.stream_id)] == [task_id]
             calls.append(task_id)
             return TaskResult(
                 task_id,
@@ -182,6 +226,9 @@ def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(
         assert [event["kind"] for event in service.replay()] == [
             "task.admitted", "task.state_changed", "task.verdict", "task.closed"
         ]
+        record = service.store.task_record(first.task_id)
+        assert record is not None and record["terminal"] is True
+        assert record["result_ref"] == service.replay()[-1]["payload"]["result_ref"]
 
         retry = executor.submit(
             task="inspect",
