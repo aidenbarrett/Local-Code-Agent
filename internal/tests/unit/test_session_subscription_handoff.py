@@ -56,26 +56,36 @@ def test_commit_after_boundary_is_not_lost_while_handoff_holds_publish_lock(tmp_
         first = service.append("session.opened", _opened(recovered=False))
         first.wait(5)
 
+        # The command must already be accepted before subscribe_from takes the
+        # lifecycle lock. Commands submitted afterwards are deliberately
+        # serialised behind the handoff and cannot exercise the commit/publication
+        # race this test is about.
         boundary_read = threading.Event()
-        release_boundary = threading.Event()
-        publish_entered = threading.Event()
+        commit_allowed = threading.Event()
+        commit_done = threading.Event()
+        original_append = service.store.append
         original_next_sequence = service.store.next_sequence
-        original_publish = service._publish
+
+        def delayed_append(envelope, *, expected_sequence):
+            if int(envelope["sequence"]) == 2:
+                assert boundary_read.wait(3)
+                assert commit_allowed.wait(3)
+            original_append(envelope, expected_sequence=expected_sequence)
+            if int(envelope["sequence"]) == 2:
+                commit_done.set()
 
         def delayed_boundary(stream_id):
             value = original_next_sequence(stream_id)
             if threading.current_thread().name == "handoff-thread":
                 boundary_read.set()
-                assert release_boundary.wait(3)
+                commit_allowed.set()
+                assert commit_done.wait(3)
             return value
 
-        def observed_publish(event):
-            if int(event["sequence"]) == 2:
-                publish_entered.set()
-            return original_publish(event)
-
+        monkeypatch.setattr(service.store, "append", delayed_append)
         monkeypatch.setattr(service.store, "next_sequence", delayed_boundary)
-        monkeypatch.setattr(service, "_publish", observed_publish)
+
+        second = service.append("session.opened", _opened(recovered=True))
 
         box = {}
         errors = []
@@ -88,11 +98,6 @@ def test_commit_after_boundary_is_not_lost_while_handoff_holds_publish_lock(tmp_
 
         thread = threading.Thread(target=open_handoff, name="handoff-thread")
         thread.start()
-        assert boundary_read.wait(3)
-
-        second = service.append("session.opened", _opened(recovered=True))
-        assert publish_entered.wait(3), "second event did not durably commit before publication"
-        release_boundary.set()
         thread.join(3)
         second.wait(5)
 
