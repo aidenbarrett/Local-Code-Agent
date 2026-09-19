@@ -18,6 +18,7 @@ open forever nor mutate the evidence files after ``run_command`` returns.
 
 from __future__ import annotations
 
+import mmap
 import os
 import shutil
 import signal
@@ -135,10 +136,12 @@ def _bounded_reap(proc: subprocess.Popen) -> None:
 
 
 def _snapshot_capture(capture: BinaryIO) -> str:
-    """Read exactly the bytes present at one instant, even if a child keeps writing."""
+    """Read a fixed-length snapshot without moving an inherited file offset."""
     size = os.fstat(capture.fileno()).st_size
-    capture.seek(0)
-    return capture.read(size).decode("utf-8", errors="replace")
+    if size == 0:
+        return ""
+    with mmap.mmap(capture.fileno(), length=size, access=mmap.ACCESS_READ) as view:
+        return view[:].decode("utf-8", errors="replace")
 
 
 def run_command(
