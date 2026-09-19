@@ -276,12 +276,50 @@ def durable_event_gates() -> None:
             service.close()
 
 
+def durable_subscription_gates() -> None:
+    from local_agent.session.session_event_service import DurableSessionService
+    from local_agent.session.session_store import SQLiteSessionStore
+
+    with tempfile.TemporaryDirectory(prefix="lca-hub-handoff-") as temp:
+        service = DurableSessionService(
+            SQLiteSessionStore(Path(temp) / "session.db"),
+            stream_id=str(uuid4()),
+            session_id=str(uuid4()),
+        )
+        try:
+            first = service.append("session.opened", {
+                "conversation_id": "accept",
+                "repository_id": "accept-repo",
+                "controller_commit": "deadbeef",
+                "capabilities": ["inspect"],
+                "recovered": False,
+            })
+            first.wait(5)
+            handoff = service.subscribe_from(after=0, capacity=8)
+            second = service.append("session.opened", {
+                "conversation_id": "accept",
+                "repository_id": "accept-repo",
+                "controller_commit": "deadbeef",
+                "capabilities": ["inspect"],
+                "recovered": True,
+            })
+            second.wait(5)
+
+            replayed = service.replay_subscription(handoff)
+            live = handoff.live.drain()
+            require([event["sequence"] for event in replayed] == [1], "subscription handoff exposes a bounded durable replay window")
+            require([event["sequence"] for event in live] == [2], "events after the replay boundary are delivered live exactly once")
+        finally:
+            service.close()
+
+
 def main() -> int:
     try:
         schema_gates()
         conversation_ownership_gates()
         outcome_gates()
         durable_event_gates()
+        durable_subscription_gates()
     except (AcceptanceFailure, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1
