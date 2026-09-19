@@ -126,14 +126,16 @@ def test_posix_setsid_escape_cannot_hold_runner_or_mutate_public_evidence(tmp_pa
         combined_before = out.combined_path.read_bytes()
         assert b"process-tree cleanup confirmed=false" in stderr_before
 
-        # The escaped child is still writing to its inherited descriptor here.
-        # Public evidence must be a frozen snapshot, not the live capture inode.
+        # The escaped child is still writing to its inherited temporary object
+        # here. Public evidence must be a frozen snapshot with no live capture
+        # file inside the run-artifact directory.
         time.sleep(0.3)
         assert out.stdout_path.read_bytes() == stdout_before
         assert out.stderr_path.read_bytes() == stderr_before
         assert out.combined_path.read_bytes() == combined_before
-        assert not (out.stdout_path.parent / ".stdout.capture").exists()
-        assert not (out.stderr_path.parent / ".stderr.capture").exists()
+        assert {path.name for path in out.stdout_path.parent.iterdir()} == {
+            "stdout.log", "stderr.log", "combined.log", "command.txt"
+        }
     finally:
         if escaped_pid is not None:
             try:
