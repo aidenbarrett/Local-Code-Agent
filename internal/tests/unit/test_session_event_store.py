@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import threading
 from uuid import uuid4
 
 import pytest
 
 from local_agent.session.event_contract import EventContractError, build_event, validate_event
-from local_agent.session.session_store import AdmissionConflict, SequenceConflict, SQLiteSessionStore
+from local_agent.session.session_store import (
+    AdmissionConflict,
+    SequenceConflict,
+    SQLiteSessionStore,
+    TaskStateConflict,
+)
 
 
 def _artifact_ref(data: bytes = b"request") -> dict:
@@ -69,19 +75,62 @@ def _admitted(stream_id: str, epoch: str, session_id: str, task_id: str, sequenc
     )
 
 
-def _closed(stream_id: str, epoch: str, session_id: str, task_id: str, sequence: int) -> dict:
-    return build_event(
+def _terminal_pair(
+    stream_id: str,
+    epoch: str,
+    session_id: str,
+    task_id: str,
+    sequence: int,
+    *,
+    result_ref: dict | None = None,
+) -> tuple[dict, dict]:
+    result_ref = result_ref or _artifact_ref(b"unknown")
+    verdict = build_event(
         stream_id=stream_id,
         sequence=sequence,
+        producer_epoch=epoch,
+        session_id=session_id,
+        task_id=task_id,
+        kind="task.verdict",
+        payload={
+            "completion": {
+                "task_id": task_id,
+                "status": "interrupted",
+                "verdict_block": {
+                    "verdict": "NO_VERDICT",
+                    "reason_code": "cleanup_unknown",
+                    "scope": "test terminalization",
+                    "evidence_ids": [],
+                    "tree_sha256": None,
+                    "rendered_lines": ["NO_VERDICT: cleanup unknown."],
+                },
+                "worker_artifact_ref": None,
+                "result_ref": result_ref,
+            }
+        },
+    )
+    closed = build_event(
+        stream_id=stream_id,
+        sequence=sequence + 1,
         producer_epoch=epoch,
         session_id=session_id,
         task_id=task_id,
         kind="task.closed",
         payload={
             "status": "interrupted",
-            "result_ref": _artifact_ref(b"unknown"),
+            "result_ref": result_ref,
             "cleanup": "unknown",
         },
+    )
+    return verdict, closed
+
+
+def _admit_one(store, stream_id, epoch, session_id, task_id, *, request_id="request-1", sequence=2):
+    store.admit(
+        request_id=request_id,
+        payload_sha256="c" * 64,
+        envelope=_admitted(stream_id, epoch, session_id, task_id, sequence),
+        expected_sequence=sequence,
     )
 
 
@@ -133,25 +182,97 @@ def test_admission_is_atomic_idempotent_and_payload_bound(tmp_path):
         )
 
 
-def test_recovery_query_never_reexecutes_and_terminal_close_removes_task(tmp_path):
+def test_task_verdict_and_close_cannot_be_appended_independently(tmp_path):
     stream_id, epoch, session_id = _ids()
     task_id = str(uuid4())
     store = SQLiteSessionStore(tmp_path / "session.db")
     store.append(_session_opened(stream_id, epoch, session_id), expected_sequence=1)
-    store.admit(
-        request_id="request-1", payload_sha256="c" * 64,
-        envelope=_admitted(stream_id, epoch, session_id, task_id, 2), expected_sequence=2,
+    _admit_one(store, stream_id, epoch, session_id, task_id)
+    verdict, closed = _terminal_pair(stream_id, epoch, session_id, task_id, 3)
+
+    with pytest.raises(ValueError, match="atomic finalize_task"):
+        store.append(verdict, expected_sequence=3)
+    with pytest.raises(ValueError, match="atomic finalize_task"):
+        store.append(closed, expected_sequence=4)
+    assert [event["kind"] for event in store.replay(stream_id)] == ["session.opened", "task.admitted"]
+
+
+def test_terminalization_commits_verdict_close_state_and_result_index_atomically(tmp_path):
+    stream_id, epoch, session_id = _ids()
+    task_id = str(uuid4())
+    result_ref = _artifact_ref(b"terminal-result")
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    store.append(_session_opened(stream_id, epoch, session_id), expected_sequence=1)
+    _admit_one(store, stream_id, epoch, session_id, task_id)
+    verdict, closed = _terminal_pair(
+        stream_id, epoch, session_id, task_id, 3, result_ref=result_ref
     )
 
-    pending = store.unterminated_tasks()
-    assert [row["task_id"] for row in pending] == [task_id]
-    assert pending[0]["state"] == "admitted"
+    store.finalize_task(verdict, closed, expected_sequence=3)
 
-    store.close_task(_closed(stream_id, epoch, session_id, task_id, 3), expected_sequence=3)
-    assert store.unterminated_tasks() == []
-    assert [item["kind"] for item in store.replay(stream_id)] == [
-        "session.opened", "task.admitted", "task.closed"
+    assert [event["kind"] for event in store.replay(stream_id)] == [
+        "session.opened", "task.admitted", "task.verdict", "task.closed"
     ]
+    record = store.task_record(task_id)
+    assert record is not None
+    assert record["terminal"] is True
+    assert record["state"] == "interrupted"
+    assert record["verdict_sequence"] == 3
+    assert record["closed_sequence"] == 4
+    assert record["result_ref"] == result_ref
+    assert store.unterminated_tasks(stream_id) == []
+
+    with pytest.raises(TaskStateConflict, match="already terminal"):
+        store.finalize_task(verdict, closed, expected_sequence=3)
+
+
+def test_terminalization_rolls_back_both_events_and_index_if_second_insert_fails(tmp_path):
+    stream_id, epoch, session_id = _ids()
+    task_id = str(uuid4())
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    store.append(_session_opened(stream_id, epoch, session_id), expected_sequence=1)
+    _admit_one(store, stream_id, epoch, session_id, task_id)
+    verdict, closed = _terminal_pair(stream_id, epoch, session_id, task_id, 3)
+    closed["event_id"] = verdict["event_id"]  # second insert violates UNIQUE(event_id)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store.finalize_task(verdict, closed, expected_sequence=3)
+
+    assert [event["kind"] for event in store.replay(stream_id)] == ["session.opened", "task.admitted"]
+    assert store.next_sequence(stream_id) == 3
+    record = store.task_record(task_id)
+    assert record is not None and record["terminal"] is False
+    assert record["verdict_sequence"] is None
+    assert record["closed_sequence"] is None
+    assert record["result_ref"] is None
+
+
+def test_terminalization_rejects_semantic_task_id_mismatch_even_when_schema_is_valid(tmp_path):
+    stream_id, epoch, session_id = _ids()
+    task_id = str(uuid4())
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    store.append(_session_opened(stream_id, epoch, session_id), expected_sequence=1)
+    _admit_one(store, stream_id, epoch, session_id, task_id)
+    verdict, closed = _terminal_pair(stream_id, epoch, session_id, task_id, 3)
+    verdict["payload"]["completion"]["task_id"] = str(uuid4())
+
+    with pytest.raises(ValueError, match="completion task_id"):
+        store.finalize_task(verdict, closed, expected_sequence=3)
+    assert store.next_sequence(stream_id) == 3
+
+
+def test_recovery_query_is_scoped_to_its_durable_stream(tmp_path):
+    stream_one, epoch_one, session_one = _ids()
+    stream_two, epoch_two, session_two = _ids()
+    task_one, task_two = str(uuid4()), str(uuid4())
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    store.append(_session_opened(stream_one, epoch_one, session_one), expected_sequence=1)
+    store.append(_session_opened(stream_two, epoch_two, session_two), expected_sequence=1)
+    _admit_one(store, stream_one, epoch_one, session_one, task_one, request_id="one")
+    _admit_one(store, stream_two, epoch_two, session_two, task_two, request_id="two")
+
+    assert [row["task_id"] for row in store.unterminated_tasks(stream_one)] == [task_one]
+    assert [row["task_id"] for row in store.unterminated_tasks(stream_two)] == [task_two]
 
 
 def test_two_writers_cannot_claim_the_same_stream_sequence(tmp_path):

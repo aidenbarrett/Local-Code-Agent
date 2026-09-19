@@ -214,7 +214,7 @@ def durable_event_gates() -> None:
             live = subscriber.drain()
             replayed = service.replay()
             require(live == replayed, "committed live delivery and durable replay are identical")
-            require([row["task_id"] for row in store.unterminated_tasks()] == [receipt.task_id], "durable admission is visible before execution")
+            require([row["task_id"] for row in store.unterminated_tasks(stream_id)] == [receipt.task_id], "durable admission is visible before execution")
 
             recovered = service.recover_unknown_tasks()
             require(recovered == [receipt.task_id], "restart recovery finds admitted tasks without terminal state")
@@ -223,7 +223,9 @@ def durable_event_gates() -> None:
             completion = events[1]["payload"]["completion"]
             require(completion["status"] == "unknown" and completion["verdict_block"]["verdict"] == "NO_VERDICT", "crash recovery resolves to explicit unknown/NO_VERDICT")
             require(events[2]["payload"]["status"] == "unknown" and events[2]["payload"]["cleanup"] == "unknown", "unknown recovery closes with cleanup unknown")
-            require(not store.unterminated_tasks(), "recovered unknown task becomes durably terminal")
+            require(not store.unterminated_tasks(stream_id), "recovered unknown task becomes durably terminal")
+            record = store.task_record(receipt.task_id)
+            require(record is not None and record["result_ref"] == completion["result_ref"], "terminal task row indexes the same durable result as the verdict and closure")
         finally:
             service.close()
 
@@ -237,7 +239,7 @@ def durable_event_gates() -> None:
         class Controller:
             def run(self, task, *, self_check=False, route_source=None, task_id=None):
                 assert task_id is not None
-                assert [row["task_id"] for row in store.unterminated_tasks()] == [task_id]
+                assert [row["task_id"] for row in store.unterminated_tasks(service.stream_id)] == [task_id]
                 seen.append(task_id)
                 return TaskResult(task_id, TaskOutcome.FAIL, "observed failure", False, verification_ran=True)
 
@@ -261,6 +263,7 @@ def durable_event_gates() -> None:
             require(seen == [handle.task_id], "controller execution begins only after durable admission")
             events = service.replay()
             require([event["kind"] for event in events] == ["task.admitted", "task.state_changed", "task.verdict", "task.closed"], "controller result follows admitted-running-verdict-close lifecycle")
+            require(store.task_record(handle.task_id)["terminal"] is True, "verdict, closure and terminal result index commit before task completion returns")
             retry = executor.submit(
                 task="inspect", request_id="executor-request",
                 payload_sha256=hashlib.sha256(request).hexdigest(),

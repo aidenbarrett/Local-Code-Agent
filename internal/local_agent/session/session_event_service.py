@@ -141,6 +141,8 @@ class DurableSessionService:
         }))
 
     def append(self, kind: str, payload: dict[str, Any], *, task_id: str | None = None) -> WriteReceipt:
+        if kind in {"task.verdict", "task.closed"}:
+            raise ValueError("terminal task events must use finalize_task")
         receipt = WriteReceipt(task_id=task_id)
         return self._enqueue(_Command("append", receipt, {
             "kind": kind,
@@ -148,10 +150,21 @@ class DurableSessionService:
             "task_id": task_id,
         }))
 
-    def close_task(self, task_id: str, payload: dict[str, Any]) -> WriteReceipt:
+    def finalize_task(
+        self,
+        task_id: str,
+        *,
+        verdict_payload: dict[str, Any],
+        closed_payload: dict[str, Any],
+    ) -> WriteReceipt:
+        """Commit verdict + closure as one atomic terminalization command."""
         UUID(task_id)
         receipt = WriteReceipt(task_id=task_id)
-        return self._enqueue(_Command("close", receipt, {"task_id": task_id, "payload": payload}))
+        return self._enqueue(_Command("finalize", receipt, {
+            "task_id": task_id,
+            "verdict_payload": verdict_payload,
+            "closed_payload": closed_payload,
+        }))
 
     def request_cancel(
         self,
@@ -170,9 +183,9 @@ class DurableSessionService:
         }, task_id=task_id)
 
     def recover_unknown_tasks(self) -> list[str]:
-        """Fence old admissions as NO_VERDICT/unknown. Never retry their effects."""
+        """Fence this stream's old admissions as NO_VERDICT/unknown; never retry effects."""
         recovered: list[str] = []
-        for task in self.store.unterminated_tasks():
+        for task in self.store.unterminated_tasks(self.stream_id):
             task_id = str(task["task_id"])
             result_bytes = b'{"verdict":"NO_VERDICT","reason":"controller_crash","cleanup":"unknown"}'
             result_ref = {
@@ -182,32 +195,34 @@ class DurableSessionService:
                 "size_bytes": len(result_bytes),
                 "availability": "unavailable",
             }
-            verdict = self.append("task.verdict", {
-                "completion": {
-                    "task_id": task_id,
+            terminal = self.finalize_task(
+                task_id,
+                verdict_payload={
+                    "completion": {
+                        "task_id": task_id,
+                        "status": "unknown",
+                        "verdict_block": {
+                            "verdict": "NO_VERDICT",
+                            "reason_code": "controller_crash",
+                            "scope": "effects and cleanup after controller restart",
+                            "evidence_ids": [],
+                            "tree_sha256": None,
+                            "rendered_lines": [
+                                "NO_VERDICT: controller restarted before a durable terminal result.",
+                                "Cleanup unknown; task was not retried.",
+                            ],
+                        },
+                        "worker_artifact_ref": None,
+                        "result_ref": result_ref,
+                    }
+                },
+                closed_payload={
                     "status": "unknown",
-                    "verdict_block": {
-                        "verdict": "NO_VERDICT",
-                        "reason_code": "controller_crash",
-                        "scope": "effects and cleanup after controller restart",
-                        "evidence_ids": [],
-                        "tree_sha256": None,
-                        "rendered_lines": [
-                            "NO_VERDICT: controller restarted before a durable terminal result.",
-                            "Cleanup unknown; task was not retried.",
-                        ],
-                    },
-                    "worker_artifact_ref": None,
                     "result_ref": result_ref,
-                }
-            }, task_id=task_id)
-            verdict.wait(10)
-            closed = self.close_task(task_id, {
-                "status": "unknown",
-                "result_ref": result_ref,
-                "cleanup": "unknown",
-            })
-            closed.wait(10)
+                    "cleanup": "unknown",
+                },
+            )
+            terminal.wait(10)
             recovered.append(task_id)
         return recovered
 
@@ -254,21 +269,41 @@ class DurableSessionService:
                     receipt.created = created
                     if created:
                         self._publish(event)
+                elif command.operation == "finalize":
+                    verdict = build_event(
+                        stream_id=self.stream_id,
+                        sequence=sequence,
+                        producer_epoch=self.producer_epoch,
+                        session_id=self.session_id,
+                        task_id=task_id,
+                        kind="task.verdict",
+                        payload=command.data["verdict_payload"],
+                    )
+                    closed = build_event(
+                        stream_id=self.stream_id,
+                        sequence=sequence + 1,
+                        producer_epoch=self.producer_epoch,
+                        session_id=self.session_id,
+                        task_id=task_id,
+                        kind="task.closed",
+                        payload=command.data["closed_payload"],
+                    )
+                    self.store.finalize_task(verdict, closed, expected_sequence=sequence)
+                    # Publication happens only after the transaction containing both
+                    # terminal events and the task result index has committed.
+                    self._publish(verdict)
+                    self._publish(closed)
                 else:
-                    kind = "task.closed" if command.operation == "close" else command.data["kind"]
                     event = build_event(
                         stream_id=self.stream_id,
                         sequence=sequence,
                         producer_epoch=self.producer_epoch,
                         session_id=self.session_id,
                         task_id=task_id,
-                        kind=kind,
+                        kind=command.data["kind"],
                         payload=command.data["payload"],
                     )
-                    if command.operation == "close":
-                        self.store.close_task(event, expected_sequence=sequence)
-                    else:
-                        self.store.append(event, expected_sequence=sequence)
+                    self.store.append(event, expected_sequence=sequence)
                     self._publish(event)
             except BaseException as exc:
                 receipt.error = exc
@@ -298,7 +333,7 @@ class DurableTaskExecutor:
 
     The durable admission commits first. Only a newly created admission executes;
     an idempotent retry returns the existing task id and cannot replay effects.
-    Lifecycle/verdict/closure are then written through the same single writer.
+    Final verdict, closure and result indexing commit through one writer transaction.
     """
 
     def __init__(self, service: DurableSessionService, controller):
@@ -392,32 +427,34 @@ class DurableTaskExecutor:
             result_ref = self._result_ref(result)
             status = result.projection.terminal_state.value
             reason = self._reason_for(result)
-            verdict = self.service.append("task.verdict", {
-                "completion": {
-                    "task_id": handle.task_id,
+            terminal = self.service.finalize_task(
+                handle.task_id,
+                verdict_payload={
+                    "completion": {
+                        "task_id": handle.task_id,
+                        "status": status,
+                        "verdict_block": {
+                            "verdict": result.projection.verdict.value,
+                            "reason_code": reason,
+                            "scope": "controller task result at durable completion",
+                            "evidence_ids": list(result.evidence_ids),
+                            "tree_sha256": result.metrics.get("tree_sha256"),
+                            "rendered_lines": [
+                                f"{result.projection.verdict.value}: {result.outcome.value}",
+                                f"Verification ran: {str(bool(result.verification_ran)).lower()}.",
+                            ],
+                        },
+                        "worker_artifact_ref": None,
+                        "result_ref": result_ref,
+                    }
+                },
+                closed_payload={
                     "status": status,
-                    "verdict_block": {
-                        "verdict": result.projection.verdict.value,
-                        "reason_code": reason,
-                        "scope": "controller task result at durable completion",
-                        "evidence_ids": list(result.evidence_ids),
-                        "tree_sha256": result.metrics.get("tree_sha256"),
-                        "rendered_lines": [
-                            f"{result.projection.verdict.value}: {result.outcome.value}",
-                            f"Verification ran: {str(bool(result.verification_ran)).lower()}.",
-                        ],
-                    },
-                    "worker_artifact_ref": None,
                     "result_ref": result_ref,
-                }
-            }, task_id=handle.task_id)
-            verdict.wait(30)
-            closed = self.service.close_task(handle.task_id, {
-                "status": status,
-                "result_ref": result_ref,
-                "cleanup": "unknown" if status == "unknown" else "not_needed",
-            })
-            closed.wait(30)
+                    "cleanup": "unknown" if status == "unknown" else "not_needed",
+                },
+            )
+            terminal.wait(30)
         except BaseException as exc:
             # Do not invent a terminal state if durable reconciliation itself failed.
             # The admission remains nonterminal and restart recovery will fence it.
