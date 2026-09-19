@@ -8,7 +8,7 @@ from ..agent import Orchestrator, SkillLibrary, default_search_path
 from ..agent.policy import deny_all_approvals
 from ..config import RepoConfig
 from ..tools import build_registry
-from .contracts import ProductOutcome, RouteSource, TaskResult
+from .contracts import RouteSource, TaskOutcome, TaskResult
 from .event_buffer import EventBuffer
 
 
@@ -69,11 +69,11 @@ class TaskController:
                 )
                 run = worker.run(task)
                 verified = bool(run.outcome.succeeded and run.state.verified)
-                product_outcome = ProductOutcome(run.outcome.value)
-                if product_outcome.succeeded and not verified:
-                    product_outcome = ProductOutcome.NO_VERDICT
+                task_outcome = TaskOutcome(run.outcome.value)
+                if task_outcome.succeeded and not verified:
+                    task_outcome = TaskOutcome.NO_VERDICT
                 result = TaskResult(
-                    task_id, product_outcome, run.answer,
+                    task_id, task_outcome, run.answer,
                     verified,
                     tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
                     run.state.metrics.as_dict(),
@@ -81,14 +81,14 @@ class TaskController:
                 )
         except KeyboardInterrupt:
             self.events.emit("task.interrupted", {
-                "outcome": ProductOutcome.NO_VERDICT.value,
+                "outcome": TaskOutcome.NO_VERDICT.value,
                 "process_cleanup_confirmed": False,
             }, task_id)
             raise
         except Exception as exc:
             result = TaskResult(
                 task_id,
-                ProductOutcome.NO_VERDICT,
+                TaskOutcome.NO_VERDICT,
                 f"Task stopped: {type(exc).__name__}.",
                 False,
             )

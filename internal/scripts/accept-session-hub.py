@@ -130,28 +130,28 @@ def conversation_ownership_gates() -> None:
 
 def outcome_gates() -> None:
     from local_agent.session.contracts import (
-        OUTCOME_PROJECTIONS, UNREACHABLE_TERMINAL_STATES, ProductOutcome,
+        TASK_OUTCOME_PROJECTIONS, UNREACHABLE_TERMINAL_STATES, TaskOutcome,
         TaskResult, TerminalState, task_exit_code,
     )
 
     schema_states = set(_schema()["$defs"]["TaskCompletion"]["properties"]["status"]["enum"])
     require({state.value for state in TerminalState} == schema_states, "product terminal-state vocabulary exactly matches the v1 schema")
-    require(set(OUTCOME_PROJECTIONS) == set(ProductOutcome), "every product outcome has one lifecycle projection")
-    produced = {projection.terminal_state for projection in OUTCOME_PROJECTIONS.values()}
+    require(set(TASK_OUTCOME_PROJECTIONS) == set(TaskOutcome), "every task outcome has one lifecycle projection")
+    produced = {projection.terminal_state for projection in TASK_OUTCOME_PROJECTIONS.values()}
     unreachable = set(UNREACHABLE_TERMINAL_STATES)
     require(produced | unreachable == set(TerminalState), "every v1 terminal state is produced or explicitly unreachable")
     require(produced.isdisjoint(unreachable), "unreachable terminal states have no producer mapping")
-    require(all(all(p.terminal_state != state for p in OUTCOME_PROJECTIONS.values()) for state in unreachable), "unreachable-for-now markers cannot coexist with producers")
-    require(set(task_exit_code(outcome) for outcome in ProductOutcome).issubset({0, 1, 2}), "every product outcome has a bounded CLI exit class")
+    require(all(all(p.terminal_state != state for p in TASK_OUTCOME_PROJECTIONS.values()) for state in unreachable), "unreachable-for-now markers cannot coexist with producers")
+    require(set(task_exit_code(outcome) for outcome in TaskOutcome).issubset({0, 1, 2}), "every task outcome has a bounded CLI exit class")
 
     try:
-        TaskResult("accept", ProductOutcome.PASS, "unproved", False)
+        TaskResult("accept", TaskOutcome.PASS, "unproved", False)
     except ValueError:
         pass
     else:
-        raise AcceptanceFailure("unproved success cannot construct a product result")
+        raise AcceptanceFailure("unproved success cannot construct a task result")
 
-    unknown = TaskResult("accept", ProductOutcome.NO_VERDICT, "unknown", False)
+    unknown = TaskResult("accept", TaskOutcome.NO_VERDICT, "unknown", False)
     require(unknown.projection.terminal_state == TerminalState.UNKNOWN, "NO_VERDICT projects to explicit unknown lifecycle state")
     require(TerminalState.INTERRUPTED in unreachable, "interrupted is not used as the generic unknown-result bucket")
 
@@ -172,7 +172,7 @@ def _admission_payload(request_ref: dict) -> dict:
 
 
 def durable_event_gates() -> None:
-    from local_agent.session.contracts import ProductOutcome, TaskResult
+    from local_agent.session.contracts import TaskOutcome, TaskResult
     from local_agent.session.event_contract import EventContractError, build_event
     from local_agent.session.session_event_service import DurableSessionService, DurableTaskExecutor
     from local_agent.session.session_store import SQLiteSessionStore
@@ -239,7 +239,7 @@ def durable_event_gates() -> None:
                 assert task_id is not None
                 assert [row["task_id"] for row in store.unterminated_tasks()] == [task_id]
                 seen.append(task_id)
-                return TaskResult(task_id, ProductOutcome.FAIL, "observed failure", False, verification_ran=True)
+                return TaskResult(task_id, TaskOutcome.FAIL, "observed failure", False, verification_ran=True)
 
         try:
             request = b"executor"

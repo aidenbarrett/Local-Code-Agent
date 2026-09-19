@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from local_agent.session.contracts import ProductOutcome, TaskResult
+from local_agent.session.contracts import TaskOutcome, TaskResult
 from local_agent.session.session_event_service import DurableSessionService, DurableTaskExecutor, SubscriptionGap
 from local_agent.session.session_store import SQLiteSessionStore
 
@@ -160,7 +160,7 @@ def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(
             calls.append(task_id)
             return TaskResult(
                 task_id,
-                ProductOutcome.FAIL,
+                TaskOutcome.FAIL,
                 "verification failed",
                 False,
                 verification_ran=True,
@@ -177,7 +177,7 @@ def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(
             route_source="user_direct",
         )
         result = first.wait(10)
-        assert result is not None and result.outcome == ProductOutcome.FAIL
+        assert result is not None and result.outcome == TaskOutcome.FAIL
         assert calls == [first.task_id]
         assert [event["kind"] for event in service.replay()] == [
             "task.admitted", "task.state_changed", "task.verdict", "task.closed"

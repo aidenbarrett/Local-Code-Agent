@@ -7,11 +7,11 @@ import pytest
 from local_agent.llm.client import ScriptedClient
 from local_agent.llm.models import ChatResponse, ToolCall
 from local_agent.session.contracts import (
-    OUTCOME_PROJECTIONS,
+    TASK_OUTCOME_PROJECTIONS,
     UNREACHABLE_TERMINAL_STATES,
-    ProductOutcome,
     Proposal,
     RouteSource,
+    TaskOutcome,
     TaskResult,
     TerminalState,
     task_exit_code,
@@ -48,33 +48,33 @@ def test_proposal_fails_closed(raw):
 
 
 def test_task_result_rejects_undeclared_or_unproved_success():
-    with pytest.raises(ValueError, match="undeclared product outcome"):
+    with pytest.raises(ValueError, match="undeclared task outcome"):
         TaskResult("t", "passed", "wrong spelling")
     with pytest.raises(ValueError, match="verified_at_completion"):
-        TaskResult("t", ProductOutcome.PASS, "no proof", False)
+        TaskResult("t", TaskOutcome.PASS, "no proof", False)
     with pytest.raises(ValueError, match="verified_at_completion"):
-        TaskResult("t", ProductOutcome.FAIL, "failed", True)
+        TaskResult("t", TaskOutcome.FAIL, "failed", True)
 
 
-def test_product_outcome_projection_is_total_both_ways():
-    assert set(OUTCOME_PROJECTIONS) == set(ProductOutcome)
-    produced = {projection.terminal_state for projection in OUTCOME_PROJECTIONS.values()}
+def test_task_outcome_projection_is_total_both_ways():
+    assert set(TASK_OUTCOME_PROJECTIONS) == set(TaskOutcome)
+    produced = {projection.terminal_state for projection in TASK_OUTCOME_PROJECTIONS.values()}
     declared = set(TerminalState)
     assert produced | set(UNREACHABLE_TERMINAL_STATES) == declared
     assert produced.isdisjoint(UNREACHABLE_TERMINAL_STATES)
     for state in UNREACHABLE_TERMINAL_STATES:
-        assert all(p.terminal_state != state for p in OUTCOME_PROJECTIONS.values())
+        assert all(p.terminal_state != state for p in TASK_OUTCOME_PROJECTIONS.values())
 
 
-def test_cli_exit_code_mapping_covers_every_product_outcome():
-    codes = {outcome: task_exit_code(outcome) for outcome in ProductOutcome}
-    assert set(codes) == set(ProductOutcome)
-    assert codes[ProductOutcome.PASS] == 0
-    assert codes[ProductOutcome.ESCALATED_PASS] == 0
-    assert codes[ProductOutcome.FAIL] == 1
-    assert codes[ProductOutcome.ESCALATED_FAIL] == 1
-    assert codes[ProductOutcome.BLOCKED] == 2
-    assert codes[ProductOutcome.NO_VERDICT] == 2
+def test_cli_exit_code_mapping_covers_every_task_outcome():
+    codes = {outcome: task_exit_code(outcome) for outcome in TaskOutcome}
+    assert set(codes) == set(TaskOutcome)
+    assert codes[TaskOutcome.PASS] == 0
+    assert codes[TaskOutcome.ESCALATED_PASS] == 0
+    assert codes[TaskOutcome.FAIL] == 1
+    assert codes[TaskOutcome.ESCALATED_FAIL] == 1
+    assert codes[TaskOutcome.BLOCKED] == 2
+    assert codes[TaskOutcome.NO_VERDICT] == 2
 
 
 def test_chat_cannot_call_tools_or_smuggle_policy():
@@ -183,7 +183,7 @@ def test_gateway_real_controller_uses_separate_contexts_and_real_tools(loaded):
     gateway = ConversationGateway(chat, controller, events)
     first = gateway.turn("Tell me how this repository builds")
     assert "Repository inspected" in first
-    assert gateway.last_result.outcome == ProductOutcome.NO_VERDICT
+    assert gateway.last_result.outcome == TaskOutcome.NO_VERDICT
     assert not gateway.last_result.verified_at_completion  # read != build proof
     assert gateway.last_result.evidence_ids == ("repo_info:0",)
     first_refs = gateway.last_result.evidence_refs
@@ -232,7 +232,7 @@ def test_worker_exception_is_unknown_and_presenter_does_not_get_secret(loaded):
         raise RuntimeError("SECRET")
     events = EventBuffer("s")
     result = TaskController(repo, broken, events).run("inspect repository")
-    assert result.outcome == ProductOutcome.NO_VERDICT
+    assert result.outcome == TaskOutcome.NO_VERDICT
     assert "SECRET" not in result.answer
     terminal = events.after(0)[-1]
     assert terminal.kind == "task.interrupted"
