@@ -27,6 +27,10 @@ If the code disagrees with one of these, the code is wrong.
 | `session-hub-design.md` | the Session Hub architecture. Parts are implemented, parts are not; `CURRENT_STATE.md` is the authority on which |
 | `session-hub-file-layout.md` | intended module layout |
 | `session-hub-implementation-plan.md` | slice order |
+| `textual-client-design.md` | future Textual client shape; no UI package exists yet |
+| `vscode-client-design.md` | later VS Code / Remote SSH client shape; no extension exists yet |
+| `endpoint-scheduler-design.md` | endpoint lease and queue semantics; no scheduler implementation exists yet |
+| `gateway-transport-design.md` | later gateway transport constraints; the first Session Hub remains in-process |
 | `conversation-product-architecture.md` | the conversation product |
 | `conversation-branch-validation.md` | branching semantics |
 | `serving.md`, `serving-and-accelerators.md` | model serving and accelerator choices |
