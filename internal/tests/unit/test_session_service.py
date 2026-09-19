@@ -7,8 +7,8 @@ from uuid import uuid4
 import pytest
 
 from local_agent.session.contracts import ProductOutcome, TaskResult
-from local_agent.session.service import DurableSessionService, DurableTaskExecutor, SubscriptionGap
-from local_agent.session.storage import SQLiteSessionStore
+from local_agent.session.session_event_service import DurableSessionService, DurableTaskExecutor, SubscriptionGap
+from local_agent.session.session_store import SQLiteSessionStore
 
 
 def _artifact_ref(data: bytes = b"request") -> dict:

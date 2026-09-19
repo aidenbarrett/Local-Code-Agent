@@ -174,8 +174,8 @@ def _admission_payload(request_ref: dict) -> dict:
 def durable_event_gates() -> None:
     from local_agent.session.contracts import ProductOutcome, TaskResult
     from local_agent.session.event_contract import EventContractError, build_event
-    from local_agent.session.service import DurableSessionService, DurableTaskExecutor
-    from local_agent.session.storage import SQLiteSessionStore
+    from local_agent.session.session_event_service import DurableSessionService, DurableTaskExecutor
+    from local_agent.session.session_store import SQLiteSessionStore
 
     stream_id = str(uuid4())
     session_id = str(uuid4())

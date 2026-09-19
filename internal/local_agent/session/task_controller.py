@@ -9,7 +9,7 @@ from ..agent.policy import deny_all_approvals
 from ..config import RepoConfig
 from ..tools import build_registry
 from .contracts import ProductOutcome, RouteSource, TaskResult
-from .events import EventBuffer
+from .event_buffer import EventBuffer
 
 
 class TaskController:
@@ -44,7 +44,7 @@ class TaskController:
         self.events.emit("task.started", {"route_source": source.value}, task_id)
         try:
             if self_check:
-                from .selfcheck import run_self_check
+                from .self_check import run_self_check
                 result = run_self_check(self.repo, task_id, self.events)
             else:
                 registry, _ctx, _store = build_registry(self.repo)

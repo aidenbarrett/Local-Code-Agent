@@ -1,9 +1,9 @@
 # File layout and PR boundaries
 
 Design only; proposed files below are not claims that implementations exist.
-The contract artifacts live under docs so this design-only follow-up changes no
-source/prompt/outcome hash. Future controller changes belong in the hashed source
-surface deliberately, not in untracked scripts to dodge provenance.
+Where an implementation already exists, this table uses its current explicit path rather
+than preserving an obsolete prototype name. Future controller changes belong in the
+hashed source surface deliberately, not in untracked scripts to dodge provenance.
 
 ## Implementation destinations
 
@@ -11,37 +11,38 @@ surface deliberately, not in untracked scripts to dodge provenance.
 |---|---|---|
 | `internal/scripts/chat.py` (existing) | Wire existing context lifecycle; turns-only history | Outside current globs; do not touch measured prompt |
 | `internal/scripts/chat_context.py` (existing) | Remain schema-v1 direct-chat store/composer | Outside current globs; future contract changes explicit |
-| `internal/local_agent/session/service.py` | Single state/admission owner and event publication | Source hash |
+| `internal/local_agent/session/conversation_gateway.py` (existing) | Conversation turn routing and controller hand-off | Source hash |
+| `internal/local_agent/session/session_event_service.py` (existing) | Single durable admission/event writer and publication boundary | Source hash |
 | `internal/local_agent/session/intents.py` | Anchored route rules, direct Work path, corrections | Source hash |
-| `internal/local_agent/session/contracts.py` (replace prototype carefully) | Intent/admission/result types; strict schema validation | Source hash |
-| `internal/local_agent/session/events.py` (replace prototype carefully) | Exhaustive typed envelope and observer projection | Source hash |
+| `internal/local_agent/session/contracts.py` (existing; split carefully) | Intent/admission/result types and product projections | Source hash |
+| `internal/local_agent/session/event_contract.py` (existing) | Build and validate normative durable `lca.session.events/1` envelopes | Source hash |
+| `internal/local_agent/session/event_buffer.py` (existing) | Bounded process-local activity buffer used by the synchronous prototype path | Source hash |
 | `internal/local_agent/session/results.py` | Deterministic verdict/evidence renderer | Source hash |
-| `internal/local_agent/session/storage.py` (implement skeleton) | SQLite state/event outbox, sidecar TurnRefs and artifact caps | Source hash |
-| `internal/local_agent/session/scheduler.py` (implement skeleton) | Endpoint leases, bounded admission and role fairness | Source hash |
+| `internal/local_agent/session/session_store.py` (existing) | SQLite durable task/event state and replay | Source hash |
+| `internal/docs/endpoint-scheduler-design.md` | Endpoint lease/fairness design; no source implementation exists yet | No source hash change |
 | `internal/local_agent/session/cancellation.py` | Execution epoch, cancel token, terminal arbitration | Source hash |
-| `internal/local_agent/session/controller.py` (adapt prototype) | Existing orchestrator and verifier adapter | Source hash |
+| `internal/local_agent/session/task_controller.py` (existing) | Existing orchestrator and verifier adapter | Source hash |
+| `internal/local_agent/session/self_check.py` (existing) | Deterministic repository self-check path | Source hash |
 | `internal/local_agent/watch/jobs.py` | Validated fixed job and canonical revision hashing | Source hash |
 | `internal/local_agent/watch/runner.py` | One fixed attempt, no conversation model or intent routing | Source hash |
 | `internal/local_agent/watch/delta.py` | Stable test/file comparisons and explicit incomparable state | Source hash |
 | `internal/local_agent/watch/store.py` | Job/attempt identity, occurrence idempotency, summary projection | Source hash |
 | `internal/local_agent/watch/cli.py` | Explicit once/enable/disable/status control | Source hash |
 | `internal/scripts/watch.py` | Thin root-command adapter, no policy | Outside current globs |
-| `internal/ui/textual_app.py` | Textual app and direct service subscription | Presentation only; outside globs |
-| `internal/ui/messages.py` | Thread-safe UI notifications; no controller state invention | Presentation only |
-| `internal/ui/widgets/{conversation,activity,verdict,watch,status}.py` | Mandatory panes and deterministic result view | Presentation only |
-| `internal/ui/styles/hub.tcss` | Responsive layout, focus and accessibility | Presentation only |
-| `internal/ui/themes/lca.json` | One role palette with neon/high-contrast variants | Presentation only |
-| `internal/ui/export_terminal_theme.py` | Generate reviewable Windows Terminal scheme JSON | Presentation only |
+| `internal/ui/textual_app.py` | Future Textual app and direct service subscription; create this source area only when implementation begins | Presentation only; classify explicitly when added |
+| `internal/ui/messages.py` | Future thread-safe UI notifications; no controller state invention | Presentation only; classify explicitly when added |
+| `internal/ui/widgets/{conversation,activity,verdict,watch,status}.py` | Future mandatory panes and deterministic result view | Presentation only; classify explicitly when added |
+| `internal/ui/styles/hub.tcss` | Future responsive layout, focus and accessibility | Presentation only; classify explicitly when added |
+| `internal/ui/themes/lca.json` | Future role palette with neon/high-contrast variants | Presentation only; classify explicitly when added |
+| `internal/ui/export_terminal_theme.py` | Future generated Windows Terminal scheme JSON | Presentation only; classify explicitly when added |
 | `internal/terminal_ui.py` (existing) | Consume same named palette for plain terminal mode | Presentation only |
-| `internal/local_agent/session/telemetry.py` (implement last) | Collector permit and attributed host samples | Source hash |
-| `internal/docs/session-contract/v1/` (exists as design schema) | Normative review contract/fixtures before runtime packaging | No hash change now |
+| `internal/local_agent/session/telemetry.py` (design-only source placeholder; disposition separately) | Collector permit and attributed host samples | Source hash |
+| `internal/docs/session-contract/v1/` (existing) | Normative runtime Session Hub v1 schema | Source hash |
 
-Implementations must package/version the runtime schema or generate validators
-from it with a checked digest and drift tests. Do not read a mutable docs file at
-runtime as an untracked authority. Any packaged schema bytes must enter source
-identity explicitly: current provenance globs cover Python but not arbitrary JSON
-under the package. Either generated Python validator/data with a schema digest,
-or deliberate provenance inclusion for schema resources. Test the built artifact.
+The runtime schema is already loaded and validated from the versioned contract under
+`internal/docs/session-contract/v1/`, and those JSON bytes are deliberately included in
+`source_sha256`. Any future packaging change must preserve that provenance and test the
+built artifact rather than creating an untracked copy of the contract.
 
 Evaluation imports none of `session`, `watch`, UI, persona or chat_context.
 Presentation modules cannot import execution internals except the public typed
@@ -50,6 +51,9 @@ identical. If adapting runner/registry hooks changes a hashed prompt method, sto
 for a generation decision instead of silently updating that identity.
 
 ## Reviewable PRs against the product branch
+
+The historical A-G slice labels below describe the original implementation design, not
+the current refactor PR lettering. `CURRENT_STATE.md` is authoritative for what is live.
 
 | PR | Scope | Required gate | Depends on |
 |---|---|---|---|
@@ -64,8 +68,6 @@ for a generation decision instead of silently updating that identity.
 Work on A and B can proceed independently after contract review. C and D can
 follow independently once B stabilises. The Textual implementation waits for plain
 storage and cancellation gates; no one should debug those through a new UI.
-Reviewers can open child PRs targeting `feature/conversation-gateway`. Do not merge
-the older prototype simply because this design follow-up is docs-only.
 
 ## Tests to add in implementation PRs
 
