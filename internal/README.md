@@ -17,10 +17,13 @@ sent in here to make the product work.
 | `tests/` | unit and integration tests | no |
 | `devtools/` | developer utilities that inspect the repository, such as the rename pre-flight | no |
 | `scripts/` | operator tools, demos, product help, chat entry points | no |
-| `docs/` | design, methodology, review history, bring-up | no, except `session-contract/v1` |
+| `docs/` | design, methodology, review history, bring-up, and future-client/interface notes | no, except `session-contract/v1` |
 | `experiments/` | frozen collected evidence | no, and never edited |
 | `personas/` | chat persona configuration | no |
-| `ui/`, `vscode/` | future-client notes | no |
+
+Future UI, VS Code and not-yet-implemented Session Hub interfaces live under `docs/`
+until real runtime code exists. A documentation-only directory must not masquerade as
+an implementation package.
 
 "Part of the instrument" means the file's bytes feed `source_sha256`. Editing one
 changes the identity of the thing that produced every measurement. That is not a reason
