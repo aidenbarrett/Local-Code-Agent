@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 import time
 from uuid import uuid4
 
 import pytest
 
 from local_agent.session.contracts import TaskOutcome, TaskResult
-from local_agent.session.session_event_service import DurableSessionService, DurableTaskExecutor, SubscriptionGap
+from local_agent.session.session_event_service import (
+    DurableSessionService,
+    DurableTaskExecutor,
+    ServiceClosed,
+    SubscriptionGap,
+)
 from local_agent.session.session_store import SQLiteSessionStore
 
 
@@ -130,6 +136,66 @@ def test_terminal_events_cannot_bypass_the_atomic_service_path(tmp_path):
             service.append("task.closed", {}, task_id=str(uuid4()))
     finally:
         service.close()
+
+
+def test_close_linearizes_with_an_enqueue_already_in_progress(tmp_path, monkeypatch):
+    service, _ = _service(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    original_put_nowait = service._commands.put_nowait
+
+    def delayed_put(command):
+        entered.set()
+        assert release.wait(3)
+        original_put_nowait(command)
+
+    monkeypatch.setattr(service._commands, "put_nowait", delayed_put)
+    box = {}
+    errors = []
+
+    def submit():
+        try:
+            box["receipt"] = service.submit_task(
+                request_id="racing-request",
+                payload_sha256="c" * 64,
+                admission_payload=_admission_payload(),
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    submitter = threading.Thread(target=submit)
+    closer = threading.Thread(target=lambda: service.close(5))
+    submitter.start()
+    assert entered.wait(3)
+    closer.start()
+    time.sleep(0.05)
+    assert closer.is_alive(), "close passed the enqueue linearization point"
+    release.set()
+    submitter.join(3)
+    closer.join(6)
+
+    assert not errors
+    assert not submitter.is_alive() and not closer.is_alive()
+    receipt = box["receipt"]
+    assert receipt.committed.is_set()
+    assert [event["kind"] for event in service.replay()] == ["task.admitted"]
+    with pytest.raises(ServiceClosed):
+        service.append("session.opened", {})
+
+
+def test_closed_service_rejects_new_subscribers_and_writes(tmp_path):
+    service, _ = _service(tmp_path)
+    service.close()
+    with pytest.raises(ServiceClosed):
+        service.subscribe()
+    with pytest.raises(ServiceClosed):
+        service.submit_task(
+            request_id="too-late",
+            payload_sha256="c" * 64,
+            admission_payload=_admission_payload(),
+        )
+    # Replay remains a read-only store operation after the writer is closed.
+    assert service.replay() == []
 
 
 def test_crash_recovery_atomically_closes_unknown_task_without_reexecution(tmp_path):

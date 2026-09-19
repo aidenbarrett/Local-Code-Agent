@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass, field
 from queue import Empty, Full, Queue
 from threading import Event as ThreadEvent, Lock, Thread
+from time import monotonic
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
@@ -101,26 +102,36 @@ class DurableSessionService:
         self._commands: Queue[_Command | None] = Queue(maxsize=command_capacity)
         self._subscribers: list[Subscription] = []
         self._subscribers_lock = Lock()
+        self._lifecycle_lock = Lock()
         self._closed = False
+        self._shutdown_enqueued = False
         self._thread = Thread(target=self._writer_main, name="lca-session-writer", daemon=True)
         self._thread.start()
 
     def subscribe(self, *, capacity: int = 512) -> Subscription:
         sub = Subscription(capacity)
-        with self._subscribers_lock:
-            self._subscribers.append(sub)
+        with self._lifecycle_lock:
+            if self._closed:
+                raise ServiceClosed("session service is closed")
+            with self._subscribers_lock:
+                self._subscribers.append(sub)
         return sub
 
     def replay(self, *, after: int = 0, limit: int = 1000) -> list[dict[str, Any]]:
         return self.store.replay(self.stream_id, after=after, limit=limit)
 
     def _enqueue(self, command: _Command) -> WriteReceipt:
-        if self._closed:
-            raise ServiceClosed("session service is closed")
-        try:
-            self._commands.put_nowait(command)
-        except Full as exc:
-            raise RuntimeError("session writer queue is full") from exc
+        # This lock is the admission/shutdown linearization point. A command that
+        # passes the closed check is physically queued before close can enqueue the
+        # sentinel; a caller can therefore never receive a receipt for work that
+        # sits behind shutdown and is abandoned forever.
+        with self._lifecycle_lock:
+            if self._closed:
+                raise ServiceClosed("session service is closed")
+            try:
+                self._commands.put_nowait(command)
+            except Full as exc:
+                raise RuntimeError("session writer queue is full") from exc
         return command.receipt
 
     def submit_task(
@@ -227,11 +238,23 @@ class DurableSessionService:
         return recovered
 
     def close(self, timeout: float = 10) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        self._commands.put(None)
-        self._thread.join(timeout)
+        if timeout < 0:
+            raise ValueError("shutdown timeout cannot be negative")
+        deadline = monotonic() + timeout
+        # Serialise the closed flag and sentinel insertion with _enqueue. Accepted
+        # commands are FIFO-before the sentinel; rejected commands never receive a
+        # receipt. If sentinel insertion itself times out, a later close may retry.
+        with self._lifecycle_lock:
+            self._closed = True
+            if not self._shutdown_enqueued:
+                remaining = max(0.0, deadline - monotonic())
+                try:
+                    self._commands.put(None, timeout=remaining)
+                except Full as exc:
+                    raise TimeoutError("session writer shutdown could not be queued before timeout") from exc
+                self._shutdown_enqueued = True
+        remaining = max(0.0, deadline - monotonic())
+        self._thread.join(remaining)
         if self._thread.is_alive():
             raise TimeoutError("session writer did not stop")
 
