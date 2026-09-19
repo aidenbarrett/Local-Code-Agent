@@ -14,7 +14,7 @@ from threading import Event as ThreadEvent, Lock, Thread
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
-from .contracts import ProductOutcome, RouteSource, TaskResult, Verdict
+from .contracts import RouteSource, TaskOutcome, TaskResult, TaskVerdict
 from .event_contract import build_event
 from .session_store import SQLiteSessionStore
 
@@ -332,11 +332,11 @@ class DurableTaskExecutor:
 
     @staticmethod
     def _reason_for(result: TaskResult) -> str:
-        if result.projection.verdict == Verdict.VERIFIED:
+        if result.projection.verdict == TaskVerdict.VERIFIED:
             return "verification_passed"
-        if result.projection.verdict == Verdict.FAILED:
+        if result.projection.verdict == TaskVerdict.FAILED:
             return "verification_failed"
-        if result.outcome == ProductOutcome.BLOCKED:
+        if result.outcome == TaskOutcome.BLOCKED:
             return "policy_denied"
         return "cleanup_unknown"
 
