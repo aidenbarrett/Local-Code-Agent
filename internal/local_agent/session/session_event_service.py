@@ -16,7 +16,7 @@ from uuid import UUID, uuid4, uuid5
 
 from .contracts import ProductOutcome, RouteSource, TaskResult, Verdict
 from .event_contract import build_event
-from .storage import SQLiteSessionStore
+from .session_store import SQLiteSessionStore
 
 
 class ServiceClosed(RuntimeError):

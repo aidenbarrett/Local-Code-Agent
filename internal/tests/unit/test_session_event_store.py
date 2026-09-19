@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from local_agent.session.event_contract import EventContractError, build_event, validate_event
-from local_agent.session.storage import AdmissionConflict, SequenceConflict, SQLiteSessionStore
+from local_agent.session.session_store import AdmissionConflict, SequenceConflict, SQLiteSessionStore
 
 
 def _artifact_ref(data: bytes = b"request") -> dict:

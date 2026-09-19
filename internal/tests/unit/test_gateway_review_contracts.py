@@ -10,8 +10,8 @@ import threading
 from types import SimpleNamespace
 
 from local_agent.session.contracts import TaskResult
-from local_agent.session.events import EventBuffer
-from local_agent.session.gateway import ConversationGateway
+from local_agent.session.event_buffer import EventBuffer
+from local_agent.session.conversation_gateway import ConversationGateway
 
 
 class _Chat:
@@ -87,7 +87,7 @@ def test_the_verdict_reports_how_much_evidence_there_was():
 
 def test_interrupt_has_one_terminal_event_and_is_not_swallowed(loaded):
     import pytest
-    from local_agent.session.controller import TaskController
+    from local_agent.session.task_controller import TaskController
     _, repo, *_ = loaded
     events = EventBuffer("s")
     def interrupt():
@@ -99,7 +99,7 @@ def test_interrupt_has_one_terminal_event_and_is_not_swallowed(loaded):
 
 
 def test_blocked_reason_is_projected_without_tool_arguments(loaded, monkeypatch):
-    import local_agent.session.controller as module
+    import local_agent.session.task_controller as module
     _, repo, *_ = loaded
     events = EventBuffer("s")
     class Worker:
@@ -133,7 +133,7 @@ def test_profile_budget_has_separate_character_and_byte_units():
 
 
 def test_budget_refusal_is_recorded_without_model_or_controller_call():
-    from local_agent.session.gateway import SYSTEM
+    from local_agent.session.conversation_gateway import SYSTEM
     chat = _Chat(['{"kind":"reply","text":"hello"}'])
     controller = _Controller()
     events = EventBuffer("s")

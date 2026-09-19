@@ -16,9 +16,9 @@ from local_agent.session.contracts import (
     TerminalState,
     task_exit_code,
 )
-from local_agent.session.controller import TaskController
-from local_agent.session.events import EventBuffer
-from local_agent.session.gateway import ConversationGateway
+from local_agent.session.task_controller import TaskController
+from local_agent.session.event_buffer import EventBuffer
+from local_agent.session.conversation_gateway import ConversationGateway
 
 
 class Chat:

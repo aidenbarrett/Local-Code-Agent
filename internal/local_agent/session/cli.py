@@ -9,9 +9,9 @@ from uuid import uuid4
 from ..config import MODEL_PRESETS, find_repo_root, load_repo_config
 from ..llm.client import OpenAICompatibleClient
 from .contracts import task_exit_code
-from .controller import TaskController
-from .events import EventBuffer
-from .gateway import ConversationGateway
+from .task_controller import TaskController
+from .event_buffer import EventBuffer
+from .conversation_gateway import ConversationGateway
 
 
 CHARS_PER_TOKEN_ESTIMATE = 4
