@@ -1,4 +1,4 @@
-"""What actually happened to a task, as a category you can count.
+"""What actually happened to a worker attempt, as a category you can count.
 
 "It failed" is three different things wearing the same coat, and conflating them
 makes the whole measurement useless:
@@ -23,7 +23,7 @@ from __future__ import annotations
 from enum import Enum
 
 
-class Outcome(str, Enum):
+class WorkerOutcome(str, Enum):
     PASS = "pass"                      # cheap tier, or the only tier, got there
     ESCALATED_PASS = "escalated_pass"  # the strong tier rescued it
     ESCALATED_FAIL = "escalated_fail"  # neither tier got there
@@ -32,7 +32,7 @@ class Outcome(str, Enum):
 
     @property
     def succeeded(self) -> bool:
-        return self in (Outcome.PASS, Outcome.ESCALATED_PASS)
+        return self in (WorkerOutcome.PASS, WorkerOutcome.ESCALATED_PASS)
 
     @property
     def completed_locally(self) -> bool:
@@ -45,7 +45,7 @@ class Outcome(str, Enum):
 
     @property
     def needed_the_strong_tier(self) -> bool:
-        return self in (Outcome.ESCALATED_PASS, Outcome.ESCALATED_FAIL)
+        return self in (WorkerOutcome.ESCALATED_PASS, WorkerOutcome.ESCALATED_FAIL)
 
 
 def classify(
@@ -54,12 +54,18 @@ def classify(
     escalated: bool,
     escalation_available: bool,
     blocked_reason: str | None,
-) -> Outcome:
+) -> WorkerOutcome:
     """Decide the category once, in one place, so every report agrees."""
     if blocked_reason and not succeeded:
-        return Outcome.BLOCKED
+        return WorkerOutcome.BLOCKED
     if escalated:
-        return Outcome.ESCALATED_PASS if succeeded else Outcome.ESCALATED_FAIL
+        return WorkerOutcome.ESCALATED_PASS if succeeded else WorkerOutcome.ESCALATED_FAIL
     if succeeded:
-        return Outcome.PASS
-    return Outcome.FAIL if not escalation_available else Outcome.ESCALATED_FAIL
+        return WorkerOutcome.PASS
+    return WorkerOutcome.FAIL if not escalation_available else WorkerOutcome.ESCALATED_FAIL
+
+
+# Generation-2 evaluator compatibility. Frozen evaluator code still imports and
+# refers to Outcome. Keep that exact evaluator source stable while product code
+# moves to the explicit WorkerOutcome vocabulary.
+Outcome = WorkerOutcome
