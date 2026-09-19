@@ -1,12 +1,16 @@
 # Current state
 
-Date: 2026-09-18. Authoritative implementation: live GitHub `main`; active follow-up work is called out by PR number rather than silently treated as merged.
+Authoritative implementation: live GitHub `main`. This file describes what the tree can
+do and what it cannot. It deliberately names no PR numbers: a current-state document
+that tracks in-flight PRs is stale the day they merge, and nothing fails when it is.
+Merge history lives in `internal/docs/review-history.md`.
 
 ## Product direction
 
 The active direction is the **Session Hub**: one continuous conversation surface around a deterministic controller, with task admission, execution, evidence, verdict and recovery represented separately from model prose.
 
-PRs #46-#48 are merged. They replaced the earlier design-only state with a real execution/session foundation. PR #49 is open and implements the durable event-service slice; it is not part of `main` until merged.
+The earlier design-only state has been replaced by a real execution and session
+foundation, including the durable event service described below.
 
 ## What `main` implements now
 
@@ -23,26 +27,48 @@ PRs #46-#48 are merged. They replaced the earlier design-only state with a real 
 
 Source mutation, staging and commit behaviour remain disabled on the conversation product path.
 
-## Active PR #49: durable event service
+## Durable event service: present, and not yet reachable
 
-The open durable-service slice is building the executable `lca.session.events/1` path:
+`local_agent/session/` implements the executable `lca.session.events/1` path:
 
-- JSON Schema validation before durable commit/publication
-- SQLite WAL session/task storage
+- JSON Schema validation before durable commit or publication, against the versioned
+  contract under `internal/docs/session-contract/v1/`
+- SQLite WAL session and task storage
 - one writer owning sequence assignment and persistence
-- idempotent admission keyed by request identity and payload digest
+- admission keyed by request identity and payload digest
 - replay from committed events
-- bounded thread-safe subscriptions with explicit overflow/gap handling
-- recovery of admitted-without-terminal tasks to `NO_VERDICT`/unknown effects, never automatic retry
-- non-blocking submission so a future Textual event loop does not wait on controller/tool execution
+- bounded thread-safe subscriptions with explicit overflow and gap handling
+- recovery of admitted-without-terminal tasks to unknown / `NO_VERDICT` effects, never
+  automatic retry
+- non-blocking submission, so a Textual event loop will not wait on controller or tool
+  execution
 
-Exact-head CI remains authoritative for that branch. None of the above open-PR behaviour should be described as merged until the PR lands.
+Two limits that a feature list hides, both currently true of `main`:
+
+- **No user-facing entry point constructs it.** The durable service is built by
+  `internal/scripts/accept-session-hub.py` and by tests. Ordinary product use does not
+  yet write task and event lifecycle records through `DurableSessionService`. Raw
+  conversation persistence is a separate authority and does work: owned conversations
+  load under an exclusive lock and save explicitly through the conversation store.
+  Nothing that used to be kept is being lost; the durable event layer is simply not
+  load-bearing yet.
+- **Most declared event kinds are not yet emitted by the live product path.** Producer
+  code exists for the task lifecycle kinds. For the rest, read the contract as a
+  specification of where the hub is going rather than as a description of what a
+  subscriber receives today. No exact count is given here on purpose: "has a producer
+  implementation" and "is reachable from a product path" are different questions, and a
+  number that does not say which one it answers is the sort of claim these documents
+  exist to stop.
+
+Durable-layer correctness work must be finished before anything is wired to depend on it.
+The known gaps listed below are open, not closed. Wiring first would mean debugging a
+data-loss bug through a UI.
 
 ## Known product gaps
 
-- The existing gateway still needs full convergence onto the persisted conversation authority; controller task/verdict artifacts must remain outside model history.
+- The canonical raw-turn conversation store is wired, but the durable task/event service is not yet connected to the conversation gateway. Task artifacts remain separate from model history, and follow-up task observation is still process-local rather than reconstructed from durable task state.
 - Deterministic-first Work/Chat/rule routing is not complete.
-- Process-tree ownership and truthful cancellation are not complete. Current generic tool execution still uses blocking subprocess calls; cancellation cannot claim cleanup it did not prove.
+- Full process-tree containment and truthful cancellation are not complete. The generic command runner now owns the direct child, bounds timeout return and snapshots immutable public evidence, but POSIX process groups and Windows descendant enumeration are best-effort cleanup rather than proof of whole-tree containment. Session Hub cancel requests are not yet wired through to execution ownership.
 - Endpoint lease/queue arbitration for shared OVMS use is not complete.
 - Textual UI, watch/activity panes and fixed watch execution are later slices.
 - No hidden source-mutation path exists behind these interfaces.
@@ -63,7 +89,8 @@ Generation 2 currently has no collected model rows. Its success vocabulary and o
 
 ## Next integration order
 
-1. Finish and verify #49 durable event service and recovery.
+1. Close the durable layer's known correctness gaps in storage and in the writer
+   and subscriber lifecycle, then wire a user-facing entry point to it.
 2. Add deterministic Work/Chat/rule routing and fixed watch execution on top of recorded route provenance.
 3. Add task/run process ownership, endpoint arbitration and truthful cancellation semantics where not already completed by the foundation.
 4. Build the fixture-driven Textual shell against the durable event interface.
