@@ -21,7 +21,7 @@
     "source_sha256": "08d5e0fe6f2be291a0d62e14d664b4909932ee6041ecf5a78d4160af27a6641a",
     "base_prompt_sha256": "37f984092fed31eac321cf724946fcaffff590c1f624fb54777674e0c5cc4994"
   },
-  "source_sha256": "9c5ff904b166f8368f9a265d355c8543fdc287561629d21ed2584c83ce8fd64f",
+  "source_sha256": "6216bc891f84d26c171af6d9725d31faf9575ecab4e9275c750a96b4e39461e1",
   "base_prompt_sha256": "c79a690ce7c5cde8fb7bbe5b7dda2867b40f7e284d20c329007cbd0a55b2fcf6",
   "outcome_contract_sha256": "63c4bf907baa0cf2e406696bb7d65cdf4eef8feac206408fb7e4ffc3cb26efa8",
   "how_to_recompute": "python -c \"import sys; sys.path.insert(0,'internal'); from local_agent import provenance as p; print(p.source_sha256()); print(p.base_prompt_sha256()); print(p.outcome_contract_sha256())\"",
