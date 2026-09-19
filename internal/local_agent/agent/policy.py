@@ -14,24 +14,24 @@ from ..config import Policy
 from ..tools.base import Risk, Tool
 
 
-class Verdict(str, Enum):
+class PolicyAction(str, Enum):
     ALLOW = "allow"
     APPROVE = "approve"
     DENY = "deny"
 
 
 @dataclass(frozen=True)
-class Decision:
-    verdict: Verdict
+class PolicyDecision:
+    verdict: PolicyAction
     reason: str
 
     @property
     def allowed(self) -> bool:
-        return self.verdict is not Verdict.DENY
+        return self.verdict is not PolicyAction.DENY
 
     @property
     def requires_approval(self) -> bool:
-        return self.verdict is Verdict.APPROVE
+        return self.verdict is PolicyAction.APPROVE
 
 
 # Operations that simply do not exist as tools. Listed so the intent is explicit
@@ -51,7 +51,7 @@ FORBIDDEN_OPERATIONS = (
 )
 
 
-ApprovalFn = Callable[[Tool, dict[str, Any], Decision], bool]
+ApprovalFn = Callable[[Tool, dict[str, Any], PolicyDecision], bool]
 
 
 # Operations that put something into git's index or history. These are the ones
@@ -70,49 +70,49 @@ class PolicyEngine:
         tool: Tool,
         arguments: dict[str, Any],
         speculative: bool = False,
-    ) -> Decision:
+    ) -> PolicyDecision:
         # `speculative` means this attempt may still be discarded and retried on
         # another tier. Commits belong in the finalise phase, after the run is
         # known to be terminal, and never inside the loop that might be redone.
         if speculative and tool.name in _HISTORY_MUTATING:
-            return Decision(
-                Verdict.DENY,
+            return PolicyDecision(
+                PolicyAction.DENY,
                 f"{tool.name} is not permitted while this attempt can still be "
                 "escalated and retried; staging and committing happen only once "
                 "the run is final",
             )
         if tool.risk is Risk.FORBIDDEN:
-            return Decision(Verdict.DENY, f"{tool.name} is permanently disabled")
+            return PolicyDecision(PolicyAction.DENY, f"{tool.name} is permanently disabled")
 
         if tool.risk is Risk.READ:
-            return Decision(Verdict.ALLOW, "read-only")
+            return PolicyDecision(PolicyAction.ALLOW, "read-only")
 
         if tool.risk is Risk.EXECUTE:
             if tool.name in ("build_target", "configure_project") and not self.policy.allow_build:
-                return Decision(Verdict.DENY, "policy.allow_build is false")
+                return PolicyDecision(PolicyAction.DENY, "policy.allow_build is false")
             if tool.name in ("run_test", "list_tests") and not self.policy.allow_test:
-                return Decision(Verdict.DENY, "policy.allow_test is false")
-            return Decision(Verdict.ALLOW, "configured command from the build profile")
+                return PolicyDecision(PolicyAction.DENY, "policy.allow_test is false")
+            return PolicyDecision(PolicyAction.ALLOW, "configured command from the build profile")
 
         if tool.risk is Risk.WRITE:
             if not self.policy.allow_patch:
-                return Decision(Verdict.DENY, "policy.allow_patch is false")
-            return Decision(Verdict.APPROVE, "modifies the worktree")
+                return PolicyDecision(PolicyAction.DENY, "policy.allow_patch is false")
+            return PolicyDecision(PolicyAction.APPROVE, "modifies the worktree")
 
         # DANGEROUS
         if tool.name == "apply_patch" and not self.policy.allow_patch:
-            return Decision(Verdict.DENY, "policy.allow_patch is false")
+            return PolicyDecision(PolicyAction.DENY, "policy.allow_patch is false")
         if tool.name in ("git_stage", "git_commit") and not self.policy.allow_commit:
-            return Decision(Verdict.DENY, "policy.allow_commit is false")
-        return Decision(Verdict.APPROVE, "can change the working tree or history")
+            return PolicyDecision(PolicyAction.DENY, "policy.allow_commit is false")
+        return PolicyDecision(PolicyAction.APPROVE, "can change the working tree or history")
 
 
-def deny_all_approvals(tool: Tool, arguments: dict[str, Any], decision: Decision) -> bool:
+def deny_all_approvals(tool: Tool, arguments: dict[str, Any], decision: PolicyDecision) -> bool:
     """Non-interactive default: propose, never apply."""
     return False
 
 
-def cli_approval(tool: Tool, arguments: dict[str, Any], decision: Decision) -> bool:
+def cli_approval(tool: Tool, arguments: dict[str, Any], decision: PolicyDecision) -> bool:
     import json
     import sys
 
@@ -123,3 +123,10 @@ def cli_approval(tool: Tool, arguments: dict[str, Any], decision: Decision) -> b
         return False
     answer = input("  allow? [y/N] ").strip().lower()
     return answer in ("y", "yes")
+
+
+# PR-E migration compatibility. Active product code should use the explicit names
+# above; these aliases exist only while callers are migrated and are not the
+# public vocabulary advertised from local_agent.agent.
+Verdict = PolicyAction
+Decision = PolicyDecision
