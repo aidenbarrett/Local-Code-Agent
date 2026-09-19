@@ -1,9 +1,9 @@
-# Proposed event and hand-off contract: lca.session.events/1
+# Event and hand-off contract notes: lca.session.events/1
 
-Design artifact only. Normative shape: [v1/events.schema.json](v1/events.schema.json).
-This is not the current prototype's EventBuffer format. No runtime emits this
-schema yet. The version is reserved for implementation/review, not declared stable
-because this document exists. Freeze it when the first producer/consumer PR agrees.
+Design rationale and semantic notes for `lca.session.events/1`. The normative wire
+shape is [v1/events.schema.json](v1/events.schema.json). Parts of the contract are
+implemented and parts remain planned; root `CURRENT_STATE.md` is authoritative for
+product reachability and remaining gaps.
 
 ## Design guard and migration gate
 
@@ -16,13 +16,12 @@ whole-program dataflow analysis; aliased emitters and new producer packages need
 explicit coverage. These checks are not full Draft 2020-12 metaschema validation
 or runtime payload validation.
 
-The first runtime migration must replace the disjointness assertion with tests
-that validate every emitted envelope/payload plus producer authority, consumer
-handling and lifecycle traces below. Neither partial nor complete name overlap
-proves conformance. A capability-negotiated subset can be valid if every emitted
-kind is validated and every unsupported operation fails explicitly. Do not just
-remove the guard or rename events to bypass it. Packaging must also satisfy the
-schema-provenance and built-artifact gates in the file-layout document.
+Runtime producers and consumers must validate every emitted envelope/payload plus
+producer authority, consumer handling and the lifecycle traces below. Neither partial
+nor complete name overlap proves conformance. A capability-negotiated subset can be
+valid if every emitted kind is validated and every unsupported operation fails
+explicitly. Do not just remove a guard or rename events to bypass it. Packaging must
+also satisfy the schema-provenance and built-artifact gates in the file-layout document.
 
 ## Envelope and ownership
 

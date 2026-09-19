@@ -1,6 +1,9 @@
 # Local Code Agent
 
-Direction set: 2026-09-18. Current implementation source of truth: live GitHub `main` plus explicitly identified open PRs.
+Current implementation source of truth: live GitHub `main`. This document describes
+capabilities, not in-flight work. PR numbers and merge status belong in
+`internal/docs/review-history.md` and the changelog, because a document that names an
+open PR is wrong the moment that PR lands and nobody notices for weeks.
 
 The current product target is an in-process Textual Session Hub around the existing deterministic controller. The model may propose work; deterministic code owns admission, permissions, execution, verification, provenance and durable state.
 
@@ -12,7 +15,7 @@ Measurement collection is paused while the product loop is built. Historical exp
 
 ## Implemented foundation on `main`
 
-PRs #46-#48 established the current Session Hub foundation:
+The Session Hub foundation on `main` provides:
 
 - persisted direct-chat conversations with lock-scoped ownership; existing conversations load only after the exclusive lock is acquired
 - one explicit save path for owned conversations; abandoned in-memory edits are not auto-saved
@@ -29,16 +32,27 @@ Source mutation and commits remain disabled on the conversation product path.
 
 ## Active implementation sequence
 
-PR #49 is the durable event-service slice. It is intentionally separate from routing/UI work and is not part of `main` until merged. Its target is:
+The durable event service exists in `main` as `local_agent/session/`: schema validation
+against the versioned `lca.session.events/1` contract, SQLite WAL storage, one writer
+owning sequence assignment, admission keyed by request identity, replay from committed
+events, bounded subscriptions, and recovery of admitted-without-terminal tasks to an
+explicit unknown state rather than automatic retry.
 
-1. executable validation of the reviewed `lca.session.events/1` envelope/payload contract
-2. one durable writer owning event sequence, task admission and terminal persistence
-3. admission-before-execution and idempotent request identity
-4. live/replay equivalence from persisted events
-5. crash recovery to an explicit unknown/NO_VERDICT state with no automatic effect replay
-6. non-blocking task submission and bounded thread-safe subscriptions for the future Textual loop
+What it is not yet, stated because a diagram makes it look finished:
 
-After that, the planned slices are deterministic routing + fixed watch execution, fixture-driven Textual UI, then live wiring/endpoint arbitration/cancellation acceptance.
+- **no user entry point reaches it.** `DurableSessionService` is constructed by the
+  acceptance script and by tests. Ordinary product use does not yet write task or event
+  lifecycle records through it. Raw conversation persistence is a separate authority and
+  is wired: the gateway loads and saves owned conversations through the conversation
+  store.
+- **most declared event kinds are not yet emitted by the live product path.** Producer
+  code exists for the task lifecycle kinds. A subscriber written against the full
+  contract today would see silence on most of the rest.
+
+Both are tracked work, and the ordering is deliberate: the durable layer's correctness
+is being finished before anything is wired to depend on it. The remaining slices are
+deterministic routing and fixed watch execution, the fixture-driven Textual UI, then live
+wiring, endpoint arbitration and cancellation acceptance.
 
 ## Architecture
 
