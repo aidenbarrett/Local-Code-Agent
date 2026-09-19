@@ -55,7 +55,15 @@ def _session_opened(stream_id: str, epoch: str, session_id: str, sequence: int =
     )
 
 
-def _admitted(stream_id: str, epoch: str, session_id: str, task_id: str, sequence: int) -> dict:
+def _admitted(
+    stream_id: str,
+    epoch: str,
+    session_id: str,
+    task_id: str,
+    sequence: int,
+    *,
+    execution_epoch: int = 0,
+) -> dict:
     return build_event(
         stream_id=stream_id,
         sequence=sequence,
@@ -69,8 +77,35 @@ def _admitted(stream_id: str, epoch: str, session_id: str, task_id: str, sequenc
             "contract_sha256": "b" * 64,
             "repository_id": "repo-1",
             "skill": "inspect",
-            "execution_epoch": 0,
+            "execution_epoch": execution_epoch,
             "deadline_utc": "2030-01-01T00:00:00Z",
+        },
+    )
+
+
+def _state_changed(
+    stream_id: str,
+    epoch: str,
+    session_id: str,
+    task_id: str,
+    sequence: int,
+    *,
+    previous: str,
+    current: str,
+    execution_epoch: int,
+) -> dict:
+    return build_event(
+        stream_id=stream_id,
+        sequence=sequence,
+        producer_epoch=epoch,
+        session_id=session_id,
+        task_id=task_id,
+        kind="task.state_changed",
+        payload={
+            "previous": previous,
+            "current": current,
+            "reason_code": "requested",
+            "execution_epoch": execution_epoch,
         },
     )
 
@@ -125,11 +160,28 @@ def _terminal_pair(
     return verdict, closed
 
 
-def _admit_one(store, stream_id, epoch, session_id, task_id, *, request_id="request-1", sequence=2):
+def _admit_one(
+    store,
+    stream_id,
+    epoch,
+    session_id,
+    task_id,
+    *,
+    request_id="request-1",
+    sequence=2,
+    execution_epoch=0,
+):
     store.admit(
         request_id=request_id,
         payload_sha256="c" * 64,
-        envelope=_admitted(stream_id, epoch, session_id, task_id, sequence),
+        envelope=_admitted(
+            stream_id,
+            epoch,
+            session_id,
+            task_id,
+            sequence,
+            execution_epoch=execution_epoch,
+        ),
         expected_sequence=sequence,
     )
 
@@ -180,6 +232,159 @@ def test_admission_is_atomic_idempotent_and_payload_bound(tmp_path):
             request_id="request-1", payload_sha256="d" * 64,
             envelope=event, expected_sequence=2,
         )
+
+
+def test_admission_persists_execution_epoch_in_the_task_index(tmp_path):
+    stream_id, epoch, session_id = _ids()
+    task_id = str(uuid4())
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    store.append(_session_opened(stream_id, epoch, session_id), expected_sequence=1)
+    _admit_one(
+        store,
+        stream_id,
+        epoch,
+        session_id,
+        task_id,
+        execution_epoch=7,
+    )
+
+    record = store.task_record(task_id)
+    assert record is not None
+    assert record["state"] == "admitted"
+    assert record["execution_epoch"] == 7
+
+
+def test_state_change_advances_event_and_task_index_atomically(tmp_path):
+    stream_id, epoch, session_id = _ids()
+    task_id = str(uuid4())
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    store.append(_session_opened(stream_id, epoch, session_id), expected_sequence=1)
+    _admit_one(
+        store,
+        stream_id,
+        epoch,
+        session_id,
+        task_id,
+        execution_epoch=7,
+    )
+    event = _state_changed(
+        stream_id,
+        epoch,
+        session_id,
+        task_id,
+        3,
+        previous="admitted",
+        current="running",
+        execution_epoch=7,
+    )
+
+    store.append(event, expected_sequence=3)
+
+    assert [item["kind"] for item in store.replay(stream_id)] == [
+        "session.opened", "task.admitted", "task.state_changed"
+    ]
+    record = store.task_record(task_id)
+    assert record is not None
+    assert record["state"] == "running"
+    assert record["execution_epoch"] == 7
+    assert store.next_sequence(stream_id) == 4
+
+
+def test_state_change_rejects_stale_previous_state_without_consuming_sequence(tmp_path):
+    stream_id, epoch, session_id = _ids()
+    task_id = str(uuid4())
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    store.append(_session_opened(stream_id, epoch, session_id), expected_sequence=1)
+    _admit_one(store, stream_id, epoch, session_id, task_id)
+    store.append(
+        _state_changed(
+            stream_id,
+            epoch,
+            session_id,
+            task_id,
+            3,
+            previous="admitted",
+            current="running",
+            execution_epoch=0,
+        ),
+        expected_sequence=3,
+    )
+
+    stale = _state_changed(
+        stream_id,
+        epoch,
+        session_id,
+        task_id,
+        4,
+        previous="admitted",
+        current="verifying",
+        execution_epoch=0,
+    )
+    with pytest.raises(TaskStateConflict, match="expected previous=running"):
+        store.append(stale, expected_sequence=4)
+
+    assert store.next_sequence(stream_id) == 4
+    assert store.task_record(task_id)["state"] == "running"
+    assert [item["kind"] for item in store.replay(stream_id)] == [
+        "session.opened", "task.admitted", "task.state_changed"
+    ]
+
+
+def test_epoch_scoped_event_rejects_stale_epoch_without_consuming_sequence(tmp_path):
+    stream_id, epoch, session_id = _ids()
+    task_id = str(uuid4())
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    store.append(_session_opened(stream_id, epoch, session_id), expected_sequence=1)
+    _admit_one(
+        store,
+        stream_id,
+        epoch,
+        session_id,
+        task_id,
+        execution_epoch=4,
+    )
+    stale = _state_changed(
+        stream_id,
+        epoch,
+        session_id,
+        task_id,
+        3,
+        previous="admitted",
+        current="running",
+        execution_epoch=3,
+    )
+
+    with pytest.raises(TaskStateConflict, match="execution_epoch"):
+        store.append(stale, expected_sequence=3)
+
+    assert store.next_sequence(stream_id) == 3
+    assert store.task_record(task_id)["state"] == "admitted"
+
+
+def test_terminal_state_cannot_bypass_atomic_finalization(tmp_path):
+    stream_id, epoch, session_id = _ids()
+    task_id = str(uuid4())
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    store.append(_session_opened(stream_id, epoch, session_id), expected_sequence=1)
+    _admit_one(store, stream_id, epoch, session_id, task_id)
+    terminal = _state_changed(
+        stream_id,
+        epoch,
+        session_id,
+        task_id,
+        3,
+        previous="admitted",
+        current="failed",
+        execution_epoch=0,
+    )
+
+    with pytest.raises(TaskStateConflict, match="atomic finalize_task"):
+        store.append(terminal, expected_sequence=3)
+
+    assert store.next_sequence(stream_id) == 3
+    record = store.task_record(task_id)
+    assert record is not None and record["terminal"] is False
+    assert record["state"] == "admitted"
 
 
 def test_task_verdict_and_close_cannot_be_appended_independently(tmp_path):
