@@ -271,6 +271,14 @@ def _discover_test_files(paths: list[Path]) -> list[Path]:
     return files
 
 
+def _display_test_path(path: Path, root: Path) -> str:
+    """Prefer repository-relative labels, but accept tests outside the checkout."""
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
 def run(paths: list[Path], keyword: str | None, verbose: bool) -> int:
     root = Path.cwd()
     try:
@@ -303,7 +311,7 @@ def run(paths: list[Path], keyword: str | None, verbose: bool) -> int:
         for name, fn in tests:
             marks = _marks_of(fn, module)
             for case_id, params in _parametrize_cases(marks):
-                label = f"{file.relative_to(root)}::{name}" + (f"[{case_id}]" if case_id else "")
+                label = f"{_display_test_path(file, root)}::{name}" + (f"[{case_id}]" if case_id else "")
                 if keyword and keyword not in label:
                     continue
                 reason = _skip_reason(marks)
