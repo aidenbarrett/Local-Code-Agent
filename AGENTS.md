@@ -18,7 +18,9 @@ for this product stream. Evaluation must not import gateway/persona/chat context
 If implementation requires violating those boundaries, stop for a generation decision.
 
 The root is the product surface. Implementation, measurement, tests, research
-documentation and frozen evidence live under `internal/`.
+documentation and frozen evidence live under `internal/`. `internal/README.md` maps that
+tree and says which parts are the instrument; `internal/docs/README.md` says which
+documents are normative and which are aspirational.
 
 This file is a router. Read only the sections that match your task.
 
@@ -53,10 +55,15 @@ yourself writing code that records something without checking it, stop.
 | `base_prompt_sha256` | what the model is told | **ends a generation once rows exist** |
 | `outcome_contract_sha256` | what the evaluator calls correct | **ends a generation once rows exist** |
 
-Generation 2 currently has **zero collected model rows**. That is the only reason
-this branch may freeze the revised agent identity/anti-guessing prompt without
-creating a post-data methodology change. The moment row one lands, both contract
-axes freeze for confirmatory comparison.
+Generation 2 currently has **zero collected model rows**, and both contract axes are
+already deliberately pinned. Zero rows does not make them casually editable; it makes an
+explicit generation change cheap rather than expensive, which is what allowed the revised
+agent identity and anti-guessing prompt to be frozen without a post-data methodology
+change. Moving either axis is still a decision taken on purpose and stated in the PR,
+never a side effect of a rename or a tidy-up.
+
+Once the first Generation-2 row exists, moving either contract axis ends Generation 2
+for confirmatory comparison and requires an explicit new-generation decision.
 
 Canonical recomputation from the repository root, with no editable-install
 assumption:
@@ -66,6 +73,52 @@ python -c "import sys; sys.path.insert(0,'internal'); from local_agent import pr
 ```
 
 The same command is recorded in `internal/INSTRUMENT.json`; keep the two in sync.
+
+## Naming and structure
+
+These are permanent rules, not the preferences of one refactor.
+
+- **A name says what the thing is, not where it sits.** `session/storage.py` tells a
+  reader nothing that the directory did not already say. `session_store.py` does. The
+  test is whether the name still makes sense pasted into an import line halfway down
+  another file.
+- **One word, one meaning, repository-wide.** `endpoint` means an inference server
+  everywhere except `evaluation/endpoints.py`, where it means a success metric. Do not
+  add a second such collision. If a word is already taken, pick another.
+- **A module named for a generic role gets a qualifier.** `base.py`, `context.py`,
+  `client.py`, `runner.py`, `service.py` and `testing.py` are all ambiguous the moment
+  two of them are open at once.
+- **A filename beginning with `test_` is a test module.** Pytest collects it. A helper
+  for tests is `testing_tools.py`, not `test_execution.py`.
+- **A directory means something.** Every directory under `internal/` is either part of
+  the instrument or not, and `test_hashed_surface_membership.py` fails until a new one
+  declares which. Adding a folder is a decision, so make it out loud.
+- **An empty or documentation-only directory must not look like source.** A directory
+  containing only a README belongs under `internal/docs/`.
+
+## Before you rename or move anything
+
+Run the pre-flight first. Windows PowerShell or WSL, from the repository root:
+
+```text
+python internal/devtools/check_rename_safety.py
+python internal/devtools/check_rename_safety.py --markdown > preflight.md
+```
+
+Then audit the old path everywhere, not just in Python imports: bare-name imports made
+possible by `sys.path.insert`, every path manipulation, PowerShell, shell scripts,
+GitHub workflows, documentation, `pyproject.toml`, `.local-agent.toml`, `conftest.py`,
+`INSTRUMENT.json`, provenance globs, packaging scripts, demo wrappers and tests. A move
+is incomplete while an authoritative old reference remains. The highest-consequence one
+is `.local-agent.toml`, which is how the agent tests its own checkout.
+
+**Prove the transformation on the real tree.** This rule exists because reasoning about
+labels was wrong twice in a row on this repository. Renames were assessed as unsafe by
+reading which names appear inside hashed inputs; executing the renames and recomputing
+the hashes gave a different answer both times, in both directions. Before claiming a
+rename does or does not move an identity: perform it on a scratch copy of the current
+tree, recompute all three hashes, and import the package. Static "looks safe" reasoning
+is not evidence, and neither is a green hash on a tree that no longer imports.
 
 ## Do not change without saying so explicitly in the PR
 
