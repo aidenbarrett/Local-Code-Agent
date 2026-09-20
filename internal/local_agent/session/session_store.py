@@ -6,6 +6,7 @@ replays task effects. Admission and terminalization are durable atomic fences.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -23,6 +24,10 @@ class AdmissionConflict(RuntimeError):
 
 
 class TaskStateConflict(RuntimeError):
+    pass
+
+
+class ArtifactIntegrityError(RuntimeError):
     pass
 
 
@@ -92,11 +97,28 @@ class SQLiteSessionStore:
                     closed_sequence INTEGER,
                     result_ref_json TEXT
                 );
+                CREATE TABLE IF NOT EXISTS artifacts (
+                    artifact_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+                    payload BLOB NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES tasks(task_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts(task_id);
+                CREATE TABLE IF NOT EXISTS turn_tasks (
+                    conversation_id TEXT NOT NULL,
+                    turn_index INTEGER NOT NULL CHECK(turn_index >= 0),
+                    turn_sha256 TEXT NOT NULL,
+                    task_id TEXT NOT NULL UNIQUE,
+                    PRIMARY KEY(conversation_id, turn_index, turn_sha256, task_id),
+                    FOREIGN KEY(task_id) REFERENCES tasks(task_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_turn_tasks_conversation
+                    ON turn_tasks(conversation_id, turn_index, task_id);
                 """
             )
-            # Forward-only compatibility for databases created before later task
-            # index fields became load-bearing. Existing rows predate epoch fencing,
-            # so epoch zero is their only truthful reconstructable value.
             columns = {
                 str(row["name"])
                 for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
@@ -109,6 +131,26 @@ class SQLiteSessionStore:
                 conn.execute("ALTER TABLE tasks ADD COLUMN verdict_sequence INTEGER")
             if "result_ref_json" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN result_ref_json TEXT")
+
+            # Older durable tasks already carry the exact TurnRef in their validated
+            # task.admitted event. Rebuild only that index; never invent artifact bytes.
+            rows = conn.execute(
+                "SELECT task_id, envelope_json FROM events WHERE kind = 'task.admitted' "
+                "ORDER BY stream_id, sequence"
+            ).fetchall()
+            for row in rows:
+                envelope = json.loads(row["envelope_json"])
+                ref = self._origin_turn_ref(envelope)
+                if ref is None:
+                    continue
+                conn.execute(
+                    "INSERT OR IGNORE INTO turn_tasks(conversation_id, turn_index, turn_sha256, task_id) "
+                    "VALUES(?, ?, ?, ?)",
+                    (
+                        str(ref["conversation_id"]), int(ref["turn_index"]),
+                        str(ref["turn_sha256"]), str(row["task_id"]),
+                    ),
+                )
 
     @staticmethod
     def _encoded(envelope: dict[str, Any]) -> str:
@@ -153,6 +195,78 @@ class SQLiteSessionStore:
             (task_id,),
         ).fetchone()
 
+    @staticmethod
+    def _artifact_row_for_bytes(
+        ref: dict[str, Any],
+        payload: bytes | None,
+        *,
+        payload_sha256: str | None = None,
+    ) -> tuple[str, str, str, int, bytes] | None:
+        availability = ref.get("availability")
+        if availability != "retained":
+            if payload is not None:
+                raise ArtifactIntegrityError("non-retained artifact cannot persist payload bytes")
+            return None
+        if payload is None:
+            raise ArtifactIntegrityError("retained artifact requires payload bytes")
+        digest = hashlib.sha256(payload).hexdigest()
+        size = len(payload)
+        if ref.get("sha256") != digest:
+            raise ArtifactIntegrityError("artifact payload digest does not match its reference")
+        if int(ref.get("size_bytes", -1)) != size:
+            raise ArtifactIntegrityError("artifact payload size does not match its reference")
+        if payload_sha256 is not None and payload_sha256 != digest:
+            raise ArtifactIntegrityError("task payload digest does not match retained request bytes")
+        return (
+            str(ref["artifact_id"]), digest, str(ref["media_type"]), size, bytes(payload)
+        )
+
+    @classmethod
+    def _insert_artifact(
+        cls,
+        conn: sqlite3.Connection,
+        task_id: str,
+        ref: dict[str, Any],
+        payload: bytes | None,
+        *,
+        payload_sha256: str | None = None,
+    ) -> None:
+        row = cls._artifact_row_for_bytes(ref, payload, payload_sha256=payload_sha256)
+        if row is None:
+            return
+        artifact_id, digest, media_type, size, stored = row
+        conn.execute(
+            "INSERT INTO artifacts(artifact_id, task_id, sha256, media_type, size_bytes, payload) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (artifact_id, task_id, digest, media_type, size, stored),
+        )
+
+    @staticmethod
+    def _origin_turn_ref(envelope: dict[str, Any]) -> dict[str, Any] | None:
+        origin = envelope["payload"]["origin"]
+        if origin["kind"] == "watch":
+            return None
+        return origin["turn_ref"]
+
+    @classmethod
+    def _insert_turn_association(
+        cls,
+        conn: sqlite3.Connection,
+        task_id: str,
+        envelope: dict[str, Any],
+    ) -> None:
+        ref = cls._origin_turn_ref(envelope)
+        if ref is None:
+            return
+        conn.execute(
+            "INSERT INTO turn_tasks(conversation_id, turn_index, turn_sha256, task_id) "
+            "VALUES(?, ?, ?, ?)",
+            (
+                str(ref["conversation_id"]), int(ref["turn_index"]),
+                str(ref["turn_sha256"]), task_id,
+            ),
+        )
+
     @classmethod
     def _validate_epoch_scoped_task_event(
         cls,
@@ -163,7 +277,6 @@ class SQLiteSessionStore:
         payload = envelope.get("payload")
         if not task_id or not isinstance(payload, dict) or "execution_epoch" not in payload:
             return None
-
         row = cls._task_row(conn, str(task_id))
         if not row:
             raise TaskStateConflict("epoch-scoped event names an unknown task")
@@ -182,13 +295,6 @@ class SQLiteSessionStore:
             return self._next_sequence(conn, stream_id)
 
     def append(self, envelope: dict[str, Any], *, expected_sequence: int) -> None:
-        """Append one validated non-terminal event with CAS sequencing.
-
-        Final verdict and closure are intentionally excluded: callers cannot
-        create a half-terminal task by committing one without the other. Events
-        carrying an execution epoch are fenced against the durable task index.
-        State-change events also advance that index in the same transaction.
-        """
         validate_event(envelope)
         if envelope["kind"] in {"task.verdict", "task.closed"}:
             raise ValueError("task verdict and closure must use atomic finalize_task")
@@ -203,7 +309,6 @@ class SQLiteSessionStore:
                 raise SequenceConflict(
                     f"stream {stream_id} expected sequence {expected_sequence}, actual {actual}"
                 )
-
             row = self._validate_epoch_scoped_task_event(conn, envelope)
             if envelope["kind"] == "task.state_changed":
                 if row is None:
@@ -222,7 +327,6 @@ class SQLiteSessionStore:
                 if current in _TERMINAL_TASK_STATES:
                     conn.execute("ROLLBACK")
                     raise TaskStateConflict("terminal task state requires atomic finalize_task")
-
             self._insert_event(conn, envelope)
             if envelope["kind"] == "task.state_changed":
                 conn.execute(
@@ -238,12 +342,9 @@ class SQLiteSessionStore:
         payload_sha256: str,
         envelope: dict[str, Any],
         expected_sequence: int,
+        request_bytes: bytes | None = None,
     ) -> tuple[str, bool]:
-        """Atomically create a task and persist its task.admitted event.
-
-        Identical request retries return the original task id without a second
-        event. Reusing a request id for different bytes fails closed.
-        """
+        """Atomically admit task, exact TurnRef association and retained request."""
         validate_event(envelope)
         if envelope["kind"] != "task.admitted" or not envelope.get("task_id"):
             raise ValueError("admission requires a task.admitted event with task_id")
@@ -251,6 +352,12 @@ class SQLiteSessionStore:
             raise SequenceConflict("admission envelope sequence does not match expected sequence")
         task_id = str(envelope["task_id"])
         execution_epoch = int(envelope["payload"]["execution_epoch"])
+        request_ref = envelope["payload"]["request_ref"]
+        self._artifact_row_for_bytes(
+            request_ref,
+            request_bytes,
+            payload_sha256=payload_sha256 if request_bytes is not None else None,
+        )
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             existing = conn.execute(
@@ -262,7 +369,6 @@ class SQLiteSessionStore:
                     raise AdmissionConflict("request_id was already used for different task bytes")
                 conn.execute("COMMIT")
                 return str(existing["task_id"]), False
-
             actual = self._next_sequence(conn, envelope["stream_id"])
             if actual != expected_sequence:
                 conn.execute("ROLLBACK")
@@ -279,6 +385,10 @@ class SQLiteSessionStore:
                     envelope["stream_id"], expected_sequence, execution_epoch, "admitted",
                 ),
             )
+            self._insert_artifact(
+                conn, task_id, request_ref, request_bytes, payload_sha256=payload_sha256
+            )
+            self._insert_turn_association(conn, task_id, envelope)
             self._insert_event(conn, envelope)
             conn.execute("COMMIT")
             return task_id, True
@@ -289,15 +399,15 @@ class SQLiteSessionStore:
         closed_envelope: dict[str, Any],
         *,
         expected_sequence: int,
+        result_bytes: bytes | None = None,
     ) -> None:
-        """Atomically commit final verdict, closure, terminal state and result index."""
+        """Atomically commit terminal state, result index and retained result bytes."""
         validate_event(verdict_envelope)
         validate_event(closed_envelope)
         if verdict_envelope["kind"] != "task.verdict":
             raise ValueError("finalization requires task.verdict first")
         if closed_envelope["kind"] != "task.closed":
             raise ValueError("finalization requires task.closed second")
-
         task_id = verdict_envelope.get("task_id")
         if not task_id or closed_envelope.get("task_id") != task_id:
             raise ValueError("finalization envelopes must name the same task_id")
@@ -308,7 +418,6 @@ class SQLiteSessionStore:
             raise SequenceConflict("verdict sequence does not match expected sequence")
         if int(closed_envelope["sequence"]) != expected_sequence + 1:
             raise SequenceConflict("closure sequence must immediately follow verdict")
-
         completion = verdict_envelope["payload"]["completion"]
         closure = closed_envelope["payload"]
         if completion["task_id"] != task_id:
@@ -317,6 +426,8 @@ class SQLiteSessionStore:
             raise ValueError("verdict and closure terminal status must agree")
         if completion["result_ref"] != closure["result_ref"]:
             raise ValueError("verdict and closure result_ref must agree")
+        result_ref = completion["result_ref"]
+        self._artifact_row_for_bytes(result_ref, result_bytes)
 
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -351,7 +462,7 @@ class SQLiteSessionStore:
                 raise SequenceConflict(
                     f"stream {stream_id} expected sequence {expected_sequence}, actual {actual}"
                 )
-
+            self._insert_artifact(conn, str(task_id), result_ref, result_bytes)
             self._insert_event(conn, verdict_envelope)
             self._insert_event(conn, closed_envelope)
             conn.execute(
@@ -359,7 +470,7 @@ class SQLiteSessionStore:
                 "result_ref_json = ? WHERE task_id = ?",
                 (
                     str(closure["status"]), expected_sequence, expected_sequence + 1,
-                    self._encoded_value(closure["result_ref"]), task_id,
+                    self._encoded_value(result_ref), task_id,
                 ),
             )
             conn.execute("COMMIT")
@@ -381,7 +492,6 @@ class SQLiteSessionStore:
         return events
 
     def task_record(self, task_id: str) -> dict[str, Any] | None:
-        """Return durable task-index state without treating it as verification proof."""
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT task_id, session_id, request_id, payload_sha256, stream_id, admitted_sequence, "
@@ -397,13 +507,64 @@ class SQLiteSessionStore:
         record["result_ref"] = json.loads(encoded) if encoded is not None else None
         return record
 
-    def unterminated_tasks(self, stream_id: str) -> list[dict[str, Any]]:
-        """Return this stream's durable admissions needing crash reconciliation.
+    def task_ids_for_turn(self, turn_ref: dict[str, Any]) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT tt.task_id FROM turn_tasks AS tt JOIN tasks AS t ON t.task_id = tt.task_id "
+                "WHERE tt.conversation_id = ? AND tt.turn_index = ? AND tt.turn_sha256 = ? "
+                "ORDER BY t.admitted_sequence ASC",
+                (
+                    str(turn_ref["conversation_id"]), int(turn_ref["turn_index"]),
+                    str(turn_ref["turn_sha256"]),
+                ),
+            ).fetchall()
+        return [str(row["task_id"]) for row in rows]
 
-        Recovery is explicitly stream-scoped: one service may never terminalize a
-        task owned by another stream merely because both share the same database.
-        This method does not execute or retry effects.
-        """
+    def latest_terminal_task_for_conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT t.task_id, t.state, t.result_ref_json, tt.turn_index, tt.turn_sha256 "
+                "FROM turn_tasks AS tt JOIN tasks AS t ON t.task_id = tt.task_id "
+                "WHERE tt.conversation_id = ? AND t.terminal = 1 "
+                "ORDER BY t.admitted_sequence DESC LIMIT 1",
+                (conversation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        record = dict(row)
+        record["turn_ref"] = {
+            "conversation_id": conversation_id,
+            "turn_index": int(record.pop("turn_index")),
+            "turn_sha256": str(record.pop("turn_sha256")),
+        }
+        encoded = record.pop("result_ref_json")
+        record["result_ref"] = json.loads(encoded) if encoded is not None else None
+        return record
+
+    def artifact_bytes(self, ref: dict[str, Any]) -> bytes:
+        if ref.get("availability") != "retained":
+            raise ArtifactIntegrityError("artifact is not retained")
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT sha256, media_type, size_bytes, payload FROM artifacts WHERE artifact_id = ?",
+                (str(ref["artifact_id"]),),
+            ).fetchone()
+        if row is None:
+            raise ArtifactIntegrityError("retained artifact payload is missing")
+        payload = bytes(row["payload"])
+        if str(row["sha256"]) != str(ref["sha256"]):
+            raise ArtifactIntegrityError("stored artifact digest metadata does not match reference")
+        if str(row["media_type"]) != str(ref["media_type"]):
+            raise ArtifactIntegrityError("stored artifact media type does not match reference")
+        if int(row["size_bytes"]) != int(ref["size_bytes"]):
+            raise ArtifactIntegrityError("stored artifact size metadata does not match reference")
+        if len(payload) != int(ref["size_bytes"]):
+            raise ArtifactIntegrityError("stored artifact payload size is corrupt")
+        if hashlib.sha256(payload).hexdigest() != str(ref["sha256"]):
+            raise ArtifactIntegrityError("stored artifact payload digest is corrupt")
+        return payload
+
+    def unterminated_tasks(self, stream_id: str) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT task_id, session_id, request_id, payload_sha256, stream_id, admitted_sequence, "
