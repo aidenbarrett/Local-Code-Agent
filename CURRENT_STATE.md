@@ -19,6 +19,10 @@ described below.
 - The public `session` command opens the canonical persisted conversation under the same ownership model and constructs the durable Session Hub event service for that conversation.
 - Repository and self-check work from the public Session Hub is handed through durable task admission before controller effects run.
 - The saved user `TurnRef` is the task origin. Direct-user and model-proposal origins remain typed separately; a future rule origin is refused until a real resolved rule identity exists.
+- Conversation-originated task admission atomically indexes the trusted `TurnRef` beside the durable task. One turn can therefore resolve to zero or more durable task IDs without putting task artifacts into raw conversation history.
+- Databases created before the turn/task sidecar existed rebuild that derived index from already-validated `task.admitted` events at startup.
+- Bounded controller result text is staged as a sibling task artifact before terminalization and is reused for follow-up context only when the eventual durable status, verdict and reason match. A crash-recovered `NO_VERDICT/controller_crash` cannot inherit stale pre-crash result text as authority.
+- Session Hub follow-up observations are reconstructed from durable task state on every turn and validate the stored `TurnRef` against the canonical raw conversation. Product follow-ups therefore survive restart and do not depend on the process-local `last_result` pointer.
 - Durable gateway request identity is deterministic. Re-submitting the same saved turn cannot replay task effects.
 - The admitted execution-contract digest covers current source identity plus the controller's effective repository policy, build/test profiles and context budget. Environment values affect that digest without being copied into durable events.
 - Raw persisted load/save primitives are private. Owned contexts save explicitly; abandoning an edit does not auto-save it.
@@ -42,6 +46,8 @@ Source mutation, staging and commit behaviour remain disabled on the conversatio
 - SQLite WAL session and task storage
 - one writer owning sequence assignment and persistence
 - admission keyed by request identity and payload digest
+- atomic conversation-turn/task indexing at admission for origins that carry a `TurnRef`
+- bounded sibling task summaries for restart-safe historical conversation context
 - atomic verdict + closure + terminal task/result indexing
 - stream-scoped crash recovery to unknown / `NO_VERDICT`, never automatic retry
 - accepted-write/shutdown linearization so a returned receipt cannot be abandoned
@@ -70,6 +76,15 @@ closure and result indexing commit atomically before the synchronous gateway ret
 controller result. An identical request retry returns the existing task identity and is
 refused rather than executing the effect again.
 
+The public composition uses a turn-indexed Session Hub store. Its admission commit writes
+the `TurnRef` sidecar in the same SQLite transaction as `task.admitted`. Result text is
+staged before terminalization but is not itself a verdict: the history reader requires its
+expected terminal status, verdict and reason to match the committed `task.verdict` before
+supplying it as labelled historical context. On restart, that reader reconstructs the
+latest bounded task observations from SQLite and verifies each origin against the current
+canonical conversation turn hash. Pre-sidecar databases are migrated from their existing
+validated admission events.
+
 The admission schema requires `deadline_utc`. The current adapter records a conservative
 deadline envelope over existing bounded command/call configuration, but whole-task
 cancellation is not implemented yet. That deadline is provenance, not proof that all
@@ -77,10 +92,6 @@ processes were stopped at expiry, and must not be rendered as such.
 
 Important limits still remain:
 
-- **Turn-to-task association is not yet durable.** The task's admission origin contains
-  the originating `TurnRef`, but the conversation side has no durable sidecar index for
-  zero-or-more task IDs. Follow-up observation therefore still depends on the process-
-  local `last_result` pointer and is not reconstructed after restart.
 - **Most declared event kinds are not yet emitted durably by the live product path.**
   Task admission/state/verdict/closure are durable. Controller/worker/tool activity still
   passes through the process-local `EventBuffer`; do not describe those transient records
@@ -91,7 +102,6 @@ Important limits still remain:
 
 ## Known product gaps
 
-- Persist the turn-to-task association and reconstruct bounded follow-up observations from durable task state rather than the process-local `last_result` pointer.
 - Deterministic-first Work/Chat/rule routing is not complete.
 - Full process-tree containment and truthful cancellation are not complete. The generic command runner owns the direct child, bounds timeout return and snapshots immutable public evidence, but POSIX process groups and Windows descendant enumeration are best-effort cleanup rather than proof of whole-tree containment. Session Hub cancel requests are not yet wired through to execution ownership.
 - Endpoint lease/queue arbitration for shared OVMS use is not complete.
@@ -116,14 +126,13 @@ Generation 2 currently has no collected model rows. Its success vocabulary and o
 
 ## Next integration order
 
-The durable correctness foundation, public composition path and admission-before-effects
-handoff are in place. The next product integration order is:
+The durable correctness foundation, public composition path, admission-before-effects
+handoff and restart-safe task follow-up history are in place. The next product integration
+order is:
 
-1. Persist the turn-to-task association and reconstruct bounded follow-up observations
-   from durable task state rather than the process-local `last_result` pointer.
-2. Add deterministic Work/Chat/rule routing and fixed watch execution on top of recorded route provenance.
-3. Add task/run process ownership, endpoint arbitration and truthful cancellation semantics where not already completed by the foundation.
-4. Build the fixture-driven Textual shell against the durable event interface.
-5. Wire the live controller/endpoint path and run physical-laptop acceptance.
+1. Add deterministic Work/Chat/rule routing and fixed watch execution on top of recorded route provenance.
+2. Add task/run process ownership, endpoint arbitration and truthful cancellation semantics where not already completed by the foundation.
+3. Build the fixture-driven Textual shell against the durable event interface.
+4. Wire the live controller/endpoint path and run physical-laptop acceptance.
 
 Historical experiments and their artifacts remain frozen. New instrumentation or methodology belongs to a new experimental generation, never a silent reinterpretation of old evidence.
