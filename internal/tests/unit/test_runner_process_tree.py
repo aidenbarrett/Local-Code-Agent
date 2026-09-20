@@ -8,7 +8,7 @@ import signal
 import sys
 import time
 
-from local_agent.tools.runner import run_command
+from local_agent.tools.process_runner import run_command
 
 
 def test_normal_completion_needs_no_cleanup_claim(tmp_path):

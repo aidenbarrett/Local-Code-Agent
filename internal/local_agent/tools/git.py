@@ -10,8 +10,8 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
-from .base import Risk, ToolError, ToolRegistry, ToolResult
-from .context import ToolContext
+from .tool_primitives import Risk, ToolError, ToolRegistry, ToolResult
+from .tool_context import ToolContext
 
 _GIT_TIMEOUT = 120
 

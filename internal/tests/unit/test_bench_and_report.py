@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO / "measurement"))
 sys.path.insert(0, str(REPO / "evaluation"))
 
-from local_agent.llm.models import CallStats, ChatResponse  # noqa: E402
+from local_agent.llm.protocol import CallStats, ChatResponse  # noqa: E402
 
 
 class FakeModel:
@@ -297,7 +297,7 @@ class ConformantServer:
         return {"served_models": ["m"], "configured_model_present": True}
 
     def chat(self, messages, tools=None, max_tokens=None):
-        from local_agent.llm.models import CallStats, ChatResponse, ToolCall
+        from local_agent.llm.protocol import CallStats, ChatResponse, ToolCall
 
         text = "".join(str(m.get("content") or "") for m in messages)
         prompt_tokens = max(1, len(text) // 4)

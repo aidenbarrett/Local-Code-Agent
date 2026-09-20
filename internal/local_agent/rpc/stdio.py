@@ -28,7 +28,7 @@ from ..agent.policy import Decision
 from ..config import ModelConfig, find_repo_root, load_repo_config
 from ..llm.client import OpenAICompatibleClient
 from ..tools import build_registry
-from ..tools.base import Tool
+from ..tools.tool_primitives import Tool
 
 
 class StdioServer:

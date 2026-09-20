@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO / "evaluation"))
 
 from local_agent.llm.client import ScriptedClient, tool_call  # noqa: E402
-from local_agent.llm.models import ChatResponse  # noqa: E402
+from local_agent.llm.protocol import ChatResponse  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     shutil.which("cmake") is None or shutil.which("ctest") is None,
@@ -681,7 +681,7 @@ def test_a_filter_that_matches_nothing_is_not_a_pass(tmp_path):
 
 def test_legal_ctest_regexes_are_accepted(tmp_path):
     """`.*timeout.*` is a valid ctest pattern and was refused as invalid."""
-    from local_agent.tools.base import ToolError
+    from local_agent.tools.tool_primitives import ToolError
     from run_evaluation import establish, prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry

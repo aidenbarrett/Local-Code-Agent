@@ -40,13 +40,13 @@ from task_contracts import (  # noqa: E402
 from local_agent.agent import Orchestrator, SkillLibrary  # noqa: E402
 from local_agent.config import MODEL_PRESETS, ModelConfig, load_repo_config  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient, sdk_identity  # noqa: E402
-from local_agent.llm.router import (  # noqa: E402
+from local_agent.llm.model_tiers import (  # noqa: E402
     CHEAP,
     STRONG,
     TieredClient,
     build_tiered_client,
 )
-from local_agent.llm.models import CallStats, ChatResponse, ToolCall  # noqa: E402
+from local_agent.llm.protocol import CallStats, ChatResponse, ToolCall  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.persistence import sanitized_result  # noqa: E402
 from local_agent.tools import build_registry  # noqa: E402

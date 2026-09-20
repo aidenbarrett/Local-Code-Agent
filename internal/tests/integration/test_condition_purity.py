@@ -25,7 +25,7 @@ sys.path.insert(0, str(REPO / "evaluation"))
 
 from local_agent.config import ModelConfig  # noqa: E402
 from local_agent.llm.client import ScriptedClient, tool_call  # noqa: E402
-from local_agent.llm.models import ChatResponse  # noqa: E402
+from local_agent.llm.protocol import ChatResponse  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     shutil.which("cmake") is None or shutil.which("ctest") is None,

@@ -14,7 +14,7 @@ on the same wall and then blames it for the result. So it becomes BLOCKED, it
 does not escalate, and it is reported separately.
 
 Which case a tool result falls into is decided by its typed `execution_status`
-and `reason` (see `tools.base`), never by matching English in its summary. An
+and `reason` (see `tools.tool_primitives`), never by matching English in its summary. An
 earlier version of this file did the latter and it was fragile rubbish.
 """
 

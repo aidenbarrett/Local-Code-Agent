@@ -5,7 +5,7 @@ import pytest
 
 from evaluation.endpoints import row_endpoints
 from evaluation.run_evaluation import CASES, ModelConfig, RehearsalClient, run_case
-from local_agent.llm.models import CallStats, ChatResponse, ToolCall
+from local_agent.llm.protocol import CallStats, ChatResponse, ToolCall
 
 
 class StructuredRehearsalClient:

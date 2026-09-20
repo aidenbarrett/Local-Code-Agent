@@ -5,7 +5,7 @@ from pathlib import Path
 from local_agent.agent.policy import PolicyEngine, Verdict
 from local_agent.agent.skills import SkillLibrary, _parse_frontmatter
 from local_agent.config import Policy
-from local_agent.tools.base import Risk, Tool
+from local_agent.tools.tool_primitives import Risk, Tool
 
 REPO = Path(__file__).resolve().parent.parent.parent
 

@@ -26,7 +26,7 @@ from typing import Any
 
 from ..config import ModelConfig
 from .client import LLMClient, OpenAICompatibleClient
-from .models import ChatResponse
+from .protocol import ChatResponse
 
 CHEAP = "cheap"
 STRONG = "strong"

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from local_agent.tools.base import SandboxError, ToolResult, resolve_in_repo
+from local_agent.tools.tool_primitives import SandboxError, ToolResult, resolve_in_repo
 
 
 def test_relative_path_resolves(tmp_path: Path):

@@ -2,7 +2,7 @@ import json
 
 from local_agent.agent.context import ContextManager, tool_result_message
 from local_agent.llm.client import _transport_kind
-from local_agent.tools.base import ToolResult
+from local_agent.tools.tool_primitives import ToolResult
 
 
 def test_request_budget_includes_tool_schema_overhead_and_server_calibration():

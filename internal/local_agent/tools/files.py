@@ -6,8 +6,8 @@ import fnmatch
 from pathlib import Path
 from typing import Any
 
-from .base import NotFoundError, Risk, ToolError, ToolRegistry, ToolResult, relpath, resolve_in_repo
-from .context import ToolContext
+from .tool_primitives import NotFoundError, Risk, ToolError, ToolRegistry, ToolResult, relpath, resolve_in_repo
+from .tool_context import ToolContext
 
 _SKIP_DIRS = {
     ".git", "build", "out", "node_modules", "__pycache__", ".venv",
