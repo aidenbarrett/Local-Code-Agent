@@ -74,6 +74,26 @@ python -c "import sys; sys.path.insert(0,'internal'); from local_agent import pr
 
 The same command is recorded in `internal/INSTRUMENT.json`; keep the two in sync.
 
+## Before every push
+
+Every writer, human or model, must finalize repository identity before pushing a branch:
+
+```text
+python internal/devtools/finalize_change.py --write-source
+```
+
+This is not optional busywork and CI is not the calculator of first resort. The command
+recomputes all three identities from the actual tree. If only `source_sha256` moved, it
+atomically stamps that exact value into `internal/INSTRUMENT.json`. If either
+`base_prompt_sha256` or `outcome_contract_sha256` moved, it refuses to write anything and
+requires an explicit generation/methodology decision. Commit any source declaration it
+writes as part of the same coherent change.
+
+Do not deliberately push a stale source declaration just to have CI tell you the new
+hash. CI independently recomputes the identities and remains the authoritative safety
+net; local finalization merely removes a predictable red-first-pass loop without
+weakening the guard.
+
 ## Naming and structure
 
 These are permanent rules, not the preferences of one refactor.
