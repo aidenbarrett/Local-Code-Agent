@@ -54,14 +54,33 @@ def test_root_session_command_reaches_product_composition_root():
     assert "-m local_agent.session.cli @Rest" not in wrapper
 
 
-def test_product_session_constructs_real_durable_components():
+def test_product_session_constructs_real_durable_components(tmp_path):
+    hub = _load_hub()
+    from local_agent.session.session_store import SQLiteSessionStore
+
+    service, recovered = hub._open_durable_service(tmp_path, "composition-check")
+    try:
+        assert recovered == []
+        assert isinstance(service.store, hub.TurnTaskSessionStore)
+        assert isinstance(service.store, SQLiteSessionStore)
+    finally:
+        service.close()
+
     source = SCRIPT.read_text(encoding="utf-8")
-    assert "SQLiteSessionStore" in source
+    assert "TurnTaskSessionStore" in source
     assert "DurableSessionService" in source
     assert "recover_unknown_tasks()" in source
     assert 'service.append(\n        "session.opened"' in source
     assert "with conversation(runtime_root, conversation_id) as opened:" in source
     assert "conversation=opened" in source
+
+
+def test_product_session_uses_profile_conversation_budgets():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "conversation_budgets(chat_config.context_budget_tokens)" in source
+    assert 'budget_chars=budgets["request_chars"]' in source
+    assert "**budgets" in source
+    assert "conversation_budgets(chat_config)" not in source
 
 
 def test_product_session_preserves_repository_execution_policy():
