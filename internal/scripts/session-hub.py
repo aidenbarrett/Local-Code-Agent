@@ -90,6 +90,7 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
                 "durable_session_events",
                 "durable_task_execution",
                 "durable_task_history",
+                "deterministic_routing",
             ],
             "recovered": recovered,
         },
@@ -165,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
                     conversation=opened,
                     runtime_index=runtime_index,
                     task_runner=task_runner,
-                    task_history=DurableTaskHistory(service.store),
+                    task_history=DurableTaskHistory(service.store, stream_id=service.stream_id),
                     **budgets,
                 )
 
@@ -182,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
                 if recovered:
                     print(f"Recovered {len(recovered)} unfinished task(s) as unknown / NO_VERDICT.")
                 print("Task execution: durable admission enabled before controller effects")
+                print("Routing: deterministic rules before model fallback")
                 print("Commands: /check, /quit")
                 print()
 
