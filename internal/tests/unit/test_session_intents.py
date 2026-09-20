@@ -52,15 +52,15 @@ def test_explicit_chat_bypasses_work_rules():
 
 
 @pytest.mark.parametrize(
-    ("text", "rule_id", "skill"),
+    ("text", "rule_id", "skill", "kwargs"),
     [
-        ("What changed on my branch?", RULE_GIT_REVIEW, "git-review"),
-        ("build it", RULE_BUILD_AND_TEST, "build-and-test"),
-        ("/check", RULE_SELF_CHECK, "self-check"),
+        ("What changed on my branch?", RULE_GIT_REVIEW, "git-review", {}),
+        ("build it", RULE_BUILD_AND_TEST, "build-and-test", {"active_repo_count": 1}),
+        ("/check", RULE_SELF_CHECK, "self-check", {}),
     ],
 )
-def test_anchored_named_rules_route_without_model(text, rule_id, skill):
-    decision = decide_route(text)
+def test_anchored_named_rules_route_without_model(text, rule_id, skill, kwargs):
+    decision = decide_route(text, **kwargs)
     assert decision.action == RouteAction.WORK
     assert decision.source == RouteSource.RULE
     assert decision.rule_id == rule_id
@@ -82,13 +82,16 @@ def test_anchored_named_rules_route_without_model(text, rule_id, skill):
     ],
 )
 def test_keywords_inside_other_language_do_not_gain_rule_authority(text):
-    decision = decide_route(text, eligible_task_ids=("task-1",))
+    decision = decide_route(text, active_repo_count=1, eligible_task_ids=("task-1",))
     assert decision.action == RouteAction.MODEL_FALLBACK
     assert decision.source is None
     assert decision.rule_id is None
 
 
-def test_build_rule_requires_exactly_one_active_repository():
+def test_build_rule_requires_explicit_exactly_one_active_repository():
+    unknown = decide_route("Build it")
+    assert unknown.action == RouteAction.CLARIFY
+    assert unknown.reason_code == "active_repository_unknown"
     assert decide_route("Build it", active_repo_count=0).reason_code == "no_active_repository"
     assert decide_route("Build it", active_repo_count=2).reason_code == "ambiguous_active_repository"
     assert decide_route("Build it", active_repo_count=1).action == RouteAction.WORK
@@ -147,6 +150,17 @@ def test_work_decision_becomes_narrow_untrusted_task_intent():
         origin=RouteSource.RULE,
         rule_id=RULE_TASK_DIAGNOSTIC,
     )
+
+
+def test_task_intent_normalises_caller_owned_reference_inputs():
+    turn_ref = _turn_ref()
+    references = ["task-7"]
+    intent = TaskIntent(turn_ref, "inspect", references, "user_direct")
+    turn_ref["turn_sha256"] = "b" * 64
+    references.append("task-8")
+    assert intent.turn_ref["turn_sha256"] == "a" * 64
+    assert intent.proposed_reference_ids == ("task-7",)
+    assert intent.origin == RouteSource.USER_DIRECT
 
 
 def test_task_intent_contract_has_no_execution_authority_fields():
@@ -219,3 +233,5 @@ def test_invalid_route_inputs_fail_closed():
         decide_route("x" * 8001)
     with pytest.raises(ValueError, match="nonnegative"):
         PendingRouteRef("route-1", -1)
+    with pytest.raises(ValueError, match="PendingRouteRef"):
+        correct_pending_route("work", ["route-1"])
