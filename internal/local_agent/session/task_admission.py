@@ -90,12 +90,7 @@ def _deadline_utc(controller) -> str:
 
 
 class DurableTaskAdmissionRunner:
-    """Synchronous gateway adapter over the non-blocking durable executor.
-
-    The gateway remains synchronous until the Textual client lands, but effects are
-    no longer synchronous-without-admission: ``DurableTaskExecutor`` waits for the
-    durable ``task.admitted`` commit before it invokes the controller.
-    """
+    """Synchronous gateway adapter over the non-blocking durable executor."""
 
     def __init__(self, executor: DurableTaskExecutor):
         self.executor = executor
@@ -134,10 +129,7 @@ class DurableTaskAdmissionRunner:
             "self_check": bool(self_check),
         }
         request_id = "gateway:" + hashlib.sha256(_canonical_bytes(request_identity)).hexdigest()
-        request_bytes = _canonical_bytes({
-            **request_identity,
-            "task": task,
-        })
+        request_bytes = _canonical_bytes({**request_identity, "task": task})
         payload_sha256 = hashlib.sha256(request_bytes).hexdigest()
         request_artifact_id = uuid5(
             UUID(self.executor.service.stream_id),
@@ -150,7 +142,7 @@ class DurableTaskAdmissionRunner:
                 "sha256": payload_sha256,
                 "media_type": "application/vnd.lca.task-request+json",
                 "size_bytes": len(request_bytes),
-                "availability": "unavailable",
+                "availability": "retained",
             },
             "contract_sha256": execution_contract_sha256(self.executor.controller),
             "repository_id": repository_id(self.executor.controller.repo),
@@ -163,6 +155,7 @@ class DurableTaskAdmissionRunner:
             request_id=request_id,
             payload_sha256=payload_sha256,
             admission_payload=admission_payload,
+            request_bytes=request_bytes,
             self_check=self_check,
             route_source=source,
         )
