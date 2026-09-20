@@ -107,7 +107,7 @@ def _evidence_lines(evidence_ids: tuple[str, ...], *, available_lines: int) -> t
         current = continuation + evidence_id
         if len(current) > MAX_RENDERED_LINE_CHARS:
             raise ValueError("evidence id cannot be rendered within v1 line limit")
-    lines.append(current + ".")
+    lines.append(current)
     if len(lines) > available_lines:
         raise ValueError("evidence ids cannot be rendered within v1 line-count limit")
     return tuple(lines)
