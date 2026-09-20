@@ -123,13 +123,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.worker_base_url:
         worker_config = replace(worker_config, base_url=args.worker_base_url)
 
-    request_chars, disk_chars = conversation_budgets(chat_config)
+    budgets = conversation_budgets(chat_config.context_budget_tokens)
     runtime_root = _runtime_root()
     try:
         if args.conversation:
             conversation_id = args.conversation
         else:
-            session = new_session(args.profile, chat_config.model, chat_config.device, budget_chars=disk_chars)
+            session = new_session(
+                args.profile,
+                chat_config.model,
+                chat_config.device,
+                budget_chars=budgets["request_chars"],
+            )
             create_session(runtime_root, session)
             conversation_id = session.conversation_id
 
@@ -169,9 +174,9 @@ def main(argv: list[str] | None = None) -> int:
                     events,
                     conversation=opened,
                     runtime_index=runtime_index,
-                    request_bytes=request_chars,
                     task_runner=task_runner,
                     task_history=task_history,
+                    **budgets,
                 )
 
                 if args.check:
@@ -213,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Conversation refused: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"Session startup failed: {safe_terminal(exc)}", file=sys.stderr)
+        print(f"Session startup failed: {safe_terminal(str(exc))}", file=sys.stderr)
         return 2
 
 
