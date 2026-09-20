@@ -22,7 +22,7 @@ def _artifact_ref(data: bytes = b"request") -> dict:
         "sha256": hashlib.sha256(data).hexdigest(),
         "media_type": "application/json",
         "size_bytes": len(data),
-        "availability": "retained",
+        "availability": "unavailable",
     }
 
 
