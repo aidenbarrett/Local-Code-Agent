@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from local_agent.tools.testing import BuildRecord, _stale_sources, build_record
+from local_agent.tools.testing_tools import BuildRecord, _stale_sources, build_record
 
 
 def _sha(data: bytes) -> str:

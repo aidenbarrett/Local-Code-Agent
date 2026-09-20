@@ -22,10 +22,10 @@ from typing import Any, Callable
 
 from ..config import RepoConfig
 from ..llm.client import LLMClient
-from ..llm.models import LLMTransportError, ToolCall
-from ..llm.router import CHEAP, STRONG, RoutingPlan, TieredClient, tier_for_skill
+from ..llm.protocol import LLMTransportError, ToolCall
+from ..llm.model_tiers import CHEAP, STRONG, RoutingPlan, TieredClient, tier_for_skill
 from ..tools import TOOLSETS, UNIVERSAL_TOOLS, ToolRegistry
-from ..tools.base import BlockedError, Reason, Risk, ToolError, ToolResult
+from ..tools.tool_primitives import BlockedError, Reason, Risk, ToolError, ToolResult
 from ..verification import (
     CONTRADICTS_CURRENT_TREE,
     CURRENT_TREE_PROOFS,

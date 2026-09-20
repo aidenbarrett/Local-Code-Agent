@@ -4,7 +4,7 @@ import hashlib
 import json
 from types import SimpleNamespace
 
-from local_agent.llm.models import ChatResponse
+from local_agent.llm.protocol import ChatResponse
 from local_agent.session.contracts import TaskResult
 from local_agent.session.conversation_store import (
     append_turn,

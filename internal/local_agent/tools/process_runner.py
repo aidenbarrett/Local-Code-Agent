@@ -154,7 +154,7 @@ def run_command(
     if not command:
         raise ValueError("empty command")
 
-    from .base import BlockedError, Reason
+    from .tool_primitives import BlockedError, Reason
 
     exe = shutil.which(command[0])
     if exe is None:

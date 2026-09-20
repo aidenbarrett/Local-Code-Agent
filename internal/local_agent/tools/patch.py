@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .base import (
+from .tool_primitives import (
     BlockedError,
     Risk,
     ToolError,
@@ -24,7 +24,7 @@ from .base import (
     relpath,
     resolve_in_repo,
 )
-from .context import ToolContext
+from .tool_context import ToolContext
 
 
 def _protected(ctx: ToolContext) -> tuple[str, ...]:
@@ -35,7 +35,7 @@ def _protected(ctx: ToolContext) -> tuple[str, ...]:
     holds the history the evaluator reads. None of the three is the project.
     """
     return (ctx.repo.build_dir, ctx.repo.run_dir, ".local-agent", ".git")
-from .context import ToolContext
+from .tool_context import ToolContext
 
 
 @dataclass

@@ -114,7 +114,7 @@ class ModelConfig:
 
     # Which rung of the ladder this endpoint is. The orchestrator sends each
     # skill to the cheapest tier that can do its job, and escalates only when
-    # the cheap one fails. See `local_agent.llm.router`.
+    # the cheap one fails. See `local_agent.llm.model_tiers`.
     tier: str = "strong"
 
     @staticmethod

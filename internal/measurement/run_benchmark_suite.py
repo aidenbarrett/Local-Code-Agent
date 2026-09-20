@@ -55,7 +55,7 @@ class OfflineModel:
         self._seen: set[str] = set()
 
     def chat(self, messages, tools=None, max_tokens=None):
-        from local_agent.llm.models import CallStats, ChatResponse
+        from local_agent.llm.protocol import CallStats, ChatResponse
 
         text = "".join(str(m.get("content") or "") for m in messages)
         prompt_tokens = max(1, len(text) // 4)

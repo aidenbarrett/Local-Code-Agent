@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import shutil
 
-from .base import (
+from .tool_primitives import (
     BlockedError,
     DomainStatus,
     ExecutionStatus,
@@ -20,10 +20,10 @@ from .base import (
     ToolResult,
     relpath,
 )
-from .context import ToolContext
-from .testing import configured_profile, set_configured_profile, touch_build_stamp
+from .tool_context import ToolContext
+from .testing_tools import configured_profile, set_configured_profile, touch_build_stamp
 from .logs import parse_build_log
-from .runner import run_command
+from .process_runner import run_command
 
 
 def _profile_names(ctx: ToolContext) -> list[str]:

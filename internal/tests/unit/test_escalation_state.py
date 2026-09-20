@@ -20,8 +20,8 @@ from local_agent.agent.journal import (
 from local_agent.agent.state import ToolCallRecord
 from local_agent.config import load_repo_config
 from local_agent.llm.client import ScriptedClient, tool_call
-from local_agent.llm.models import CallStats, ChatResponse
-from local_agent.llm.router import CHEAP, STRONG, TieredClient
+from local_agent.llm.protocol import CallStats, ChatResponse
+from local_agent.llm.model_tiers import CHEAP, STRONG, TieredClient
 from local_agent.tools import build_registry
 
 REPO = Path(__file__).resolve().parent.parent.parent
@@ -306,7 +306,7 @@ def test_the_escalated_attempt_is_terminal_and_may_commit(sandbox):
     """After escalation there is nowhere left to retry, so the gate lifts."""
     from local_agent.agent.policy import PolicyEngine
     from local_agent.config import Policy
-    from local_agent.tools.base import Risk, Tool
+    from local_agent.tools.tool_primitives import Risk, Tool
 
     engine = PolicyEngine(Policy(allow_commit=True))
     commit = Tool("git_commit", "", {}, lambda: None, Risk.DANGEROUS)

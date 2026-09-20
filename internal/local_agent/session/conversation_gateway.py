@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from threading import Lock
 
-from ..llm.models import LLMTransportError
+from ..llm.protocol import LLMTransportError
 from .contracts import MAX_MESSAGE_CHARS, Proposal, RouteSource, TaskResult
 from .conversation_store import (
     OpenConversation,

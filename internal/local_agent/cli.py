@@ -19,7 +19,7 @@ from .agent.skills import default_search_path
 from .agent.policy import deny_all_approvals
 from .config import MODEL_PRESETS, ModelConfig, find_repo_root, load_repo_config
 from .llm.client import OpenAICompatibleClient
-from .llm.router import CHEAP, STRONG, build_tiered_client
+from .llm.model_tiers import CHEAP, STRONG, build_tiered_client
 from .tools import TOOLSETS, build_registry
 
 

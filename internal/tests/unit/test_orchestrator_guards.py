@@ -13,7 +13,7 @@ from local_agent.agent import Orchestrator, SkillLibrary
 from local_agent.agent.context import approximate_tokens, trim
 from local_agent.config import load_repo_config
 from local_agent.llm.client import ScriptedClient, tool_call
-from local_agent.llm.models import ChatResponse
+from local_agent.llm.protocol import ChatResponse
 from local_agent.tools import build_registry
 
 REPO = Path(__file__).resolve().parent.parent.parent
@@ -182,7 +182,7 @@ def test_compaction_is_recorded_and_warned_about(sandbox):
 
 
 def test_metrics_are_attributed_to_model_tools_and_overhead(sandbox):
-    from local_agent.llm.models import CallStats
+    from local_agent.llm.protocol import CallStats
 
     turns = [
         ChatResponse(

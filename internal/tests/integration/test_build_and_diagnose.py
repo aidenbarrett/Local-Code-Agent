@@ -14,7 +14,7 @@ import pytest
 from local_agent.agent import Orchestrator, SkillLibrary, format_report
 from local_agent.config import load_repo_config
 from local_agent.llm.client import ScriptedClient, tool_call
-from local_agent.llm.models import ChatResponse
+from local_agent.llm.protocol import ChatResponse
 from local_agent.tools import build_registry
 
 REPO = Path(__file__).resolve().parent.parent.parent
@@ -142,7 +142,7 @@ def test_propose_then_apply_fixes_the_real_failure(loaded):
 
 def test_patch_refuses_when_the_file_moved_underneath_it(loaded):
     sandbox, repo, registry, store, _ = loaded
-    from local_agent.tools.base import ToolError
+    from local_agent.tools.tool_primitives import ToolError
 
     proposal = registry.get("propose_patch").handler(
         path="src/text_util.cpp", find="std::string out;", replace="std::string out;  // note"
@@ -156,7 +156,7 @@ def test_patch_refuses_when_the_file_moved_underneath_it(loaded):
 
 def test_non_unique_find_is_rejected(loaded):
     sandbox, repo, registry, _, _ = loaded
-    from local_agent.tools.base import ToolError
+    from local_agent.tools.tool_primitives import ToolError
 
     with pytest.raises(ToolError, match="appears"):
         registry.get("propose_patch").handler(

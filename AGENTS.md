@@ -38,7 +38,7 @@ yourself writing code that records something without checking it, stop.
 | Why a run is valid, invalid, or tampered | `internal/evaluation/run_evaluation.py::run_case`, `internal/evaluation/oracle.py` |
 | Task definitions, checks, forbidden tools | `internal/evaluation/task_contracts.py` |
 | Tools the agent can call | `internal/local_agent/tools/` |
-| Build and test proof, staleness, the build stamp | `internal/local_agent/tools/testing.py`, `internal/local_agent/tools/build.py`, `internal/docs/verification.md` |
+| Build and test proof, staleness, the build stamp | `internal/local_agent/tools/testing_tools.py`, `internal/local_agent/tools/build.py`, `internal/docs/verification.md` |
 | Model servers, devices, context budgets | `internal/local_agent/config.py` (`MODEL_PRESETS`), `internal/docs/bring-up.md` |
 | NPU / GPU / CPU bring-up on the laptop | `install.ps1`, `internal/work-laptop-one-shot.ps1`, `internal/docs/work-laptop-bootstrap.md` |
 | Hashes and generations | `internal/local_agent/provenance.py`, `internal/INSTRUMENT.json` |

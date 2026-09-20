@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from local_agent.llm.client import ScriptedClient
-from local_agent.llm.models import ChatResponse, ToolCall
+from local_agent.llm.protocol import ChatResponse, ToolCall
 from local_agent.session.contracts import (
     TASK_OUTCOME_PROJECTIONS,
     UNREACHABLE_TERMINAL_STATES,

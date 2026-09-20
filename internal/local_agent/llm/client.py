@@ -19,7 +19,7 @@ import time
 from typing import Any, Callable, Iterable, Protocol
 
 from ..config import ModelConfig
-from .models import CallStats, ChatResponse, LLMTransportError, ToolCall
+from .protocol import CallStats, ChatResponse, LLMTransportError, ToolCall
 
 
 class LLMClient(Protocol):

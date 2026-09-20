@@ -7,8 +7,8 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from ..tools.base import resolve_in_repo
-from ..tools.runner import run_command
+from ..tools.tool_primitives import resolve_in_repo
+from ..tools.process_runner import run_command
 from .contracts import TaskResult
 
 

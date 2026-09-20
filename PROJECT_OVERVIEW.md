@@ -38,6 +38,19 @@ owning sequence assignment, admission keyed by request identity, replay from com
 events, bounded subscriptions, and recovery of admitted-without-terminal tasks to an
 explicit unknown state rather than automatic retry.
 
+The current durable-correctness gate is closed around that foundation:
+
+- final verdict, closure, terminal task state and result indexing commit atomically;
+  generic append paths cannot manufacture half-terminal tasks
+- recovery is scoped to the owning durable stream and never re-executes unknown effects
+- accepted writes are linearized ahead of writer shutdown; a returned receipt cannot be
+  stranded behind the shutdown sentinel
+- the durable task index owns non-terminal state and execution epoch continuity; stale
+  state or stale-epoch events fail closed without advancing the stream
+- replay-to-live subscription handoff captures an explicit durable boundary so a
+  concurrent commit is either replayed or delivered live, never silently lost; live
+  overflow remains an explicit gap requiring durable replay
+
 What it is not yet, stated because a diagram makes it look finished:
 
 - **no user entry point reaches it.** `DurableSessionService` is constructed by the
@@ -49,10 +62,10 @@ What it is not yet, stated because a diagram makes it look finished:
   code exists for the task lifecycle kinds. A subscriber written against the full
   contract today would see silence on most of the rest.
 
-Both are tracked work, and the ordering is deliberate: the durable layer's correctness
-is being finished before anything is wired to depend on it. The remaining slices are
-deterministic routing and fixed watch execution, the fixture-driven Textual UI, then live
-wiring, endpoint arbitration and cancellation acceptance.
+The durable layer now has the correctness fences required before product wiring depends
+on it. The remaining product slices are deterministic routing and fixed watch execution,
+task/run ownership plus endpoint/cancellation semantics, the fixture-driven Textual UI,
+then live controller/endpoint wiring and physical-laptop acceptance.
 
 ## Architecture
 

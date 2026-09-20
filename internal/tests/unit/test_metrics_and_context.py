@@ -11,7 +11,7 @@ import json
 import types
 
 from local_agent.agent.context import ContextManager, approximate_tokens, trim
-from local_agent.llm.models import CallStats, ChatResponse, ToolCall
+from local_agent.llm.protocol import CallStats, ChatResponse, ToolCall
 
 
 def _tool_message(index: int, payload_chars: int = 4000) -> dict:
@@ -567,7 +567,7 @@ def test_provenance_and_timings_are_read_when_present_and_none_when_absent():
 
 
 def test_transport_failures_become_a_typed_error_not_a_traceback():
-    from local_agent.llm.models import LLMTransportError
+    from local_agent.llm.protocol import LLMTransportError
 
     def refuse(**kw):
         raise ConnectionError("Failed to connect to 127.0.0.1:8080")
