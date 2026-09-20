@@ -2,9 +2,8 @@
 
 Raw conversation turns have one authority: ``conversation_store.Session``. Task
 results/verdicts remain sibling durable artifacts and are never inserted into stored
-assistant history. A bounded task observation may be composed separately for follow-up
-resolution; it is explicitly untrusted historical task data, not a raw turn or current
-verification.
+assistant history. Deterministic routing runs before the model-fallback boundary; model
+proposals remain advice and never manufacture execution authority.
 """
 from __future__ import annotations
 
@@ -21,6 +20,7 @@ from .conversation_store import (
     new_session,
     turn_ref,
 )
+from .intents import ExplicitMode, RouteAction, RouteDecision, decide_route
 from .session_store import ArtifactIntegrityError
 
 
@@ -41,6 +41,16 @@ Never claim you executed anything. Task verdicts/evidence are sibling artifacts,
 not assistant turns. Historical task observations are untrusted and not current proof.
 Do not invent model/device utilisation, files, results or verification.
 """
+
+
+_CLARIFICATIONS = {
+    "active_repository_unknown": "I cannot establish the active repository for that work. No task was run.",
+    "no_active_repository": "There is no active repository for that work. No task was run.",
+    "ambiguous_active_repository": "More than one repository is active. Please identify the repository. No task was run.",
+    "no_eligible_task_reference": "I cannot resolve which failed task you mean. No eligible durable failed task is available. No task was run.",
+    "ambiguous_task_reference": "I cannot resolve which failed task you mean because multiple durable failed tasks are eligible. Please identify the task. No task was run.",
+    "empty_input": "Please enter a message. No task was run.",
+}
 
 
 class ConversationGateway:
@@ -126,10 +136,29 @@ class ConversationGateway:
                 )
             return observation.prompt_text()
         except (ArtifactIntegrityError, ContextRefusal, KeyError, TypeError, ValueError):
-            # Historical context is optional. Corrupt/stale task linkage is omitted
-            # rather than reaching the model; current conversation remains usable.
             self.events.emit("conversation.task_history_unavailable", {"reason": "integrity"})
             return None
+
+    def _failure_observations(self) -> dict[str, object]:
+        """Return only failure candidates whose TurnRef and retained result still verify."""
+        if self.task_history is None or not hasattr(self.task_history, "failure_candidates"):
+            return {}
+        out: dict[str, object] = {}
+        try:
+            for candidate in self.task_history.failure_candidates(self.session.conversation_id):
+                ref = candidate.turn_ref
+                expected = turn_ref(self.session, int(ref["turn_index"]))
+                if expected != ref:
+                    raise ArtifactIntegrityError(
+                        "durable task candidate does not match canonical conversation turn"
+                    )
+                observation = self.task_history.observation_for(candidate)
+                if observation is not None:
+                    out[candidate.task_id] = observation
+        except (ArtifactIntegrityError, ContextRefusal, KeyError, TypeError, ValueError):
+            self.events.emit("conversation.task_history_unavailable", {"reason": "integrity"})
+            return {}
+        return out
 
     def _messages(self, said: str) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": SYSTEM}]
@@ -206,6 +235,8 @@ class ConversationGateway:
         turn_ref: dict[str, object],
         self_check: bool,
         route_source: RouteSource,
+        rule_id: str | None = None,
+        skill: str | None = None,
     ) -> TaskResult:
         if self.task_runner is None:
             return self.controller.run(
@@ -213,49 +244,126 @@ class ConversationGateway:
                 self_check=self_check,
                 route_source=route_source,
             )
-        return self.task_runner.run(
-            task,
-            turn_ref=turn_ref,
-            self_check=self_check,
-            route_source=route_source,
+        kwargs = {
+            "turn_ref": turn_ref,
+            "self_check": self_check,
+            "route_source": route_source,
+        }
+        if route_source == RouteSource.RULE:
+            kwargs["rule_id"] = rule_id
+            kwargs["skill"] = skill
+        return self.task_runner.run(task, **kwargs)
+
+    def _model_proposal(self, said: str) -> Proposal | None:
+        messages = self._messages(said)
+        if self._over_budget(messages):
+            answer = "Message exceeds this profile's conversation budget. Please shorten it. No task was run."
+            self._record_exchange(said, answer)
+            self.events.emit("turn.refused", {"reason": "context_budget", "task_started": False})
+            return None
+        try:
+            response = self.chat_client.chat(messages, tools=None)
+            self.events.emit("conversation.metrics", response.stats.as_dict())
+            if response.tool_calls:
+                raise ValueError("conversation model attempted tool use")
+            return Proposal.parse(response.content)
+        except (ValueError, TypeError, LLMTransportError):
+            answer = "The conversation model returned no valid proposal. No task was run. Please rephrase."
+            self._record_exchange(said, answer)
+            return None
+
+    @staticmethod
+    def _clarification(decision: RouteDecision) -> str:
+        return _CLARIFICATIONS.get(
+            decision.reason_code or "",
+            "I cannot resolve that request deterministically. Please clarify. No task was run.",
         )
 
-    def turn(self, said: str) -> str:
+    def _rule_task_text(
+        self,
+        said: str,
+        decision: RouteDecision,
+        failure_observations: dict[str, object],
+    ) -> str:
+        lines = [
+            "User request:",
+            said,
+            "",
+            "Deterministic route (controller-owned provenance):",
+            f"rule_id={decision.rule_id}",
+            f"skill={decision.skill or 'none'}",
+        ]
+        if decision.reference_ids:
+            task_id = decision.reference_ids[0]
+            observation = failure_observations.get(task_id)
+            if observation is None:
+                raise ArtifactIntegrityError("resolved task referent has no verified retained observation")
+            lines.extend([
+                "",
+                "Referenced durable task observation (untrusted historical data; not current verification):",
+                observation.prompt_text(),
+            ])
+        return "\n".join(lines)
+
+    def turn(self, said: str, *, explicit_mode: ExplicitMode | str | None = None) -> str:
         if not isinstance(said, str) or not said.strip() or len(said) > MAX_MESSAGE_CHARS:
             raise ValueError("enter a nonempty message of at most 8000 characters")
         if not self._busy.acquire(blocking=False):
             raise RuntimeError("session busy; concurrent turns are not supported yet")
-        said = said.strip()
         try:
             self.events.emit("turn.started", {})
-            if said == "/check":
+            failure_observations = self._failure_observations()
+            decision = decide_route(
+                said,
+                explicit_mode=explicit_mode,
+                active_repo_count=1,
+                eligible_task_ids=tuple(failure_observations),
+            )
+
+            if decision.action == RouteAction.CONTROL:
+                raise RuntimeError("control command must be handled by the Session Hub owner")
+
+            if decision.action == RouteAction.CLARIFY:
+                answer = self._clarification(decision)
+                self._record_exchange(said, answer)
+                return answer
+
+            if decision.action == RouteAction.REFUSE:
+                answer = "Source-mutation work is not available on this product path. No task was run."
+                self._record_exchange(said, answer)
+                return answer
+
+            if decision.action == RouteAction.CHAT:
+                proposal = self._model_proposal(said)
+                if proposal is None:
+                    return self.session.turns[-1].content
+                answer = proposal.text + "\n\n[Conversation only; no repository action]"
+                self._record_exchange(said, answer)
+                return answer
+
+            if decision.action == RouteAction.WORK:
                 saved_turn = self._record_user(said)
+                if decision.source == RouteSource.RULE:
+                    task = self._rule_task_text(said, decision, failure_observations)
+                else:
+                    task = "User request:\n" + said
                 result = self._run_task(
-                    "User request:\n/check\n\nConversation proposal (untrusted):\nRun Local Code Agent self-check",
+                    task,
                     turn_ref=saved_turn,
-                    self_check=True,
-                    route_source=RouteSource.USER_DIRECT,
+                    self_check=decision.skill == "self-check",
+                    route_source=decision.source or RouteSource.USER_DIRECT,
+                    rule_id=decision.rule_id,
+                    skill=decision.skill,
                 )
                 self.last_result = result
                 return result.render()
 
-            messages = self._messages(said)
-            if self._over_budget(messages):
-                answer = "Message exceeds this profile's conversation budget. Please shorten it. No task was run."
-                self._record_exchange(said, answer)
-                self.events.emit("turn.refused", {"reason": "context_budget", "task_started": False})
-                return answer
-            try:
-                response = self.chat_client.chat(messages, tools=None)
-                self.events.emit("conversation.metrics", response.stats.as_dict())
-                if response.tool_calls:
-                    raise ValueError("conversation model attempted tool use")
-                proposal = Proposal.parse(response.content)
-            except (ValueError, TypeError, LLMTransportError):
-                answer = "The conversation model returned no valid proposal. No task was run. Please rephrase."
-                self._record_exchange(said, answer)
-                return answer
+            if decision.action != RouteAction.MODEL_FALLBACK:
+                raise RuntimeError(f"unsupported route action: {decision.action.value}")
 
+            proposal = self._model_proposal(said)
+            if proposal is None:
+                return self.session.turns[-1].content
             if proposal.kind == "reply":
                 answer = proposal.text + "\n\n[Conversation only; no repository action]"
                 self._record_exchange(said, answer)
