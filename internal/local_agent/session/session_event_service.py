@@ -15,9 +15,13 @@ from time import monotonic
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
-from .contracts import RouteSource, TaskOutcome, TaskResult, TaskVerdict
+from .contracts import MAX_MESSAGE_CHARS, RouteSource, TaskOutcome, TaskResult, TaskVerdict
 from .event_contract import build_event
 from .session_store import SQLiteSessionStore
+
+
+_RESULT_SCHEMA = "lca.task-result/1"
+_RESULT_MEDIA_TYPE = "application/vnd.lca.task-result+json"
 
 
 class ServiceClosed(RuntimeError):
@@ -82,8 +86,6 @@ class Subscription:
 
 @dataclass(frozen=True)
 class ReplaySubscription:
-    """Durable replay window plus live stream created at one subscription boundary."""
-
     stream_id: str
     replay_after: int
     replay_through: int
@@ -134,13 +136,6 @@ class DurableSessionService:
         return sub
 
     def subscribe_from(self, *, after: int = 0, capacity: int = 512) -> ReplaySubscription:
-        """Create a gap-free durable-replay/live-delivery handoff.
-
-        Registration and boundary capture share the subscriber lock used by
-        publication. A commit concurrent with this operation is therefore either
-        included in the replay window or delivered live after the boundary. Events
-        at or below the boundary are filtered from the live queue to avoid duplicates.
-        """
         if after < 0:
             raise ValueError("replay cursor cannot be negative")
         with self._lifecycle_lock:
@@ -169,7 +164,6 @@ class DurableSessionService:
         after: int | None = None,
         limit: int = 1000,
     ) -> list[dict[str, Any]]:
-        """Read one durable page bounded to a subscription's captured replay window."""
         if handoff.stream_id != self.stream_id:
             raise ValueError("replay subscription belongs to a different durable stream")
         cursor = handoff.replay_after if after is None else after
@@ -179,17 +173,12 @@ class DurableSessionService:
             raise ValueError("replay cursor is beyond the subscription boundary")
         if cursor == handoff.replay_through:
             return []
-        events = self.replay(after=cursor, limit=limit)
         return [
-            event for event in events
+            event for event in self.replay(after=cursor, limit=limit)
             if int(event["sequence"]) <= handoff.replay_through
         ]
 
     def _enqueue(self, command: _Command) -> WriteReceipt:
-        # This lock is the admission/shutdown linearization point. A command that
-        # passes the closed check is physically queued before close can enqueue the
-        # sentinel; a caller can therefore never receive a receipt for work that
-        # sits behind shutdown and is abandoned forever.
         with self._lifecycle_lock:
             if self._closed:
                 raise ServiceClosed("session service is closed")
@@ -205,8 +194,8 @@ class DurableSessionService:
         request_id: str,
         payload_sha256: str,
         admission_payload: dict[str, Any],
+        request_bytes: bytes | None = None,
     ) -> WriteReceipt:
-        """Return a stable task id immediately; execution must wait for commit."""
         task_id = str(uuid5(UUID(self.stream_id), request_id))
         receipt = WriteReceipt(task_id=task_id)
         return self._enqueue(_Command("admit", receipt, {
@@ -214,6 +203,7 @@ class DurableSessionService:
             "payload_sha256": payload_sha256,
             "task_id": task_id,
             "payload": admission_payload,
+            "request_bytes": request_bytes,
         }))
 
     def append(self, kind: str, payload: dict[str, Any], *, task_id: str | None = None) -> WriteReceipt:
@@ -232,14 +222,15 @@ class DurableSessionService:
         *,
         verdict_payload: dict[str, Any],
         closed_payload: dict[str, Any],
+        result_bytes: bytes | None = None,
     ) -> WriteReceipt:
-        """Commit verdict + closure as one atomic terminalization command."""
         UUID(task_id)
         receipt = WriteReceipt(task_id=task_id)
         return self._enqueue(_Command("finalize", receipt, {
             "task_id": task_id,
             "verdict_payload": verdict_payload,
             "closed_payload": closed_payload,
+            "result_bytes": result_bytes,
         }))
 
     def request_cancel(
@@ -258,19 +249,33 @@ class DurableSessionService:
             "execution_epoch": execution_epoch,
         }, task_id=task_id)
 
+    @staticmethod
+    def _result_ref(payload: bytes) -> dict[str, Any]:
+        return {
+            "artifact_id": str(uuid4()),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "media_type": _RESULT_MEDIA_TYPE,
+            "size_bytes": len(payload),
+            "availability": "retained",
+        }
+
     def recover_unknown_tasks(self) -> list[str]:
         """Fence this stream's old admissions as NO_VERDICT/unknown; never retry effects."""
         recovered: list[str] = []
         for task in self.store.unterminated_tasks(self.stream_id):
             task_id = str(task["task_id"])
-            result_bytes = b'{"verdict":"NO_VERDICT","reason":"controller_crash","cleanup":"unknown"}'
-            result_ref = {
-                "artifact_id": str(uuid4()),
-                "sha256": hashlib.sha256(result_bytes).hexdigest(),
-                "media_type": "application/vnd.lca.task-result+json",
-                "size_bytes": len(result_bytes),
-                "availability": "unavailable",
-            }
+            result_bytes = json.dumps({
+                "schema": _RESULT_SCHEMA,
+                "task_id": task_id,
+                "outcome": TaskOutcome.NO_VERDICT.value,
+                "terminal_state": "unknown",
+                "verdict": TaskVerdict.NO_VERDICT.value,
+                "verification_ran": False,
+                "verified_at_completion": False,
+                "evidence_ids": [],
+                "answer": "Controller restarted before a durable terminal result; cleanup is unknown.",
+            }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            result_ref = self._result_ref(result_bytes)
             terminal = self.finalize_task(
                 task_id,
                 verdict_payload={
@@ -297,6 +302,7 @@ class DurableSessionService:
                     "result_ref": result_ref,
                     "cleanup": "unknown",
                 },
+                result_bytes=result_bytes,
             )
             terminal.wait(10)
             recovered.append(task_id)
@@ -306,9 +312,6 @@ class DurableSessionService:
         if timeout < 0:
             raise ValueError("shutdown timeout cannot be negative")
         deadline = monotonic() + timeout
-        # Serialise the closed flag and sentinel insertion with _enqueue. Accepted
-        # commands are FIFO-before the sentinel; rejected commands never receive a
-        # receipt. If sentinel insertion itself times out, a later close may retry.
         with self._lifecycle_lock:
             self._closed = True
             if not self._shutdown_enqueued:
@@ -353,6 +356,7 @@ class DurableSessionService:
                         payload_sha256=command.data["payload_sha256"],
                         envelope=event,
                         expected_sequence=sequence,
+                        request_bytes=command.data.get("request_bytes"),
                     )
                     receipt.created = created
                     if created:
@@ -376,9 +380,12 @@ class DurableSessionService:
                         kind="task.closed",
                         payload=command.data["closed_payload"],
                     )
-                    self.store.finalize_task(verdict, closed, expected_sequence=sequence)
-                    # Publication happens only after the transaction containing both
-                    # terminal events and the task result index has committed.
+                    self.store.finalize_task(
+                        verdict,
+                        closed,
+                        expected_sequence=sequence,
+                        result_bytes=command.data.get("result_bytes"),
+                    )
                     self._publish(verdict)
                     self._publish(closed)
                 else:
@@ -401,7 +408,6 @@ class DurableSessionService:
 
 @dataclass
 class TaskHandle:
-    """Non-blocking task submission handle for UI/service callers."""
     task_id: str
     admission: WriteReceipt
     done: ThreadEvent = field(default_factory=ThreadEvent)
@@ -417,13 +423,6 @@ class TaskHandle:
 
 
 class DurableTaskExecutor:
-    """Execute an admitted controller task off the caller thread.
-
-    The durable admission commits first. Only a newly created admission executes;
-    an idempotent retry returns the existing task id and cannot replay effects.
-    Final verdict, closure and result indexing commit through one writer transaction.
-    """
-
     def __init__(self, service: DurableSessionService, controller):
         self.service = service
         self.controller = controller
@@ -435,6 +434,7 @@ class DurableTaskExecutor:
         request_id: str,
         payload_sha256: str,
         admission_payload: dict[str, Any],
+        request_bytes: bytes | None = None,
         self_check: bool = False,
         route_source: RouteSource | str = RouteSource.MODEL_PROPOSAL,
     ) -> TaskHandle:
@@ -442,6 +442,7 @@ class DurableTaskExecutor:
             request_id=request_id,
             payload_sha256=payload_sha256,
             admission_payload=admission_payload,
+            request_bytes=request_bytes,
         )
         assert admission.task_id is not None
         handle = TaskHandle(admission.task_id, admission)
@@ -464,23 +465,19 @@ class DurableTaskExecutor:
         return "cleanup_unknown"
 
     @staticmethod
-    def _result_ref(result: TaskResult) -> dict[str, Any]:
+    def _result_artifact(result: TaskResult) -> tuple[dict[str, Any], bytes]:
         payload = json.dumps({
+            "schema": _RESULT_SCHEMA,
             "task_id": result.task_id,
             "outcome": result.outcome.value,
             "terminal_state": result.projection.terminal_state.value,
             "verdict": result.projection.verdict.value,
-            "verification_ran": result.verification_ran,
-            "verified_at_completion": result.verified_at_completion,
+            "verification_ran": bool(result.verification_ran),
+            "verified_at_completion": bool(result.verified_at_completion),
             "evidence_ids": list(result.evidence_ids),
+            "answer": result.answer[:MAX_MESSAGE_CHARS],
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return {
-            "artifact_id": str(uuid4()),
-            "sha256": hashlib.sha256(payload).hexdigest(),
-            "media_type": "application/vnd.lca.task-result+json",
-            "size_bytes": len(payload),
-            "availability": "unavailable",
-        }
+        return DurableSessionService._result_ref(payload), payload
 
     def _run(
         self,
@@ -493,10 +490,7 @@ class DurableTaskExecutor:
         try:
             handle.admission.wait(30)
             if handle.admission.created is False:
-                # Idempotent request replay: the durable task already exists.
-                # Returning its id is safe; executing it again is not.
                 return
-
             running = self.service.append("task.state_changed", {
                 "previous": "admitted",
                 "current": "running",
@@ -504,7 +498,6 @@ class DurableTaskExecutor:
                 "execution_epoch": execution_epoch,
             }, task_id=handle.task_id)
             running.wait(30)
-
             result = self.controller.run(
                 task,
                 self_check=self_check,
@@ -512,7 +505,7 @@ class DurableTaskExecutor:
                 task_id=handle.task_id,
             )
             handle.result = result
-            result_ref = self._result_ref(result)
+            result_ref, result_bytes = self._result_artifact(result)
             status = result.projection.terminal_state.value
             reason = self._reason_for(result)
             terminal = self.service.finalize_task(
@@ -541,11 +534,10 @@ class DurableTaskExecutor:
                     "result_ref": result_ref,
                     "cleanup": "unknown" if status == "unknown" else "not_needed",
                 },
+                result_bytes=result_bytes,
             )
             terminal.wait(30)
         except BaseException as exc:
-            # Do not invent a terminal state if durable reconciliation itself failed.
-            # The admission remains nonterminal and restart recovery will fence it.
             handle.error = exc
         finally:
             handle.done.set()
