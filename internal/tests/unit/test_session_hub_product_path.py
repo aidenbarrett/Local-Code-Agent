@@ -25,7 +25,7 @@ def _artifact_ref(data: bytes = b"request") -> dict:
         "sha256": hashlib.sha256(data).hexdigest(),
         "media_type": "application/json",
         "size_bytes": len(data),
-        "availability": "retained",
+        "availability": "unavailable",
     }
 
 
@@ -105,6 +105,8 @@ def test_product_restart_recovers_its_own_unfinished_stream_without_retry(tmp_pa
         assert recovered == [task_id]
         record = second.store.task_record(task_id)
         assert record is not None and record["terminal"] is True
+        assert record["result_ref"]["availability"] == "retained"
+        assert second.store.artifact_bytes(record["result_ref"])
         events = second.replay()
         assert [event["kind"] for event in events] == [
             "task.admitted",
