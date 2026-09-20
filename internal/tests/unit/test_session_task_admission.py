@@ -11,6 +11,7 @@ from local_agent.llm.protocol import ChatResponse
 from local_agent.session.contracts import RouteSource, TaskOutcome, TaskResult
 from local_agent.session.conversation_gateway import ConversationGateway
 from local_agent.session.event_buffer import EventBuffer
+from local_agent.session.intents import RULE_SELF_CHECK
 from local_agent.session.session_event_service import DurableSessionService, DurableTaskExecutor
 from local_agent.session.session_store import SQLiteSessionStore
 from local_agent.session.task_admission import (
@@ -77,7 +78,7 @@ def test_gateway_passes_saved_turn_ref_to_explicit_task_runner():
     assert kwargs["turn_ref"]["turn_index"] == 0
 
 
-def test_direct_check_passes_saved_turn_ref_without_conversation_model():
+def test_direct_check_uses_resolved_rule_without_conversation_model():
     calls = []
 
     class Runner:
@@ -87,13 +88,15 @@ def test_direct_check_passes_saved_turn_ref_without_conversation_model():
 
     gateway = ConversationGateway(
         Chat(),
-        SimpleNamespace(run=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError())),
+        SimpleNamespace(run=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError()), repo=object()),
         EventBuffer("s"),
         task_runner=Runner(),
     )
     gateway.turn("/check")
     assert len(calls) == 1
-    assert calls[0][1]["route_source"] == RouteSource.USER_DIRECT
+    assert calls[0][1]["route_source"] == RouteSource.RULE
+    assert calls[0][1]["rule_id"] == RULE_SELF_CHECK
+    assert calls[0][1]["skill"] == "self-check"
     assert calls[0][1]["self_check"] is True
     assert calls[0][1]["turn_ref"] == gateway.last_turn_ref
 
@@ -223,6 +226,41 @@ def test_rule_route_fails_closed_until_rule_identity_exists(tmp_path, loaded):
         service.close()
 
 
+def test_resolved_rule_route_persists_rule_and_skill(tmp_path, loaded):
+    _sandbox, repo, _reg, _store, _skills = loaded
+    service = _service(tmp_path)
+
+    class Controller:
+        allow_execution = False
+        context_budget_tokens = 12_000
+
+        def __init__(self):
+            self.repo = repo
+
+        def run(self, task, *, self_check=False, route_source=None, task_id=None):
+            assert route_source == RouteSource.RULE
+            return TaskResult(task_id, TaskOutcome.FAIL, "failed", False, verification_ran=True)
+
+    try:
+        runner = DurableTaskAdmissionRunner(DurableTaskExecutor(service, Controller()))
+        runner.run(
+            "build it",
+            turn_ref=_turn_ref(),
+            route_source=RouteSource.RULE,
+            rule_id="build-and-test/v1",
+            skill="build-and-test",
+        )
+        admitted = service.replay()[0]["payload"]
+        assert admitted["origin"] == {
+            "kind": "user_rule",
+            "turn_ref": _turn_ref(),
+            "rule_id": "build-and-test/v1",
+        }
+        assert admitted["skill"] == "build-and-test"
+    finally:
+        service.close()
+
+
 def test_execution_contract_tracks_effective_controller_configuration(loaded):
     _sandbox, repo, _reg, _store, _skills = loaded
     one = SimpleNamespace(repo=repo, allow_execution=False, context_budget_tokens=12_000)
@@ -236,10 +274,11 @@ def test_public_session_composes_durable_task_admission_runner():
     assert "DurableTaskExecutor(service, controller)" in source
     assert "DurableTaskAdmissionRunner(" in source
     assert "task_runner=task_runner" in source
-    assert "task_history=DurableTaskHistory(service.store)" in source
+    assert "DurableTaskHistory(service.store, stream_id=service.stream_id)" in source
     assert "budgets = conversation_budgets(chat_config.context_budget_tokens)" in source
     assert "**budgets" in source
     assert "allow_execution=args.allow_execution" in source
     assert "context_budget_tokens=worker_config.context_budget_tokens" in source
     assert "durable admission enabled before controller effects" in source
+    assert "deterministic rules before model fallback" in source
     assert "synchronous prototype path" not in source
