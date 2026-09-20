@@ -64,6 +64,13 @@ def test_product_session_constructs_real_durable_components():
     assert "conversation=opened" in source
 
 
+def test_product_session_preserves_repository_execution_policy():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "allow_execution=args.allow_execution" in source
+    assert "context_budget_tokens=worker_config.context_budget_tokens" in source
+    assert "repo = replace(repo, policy=replace(repo.policy" not in source
+
+
 def test_durable_stream_and_session_ids_are_stable_and_distinct():
     hub = _load_hub()
     first = hub._durable_ids("conversation-1")
