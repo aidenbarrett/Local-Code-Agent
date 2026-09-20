@@ -27,7 +27,7 @@ foundation, including the durable event service described below.
 
 Source mutation, staging and commit behaviour remain disabled on the conversation product path.
 
-## Durable event service: present, and not yet reachable
+## Durable event service: correctness-gated, and not yet reachable
 
 `local_agent/session/` implements the executable `lca.session.events/1` path:
 
@@ -36,12 +36,22 @@ Source mutation, staging and commit behaviour remain disabled on the conversatio
 - SQLite WAL session and task storage
 - one writer owning sequence assignment and persistence
 - admission keyed by request identity and payload digest
+- atomic verdict + closure + terminal task/result indexing
+- stream-scoped crash recovery to unknown / `NO_VERDICT`, never automatic retry
+- accepted-write/shutdown linearization so a returned receipt cannot be abandoned
+  behind the shutdown sentinel
+- durable non-terminal task state and execution-epoch fencing; stale state or stale
+  epoch events fail without consuming a stream sequence
 - replay from committed events
-- bounded thread-safe subscriptions with explicit overflow and gap handling
-- recovery of admitted-without-terminal tasks to unknown / `NO_VERDICT` effects, never
-  automatic retry
-- non-blocking submission, so a Textual event loop will not wait on controller or tool
-  execution
+- bounded thread-safe subscriptions with explicit overflow/gap handling
+- an explicit replay-to-live handoff boundary so a concurrent commit is either in the
+  replay window or delivered live, without a silent gap or duplicate
+- non-blocking task submission, so a Textual event loop will not wait on controller or
+  tool execution
+
+The current durable correctness gate is therefore closed. The adversarial tests cover
+rollback of half-terminal writes, cross-stream recovery, shutdown/enqueue races,
+stale-state/stale-epoch rejection and both sides of the replay/live handoff race.
 
 Two limits that a feature list hides, both currently true of `main`:
 
@@ -60,9 +70,9 @@ Two limits that a feature list hides, both currently true of `main`:
   number that does not say which one it answers is the sort of claim these documents
   exist to stop.
 
-Durable-layer correctness work must be finished before anything is wired to depend on it.
-The known gaps listed below are open, not closed. Wiring first would mean debugging a
-data-loss bug through a UI.
+The durable layer now has the storage/writer/subscriber correctness fences required
+before product wiring depends on it. Repository naming/ownership cleanup can resume
+without pretending that the user-facing Session Hub already exists.
 
 ## Known product gaps
 
@@ -89,8 +99,11 @@ Generation 2 currently has no collected model rows. Its success vocabulary and o
 
 ## Next integration order
 
-1. Close the durable layer's known correctness gaps in storage and in the writer
-   and subscriber lifecycle, then wire a user-facing entry point to it.
+The immediate repository work resumes the user-first naming/ownership cleanup now that
+the durable correctness gate is closed. When product integration resumes, the order is:
+
+1. Connect a user-facing Session Hub path to the durable task/event service without
+   merging task artifacts into model chat history.
 2. Add deterministic Work/Chat/rule routing and fixed watch execution on top of recorded route provenance.
 3. Add task/run process ownership, endpoint arbitration and truthful cancellation semantics where not already completed by the foundation.
 4. Build the fixture-driven Textual shell against the durable event interface.
