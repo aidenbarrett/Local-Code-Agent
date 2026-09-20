@@ -2,8 +2,8 @@
 """User-facing Session Hub composition root.
 
 This module owns product composition only. Conversation turns remain in the
-canonical conversation store. Durable Session Hub events remain in the SQLite
-session store. Task policy and admission identity remain in hashed product source.
+canonical conversation store. Durable Session Hub events and task artifacts remain
+in the SQLite session store. Task policy remains in hashed product source.
 """
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ from local_agent.session.task_admission import (  # noqa: E402
     repository_id,
 )
 from local_agent.session.task_controller import TaskController  # noqa: E402
+from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
 from local_agent.session.cli import conversation_budgets, safe_terminal  # noqa: E402
 
 
@@ -88,6 +89,7 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
                 "repository_read",
                 "durable_session_events",
                 "durable_task_execution",
+                "durable_task_history",
             ],
             "recovered": recovered,
         },
@@ -118,13 +120,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.worker_base_url:
         worker_config = replace(worker_config, base_url=args.worker_base_url)
 
-    request_chars, disk_chars = conversation_budgets(chat_config)
+    budgets = conversation_budgets(chat_config.context_budget_tokens)
     runtime_root = _runtime_root()
     try:
         if args.conversation:
             conversation_id = args.conversation
         else:
-            session = new_session(args.profile, chat_config.model, chat_config.device, budget_chars=disk_chars)
+            session = new_session(
+                args.profile,
+                chat_config.model,
+                chat_config.device,
+                budget_chars=budgets["request_chars"],
+            )
             create_session(runtime_root, session)
             conversation_id = session.conversation_id
 
@@ -157,8 +164,9 @@ def main(argv: list[str] | None = None) -> int:
                     events,
                     conversation=opened,
                     runtime_index=runtime_index,
-                    request_bytes=request_chars,
                     task_runner=task_runner,
+                    task_history=DurableTaskHistory(service.store),
+                    **budgets,
                 )
 
                 if args.check:
@@ -169,8 +177,8 @@ def main(argv: list[str] | None = None) -> int:
                 print("Local Code Agent Session Hub")
                 print(f"Repository: {root}")
                 print(f"Conversation: {conversation_id}")
-                print("Conversation history: persisted")
-                print("Durable session events: enabled")
+                print("Conversation history: persisted raw turns")
+                print("Durable task associations/artifacts: enabled")
                 if recovered:
                     print(f"Recovered {len(recovered)} unfinished task(s) as unknown / NO_VERDICT.")
                 print("Task execution: durable admission enabled before controller effects")
@@ -199,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Conversation refused: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"Session startup failed: {safe_terminal(exc)}", file=sys.stderr)
+        print(f"Session startup failed: {safe_terminal(str(exc))}", file=sys.stderr)
         return 2
 
 

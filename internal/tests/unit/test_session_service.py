@@ -23,7 +23,7 @@ def _artifact_ref(data: bytes = b"request") -> dict:
         "sha256": hashlib.sha256(data).hexdigest(),
         "media_type": "application/json",
         "size_bytes": len(data),
-        "availability": "retained",
+        "availability": "unavailable",
     }
 
 
@@ -194,7 +194,6 @@ def test_closed_service_rejects_new_subscribers_and_writes(tmp_path):
             payload_sha256="c" * 64,
             admission_payload=_admission_payload(),
         )
-    # Replay remains a read-only store operation after the writer is closed.
     assert service.replay() == []
 
 
@@ -206,7 +205,7 @@ def test_crash_recovery_atomically_closes_unknown_task_without_reexecution(tmp_p
             admission_payload=_admission_payload(),
         )
         admitted.wait(5)
-        sub.drain()  # isolate recovery publication
+        sub.drain()
         task_id = admitted.task_id
         assert task_id is not None
 
@@ -229,6 +228,8 @@ def test_crash_recovery_atomically_closes_unknown_task_without_reexecution(tmp_p
         assert record["verdict_sequence"] == 2
         assert record["closed_sequence"] == 3
         assert record["result_ref"] == completion["result_ref"]
+        assert record["result_ref"]["availability"] == "retained"
+        assert service.store.artifact_bytes(record["result_ref"])
     finally:
         service.close()
 
@@ -295,6 +296,8 @@ def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(
         record = service.store.task_record(first.task_id)
         assert record is not None and record["terminal"] is True
         assert record["result_ref"] == service.replay()[-1]["payload"]["result_ref"]
+        assert record["result_ref"]["availability"] == "retained"
+        assert service.store.artifact_bytes(record["result_ref"])
 
         retry = executor.submit(
             task="inspect",

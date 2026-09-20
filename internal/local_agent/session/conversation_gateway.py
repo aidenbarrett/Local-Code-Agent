@@ -1,10 +1,10 @@
 """Conversation gateway over the canonical raw-turn store.
 
 Raw conversation turns have one authority: ``conversation_store.Session``. Task
-results/verdicts remain controller artifacts and are never inserted into stored
-assistant history. A bounded last-task observation may be composed separately for
-follow-up resolution; it is explicitly untrusted historical task data, not a raw
-turn or current verification.
+results/verdicts remain sibling durable artifacts and are never inserted into stored
+assistant history. A bounded task observation may be composed separately for follow-up
+resolution; it is explicitly untrusted historical task data, not a raw turn or current
+verification.
 """
 from __future__ import annotations
 
@@ -14,12 +14,14 @@ from threading import Lock
 from ..llm.protocol import LLMTransportError
 from .contracts import MAX_MESSAGE_CHARS, Proposal, RouteSource, TaskResult
 from .conversation_store import (
+    ContextRefusal,
     OpenConversation,
     append_turn,
     ensure_append_fits,
     new_session,
     turn_ref,
 )
+from .session_store import ArtifactIntegrityError
 
 
 SYSTEM = """You are Local Code Agent's conversation interface.
@@ -54,6 +56,7 @@ class ConversationGateway:
         conversation: OpenConversation | None = None,
         runtime_index: int | None = None,
         task_runner=None,
+        task_history=None,
     ):
         if history_chars < 1 or request_bytes < 1 or request_chars < 1:
             raise ValueError("history budget too small")
@@ -61,10 +64,13 @@ class ConversationGateway:
             raise ValueError("history budget cannot exceed request budget")
         self.chat_client, self.controller, self.events = chat_client, controller, events
         self.task_runner = task_runner
+        self.task_history = task_history
         self.history_chars = history_chars
         self.request_bytes = request_bytes
         self.request_chars = request_chars
         self._busy = Lock()
+        # Immediate rendering/legacy prototype compatibility only. The public durable
+        # Session Hub does not use this process-local pointer as follow-up authority.
         self.last_result: TaskResult | None = None
         self.last_turn_ref: dict[str, object] | None = None
         self._owned = conversation
@@ -82,7 +88,6 @@ class ConversationGateway:
 
     @property
     def _history(self) -> list[tuple[str, str]]:
-        """Compatibility/debug view derived from canonical turns; never storage."""
         out: list[tuple[str, str]] = []
         index = 0
         while index < len(self.session.turns):
@@ -104,12 +109,34 @@ class ConversationGateway:
             or len(json.dumps(messages, ensure_ascii=False).encode("utf-8")) > self.request_bytes
         )
 
+    def _historical_task_observation(self) -> str | None:
+        if self.task_history is None:
+            if self.last_result is None:
+                return None
+            return self.last_result.answer[:MAX_MESSAGE_CHARS]
+        try:
+            observation = self.task_history.latest(self.session.conversation_id)
+            if observation is None:
+                return None
+            ref = observation.turn_ref
+            expected = turn_ref(self.session, int(ref["turn_index"]))
+            if expected != ref:
+                raise ArtifactIntegrityError(
+                    "durable task association does not match canonical conversation turn"
+                )
+            return observation.prompt_text()
+        except (ArtifactIntegrityError, ContextRefusal, KeyError, TypeError, ValueError):
+            # Historical context is optional. Corrupt/stale task linkage is omitted
+            # rather than reaching the model; current conversation remains usable.
+            self.events.emit("conversation.task_history_unavailable", {"reason": "integrity"})
+            return None
+
     def _messages(self, said: str) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": SYSTEM}]
         for stored in self.session.turns:
             messages.append({"role": stored.role, "content": stored.content})
-        if self.last_result is not None:
-            observation = self.last_result.answer[:MAX_MESSAGE_CHARS]
+        observation = self._historical_task_observation()
+        if observation is not None:
             messages.append({
                 "role": "system",
                 "content": (
@@ -123,10 +150,12 @@ class ConversationGateway:
             sum(len(m["content"]) for m in messages[1:-1]) > self.history_chars
             or self._over_budget(messages)
         ):
-            # Only trim canonical turn pairs. The optional observation is a system
-            # message and is dropped before touching a partial stored exchange.
-            if messages[1]["role"] == "system":
-                del messages[1]
+            system_index = next(
+                (i for i in range(1, len(messages) - 1) if messages[i]["role"] == "system"),
+                None,
+            )
+            if system_index is not None:
+                del messages[system_index]
                 self.events.emit("conversation.history_trimmed", {})
                 continue
             if messages[1]["role"] != "user":
