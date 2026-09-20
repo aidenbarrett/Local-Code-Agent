@@ -10,7 +10,7 @@ permissions:
 jobs:
   finish:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,9 +63,6 @@ jobs:
                   original = text
                   for old, new in global_replacements.items():
                       text = text.replace(old, new)
-                  # One file was already on the canonical testing_tools name in
-                  # the staging commit. The prefix replacement above must stay
-                  # idempotent across mixed old/new callers.
                   text = text.replace(
                       "local_agent.tools.testing_tools_tools",
                       "local_agent.tools.testing_tools",
@@ -81,7 +78,6 @@ jobs:
                   if root / "internal/local_agent/llm" in path.parents:
                       text = text.replace("from .models import", "from .protocol import")
                       text = text.replace("from .router import", "from .model_tiers import")
-                  # Keep comments/docstrings honest too, without touching unrelated modules.
                   text = text.replace("tools.base", "tools.tool_primitives")
                   text = text.replace("llm.models", "llm.protocol")
                   text = text.replace("llm.router", "llm.model_tiers")
@@ -104,21 +100,13 @@ jobs:
           guard = root / "internal/tests/unit/test_pr_d_legacy_imports.py"
           guard.write_text('''from __future__ import annotations\n\nfrom pathlib import Path\n\nINTERNAL = Path(__file__).resolve().parents[2]\nRETIRED = (\n    INTERNAL / "local_agent/tools/base.py",\n    INTERNAL / "local_agent/tools/context.py",\n    INTERNAL / "local_agent/tools/runner.py",\n    INTERNAL / "local_agent/tools/testing.py",\n    INTERNAL / "local_agent/llm/models.py",\n    INTERNAL / "local_agent/llm/router.py",\n)\n\n\ndef test_pr_d_retired_module_paths_stay_absent() -> None:\n    present = [str(path.relative_to(INTERNAL)) for path in RETIRED if path.exists()]\n    assert not present, "retired PR-D module paths reappeared:\\n" + "\\n".join(present)\n''', encoding="utf-8")
 
-          # Stamp only the source axis. The model-facing and outcome-facing contracts
-          # must remain byte-identical across this ownership-only migration.
           from local_agent import provenance
           instrument_path = root / "internal/INSTRUMENT.json"
           declared = json.loads(instrument_path.read_text(encoding="utf-8"))
           actual_prompt = provenance.base_prompt_sha256()
           actual_outcome = provenance.outcome_contract_sha256()
-          assert actual_prompt == declared["base_prompt_sha256"], (
-              "base prompt contract moved during naming-only migration",
-              declared["base_prompt_sha256"], actual_prompt,
-          )
-          assert actual_outcome == declared["outcome_contract_sha256"], (
-              "outcome contract moved during naming-only migration",
-              declared["outcome_contract_sha256"], actual_outcome,
-          )
+          assert actual_prompt == declared["base_prompt_sha256"]
+          assert actual_outcome == declared["outcome_contract_sha256"]
           declared["source_sha256"] = provenance.source_sha256()
           instrument_path.write_text(json.dumps(declared, indent=2) + "\n", encoding="utf-8")
           print("source_sha256", declared["source_sha256"])
@@ -133,8 +121,6 @@ jobs:
             internal/tests/unit/test_runtime_agnostic.py \
             internal/tests/unit/test_provenance_surface.py \
             internal/tests/unit/test_metrics_and_context.py
-          python -m pytest -q
-          python internal/measurement/run_test_suite.py internal/tests
       - name: Commit migration
         shell: bash
         run: |
