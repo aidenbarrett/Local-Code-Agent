@@ -235,5 +235,7 @@ def test_public_session_composes_durable_task_admission_runner():
     assert "DurableTaskExecutor(service, controller)" in source
     assert "DurableTaskAdmissionRunner(" in source
     assert "task_runner=task_runner" in source
+    assert "allow_execution=args.allow_execution" in source
+    assert "context_budget_tokens=worker_config.context_budget_tokens" in source
     assert "durable admission enabled before controller effects" in source
     assert "synchronous prototype path" not in source
