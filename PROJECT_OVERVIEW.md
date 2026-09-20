@@ -18,9 +18,13 @@ Measurement collection is paused while the product loop is built. Historical exp
 The Session Hub foundation on `main` provides:
 
 - persisted direct-chat conversations with lock-scoped ownership; existing conversations load only after the exclusive lock is acquired
-- the public `session` command now opens the same canonical persisted conversation and constructs the durable Session Hub event service for it
+- the public `session` command opens the same canonical persisted conversation and constructs the durable Session Hub event service for it
 - one explicit save path for owned conversations; abandoned in-memory edits are not auto-saved
 - stable, distinct durable stream/session UUIDs derived from the conversation identity, with stream-scoped restart reconciliation before the interactive loop opens
+- public repository/self-check work is admitted durably before controller effects run
+- the exact saved user `TurnRef` is preserved as task origin; direct-user and model-proposal origins remain distinct
+- deterministic request identity makes identical saved-turn re-submission non-replayable
+- the admitted execution-contract digest covers source identity plus effective repository policy, profiles and context budget
 - product-side outcomes are closed and typed, including `NO_VERDICT`
 - successful outcomes require verification to have been established
 - product outcomes have explicit lifecycle/verdict projections and bounded CLI exit classes
@@ -40,7 +44,7 @@ owning sequence assignment, admission keyed by request identity, replay from com
 events, bounded subscriptions, and recovery of admitted-without-terminal tasks to an
 explicit unknown state rather than automatic retry.
 
-The current durable-correctness gate is closed around that foundation:
+The durable-correctness gate around that foundation provides:
 
 - final verdict, closure, terminal task state and result indexing commit atomically;
   generic append paths cannot manufacture half-terminal tasks
@@ -53,24 +57,39 @@ The current durable-correctness gate is closed around that foundation:
   concurrent commit is either replayed or delivered live, never silently lost; live
   overflow remains an explicit gap requiring durable replay
 
-The public `local-code-agent.ps1 session` path now reaches that foundation. It owns the
+The public `local-code-agent.ps1 session` path reaches that foundation. It owns the
 canonical persisted conversation, constructs the SQLite-backed durable service using a
 stable stream/session identity, reconciles that stream's unfinished durable tasks to
 unknown / `NO_VERDICT`, and commits a validated `session.opened` event before interactive
 use.
 
+Repository and self-check work now crosses an admission fence before effects. The gateway
+commits the user turn, passes its stable `TurnRef` to hashed `task_admission.py`, and that
+adapter derives the request identity, request digest/reference, typed origin, repository
+identity and effective execution-contract digest. `DurableTaskExecutor` commits admission
+and the transition to `running` before invoking `TaskController` with the durable task
+UUID. Final verdict/closure/result indexing are atomically committed before the
+synchronous gateway returns. Re-submitting the same saved turn returns the already-admitted
+identity and refuses to replay the effect.
+
 What it is not yet, stated because a diagram makes it look finished:
 
-- **ordinary task execution does not yet pass through durable admission.** The public
-  Session Hub gateway still invokes the synchronous controller path directly. The next
-  slice must hand repository/self-check work to the existing `DurableTaskExecutor` before
-  any effect occurs. Until that lands, service reachability is not durable task execution.
-- **most declared event kinds are not yet emitted by the live product path.** Producer
-  code exists for the task lifecycle kinds. A subscriber written against the full
-  contract today would see silence on most of the rest.
+- **turn-to-task lookup is not yet durable on the conversation side.** The admission
+  event names its originating `TurnRef`, but no sidecar index lets a resumed conversation
+  enumerate the tasks associated with each turn. Follow-up observation still depends on
+  process-local `last_result` and therefore does not survive restart.
+- **deterministic-first routing is incomplete.** Direct `/check` and model-proposal task
+  origins are live. Rule-origin admission deliberately fails until the deterministic
+  routing slice can provide a real rule identity.
+- **most declared activity events are not yet durable.** Task admission/state/verdict/
+  closure are durable, but controller/worker/tool activity still uses the process-local
+  activity buffer.
+- **whole-task cancellation is not yet complete.** Admission records a required deadline
+  derived conservatively from existing bounded configuration, but that timestamp is
+  provenance rather than proof that every process was stopped at expiry.
 
-The remaining product slices begin with durable gateway task hand-off and turn-to-task
-association, followed by deterministic routing and fixed watch execution, task/run
+The remaining product slices begin with durable turn-to-task association and follow-up
+reconstruction, followed by deterministic routing and fixed watch execution, task/run
 ownership plus endpoint/cancellation semantics, the fixture-driven Textual UI, then live
 controller/endpoint wiring and physical-laptop acceptance.
 
@@ -80,7 +99,8 @@ controller/endpoint wiring and physical-laptop acceptance.
 flowchart TD
     UI["Textual terminal hub"] --> S["Session service / durable event writer"]
     S --> G["Conversation gateway"]
-    G --> C["Deterministic task controller"]
+    G --> A["Trusted durable task admission"]
+    A --> C["Deterministic task controller"]
     C --> P["Policy / grants / execution ownership"]
     C --> W["Worker: narrowed skills and restricted tools"]
     W --> V["Independent verification"]

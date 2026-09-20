@@ -53,12 +53,14 @@ class ConversationGateway:
         request_chars: int = 24_000,
         conversation: OpenConversation | None = None,
         runtime_index: int | None = None,
+        task_runner=None,
     ):
         if history_chars < 1 or request_bytes < 1 or request_chars < 1:
             raise ValueError("history budget too small")
         if history_chars > request_chars:
             raise ValueError("history budget cannot exceed request budget")
         self.chat_client, self.controller, self.events = chat_client, controller, events
+        self.task_runner = task_runner
         self.history_chars = history_chars
         self.request_bytes = request_bytes
         self.request_chars = request_chars
@@ -168,6 +170,27 @@ class ConversationGateway:
         self.last_turn_ref = ref
         return ref
 
+    def _run_task(
+        self,
+        task: str,
+        *,
+        turn_ref: dict[str, object],
+        self_check: bool,
+        route_source: RouteSource,
+    ) -> TaskResult:
+        if self.task_runner is None:
+            return self.controller.run(
+                task,
+                self_check=self_check,
+                route_source=route_source,
+            )
+        return self.task_runner.run(
+            task,
+            turn_ref=turn_ref,
+            self_check=self_check,
+            route_source=route_source,
+        )
+
     def turn(self, said: str) -> str:
         if not isinstance(said, str) or not said.strip() or len(said) > MAX_MESSAGE_CHARS:
             raise ValueError("enter a nonempty message of at most 8000 characters")
@@ -177,9 +200,10 @@ class ConversationGateway:
         try:
             self.events.emit("turn.started", {})
             if said == "/check":
-                self._record_user(said)
-                result = self.controller.run(
+                saved_turn = self._record_user(said)
+                result = self._run_task(
                     "User request:\n/check\n\nConversation proposal (untrusted):\nRun Local Code Agent self-check",
+                    turn_ref=saved_turn,
                     self_check=True,
                     route_source=RouteSource.USER_DIRECT,
                 )
@@ -208,13 +232,14 @@ class ConversationGateway:
                 self._record_exchange(said, answer)
                 return answer
 
-            self._record_user(said)
+            saved_turn = self._record_user(said)
             task = (
                 "User request:\n" + said + "\n\nConversation proposal (untrusted):\n"
                 + proposal.text
             )
-            result = self.controller.run(
+            result = self._run_task(
                 task,
+                turn_ref=saved_turn,
                 self_check=proposal.kind == "self_check",
                 route_source=RouteSource.MODEL_PROPOSAL,
             )

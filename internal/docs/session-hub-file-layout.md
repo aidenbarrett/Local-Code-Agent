@@ -11,13 +11,14 @@ hashed source surface deliberately, not in untracked scripts to dodge provenance
 |---|---|---|
 | `internal/scripts/chat.py` (existing) | Wire existing context lifecycle; turns-only history | Outside current globs; do not touch measured prompt |
 | `internal/scripts/chat_context.py` (existing) | Remain schema-v1 direct-chat store/composer | Outside current globs; future contract changes explicit |
-| `internal/scripts/session-hub.py` (existing) | Thin public Session Hub composition root: own the canonical conversation, construct/recover the durable service, emit `session.opened`; no controller routing/admission policy | Outside current globs; product composition only |
-| `internal/local_agent/session/conversation_gateway.py` (existing) | Conversation turn routing and controller hand-off | Source hash |
-| `internal/local_agent/session/session_event_service.py` (existing) | Single durable admission/event writer and publication boundary | Source hash |
+| `internal/scripts/session-hub.py` (existing) | Thin public Session Hub composition root: own the canonical conversation, construct/recover the durable service, compose the durable task runner, emit `session.opened`; no controller routing/admission policy | Outside current globs; product composition only |
+| `internal/local_agent/session/conversation_gateway.py` (existing) | Conversation turn routing and task hand-off; passes the exact saved user `TurnRef` into the configured task runner | Source hash |
+| `internal/local_agent/session/session_event_service.py` (existing) | Single durable admission/event writer, durable executor and publication boundary | Source hash |
+| `internal/local_agent/session/task_admission.py` (existing) | Trusted saved-turn to durable request/admission adapter: deterministic request identity, effective execution-contract digest, origin mapping and replay refusal | Source hash |
 | `internal/local_agent/session/intents.py` | Anchored route rules, direct Work path, corrections | Source hash |
 | `internal/local_agent/session/contracts.py` (existing; split carefully) | Intent/admission/result types and product projections | Source hash |
 | `internal/local_agent/session/event_contract.py` (existing) | Build and validate normative durable `lca.session.events/1` envelopes | Source hash |
-| `internal/local_agent/session/event_buffer.py` (existing) | Bounded process-local activity buffer used by the synchronous prototype path | Source hash |
+| `internal/local_agent/session/event_buffer.py` (existing) | Bounded process-local controller/activity observer buffer; never the durable task authority | Source hash |
 | `internal/local_agent/session/results.py` | Deterministic verdict/evidence renderer | Source hash |
 | `internal/local_agent/session/session_store.py` (existing) | SQLite durable task/event state and replay | Source hash |
 | `internal/docs/endpoint-scheduler-design.md` | Endpoint lease/fairness design; no source implementation exists yet | No source hash change |
@@ -41,10 +42,11 @@ hashed source surface deliberately, not in untracked scripts to dodge provenance
 | `internal/docs/session-contract/v1/` (existing) | Normative runtime Session Hub v1 schema | Source hash |
 
 The root `local-code-agent.ps1 session` command is the user-facing route into
-`internal/scripts/session-hub.py`. That script may compose existing authorities and own
-lifecycle setup, but it is not a place to hide controller policy. Durable task admission,
-routing, result semantics, permissions or verifier changes belong in the hashed Session
-Hub source listed above.
+`internal/scripts/session-hub.py`. That script composes existing authorities and owns
+lifecycle setup, but it is not a place to hide controller policy. Durable task admission
+identity and execution-contract hashing live in hashed `task_admission.py`; routing,
+result semantics, permissions and verifier changes likewise belong in hashed Session Hub
+source.
 
 The runtime schema is already loaded and validated from the versioned contract under
 `internal/docs/session-contract/v1/`, and those JSON bytes are deliberately included in
@@ -80,6 +82,7 @@ storage and cancellation gates; no one should debug those through a new UI.
 
 - `internal/tests/unit/test_chat_persistence_wiring.py`
 - `internal/tests/unit/test_session_hub_product_path.py` (existing; public composition/recovery boundary)
+- `internal/tests/unit/test_session_task_admission.py` (existing; durable hand-off, idempotency and origin boundary)
 - `internal/tests/unit/test_session_event_contract.py`
 - `internal/tests/unit/test_session_intents.py`
 - `internal/tests/unit/test_session_verdict_rendering.py`
