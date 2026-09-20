@@ -25,6 +25,10 @@ The Session Hub foundation on `main` provides:
 - the exact saved user `TurnRef` is preserved as task origin; direct-user and model-proposal origins remain distinct
 - deterministic request identity makes identical saved-turn re-submission non-replayable
 - the admitted execution-contract digest covers source identity plus effective repository policy, profiles and context budget
+- conversation-originated durable admission atomically records the exact `TurnRef` association and retained request artifact bytes
+- terminalization atomically records a bounded retained result artifact alongside verdict, closure and terminal task state
+- resumed conversations reconstruct bounded historical task context from integrity-checked durable artifacts rather than process-local `last_result`
+- historical task context is explicitly untrusted and never treated as current verification or inserted into raw user/assistant history
 - product-side outcomes are closed and typed, including `NO_VERDICT`
 - successful outcomes require verification to have been established
 - product outcomes have explicit lifecycle/verdict projections and bounded CLI exit classes
@@ -46,9 +50,15 @@ explicit unknown state rather than automatic retry.
 
 The durable-correctness gate around that foundation provides:
 
-- final verdict, closure, terminal task state and result indexing commit atomically;
-  generic append paths cannot manufacture half-terminal tasks
-- recovery is scoped to the owning durable stream and never re-executes unknown effects
+- final verdict, closure, terminal task state, retained result bytes and result indexing
+  commit atomically; generic append paths cannot manufacture half-terminal tasks
+- admission, exact `TurnRef` association, retained request bytes and `task.admitted`
+  commit atomically for conversation-originated work
+- retained artifact reads re-check recorded media type, size and SHA-256 before bytes
+  are returned
+- recovery is scoped to the owning durable stream and never re-executes unknown effects;
+  recovery also writes a bounded retained `NO_VERDICT` result rather than inventing a
+  success/failure answer
 - accepted writes are linearized ahead of writer shutdown; a returned receipt cannot be
   stranded behind the shutdown sentinel
 - the durable task index owns non-terminal state and execution epoch continuity; stale
@@ -56,6 +66,9 @@ The durable-correctness gate around that foundation provides:
 - replay-to-live subscription handoff captures an explicit durable boundary so a
   concurrent commit is either replayed or delivered live, never silently lost; live
   overflow remains an explicit gap requiring durable replay
+- databases written before retained task artifacts existed rebuild only the exact
+  turn-to-task association already present in validated `task.admitted` events; missing
+  historical artifact bytes remain unavailable rather than being synthesized
 
 The public `local-code-agent.ps1 session` path reaches that foundation. It owns the
 canonical persisted conversation, constructs the SQLite-backed durable service using a
@@ -63,24 +76,29 @@ stable stream/session identity, reconciles that stream's unfinished durable task
 unknown / `NO_VERDICT`, and commits a validated `session.opened` event before interactive
 use.
 
-Repository and self-check work now crosses an admission fence before effects. The gateway
+Repository and self-check work crosses an admission fence before effects. The gateway
 commits the user turn, passes its stable `TurnRef` to hashed `task_admission.py`, and that
-adapter derives the request identity, request digest/reference, typed origin, repository
+adapter derives the request identity, retained request artifact, typed origin, repository
 identity and effective execution-contract digest. `DurableTaskExecutor` commits admission
 and the transition to `running` before invoking `TaskController` with the durable task
-UUID. Final verdict/closure/result indexing are atomically committed before the
-synchronous gateway returns. Re-submitting the same saved turn returns the already-admitted
-identity and refuses to replay the effect.
+UUID. Final verdict/closure/result indexing and bounded retained result bytes are
+atomically committed before the synchronous gateway returns. Re-submitting the same saved
+turn returns the already-admitted identity and refuses to replay the effect.
+
+For a later conversation turn, `task_history.py` may project the latest terminal task
+associated with that conversation into one bounded historical observation. The gateway
+recomputes the referenced `TurnRef` from the canonical raw conversation before any task
+text may reach the conversation model. Missing pre-retention bytes, corrupt artifacts or
+a stale/mismatched turn reference are omitted rather than converted into model context.
+The observation remains labelled untrusted historical data and is not a current verifier.
 
 What it is not yet, stated because a diagram makes it look finished:
 
-- **turn-to-task lookup is not yet durable on the conversation side.** The admission
-  event names its originating `TurnRef`, but no sidecar index lets a resumed conversation
-  enumerate the tasks associated with each turn. Follow-up observation still depends on
-  process-local `last_result` and therefore does not survive restart.
-- **deterministic-first routing is incomplete.** Direct `/check` and model-proposal task
-  origins are live. Rule-origin admission deliberately fails until the deterministic
-  routing slice can provide a real rule identity.
+- **deterministic referent selection and deterministic-first routing are incomplete.**
+  Durable history can supply the latest associated terminal task as bounded context, but
+  it does not decide which of multiple prior tasks a phrase such as “that one” should
+  target. Direct `/check` and model-proposal task origins are live; rule-origin admission
+  deliberately fails until the routing slice can provide a real rule identity.
 - **most declared activity events are not yet durable.** Task admission/state/verdict/
   closure are durable, but controller/worker/tool activity still uses the process-local
   activity buffer.
@@ -88,10 +106,10 @@ What it is not yet, stated because a diagram makes it look finished:
   derived conservatively from existing bounded configuration, but that timestamp is
   provenance rather than proof that every process was stopped at expiry.
 
-The remaining product slices begin with durable turn-to-task association and follow-up
-reconstruction, followed by deterministic routing and fixed watch execution, task/run
-ownership plus endpoint/cancellation semantics, the fixture-driven Textual UI, then live
-controller/endpoint wiring and physical-laptop acceptance.
+The remaining product slices begin with deterministic Work/Chat/rule routing and fixed
+watch execution, followed by task/run ownership plus endpoint/cancellation semantics, the
+fixture-driven Textual UI, then live controller/endpoint wiring and physical-laptop
+acceptance.
 
 ## Architecture
 
@@ -109,7 +127,7 @@ flowchart TD
     S --> UI
 ```
 
-Conversation turns and task artifacts are separate authorities. Raw user/assistant turns remain in the conversation store. Task admission, activity, evidence, verdict and terminal state are sibling durable records referenced by stable IDs. Controller verdict/evidence is not stuffed back into model chat history.
+Conversation turns and task artifacts are separate authorities. Raw user/assistant turns remain in the conversation store. Task admission, associations, retained request/result artifacts, activity, evidence, verdict and terminal state are sibling durable records referenced by stable IDs. Controller verdict/evidence is not stuffed back into raw model chat history; only a bounded, integrity-checked historical projection may be composed separately for follow-up context.
 
 Target routing remains deterministic-first: control commands, explicit Work/Chat choice, anchored rules, model proposal fallback, then clarification. A model proposal is advice, not permission.
 
@@ -119,6 +137,8 @@ Target routing remains deterministic-first: control commands, explicit Work/Chat
 - Uncertain routing abstains. Invalid contracts fail closed.
 - Durable admission is the fence before execution. Replay must never re-execute effects.
 - An admitted task without a durable terminal record after restart is unknown, not retryable success/failure.
+- Retained artifact bytes must match their durable reference; unavailable historical bytes are never fabricated.
+- Historical task observations are context, not current verification and not authority to choose an ambiguous referent.
 - Proof belongs to the repository state and verification scope that produced it.
 - Cancellation is an execution property, not a UI label; unknown process cleanup means `NO_VERDICT`.
 - Do not overwrite user edits, staging or history. Never silently reset worktrees.
