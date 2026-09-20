@@ -147,7 +147,8 @@ def test_durable_gateway_runner_commits_admission_before_controller_effects(tmp_
         }
         assert admitted["repository_id"] == repository_id(repo)
         assert admitted["skill"] is None
-        assert admitted["request_ref"]["availability"] == "unavailable"
+        assert admitted["request_ref"]["availability"] == "retained"
+        assert service.store.artifact_bytes(admitted["request_ref"])
         assert len(admitted["request_ref"]["sha256"]) == 64
         assert len(admitted["contract_sha256"]) == 64
         assert UUID(admitted["request_ref"]["artifact_id"])
@@ -235,6 +236,9 @@ def test_public_session_composes_durable_task_admission_runner():
     assert "DurableTaskExecutor(service, controller)" in source
     assert "DurableTaskAdmissionRunner(" in source
     assert "task_runner=task_runner" in source
+    assert "task_history=DurableTaskHistory(service.store)" in source
+    assert "budgets = conversation_budgets(chat_config.context_budget_tokens)" in source
+    assert "**budgets" in source
     assert "allow_execution=args.allow_execution" in source
     assert "context_budget_tokens=worker_config.context_budget_tokens" in source
     assert "durable admission enabled before controller effects" in source
