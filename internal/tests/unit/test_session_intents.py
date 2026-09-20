@@ -54,7 +54,12 @@ def test_explicit_chat_bypasses_work_rules():
 @pytest.mark.parametrize(
     "text,rule_id,skill,kwargs",
     [
-        ("What changed on my branch?", RULE_GIT_REVIEW, "git-review", {}),
+        (
+            "What changed on my branch?",
+            RULE_GIT_REVIEW,
+            "git-review",
+            {"active_repo_count": 1},
+        ),
         ("build it", RULE_BUILD_AND_TEST, "build-and-test", {"active_repo_count": 1}),
         ("/check", RULE_SELF_CHECK, "self-check", {}),
     ],
@@ -88,13 +93,14 @@ def test_keywords_inside_other_language_do_not_gain_rule_authority(text):
     assert decision.rule_id is None
 
 
-def test_build_rule_requires_explicit_exactly_one_active_repository():
-    unknown = decide_route("Build it")
+@pytest.mark.parametrize("text", ["Build it", "What changed on my branch?"])
+def test_repository_rules_require_explicit_exactly_one_active_repository(text):
+    unknown = decide_route(text)
     assert unknown.action == RouteAction.CLARIFY
     assert unknown.reason_code == "active_repository_unknown"
-    assert decide_route("Build it", active_repo_count=0).reason_code == "no_active_repository"
-    assert decide_route("Build it", active_repo_count=2).reason_code == "ambiguous_active_repository"
-    assert decide_route("Build it", active_repo_count=1).action == RouteAction.WORK
+    assert decide_route(text, active_repo_count=0).reason_code == "no_active_repository"
+    assert decide_route(text, active_repo_count=2).reason_code == "ambiguous_active_repository"
+    assert decide_route(text, active_repo_count=1).action == RouteAction.WORK
 
 
 def test_diagnostic_rule_requires_exactly_one_eligible_task_reference():
