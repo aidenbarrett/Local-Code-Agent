@@ -53,7 +53,7 @@ def test_reason_and_verdict_vocabularies_match_v1_schema_exactly():
 
 
 @pytest.mark.parametrize(
-    ("outcome", "verdict", "reason"),
+    "outcome,verdict,reason",
     [
         (TaskOutcome.PASS, TaskVerdict.VERIFIED, VerdictReason.VERIFICATION_PASSED),
         (TaskOutcome.ESCALATED_PASS, TaskVerdict.VERIFIED, VerdictReason.VERIFICATION_PASSED),
