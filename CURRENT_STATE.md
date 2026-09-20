@@ -7,6 +7,13 @@ Merge history lives in `internal/docs/review-history.md`.
 
 ## Product direction
 
+The final destination is a dependable local worker for finding, moving, Git and
+coding/build/test work, with replaceable models and no required cloud AI dependency.
+Deep-reasoning competition is not a product goal. The
+[product roadmap](internal/docs/product-roadmap.md) records all ten objectives and
+their acceptance gates; it does not mark them as implemented or replace the next
+integration order below.
+
 The active direction is the **Session Hub**: one continuous conversation surface around a deterministic controller, with task admission, execution, evidence, verdict and recovery represented separately from model prose.
 
 The earlier design-only state has been replaced by a real execution and session
