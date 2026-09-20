@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Finalize repository identity before a branch is pushed.
 
-This is intentionally a developer tool, not part of the measured agent surface.
-It may auto-stamp source-only drift, but it never updates model-facing or
-outcome-facing contract identities. Those require an explicit generation
-methodology decision.
+This is intentionally a developer preparation tool, not a PR-readiness or merge
+authority. It may auto-stamp source-only drift in the current working tree, but
+it never updates model-facing or outcome-facing contract identities. Those
+require an explicit generation/methodology decision.
 """
 
 from __future__ import annotations
@@ -27,6 +27,11 @@ CONTRACT_KEYS = (
     "base_prompt_sha256",
     "outcome_contract_sha256",
 )
+_HEX = frozenset("0123456789abcdef")
+
+
+class FinalizationError(RuntimeError):
+    """The current tree cannot be safely finalized."""
 
 
 def compute_identities() -> dict[str, str]:
@@ -43,8 +48,29 @@ def compute_identities() -> dict[str, str]:
     }
 
 
+def _valid_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(ch in _HEX for ch in value)
+    )
+
+
 def load_declaration(path: Path = INSTRUMENT) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Load and minimally validate the identity declaration before using it."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FinalizationError(f"cannot read a valid identity declaration: {exc}") from exc
+    if not isinstance(value, dict):
+        raise FinalizationError("identity declaration must be a JSON object")
+    invalid = [key for key in IDENTITY_KEYS if not _valid_sha256(value.get(key))]
+    if invalid:
+        raise FinalizationError(
+            "identity declaration has missing or invalid SHA-256 fields: "
+            + ", ".join(invalid)
+        )
+    return value
 
 
 def identity_drift(
@@ -64,8 +90,12 @@ def stamp_source(
     updated = dict(declared)
     updated["source_sha256"] = source_sha256
     temp = path.with_name(path.name + ".tmp")
-    temp.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
-    temp.replace(path)
+    try:
+        temp.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+        temp.replace(path)
+    finally:
+        if temp.exists():
+            temp.unlink()
 
 
 def _print_identities(actual: dict[str, str]) -> None:
@@ -87,11 +117,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    declared = load_declaration()
-    actual = compute_identities()
-    drift = identity_drift(declared, actual)
+    try:
+        declared = load_declaration()
+        actual = compute_identities()
+    except (FinalizationError, OSError, ImportError, ValueError, KeyError) as exc:
+        print(f"REFUSED: identity finalization unavailable: {exc}", file=sys.stderr)
+        return 3
 
     _print_identities(actual)
+    drift = identity_drift(declared, actual)
 
     contract_drift = {key: drift[key] for key in CONTRACT_KEYS if key in drift}
     if contract_drift:
@@ -115,7 +149,11 @@ def main(argv: list[str] | None = None) -> int:
         print("Run again with --write-source before pushing this branch.")
         return 1
 
-    stamp_source(INSTRUMENT, declared, got)
+    try:
+        stamp_source(INSTRUMENT, declared, got)
+    except OSError as exc:
+        print(f"REFUSED: could not atomically stamp source identity: {exc}", file=sys.stderr)
+        return 3
     print("\nStamped source_sha256 in internal/INSTRUMENT.json.")
     print("Frozen contract axes were unchanged. Commit the declaration with this change.")
     return 0
