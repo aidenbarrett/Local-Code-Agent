@@ -41,6 +41,15 @@ class CorrectionStatus(str, Enum):
     CLARIFY = "clarify"
 
 
+def _validate_reference_ids(reference_ids: Sequence[str]) -> tuple[str, ...]:
+    values = tuple(reference_ids)
+    if any(not isinstance(value, str) or not value.strip() for value in values):
+        raise ValueError("task reference ids must be nonempty strings")
+    if len(set(values)) != len(values):
+        raise ValueError("task reference ids must be unique")
+    return values
+
+
 @dataclass(frozen=True)
 class RouteDecision:
     action: RouteAction
@@ -53,6 +62,11 @@ class RouteDecision:
     control_id: str | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "action", RouteAction(self.action))
+        if self.source is not None:
+            object.__setattr__(self, "source", RouteSource(self.source))
+        object.__setattr__(self, "reference_ids", _validate_reference_ids(self.reference_ids))
+
         if self.action == RouteAction.WORK:
             if self.source is None:
                 raise ValueError("work route requires source provenance")
@@ -90,12 +104,19 @@ class TaskIntent:
     rule_id: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_turn_ref(self.turn_ref)
+        copied_ref = dict(self.turn_ref)
+        _validate_turn_ref(copied_ref)
+        object.__setattr__(self, "turn_ref", copied_ref)
+        object.__setattr__(self, "origin", RouteSource(self.origin))
+        object.__setattr__(
+            self,
+            "proposed_reference_ids",
+            _validate_reference_ids(self.proposed_reference_ids),
+        )
         if not isinstance(self.objective, str) or not self.objective.strip():
             raise ValueError("task intent objective must be nonempty")
         if len(self.objective) > MAX_MESSAGE_CHARS:
             raise ValueError("task intent objective exceeds size limit")
-        _validate_reference_ids(self.proposed_reference_ids)
         if self.origin == RouteSource.RULE and not self.rule_id:
             raise ValueError("rule-origin task intent requires rule identity")
         if self.origin != RouteSource.RULE and self.rule_id is not None:
@@ -123,6 +144,9 @@ class RouteCorrection:
     reason_code: str | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "status", CorrectionStatus(self.status))
+        if self.mode is not None:
+            object.__setattr__(self, "mode", ExplicitMode(self.mode))
         if self.status == CorrectionStatus.APPLIED:
             if self.route_id is None or self.revision is None or self.mode is None:
                 raise ValueError("applied correction requires route, revision and mode")
@@ -165,15 +189,6 @@ def _validate_turn_ref(value: dict[str, object]) -> None:
         raise ValueError("TurnRef hash must be lowercase SHA-256")
 
 
-def _validate_reference_ids(reference_ids: Sequence[str]) -> tuple[str, ...]:
-    values = tuple(reference_ids)
-    if any(not isinstance(value, str) or not value.strip() for value in values):
-        raise ValueError("task reference ids must be nonempty strings")
-    if len(set(values)) != len(values):
-        raise ValueError("task reference ids must be unique")
-    return values
-
-
 def _unique_referent(eligible_task_ids: Sequence[str]) -> tuple[str | None, str | None]:
     values = _validate_reference_ids(eligible_task_ids)
     if not values:
@@ -187,7 +202,7 @@ def decide_route(
     text: str,
     *,
     explicit_mode: ExplicitMode | str | None = None,
-    active_repo_count: int = 1,
+    active_repo_count: int | None = None,
     eligible_task_ids: Sequence[str] = (),
 ) -> RouteDecision:
     """Resolve deterministic routing before the model-fallback boundary.
@@ -200,8 +215,12 @@ def decide_route(
         raise TypeError("route input must be text")
     if len(text) > MAX_MESSAGE_CHARS:
         raise ValueError("route input exceeds size limit")
-    if not isinstance(active_repo_count, int) or isinstance(active_repo_count, bool) or active_repo_count < 0:
-        raise ValueError("active_repo_count must be a nonnegative integer")
+    if active_repo_count is not None and (
+        not isinstance(active_repo_count, int)
+        or isinstance(active_repo_count, bool)
+        or active_repo_count < 0
+    ):
+        raise ValueError("active_repo_count must be a nonnegative integer or None")
 
     stripped = text.strip()
     lowered = stripped.lower()
@@ -235,6 +254,8 @@ def decide_route(
         )
 
     if _BUILD.fullmatch(stripped):
+        if active_repo_count is None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code="active_repository_unknown")
         if active_repo_count == 0:
             return RouteDecision(RouteAction.CLARIFY, reason_code="no_active_repository")
         if active_repo_count > 1:
@@ -275,7 +296,7 @@ def task_intent_from_decision(decision: RouteDecision, turn_ref: dict[str, objec
     if decision.action != RouteAction.WORK or decision.source is None or decision.objective is None:
         raise ValueError("only a work route can become a task intent")
     return TaskIntent(
-        turn_ref=dict(turn_ref),
+        turn_ref=turn_ref,
         objective=decision.objective,
         proposed_reference_ids=decision.reference_ids,
         origin=decision.source,
@@ -291,6 +312,8 @@ def correct_pending_route(text: str, pending: Sequence[PendingRouteRef]) -> Rout
     if normalized not in {ExplicitMode.WORK.value, ExplicitMode.CHAT.value}:
         return RouteCorrection(CorrectionStatus.NOT_A_CORRECTION)
     candidates = tuple(pending)
+    if any(not isinstance(candidate, PendingRouteRef) for candidate in candidates):
+        raise ValueError("pending route candidates must be PendingRouteRef values")
     if not candidates:
         return RouteCorrection(CorrectionStatus.CLARIFY, reason_code="no_pending_route")
     if len(candidates) > 1:
