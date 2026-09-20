@@ -58,35 +58,32 @@ class EndpointRequest:
         if not isinstance(self.endpoint_id, str) or not self.endpoint_id.strip():
             raise ValueError("endpoint id must be nonempty")
         object.__setattr__(self, "role", EndpointRole(self.role))
-
         if self.role == EndpointRole.CONVERSATION:
             if not isinstance(self.session_id, str) or not self.session_id.strip():
                 raise ValueError("conversation endpoint request requires a session id")
             if self.task_id is not None or self.execution_epoch is not None:
                 raise ValueError("conversation endpoint request cannot carry task execution authority")
-        else:
-            if self.session_id is not None and (
-                not isinstance(self.session_id, str) or not self.session_id.strip()
-            ):
-                raise ValueError("worker session id must be nonempty when present")
-            if self.task_id is None:
-                raise ValueError("worker/strong endpoint request requires a task id")
-            try:
-                UUID(self.task_id)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("worker/strong endpoint task id must be a UUID") from exc
-            if (
-                not isinstance(self.execution_epoch, int)
-                or isinstance(self.execution_epoch, bool)
-                or self.execution_epoch < 0
-            ):
-                raise ValueError("worker/strong endpoint request requires a nonnegative execution epoch")
+            return
+        if self.session_id is not None and (
+            not isinstance(self.session_id, str) or not self.session_id.strip()
+        ):
+            raise ValueError("worker session id must be nonempty when present")
+        if self.task_id is None:
+            raise ValueError("worker/strong endpoint request requires a task id")
+        try:
+            UUID(self.task_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("worker/strong endpoint task id must be a UUID") from exc
+        if (
+            not isinstance(self.execution_epoch, int)
+            or isinstance(self.execution_epoch, bool)
+            or self.execution_epoch < 0
+        ):
+            raise ValueError("worker/strong endpoint request requires a nonnegative execution epoch")
 
     @property
     def queue_class(self) -> QueueClass:
-        if self.role == EndpointRole.CONVERSATION:
-            return QueueClass.CHAT
-        return QueueClass.WORK
+        return QueueClass.CHAT if self.role == EndpointRole.CONVERSATION else QueueClass.WORK
 
 
 @dataclass(frozen=True)
@@ -163,11 +160,11 @@ class EndpointArbiter:
             return self._quarantine_reason is not None
 
     def _all_request_ids(self) -> set[str]:
-        ids = {request.request_id for request in self._chat}
-        ids.update(request.request_id for request in self._work)
+        values = {request.request_id for request in self._chat}
+        values.update(request.request_id for request in self._work)
         if self._active is not None:
-            ids.add(self._active.request.request_id)
-        return ids
+            values.add(self._active.request.request_id)
+        return values
 
     def enqueue(self, request: EndpointRequest) -> PendingPosition:
         if not isinstance(request, EndpointRequest):
@@ -176,23 +173,19 @@ class EndpointArbiter:
             raise ValueError("request belongs to a different physical endpoint")
         with self._lock:
             if self._quarantine_reason is not None:
-                raise EndpointUnavailable(
-                    f"endpoint is quarantined: {self._quarantine_reason}"
-                )
+                raise EndpointUnavailable(f"endpoint is quarantined: {self._quarantine_reason}")
             if request.request_id in self._all_request_ids():
                 raise EndpointLeaseConflict("endpoint request id is already active or queued")
-
             if request.queue_class == QueueClass.CHAT:
                 assert request.session_id is not None
                 pending_for_session = sum(
-                    1 for item in self._chat if item.session_id == request.session_id
+                    item.session_id == request.session_id for item in self._chat
                 )
                 if pending_for_session >= self.chat_pending_limit_per_session:
                     raise EndpointQueueFull("conversation endpoint queue is full for this session")
                 position = len(self._chat)
                 self._chat.append(request)
                 return PendingPosition(QueueClass.CHAT, position)
-
             if len(self._work) >= self.work_pending_limit:
                 raise EndpointQueueFull("worker endpoint queue is full")
             position = len(self._work)
@@ -202,28 +195,21 @@ class EndpointArbiter:
     def _pick_queue(self) -> deque[EndpointRequest] | None:
         preferred = self._chat if self._next_class == QueueClass.CHAT else self._work
         alternate = self._work if self._next_class == QueueClass.CHAT else self._chat
-        if preferred:
-            return preferred
-        if alternate:
-            return alternate
-        return None
+        return preferred if preferred else alternate if alternate else None
 
     def acquire_next(self) -> EndpointLease | None:
         """Acquire at most one request; never queue work inside the endpoint server."""
         with self._lock:
             if self._quarantine_reason is not None:
-                raise EndpointUnavailable(
-                    f"endpoint is quarantined: {self._quarantine_reason}"
-                )
+                raise EndpointUnavailable(f"endpoint is quarantined: {self._quarantine_reason}")
             if self._active is not None:
                 return None
             queue = self._pick_queue()
             if queue is None:
                 return None
             request = queue.popleft()
-            lease = EndpointLease(str(uuid4()), self.endpoint_id, request)
-            self._active = lease
-            return lease
+            self._active = EndpointLease(str(uuid4()), self.endpoint_id, request)
+            return self._active
 
     def _finish_active(self) -> EndpointLease:
         if self._active is None:
@@ -237,16 +223,16 @@ class EndpointArbiter:
         )
         return released
 
-    def release(self, lease_id: str) -> EndpointLease:
-        """Release a known-clean active lease.
-
-        A quarantined lease cannot use this path; it must be explicitly reconciled
-        so quarantine is never cleared by an ordinary success-shaped release.
-        """
+    @staticmethod
+    def _validate_lease_id(lease_id: str) -> None:
         try:
             UUID(lease_id)
         except (TypeError, ValueError) as exc:
             raise ValueError("lease id must be a UUID") from exc
+
+    def release(self, lease_id: str) -> EndpointLease:
+        """Release a known-clean lease; quarantined leases require reconciliation."""
+        self._validate_lease_id(lease_id)
         with self._lock:
             if self._active is None or self._active.lease_id != lease_id:
                 raise EndpointLeaseConflict("lease id is not the active endpoint lease")
@@ -260,14 +246,16 @@ class EndpointArbiter:
         if len(reason) > 256:
             raise ValueError("endpoint quarantine reason exceeds size limit")
         if lease_id is not None:
-            try:
-                UUID(lease_id)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("lease id must be a UUID") from exc
+            self._validate_lease_id(lease_id)
         with self._lock:
-            if lease_id is not None and (
-                self._active is None or self._active.lease_id != lease_id
-            ):
+            if self._active is not None:
+                if lease_id is None:
+                    raise EndpointLeaseConflict(
+                        "active endpoint quarantine requires the exact lease identity"
+                    )
+                if self._active.lease_id != lease_id:
+                    raise EndpointLeaseConflict("cannot quarantine a non-active lease")
+            elif lease_id is not None:
                 raise EndpointLeaseConflict("cannot quarantine a non-active lease")
             if self._quarantine_reason is not None and self._quarantine_reason != reason:
                 raise EndpointLeaseConflict("endpoint is already quarantined for a different reason")
@@ -279,20 +267,22 @@ class EndpointArbiter:
         known_stopped: bool,
         lease_id: str | None = None,
     ) -> bool:
-        """Clear quarantine only after the uncertain active request is known stopped."""
+        """Clear quarantine only after the exact uncertain request is known stopped."""
         if not isinstance(known_stopped, bool):
             raise TypeError("known_stopped must be boolean")
         if lease_id is not None:
-            try:
-                UUID(lease_id)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("lease id must be a UUID") from exc
+            self._validate_lease_id(lease_id)
         with self._lock:
             if self._quarantine_reason is None:
                 raise EndpointLeaseConflict("endpoint is not quarantined")
-            if lease_id is not None and (
-                self._active is None or self._active.lease_id != lease_id
-            ):
+            if self._active is not None:
+                if lease_id is None:
+                    raise EndpointLeaseConflict(
+                        "active quarantined endpoint requires the exact lease identity"
+                    )
+                if self._active.lease_id != lease_id:
+                    raise EndpointLeaseConflict("reconciliation lease is not active")
+            elif lease_id is not None:
                 raise EndpointLeaseConflict("reconciliation lease is not active")
             if not known_stopped:
                 return False
