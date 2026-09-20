@@ -168,7 +168,7 @@ def test_comparable_delta_reports_stable_key_changes():
 
 
 @pytest.mark.parametrize(
-    ("overrides", "reason"),
+    "overrides,reason",
     [
         ({"job_id": str(uuid4())}, "job_id_changed"),
         ({"job_revision": SHA_C}, "job_revision_changed"),
