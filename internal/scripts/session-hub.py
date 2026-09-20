@@ -109,8 +109,6 @@ def main(argv: list[str] | None = None) -> int:
 
     root = find_repo_root(Path(args.repo))
     repo = load_repo_config(root)
-    if args.allow_execution:
-        repo = replace(repo, policy=replace(repo.policy, allow_build=True, allow_test=True))
 
     chat_config = MODEL_PRESETS[args.profile]
     if args.base_url:
