@@ -21,7 +21,6 @@ if str(SOURCE_ROOT) not in sys.path:
 from local_agent.config import MODEL_PRESETS, find_repo_root, load_repo_config  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
-from local_agent.session.conversation_gateway import ConversationGateway  # noqa: E402
 from local_agent.session.conversation_store import (  # noqa: E402
     ContextRefusal,
     conversation,
@@ -29,12 +28,17 @@ from local_agent.session.conversation_store import (  # noqa: E402
     ensure_runtime,
     new_session,
 )
+from local_agent.session.durable_history import (  # noqa: E402
+    DurableConversationGateway,
+    DurableTaskHistory,
+    ResultSummaryRecordingController,
+    TurnTaskSessionStore,
+)
 from local_agent.session.event_buffer import EventBuffer  # noqa: E402
 from local_agent.session.session_event_service import (  # noqa: E402
     DurableSessionService,
     DurableTaskExecutor,
 )
-from local_agent.session.session_store import SQLiteSessionStore  # noqa: E402
 from local_agent.session.task_admission import (  # noqa: E402
     DurableTaskAdmissionRunner,
     repository_id,
@@ -66,7 +70,7 @@ def _controller_commit() -> str:
 
 def _open_durable_service(runtime_root: Path, conversation_id: str):
     stream_id, session_id = _durable_ids(conversation_id)
-    store = SQLiteSessionStore(runtime_root / "session-hub" / "session.db")
+    store = TurnTaskSessionStore(runtime_root / "session-hub" / "session.db")
     service = DurableSessionService(store, stream_id=stream_id, session_id=session_id)
     try:
         recovered = service.recover_unknown_tasks()
@@ -88,6 +92,7 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
                 "repository_read",
                 "durable_session_events",
                 "durable_task_execution",
+                "durable_task_history",
             ],
             "recovered": recovered,
         },
@@ -143,15 +148,22 @@ def main(argv: list[str] | None = None) -> int:
                 def worker_factory():
                     return OpenAICompatibleClient(worker_config)
 
-                controller = TaskController(
-                    repo,
-                    worker_factory,
-                    events,
-                    allow_execution=args.allow_execution,
-                    context_budget_tokens=worker_config.context_budget_tokens,
+                controller = ResultSummaryRecordingController(
+                    TaskController(
+                        repo,
+                        worker_factory,
+                        events,
+                        allow_execution=args.allow_execution,
+                        context_budget_tokens=worker_config.context_budget_tokens,
+                    ),
+                    service.store,
                 )
                 task_runner = DurableTaskAdmissionRunner(DurableTaskExecutor(service, controller))
-                gateway = ConversationGateway(
+                task_history = DurableTaskHistory(
+                    service.store,
+                    stream_id=service.stream_id,
+                )
+                gateway = DurableConversationGateway(
                     OpenAICompatibleClient(chat_config),
                     controller,
                     events,
@@ -159,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
                     runtime_index=runtime_index,
                     request_bytes=request_chars,
                     task_runner=task_runner,
+                    task_history=task_history,
                 )
 
                 if args.check:
@@ -174,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
                 if recovered:
                     print(f"Recovered {len(recovered)} unfinished task(s) as unknown / NO_VERDICT.")
                 print("Task execution: durable admission enabled before controller effects")
+                print("Task follow-up history: durable and restart-safe")
                 print("Commands: /check, /quit")
                 print()
 
