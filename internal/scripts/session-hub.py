@@ -145,7 +145,13 @@ def main(argv: list[str] | None = None) -> int:
                 def worker_factory():
                     return OpenAICompatibleClient(worker_config)
 
-                controller = TaskController(repo, worker_factory, events)
+                controller = TaskController(
+                    repo,
+                    worker_factory,
+                    events,
+                    allow_execution=args.allow_execution,
+                    context_budget_tokens=worker_config.context_budget_tokens,
+                )
                 task_runner = DurableTaskAdmissionRunner(DurableTaskExecutor(service, controller))
                 gateway = ConversationGateway(
                     OpenAICompatibleClient(chat_config),
