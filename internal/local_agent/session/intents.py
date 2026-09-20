@@ -198,6 +198,16 @@ def _unique_referent(eligible_task_ids: Sequence[str]) -> tuple[str | None, str 
     return values[0], None
 
 
+def _repository_target_reason(active_repo_count: int | None) -> str | None:
+    if active_repo_count is None:
+        return "active_repository_unknown"
+    if active_repo_count == 0:
+        return "no_active_repository"
+    if active_repo_count > 1:
+        return "ambiguous_active_repository"
+    return None
+
+
 def decide_route(
     text: str,
     *,
@@ -245,6 +255,9 @@ def decide_route(
         )
 
     if _GIT_REVIEW.fullmatch(stripped):
+        reason = _repository_target_reason(active_repo_count)
+        if reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
         return RouteDecision(
             RouteAction.WORK,
             objective=text,
@@ -254,12 +267,9 @@ def decide_route(
         )
 
     if _BUILD.fullmatch(stripped):
-        if active_repo_count is None:
-            return RouteDecision(RouteAction.CLARIFY, reason_code="active_repository_unknown")
-        if active_repo_count == 0:
-            return RouteDecision(RouteAction.CLARIFY, reason_code="no_active_repository")
-        if active_repo_count > 1:
-            return RouteDecision(RouteAction.CLARIFY, reason_code="ambiguous_active_repository")
+        reason = _repository_target_reason(active_repo_count)
+        if reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
         return RouteDecision(
             RouteAction.WORK,
             objective=text,
