@@ -1,6 +1,9 @@
 # Quality Hardening Roadmap: target 9/10
 
-Status: active hardening plan
+Status: supporting quality backlog. The agreed product destination and delivery
+gates live in [product-roadmap.md](product-roadmap.md); the current Session Hub
+integration sequence remains first. Items and historical scores below are not
+evidence of current implementation or a replacement for workflow acceptance.
 
 Scope: Local Code Agent execution substrate, evaluation harness, measurement system,
 portable runtime, skills, tooling, RPC surface, packaging and the future workload

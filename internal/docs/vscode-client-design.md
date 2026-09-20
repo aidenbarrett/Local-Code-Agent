@@ -3,9 +3,10 @@
 Status: **future design only**. There is no extension manifest or installable VSIX in
 the repository.
 
-The immediate client is the in-process Textual Session Hub. A VS Code client remains a
-later possibility, particularly for Windows VS Code Remote SSH into a Linux repository,
-but it is not a dependency or approved implementation scope for the first hub.
+The immediate client is the in-process Textual Session Hub. A VS Code client is a
+later goal in the [product roadmap](product-roadmap.md), particularly for Windows
+VS Code Remote SSH into a Linux repository. It is not a dependency or implementation
+scope for the first hub; its acceptance gates belong to the later remote/editor milestone.
 
 A future implementation would need, at minimum:
 

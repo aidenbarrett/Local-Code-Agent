@@ -23,6 +23,7 @@ If the code disagrees with one of these, the code is wrong.
 
 | File | Status |
 |---|---|
+| `product-roadmap.md` | agreed product destination, ten objectives, workflow acceptance gates and milestone order; future scope, not a claim of implemented capabilities |
 | `session-contract/README.md` | design rationale and semantic notes for `lca.session.events/1`; the versioned JSON schema is normative and `CURRENT_STATE.md` owns implementation/reachability status |
 | `session-hub-design.md` | the Session Hub architecture. Parts are implemented, parts are not; `CURRENT_STATE.md` is the authority on which |
 | `session-hub-file-layout.md` | intended module layout |

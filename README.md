@@ -7,11 +7,16 @@ test this project through its deterministic controller. Measurement collection i
 paused. [Project overview](PROJECT_OVERVIEW.md) and [current state](CURRENT_STATE.md)
 describe the implemented limits and the active Session Hub work.
 
+The [product roadmap](internal/docs/product-roadmap.md) targets a dependable local
+worker for finding, moving, Git and coding tasks, with replaceable models and no
+required cloud AI dependency. **The model is a replaceable dependency. The agent
+is the product.** Its milestones are future goals, not current feature claims.
+
 The current target is a Textual terminal hub with mandatory activity and watch
 panes. [Design, event contract and implementation PR layout](internal/docs/session-hub-design.md)
 specify deterministic-first routing, fixed watch jobs and task artifacts separate
-from conversation turns. The execution/session foundation is now implemented;
-the durable event service is the active follow-up.
+from conversation turns. The durable event service and public task admission are
+implemented; durable follow-ups and the remaining Session Hub integration are next.
 
 The terminal prototype is `.\local-code-agent.ps1 session`. It needs an
 already-running endpoint. `/check` runs LCA's real Python checks with execution
@@ -94,7 +99,7 @@ Current implemented surfaces include:
 - explicit model-serving and CPU/GPU/NPU hardware validation paths
 - preserved experiment provenance and source identity
 
-This describes implemented behaviour. It does not imply production readiness or general coding-model capability. Durable Session Hub replay/recovery and the Textual UI are still follow-up work.
+This describes implemented behaviour. It does not imply production readiness or general coding-model capability. Durable Session Hub replay/recovery exists; durable conversation follow-ups and the Textual UI remain follow-up work.
 
 ## Measured evidence so far
 
