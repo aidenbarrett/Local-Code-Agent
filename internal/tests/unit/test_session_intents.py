@@ -52,7 +52,7 @@ def test_explicit_chat_bypasses_work_rules():
 
 
 @pytest.mark.parametrize(
-    ("text", "rule_id", "skill", "kwargs"),
+    "text,rule_id,skill,kwargs",
     [
         ("What changed on my branch?", RULE_GIT_REVIEW, "git-review", {}),
         ("build it", RULE_BUILD_AND_TEST, "build-and-test", {"active_repo_count": 1}),
