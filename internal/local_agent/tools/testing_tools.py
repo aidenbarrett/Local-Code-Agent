@@ -13,7 +13,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
-from .base import (
+from .tool_primitives import (
     BlockedError,
     DomainStatus,
     ExecutionStatus,
@@ -24,9 +24,9 @@ from .base import (
     ToolResult,
     relpath,
 )
-from .context import ToolContext
+from .tool_context import ToolContext
 from .logs import parse_test_log
-from .runner import run_command
+from .process_runner import run_command
 
 # ctest -R takes a regular expression, so the filter has to be able to be one.
 # The old validator stripped |^$() and then demanded [A-Za-z0-9_.:-], which

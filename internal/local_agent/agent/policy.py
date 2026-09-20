@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any, Callable
 
 from ..config import Policy
-from ..tools.base import Risk, Tool
+from ..tools.tool_primitives import Risk, Tool
 
 
 class Verdict(str, Enum):

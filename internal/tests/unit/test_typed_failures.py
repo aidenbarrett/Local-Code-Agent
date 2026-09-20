@@ -14,10 +14,10 @@ from local_agent.agent.outcome import Outcome
 from local_agent.agent.state import HaltCause, Validity
 from local_agent.config import load_repo_config
 from local_agent.llm.client import ScriptedClient, tool_call
-from local_agent.llm.models import CallStats, ChatResponse, LLMTransportError
-from local_agent.llm.router import TieredClient
+from local_agent.llm.protocol import CallStats, ChatResponse, LLMTransportError
+from local_agent.llm.model_tiers import TieredClient
 from local_agent.tools import build_registry
-from local_agent.tools.base import Locus, Reason
+from local_agent.tools.tool_primitives import Locus, Reason
 
 REPO = Path(__file__).resolve().parent.parent.parent
 
@@ -378,7 +378,7 @@ def test_an_explicit_unknown_survives_the_convenience_inference():
     learned nothing had no way to say so: the inference overwrote it with PASS
     or FAIL from `ok`. A run_test whose filter matched no test exits 0 having
     verified nothing, and both inferences would be inventing an observation."""
-    from local_agent.tools.base import DomainStatus, ExecutionStatus, ToolResult
+    from local_agent.tools.tool_primitives import DomainStatus, ExecutionStatus, ToolResult
 
     stated = ToolResult(ok=False, summary="ran 0 tests",
                         domain_status=DomainStatus.UNKNOWN)
@@ -402,6 +402,6 @@ def test_an_empty_test_run_cannot_satisfy_a_verification_contract():
     assert _satisfies_verification("run_test", {"name_filter": "x"}) is False
     # And the orchestrator only records verified on a passing result, which an
     # empty run is not: ok False, domain UNKNOWN.
-    from local_agent.tools.base import DomainStatus, ToolResult
+    from local_agent.tools.tool_primitives import DomainStatus, ToolResult
     empty = ToolResult(ok=False, summary="ran 0 tests", domain_status=DomainStatus.UNKNOWN)
     assert not (empty.ran and empty.ok)

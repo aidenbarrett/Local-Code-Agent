@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..tools import TOOLSETS, UNIVERSAL_TOOLS
-from ..tools.base import Reason, Risk, Tool, ToolError, ToolResult
+from ..tools.tool_primitives import Reason, Risk, Tool, ToolError, ToolResult
 from ..verification import ProofKind
 from .orchestrator import Orchestrator as _BaseOrchestrator
 

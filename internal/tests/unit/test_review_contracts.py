@@ -11,7 +11,7 @@ from local_agent.agent import Orchestrator, SkillLibrary
 from local_agent.agent.skills import Skill
 from local_agent.config import load_repo_config
 from local_agent.llm.client import ScriptedClient, tool_call
-from local_agent.llm.models import ChatResponse
+from local_agent.llm.protocol import ChatResponse
 from local_agent.tools import build_registry
 
 REPO = Path(__file__).resolve().parent.parent.parent

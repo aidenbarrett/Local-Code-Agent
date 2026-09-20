@@ -12,8 +12,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .base import Risk, ToolError, ToolRegistry, ToolResult, relpath, resolve_in_repo
-from .context import ToolContext
+from .tool_primitives import Risk, ToolError, ToolRegistry, ToolResult, relpath, resolve_in_repo
+from .tool_context import ToolContext
 
 _EXCLUDES = [
     "!build/", "!out/", "!.git/", "!node_modules/", "!.local-agent/",

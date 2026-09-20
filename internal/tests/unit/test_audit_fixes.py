@@ -10,11 +10,11 @@ from pathlib import Path
 
 from local_agent.agent import Orchestrator, SkillLibrary
 from local_agent.agent.outcome import Outcome
-from local_agent.tools.base import Reason, Locus
+from local_agent.tools.tool_primitives import Reason, Locus
 from local_agent.agent.state import HaltCause
 from local_agent.config import load_repo_config
 from local_agent.llm.client import ScriptedClient, tool_call
-from local_agent.llm.models import ChatResponse
+from local_agent.llm.protocol import ChatResponse
 
 REPO = Path(__file__).resolve().parent.parent.parent
 

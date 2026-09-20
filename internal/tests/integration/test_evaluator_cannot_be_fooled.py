@@ -25,7 +25,7 @@ sys.path.insert(0, str(REPO / "evaluation"))
 
 from local_agent.config import ModelConfig  # noqa: E402
 from local_agent.llm.client import ScriptedClient, tool_call  # noqa: E402
-from local_agent.llm.models import ChatResponse  # noqa: E402
+from local_agent.llm.protocol import ChatResponse  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     shutil.which("cmake") is None or shutil.which("ctest") is None,
@@ -510,7 +510,7 @@ def _assert_tree_is_configured_for(root, profile_name):
     marker is what the tool actually acts on, and the old test never checked
     it. The cache is still checked, in the form each generator can honour.
     """
-    from local_agent.tools.testing import configured_profile
+    from local_agent.tools.testing_tools import configured_profile
 
     assert configured_profile(root, "build") == profile_name, \
         f"the build directory is not marked as configured for {profile_name!r}"
@@ -741,7 +741,7 @@ def test_a_cache_with_no_profile_marker_is_treated_as_unknown_provenance(tmp_pat
     from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
-    from local_agent.tools.testing import PROFILE_STAMP
+    from local_agent.tools.testing_tools import PROFILE_STAMP
 
     root, _ = prepare(tmp_path, "clean")
     registry, _, _ = build_registry(load_repo_config(root))
@@ -750,7 +750,7 @@ def test_a_cache_with_no_profile_marker_is_treated_as_unknown_provenance(tmp_pat
     assert registry.get("configure_project").handler(profile="debug").ok
     _assert_tree_is_configured_for(root, "debug")
 
-    from local_agent.tools.testing import configured_profile
+    from local_agent.tools.testing_tools import configured_profile
 
     (root / "build" / PROFILE_STAMP).unlink()
     assert cache.is_file(), "the cache is still there; only the marker is gone"
@@ -888,8 +888,8 @@ def test_the_build_stamp_cannot_be_forged(tmp_path):
     from run_evaluation import prepare
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry
-    from local_agent.tools.base import ProtectedPathError
-    from local_agent.tools.testing import BUILD_STAMP, build_record
+    from local_agent.tools.tool_primitives import ProtectedPathError
+    from local_agent.tools.testing_tools import BUILD_STAMP, build_record
 
     root, _ = prepare(tmp_path, "clean")
     registry, _, _ = build_registry(load_repo_config(root))

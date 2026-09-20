@@ -13,8 +13,8 @@ from pathlib import Path
 from local_agent.agent import Orchestrator, SkillLibrary
 from local_agent.config import MODEL_PRESETS, ModelConfig, load_repo_config
 from local_agent.llm.client import ScriptedClient
-from local_agent.llm.models import CallStats, ChatResponse
-from local_agent.llm.router import CHEAP, STRONG, TieredClient, build_tiered_client
+from local_agent.llm.protocol import CallStats, ChatResponse
+from local_agent.llm.model_tiers import CHEAP, STRONG, TieredClient, build_tiered_client
 from local_agent.tools import build_registry
 
 REPO = Path(__file__).resolve().parent.parent.parent
@@ -26,7 +26,7 @@ ALLOWED = {
     "cli.py",
     "config.py",
     "client.py",
-    "models.py",
+    "protocol.py",
 }
 
 
@@ -60,7 +60,7 @@ def test_no_orchestration_layer_mentions_a_runtime():
 
 def test_no_module_branches_on_a_runtime_value():
     """Even in the allowed files, nothing may switch behaviour on the runtime."""
-    for name in ("client.py", "models.py"):
+    for name in ("client.py", "protocol.py"):
         source = (REPO / "local_agent" / "llm" / name).read_text()
         tree = ast.parse(source)
         for node in ast.walk(tree):
