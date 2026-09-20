@@ -18,7 +18,9 @@ Measurement collection is paused while the product loop is built. Historical exp
 The Session Hub foundation on `main` provides:
 
 - persisted direct-chat conversations with lock-scoped ownership; existing conversations load only after the exclusive lock is acquired
+- the public `session` command now opens the same canonical persisted conversation and constructs the durable Session Hub event service for it
 - one explicit save path for owned conversations; abandoned in-memory edits are not auto-saved
+- stable, distinct durable stream/session UUIDs derived from the conversation identity, with stream-scoped restart reconciliation before the interactive loop opens
 - product-side outcomes are closed and typed, including `NO_VERDICT`
 - successful outcomes require verification to have been established
 - product outcomes have explicit lifecycle/verdict projections and bounded CLI exit classes
@@ -51,21 +53,26 @@ The current durable-correctness gate is closed around that foundation:
   concurrent commit is either replayed or delivered live, never silently lost; live
   overflow remains an explicit gap requiring durable replay
 
+The public `local-code-agent.ps1 session` path now reaches that foundation. It owns the
+canonical persisted conversation, constructs the SQLite-backed durable service using a
+stable stream/session identity, reconciles that stream's unfinished durable tasks to
+unknown / `NO_VERDICT`, and commits a validated `session.opened` event before interactive
+use.
+
 What it is not yet, stated because a diagram makes it look finished:
 
-- **no user entry point reaches it.** `DurableSessionService` is constructed by the
-  acceptance script and by tests. Ordinary product use does not yet write task or event
-  lifecycle records through it. Raw conversation persistence is a separate authority and
-  is wired: the gateway loads and saves owned conversations through the conversation
-  store.
+- **ordinary task execution does not yet pass through durable admission.** The public
+  Session Hub gateway still invokes the synchronous controller path directly. The next
+  slice must hand repository/self-check work to the existing `DurableTaskExecutor` before
+  any effect occurs. Until that lands, service reachability is not durable task execution.
 - **most declared event kinds are not yet emitted by the live product path.** Producer
   code exists for the task lifecycle kinds. A subscriber written against the full
   contract today would see silence on most of the rest.
 
-The durable layer now has the correctness fences required before product wiring depends
-on it. The remaining product slices are deterministic routing and fixed watch execution,
-task/run ownership plus endpoint/cancellation semantics, the fixture-driven Textual UI,
-then live controller/endpoint wiring and physical-laptop acceptance.
+The remaining product slices begin with durable gateway task hand-off and turn-to-task
+association, followed by deterministic routing and fixed watch execution, task/run
+ownership plus endpoint/cancellation semantics, the fixture-driven Textual UI, then live
+controller/endpoint wiring and physical-laptop acceptance.
 
 ## Architecture
 
