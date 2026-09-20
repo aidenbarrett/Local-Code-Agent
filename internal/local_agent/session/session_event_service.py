@@ -17,6 +17,7 @@ from uuid import UUID, uuid4, uuid5
 
 from .contracts import MAX_MESSAGE_CHARS, RouteSource, TaskOutcome, TaskResult, TaskVerdict
 from .event_contract import build_event
+from .results import verdict_block_from_task_result
 from .session_store import SQLiteSessionStore
 
 
@@ -455,16 +456,6 @@ class DurableTaskExecutor:
         return handle
 
     @staticmethod
-    def _reason_for(result: TaskResult) -> str:
-        if result.projection.verdict == TaskVerdict.VERIFIED:
-            return "verification_passed"
-        if result.projection.verdict == TaskVerdict.FAILED:
-            return "verification_failed"
-        if result.outcome == TaskOutcome.BLOCKED:
-            return "policy_denied"
-        return "cleanup_unknown"
-
-    @staticmethod
     def _result_artifact(result: TaskResult) -> tuple[dict[str, Any], bytes]:
         payload = json.dumps({
             "schema": _RESULT_SCHEMA,
@@ -507,24 +498,14 @@ class DurableTaskExecutor:
             handle.result = result
             result_ref, result_bytes = self._result_artifact(result)
             status = result.projection.terminal_state.value
-            reason = self._reason_for(result)
+            verdict_block = verdict_block_from_task_result(result)
             terminal = self.service.finalize_task(
                 handle.task_id,
                 verdict_payload={
                     "completion": {
                         "task_id": handle.task_id,
                         "status": status,
-                        "verdict_block": {
-                            "verdict": result.projection.verdict.value,
-                            "reason_code": reason,
-                            "scope": "controller task result at durable completion",
-                            "evidence_ids": list(result.evidence_ids),
-                            "tree_sha256": result.metrics.get("tree_sha256"),
-                            "rendered_lines": [
-                                f"{result.projection.verdict.value}: {result.outcome.value}",
-                                f"Verification ran: {str(bool(result.verification_ran)).lower()}.",
-                            ],
-                        },
+                        "verdict_block": verdict_block.as_payload(),
                         "worker_artifact_ref": None,
                         "result_ref": result_ref,
                     }
