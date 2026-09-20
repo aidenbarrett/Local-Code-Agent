@@ -2,7 +2,7 @@
 
 Submission is non-blocking for callers. The writer thread owns sequence assignment,
 validation, durable commit and publication in that order. Subscribers receive only
-committed events and must replay after an overflow gap.
+committed events; replay/live handoff is cursor-bounded and overflow is explicit.
 """
 from __future__ import annotations
 
@@ -43,15 +43,21 @@ class WriteReceipt:
 
 
 class Subscription:
-    def __init__(self, capacity: int):
+    def __init__(self, capacity: int, *, live_after: int = 0):
         if capacity < 1:
             raise ValueError("subscription capacity must be positive")
+        if live_after < 0:
+            raise ValueError("subscription live cursor cannot be negative")
         self._queue: Queue[dict[str, Any]] = Queue(maxsize=capacity)
         self._gap = False
         self._lock = Lock()
+        self._live_after = live_after
 
     def _offer(self, event: dict[str, Any]) -> None:
+        sequence = int(event["sequence"])
         with self._lock:
+            if sequence <= self._live_after:
+                return
             if self._gap:
                 return
             try:
@@ -72,6 +78,16 @@ class Subscription:
             except Empty:
                 break
         return out
+
+
+@dataclass(frozen=True)
+class ReplaySubscription:
+    """Durable replay window plus live stream created at one subscription boundary."""
+
+    stream_id: str
+    replay_after: int
+    replay_through: int
+    live: Subscription
 
 
 @dataclass(frozen=True)
@@ -117,8 +133,57 @@ class DurableSessionService:
                 self._subscribers.append(sub)
         return sub
 
+    def subscribe_from(self, *, after: int = 0, capacity: int = 512) -> ReplaySubscription:
+        """Create a gap-free durable-replay/live-delivery handoff.
+
+        Registration and boundary capture share the subscriber lock used by
+        publication. A commit concurrent with this operation is therefore either
+        included in the replay window or delivered live after the boundary. Events
+        at or below the boundary are filtered from the live queue to avoid duplicates.
+        """
+        if after < 0:
+            raise ValueError("replay cursor cannot be negative")
+        with self._lifecycle_lock:
+            if self._closed:
+                raise ServiceClosed("session service is closed")
+            with self._subscribers_lock:
+                replay_through = self.store.next_sequence(self.stream_id) - 1
+                if after > replay_through:
+                    raise ValueError("replay cursor is beyond the durable stream")
+                sub = Subscription(capacity, live_after=replay_through)
+                self._subscribers.append(sub)
+        return ReplaySubscription(
+            stream_id=self.stream_id,
+            replay_after=after,
+            replay_through=replay_through,
+            live=sub,
+        )
+
     def replay(self, *, after: int = 0, limit: int = 1000) -> list[dict[str, Any]]:
         return self.store.replay(self.stream_id, after=after, limit=limit)
+
+    def replay_subscription(
+        self,
+        handoff: ReplaySubscription,
+        *,
+        after: int | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """Read one durable page bounded to a subscription's captured replay window."""
+        if handoff.stream_id != self.stream_id:
+            raise ValueError("replay subscription belongs to a different durable stream")
+        cursor = handoff.replay_after if after is None else after
+        if cursor < handoff.replay_after:
+            raise ValueError("replay cursor cannot move behind the subscription start")
+        if cursor > handoff.replay_through:
+            raise ValueError("replay cursor is beyond the subscription boundary")
+        if cursor == handoff.replay_through:
+            return []
+        events = self.replay(after=cursor, limit=limit)
+        return [
+            event for event in events
+            if int(event["sequence"]) <= handoff.replay_through
+        ]
 
     def _enqueue(self, command: _Command) -> WriteReceipt:
         # This lock is the admission/shutdown linearization point. A command that
