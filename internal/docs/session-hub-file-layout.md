@@ -11,6 +11,7 @@ hashed source surface deliberately, not in untracked scripts to dodge provenance
 |---|---|---|
 | `internal/scripts/chat.py` (existing) | Wire existing context lifecycle; turns-only history | Outside current globs; do not touch measured prompt |
 | `internal/scripts/chat_context.py` (existing) | Remain schema-v1 direct-chat store/composer | Outside current globs; future contract changes explicit |
+| `internal/scripts/session-hub.py` (existing) | Thin public Session Hub composition root: own the canonical conversation, construct/recover the durable service, emit `session.opened`; no controller routing/admission policy | Outside current globs; product composition only |
 | `internal/local_agent/session/conversation_gateway.py` (existing) | Conversation turn routing and controller hand-off | Source hash |
 | `internal/local_agent/session/session_event_service.py` (existing) | Single durable admission/event writer and publication boundary | Source hash |
 | `internal/local_agent/session/intents.py` | Anchored route rules, direct Work path, corrections | Source hash |
@@ -38,6 +39,12 @@ hashed source surface deliberately, not in untracked scripts to dodge provenance
 | `internal/terminal_ui.py` (existing) | Consume same named palette for plain terminal mode | Presentation only |
 | `internal/local_agent/session/telemetry.py` (design-only source placeholder; disposition separately) | Collector permit and attributed host samples | Source hash |
 | `internal/docs/session-contract/v1/` (existing) | Normative runtime Session Hub v1 schema | Source hash |
+
+The root `local-code-agent.ps1 session` command is the user-facing route into
+`internal/scripts/session-hub.py`. That script may compose existing authorities and own
+lifecycle setup, but it is not a place to hide controller policy. Durable task admission,
+routing, result semantics, permissions or verifier changes belong in the hashed Session
+Hub source listed above.
 
 The runtime schema is already loaded and validated from the versioned contract under
 `internal/docs/session-contract/v1/`, and those JSON bytes are deliberately included in
@@ -72,6 +79,7 @@ storage and cancellation gates; no one should debug those through a new UI.
 ## Tests to add in implementation PRs
 
 - `internal/tests/unit/test_chat_persistence_wiring.py`
+- `internal/tests/unit/test_session_hub_product_path.py` (existing; public composition/recovery boundary)
 - `internal/tests/unit/test_session_event_contract.py`
 - `internal/tests/unit/test_session_intents.py`
 - `internal/tests/unit/test_session_verdict_rendering.py`
