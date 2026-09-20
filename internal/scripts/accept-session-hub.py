@@ -208,6 +208,7 @@ def durable_event_gates() -> None:
                 request_id="accept-request",
                 payload_sha256=hashlib.sha256(request_bytes).hexdigest(),
                 admission_payload=admission_payload,
+                request_bytes=request_bytes,
             )
             require(receipt.task_id is not None, "non-blocking admission returns a task id immediately")
             receipt.wait(5)
@@ -215,6 +216,9 @@ def durable_event_gates() -> None:
             replayed = service.replay()
             require(live == replayed, "committed live delivery and durable replay are identical")
             require([row["task_id"] for row in store.unterminated_tasks(stream_id)] == [receipt.task_id], "durable admission is visible before execution")
+            require(store.artifact_bytes(request_ref) == request_bytes, "retained admitted request bytes are hash-checked and readable")
+            turn_ref = admission_payload["origin"]["turn_ref"]
+            require(store.task_ids_for_turn(turn_ref) == [receipt.task_id], "task admission atomically records the exact originating TurnRef")
 
             recovered = service.recover_unknown_tasks()
             require(recovered == [receipt.task_id], "restart recovery finds admitted tasks without terminal state")
@@ -226,6 +230,7 @@ def durable_event_gates() -> None:
             require(not store.unterminated_tasks(stream_id), "recovered unknown task becomes durably terminal")
             record = store.task_record(receipt.task_id)
             require(record is not None and record["result_ref"] == completion["result_ref"], "terminal task row indexes the same durable result as the verdict and closure")
+            require(store.artifact_bytes(record["result_ref"]), "recovered unknown task retains an inspectable bounded result artifact")
         finally:
             service.close()
 
@@ -257,17 +262,21 @@ def durable_event_gates() -> None:
                 task="inspect", request_id="executor-request",
                 payload_sha256=hashlib.sha256(request).hexdigest(),
                 admission_payload=_admission_payload(request_ref),
+                request_bytes=request,
                 route_source="user_direct",
             )
             handle.wait(10)
             require(seen == [handle.task_id], "controller execution begins only after durable admission")
             events = service.replay()
             require([event["kind"] for event in events] == ["task.admitted", "task.state_changed", "task.verdict", "task.closed"], "controller result follows admitted-running-verdict-close lifecycle")
-            require(store.task_record(handle.task_id)["terminal"] is True, "verdict, closure and terminal result index commit before task completion returns")
+            record = store.task_record(handle.task_id)
+            require(record["terminal"] is True, "verdict, closure and terminal result index commit before task completion returns")
+            require(store.artifact_bytes(record["result_ref"]), "completed task retains its bounded result artifact")
             retry = executor.submit(
                 task="inspect", request_id="executor-request",
                 payload_sha256=hashlib.sha256(request).hexdigest(),
                 admission_payload=_admission_payload(request_ref),
+                request_bytes=request,
                 route_source="user_direct",
             )
             retry.wait(10)
