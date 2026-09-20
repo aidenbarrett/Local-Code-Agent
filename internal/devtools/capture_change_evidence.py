@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Capture immutable local change identity for later CI/readiness comparison."""
+"""Capture immutable local identities for a stacked change candidate.
+
+The destination, declared stack parent, and candidate are deliberately separate:
+using one ambiguous "base" identity can hide a stale destination under a valid stack.
+This local record is never CI or PR authorization.
+"""
 
 from __future__ import annotations
 
@@ -39,34 +44,46 @@ def tree_for(commit: str) -> str:
     return sha
 
 
-def build_record(base_ref: str, head_ref: str) -> dict[str, str]:
-    base_sha = resolve_commit(base_ref)
-    head_sha = resolve_commit(head_ref)
+def _identity(prefix: str, ref: str) -> dict[str, str]:
+    commit = resolve_commit(ref)
     return {
-        "schema": "lca.change-readiness-evidence/1",
-        "base_ref": base_ref,
-        "base_commit_sha": base_sha,
-        "base_tree_sha": tree_for(base_sha),
-        "head_ref": head_ref,
-        "head_commit_sha": head_sha,
-        "head_tree_sha": tree_for(head_sha),
+        f"{prefix}_ref": ref,
+        f"{prefix}_commit_sha": commit,
+        f"{prefix}_tree_sha": tree_for(commit),
+    }
+
+
+def build_record(
+    destination_ref: str, parent_ref: str, candidate_ref: str
+) -> dict[str, str]:
+    return {
+        "schema": "lca.change-readiness-evidence/2",
+        **_identity("destination", destination_ref),
+        **_identity("parent", parent_ref),
+        **_identity("candidate", candidate_ref),
     }
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Capture exact candidate/base identity.")
-    parser.add_argument("--base", required=True)
-    parser.add_argument("--head", default="HEAD")
+    parser = argparse.ArgumentParser(
+        description="Capture exact destination, parent, and candidate identities."
+    )
+    parser.add_argument("--destination", required=True)
+    parser.add_argument("--parent", required=True)
+    parser.add_argument("--head", default="HEAD", dest="candidate")
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
     try:
-        record = build_record(args.base, args.head)
+        record = build_record(args.destination, args.parent, args.candidate)
         payload = json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
         args.out.write_text(payload, encoding="utf-8")
     except (EvidenceError, OSError, subprocess.SubprocessError) as exc:
         print(f"REFUSED: could not capture readiness evidence: {exc}", file=sys.stderr)
         return 2
-    print(f"Captured {record['head_commit_sha']} / {record['head_tree_sha']}")
+    print(
+        f"Captured candidate {record['candidate_commit_sha']} / "
+        f"{record['candidate_tree_sha']}"
+    )
     return 0
 
 

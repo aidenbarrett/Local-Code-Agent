@@ -2,6 +2,8 @@ name: tests
 
 # Real pytest is authoritative on Linux and Windows. Cheap structural gates run
 # first so broken contracts do not consume the full matrix.
+# Per-job evidence is captured before commands run. It declares intended scope;
+# only the trusted GitHub job conclusion can establish that scope passed.
 on:
   push:
     branches: [main]
@@ -19,23 +21,25 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Capture exact checkout identity
-        env:
-          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          LCA_CHECKOUT_EVIDENCE: ci-checkout-evidence.json
-        run: python internal/devtools/capture_ci_checkout.py
-      - name: Upload checkout identity
-        uses: actions/upload-artifact@v4
-        with:
-          name: checkout-identity
-          path: ci-checkout-evidence.json
-          if-no-files-found: error
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Capture declared CI job scope and checkout identity
+        env:
+          LCA_ARTIFACT_NAME: ci-job-tests-gates-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_COMMAND_SCOPE: fast-gates
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+      - name: Upload declared CI job scope and checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-job-tests-gates-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          path: ci-job-evidence.json
+          if-no-files-found: error
       - name: Install
         run: python -m pip install -e ".[dev]"
       - name: Session Hub acceptance gates
@@ -67,6 +71,20 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Capture declared CI job scope and checkout identity
+        env:
+          LCA_ARTIFACT_NAME: ci-job-tests-pytest-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_COMMAND_SCOPE: authoritative-pytest
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+      - name: Upload declared CI job scope and checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-job-tests-pytest-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          path: ci-job-evidence.json
+          if-no-files-found: error
       - name: Toolchain identity
         run: |
           python --version
@@ -91,6 +109,20 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Capture declared CI job scope and checkout identity
+        env:
+          LCA_ARTIFACT_NAME: ci-job-tests-coverage-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_COMMAND_SCOPE: coverage-report
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+      - name: Upload declared CI job scope and checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-job-tests-coverage-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          path: ci-job-evidence.json
+          if-no-files-found: error
       - name: Install
         run: python -m pip install -e ".[coverage]"
       - name: Build the fixture repository
@@ -119,6 +151,20 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Capture declared CI job scope and checkout identity
+        env:
+          LCA_ARTIFACT_NAME: ci-job-tests-compatibility-runner-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_COMMAND_SCOPE: compatibility-runner
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+      - name: Upload declared CI job scope and checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-job-tests-compatibility-runner-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          path: ci-job-evidence.json
+          if-no-files-found: error
       - name: Install
         run: python -m pip install -e ".[dev]"
       - name: Build the fixture repository
@@ -142,6 +188,20 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Capture declared CI job scope and checkout identity
+        env:
+          LCA_ARTIFACT_NAME: ci-job-tests-integrity-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_COMMAND_SCOPE: fixture-instrument-integrity
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+      - name: Upload declared CI job scope and checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-job-tests-integrity-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          path: ci-job-evidence.json
+          if-no-files-found: error
       - name: Install
         run: python -m pip install -e ".[dev]"
       - name: Generated fixture matches the committed one
