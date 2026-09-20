@@ -19,6 +19,18 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+      - name: Capture exact checkout identity
+        env:
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-checkout-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+      - name: Upload checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkout-identity
+          path: ci-checkout-evidence.json
+          if-no-files-found: error
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
