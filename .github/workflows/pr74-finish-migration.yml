@@ -63,6 +63,13 @@ jobs:
                   original = text
                   for old, new in global_replacements.items():
                       text = text.replace(old, new)
+                  # One file was already on the canonical testing_tools name in
+                  # the staging commit. The prefix replacement above must stay
+                  # idempotent across mixed old/new callers.
+                  text = text.replace(
+                      "local_agent.tools.testing_tools_tools",
+                      "local_agent.tools.testing_tools",
+                  )
                   for old, new in package_replacements.items():
                       text = text.replace(old, new)
                   if root / "internal/local_agent/tools" in path.parents:
