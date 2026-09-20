@@ -189,8 +189,9 @@ class EndpointArbiter:
                 )
                 if pending_for_session >= self.chat_pending_limit_per_session:
                     raise EndpointQueueFull("conversation endpoint queue is full for this session")
+                position = len(self._chat)
                 self._chat.append(request)
-                return PendingPosition(QueueClass.CHAT, pending_for_session)
+                return PendingPosition(QueueClass.CHAT, position)
 
             if len(self._work) >= self.work_pending_limit:
                 raise EndpointQueueFull("worker endpoint queue is full")
@@ -323,13 +324,7 @@ class EndpointArbiter:
         with self._lock:
             for index, request in enumerate(self._chat):
                 if request.request_id == request_id:
-                    assert request.session_id is not None
-                    position = sum(
-                        1
-                        for prior in list(self._chat)[:index]
-                        if prior.session_id == request.session_id
-                    )
-                    return PendingPosition(QueueClass.CHAT, position)
+                    return PendingPosition(QueueClass.CHAT, index)
             for index, request in enumerate(self._work):
                 if request.request_id == request_id:
                     return PendingPosition(QueueClass.WORK, index)
