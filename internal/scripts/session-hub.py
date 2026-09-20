@@ -3,8 +3,7 @@
 
 This module owns product composition only. Conversation turns remain in the
 canonical conversation store. Durable Session Hub events remain in the SQLite
-session store. Task execution still uses the synchronous gateway/controller path
-until the durable admission hand-off lands in the next slice.
+session store. Task policy and admission identity remain in hashed product source.
 """
 from __future__ import annotations
 
@@ -31,8 +30,15 @@ from local_agent.session.conversation_store import (  # noqa: E402
     new_session,
 )
 from local_agent.session.event_buffer import EventBuffer  # noqa: E402
-from local_agent.session.session_event_service import DurableSessionService  # noqa: E402
+from local_agent.session.session_event_service import (  # noqa: E402
+    DurableSessionService,
+    DurableTaskExecutor,
+)
 from local_agent.session.session_store import SQLiteSessionStore  # noqa: E402
+from local_agent.session.task_admission import (  # noqa: E402
+    DurableTaskAdmissionRunner,
+    repository_id,
+)
 from local_agent.session.task_controller import TaskController  # noqa: E402
 from local_agent.session.cli import conversation_budgets, safe_terminal  # noqa: E402
 
@@ -47,19 +53,9 @@ def _runtime_root() -> Path:
 
 
 def _durable_ids(conversation_id: str) -> tuple[str, str]:
-    """Derive stable, distinct UUID identities from the canonical conversation id."""
     stream_id = uuid5(NAMESPACE_URL, f"urn:lca:session-hub:stream:{conversation_id}")
     session_id = uuid5(NAMESPACE_URL, f"urn:lca:session-hub:session:{conversation_id}")
     return str(stream_id), str(session_id)
-
-
-def _repository_id(repo) -> str:
-    # This is a local product identity, not a claim that two differently mounted
-    # checkouts are globally the same repository.
-    import hashlib
-
-    root_digest = hashlib.sha256(str(repo.root.resolve()).encode("utf-8")).hexdigest()[:16]
-    return f"{repo.name}:{root_digest}"
 
 
 def _controller_commit() -> str:
@@ -81,14 +77,18 @@ def _open_durable_service(runtime_root: Path, conversation_id: str):
 
 
 def _emit_session_opened(service: DurableSessionService, *, conversation_id: str, repo, recovered: bool) -> None:
-    capabilities = ["conversation", "repository_read", "durable_session_events"]
     receipt = service.append(
         "session.opened",
         {
             "conversation_id": conversation_id,
-            "repository_id": _repository_id(repo),
+            "repository_id": repository_id(repo),
             "controller_commit": _controller_commit(),
-            "capabilities": capabilities,
+            "capabilities": [
+                "conversation",
+                "repository_read",
+                "durable_session_events",
+                "durable_task_execution",
+            ],
             "recovered": recovered,
         },
     )
@@ -110,10 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     root = find_repo_root(Path(args.repo))
     repo = load_repo_config(root)
     if args.allow_execution:
-        repo = replace(
-            repo,
-            policy=replace(repo.policy, allow_build=True, allow_test=True),
-        )
+        repo = replace(repo, policy=replace(repo.policy, allow_build=True, allow_test=True))
 
     chat_config = MODEL_PRESETS[args.profile]
     if args.base_url:
@@ -129,30 +126,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.conversation:
             conversation_id = args.conversation
         else:
-            session = new_session(
-                args.profile,
-                chat_config.model,
-                chat_config.device,
-                budget_chars=disk_chars,
-            )
+            session = new_session(args.profile, chat_config.model, chat_config.device, budget_chars=disk_chars)
             create_session(runtime_root, session)
             conversation_id = session.conversation_id
 
         with conversation(runtime_root, conversation_id) as opened:
-            runtime_index = ensure_runtime(
-                opened.session,
-                args.profile,
-                chat_config.model,
-                chat_config.device,
-            )
+            runtime_index = ensure_runtime(opened.session, args.profile, chat_config.model, chat_config.device)
             service, recovered = _open_durable_service(runtime_root, conversation_id)
             try:
-                _emit_session_opened(
-                    service,
-                    conversation_id=conversation_id,
-                    repo=repo,
-                    recovered=bool(recovered),
-                )
+                _emit_session_opened(service, conversation_id=conversation_id, repo=repo, recovered=bool(recovered))
 
                 def show(event) -> None:
                     detail = event.payload.get("summary") or event.payload.get("message") or ""
@@ -164,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
                     return OpenAICompatibleClient(worker_config)
 
                 controller = TaskController(repo, worker_factory, events)
+                task_runner = DurableTaskAdmissionRunner(DurableTaskExecutor(service, controller))
                 gateway = ConversationGateway(
                     OpenAICompatibleClient(chat_config),
                     controller,
@@ -171,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
                     conversation=opened,
                     runtime_index=runtime_index,
                     request_bytes=request_chars,
+                    task_runner=task_runner,
                 )
 
                 if args.check:
@@ -185,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("Durable session events: enabled")
                 if recovered:
                     print(f"Recovered {len(recovered)} unfinished task(s) as unknown / NO_VERDICT.")
-                print("Task execution: synchronous prototype path (durable task admission is next)")
+                print("Task execution: durable admission enabled before controller effects")
                 print("Commands: /check, /quit")
                 print()
 
