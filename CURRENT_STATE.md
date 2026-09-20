@@ -15,6 +15,7 @@ foundation, including the durable event service described below.
 ## What `main` implements now
 
 - Direct chat persistence is wired. Existing conversations are opened under an exclusive lock before loading, preventing the stale-writer lost-update race.
+- The public `session` command now opens the canonical persisted conversation under the same ownership model and constructs the durable Session Hub event service for that conversation.
 - Raw persisted load/save primitives are private. Owned contexts save explicitly; abandoning an edit does not auto-save it.
 - Product-side task outcomes are a closed vocabulary with explicit `NO_VERDICT`.
 - A success-shaped product result cannot be constructed unless verification was established.
@@ -27,7 +28,7 @@ foundation, including the durable event service described below.
 
 Source mutation, staging and commit behaviour remain disabled on the conversation product path.
 
-## Durable event service: correctness-gated, and not yet reachable
+## Durable event service: correctness-gated and reachable from the public session path
 
 `local_agent/session/` implements the executable `lca.session.events/1` path:
 
@@ -53,15 +54,20 @@ The current durable correctness gate is therefore closed. The adversarial tests 
 rollback of half-terminal writes, cross-stream recovery, shutdown/enqueue races,
 stale-state/stale-epoch rejection and both sides of the replay/live handoff race.
 
-Two limits that a feature list hides, both currently true of `main`:
+The public `local-code-agent.ps1 session` path now constructs this durable service beside
+the owned raw conversation. A conversation deterministically maps to distinct stable
+UUID stream/session identities, uses the shared Session Hub SQLite store, reconciles that
+stream's unfinished durable tasks to unknown / `NO_VERDICT` on restart, and commits a
+validated `session.opened` event before entering the interactive loop.
 
-- **No user-facing entry point constructs it.** The durable service is built by
-  `internal/scripts/accept-session-hub.py` and by tests. Ordinary product use does not
-  yet write task and event lifecycle records through `DurableSessionService`. Raw
-  conversation persistence is a separate authority and does work: owned conversations
-  load under an exclusive lock and save explicitly through the conversation store.
-  Nothing that used to be kept is being lost; the durable event layer is simply not
-  load-bearing yet.
+Two limits remain important:
+
+- **Task execution is not yet behind durable admission on the public session path.**
+  The gateway still calls the synchronous controller directly. Ordinary Session Hub
+  tasks therefore do not yet produce durable `task.admitted`, state, verdict and closure
+  records. The next integration slice moves that hand-off through the existing
+  `DurableTaskExecutor`; until then, durable service reachability must not be described as
+  durable task execution.
 - **Most declared event kinds are not yet emitted by the live product path.** Producer
   code exists for the task lifecycle kinds. For the rest, read the contract as a
   specification of where the hub is going rather than as a description of what a
@@ -70,13 +76,13 @@ Two limits that a feature list hides, both currently true of `main`:
   number that does not say which one it answers is the sort of claim these documents
   exist to stop.
 
-The durable layer now has the storage/writer/subscriber correctness fences required
-before product wiring depends on it. Repository naming/ownership cleanup can resume
-without pretending that the user-facing Session Hub already exists.
+The composition root deliberately contains no new controller policy. Deterministic task
+policy and future admission/routing changes remain in the hashed product source rather
+than being hidden in a presentation script.
 
 ## Known product gaps
 
-- The canonical raw-turn conversation store is wired, but the durable task/event service is not yet connected to the conversation gateway. Task artifacts remain separate from model history, and follow-up task observation is still process-local rather than reconstructed from durable task state.
+- The canonical raw-turn conversation store and durable service now share the public Session Hub composition path, but gateway task execution is not yet handed to `DurableTaskExecutor`. Task artifacts remain separate from model history, and follow-up task observation is still process-local rather than reconstructed from durable task state.
 - Deterministic-first Work/Chat/rule routing is not complete.
 - Full process-tree containment and truthful cancellation are not complete. The generic command runner now owns the direct child, bounds timeout return and snapshots immutable public evidence, but POSIX process groups and Windows descendant enumeration are best-effort cleanup rather than proof of whole-tree containment. Session Hub cancel requests are not yet wired through to execution ownership.
 - Endpoint lease/queue arbitration for shared OVMS use is not complete.
@@ -99,14 +105,16 @@ Generation 2 currently has no collected model rows. Its success vocabulary and o
 
 ## Next integration order
 
-The immediate repository work resumes the user-first naming/ownership cleanup now that
-the durable correctness gate is closed. When product integration resumes, the order is:
+The durable correctness foundation and first public composition path are now in place. The
+next product integration order is:
 
-1. Connect a user-facing Session Hub path to the durable task/event service without
-   merging task artifacts into model chat history.
-2. Add deterministic Work/Chat/rule routing and fixed watch execution on top of recorded route provenance.
-3. Add task/run process ownership, endpoint arbitration and truthful cancellation semantics where not already completed by the foundation.
-4. Build the fixture-driven Textual shell against the durable event interface.
-5. Wire the live controller/endpoint path and run physical-laptop acceptance.
+1. Move the gateway's repository/self-check hand-off through durable task admission and
+   execution, preserving the raw conversation as a separate authority and refusing to
+   replay an already-admitted effect.
+2. Persist the turn-to-task association and reconstruct bounded follow-up observations
+   from durable task state rather than the process-local `last_result` pointer.
+3. Add deterministic Work/Chat/rule routing and fixed watch execution on top of recorded route provenance.
+4. Add task/run process ownership, endpoint arbitration and truthful cancellation semantics where not already completed by the foundation.
+5. Build the fixture-driven Textual shell against the durable event interface, then run live controller/endpoint physical-laptop acceptance.
 
 Historical experiments and their artifacts remain frozen. New instrumentation or methodology belongs to a new experimental generation, never a silent reinterpretation of old evidence.
