@@ -1,15 +1,16 @@
 """Deterministic execution core for fixed watch jobs.
 
 Scheduling is intentionally outside this module. One call performs one fixed procedure:
-observe source identity, execute a caller-supplied deterministic procedure, persist the
-typed attempt, then compare it with the previous durable attempt. No model participates
-and no exception is converted into a successful/incomplete observation implicitly.
+allocate/accept the immutable run identity, observe source identity, execute a caller-
+supplied deterministic procedure, persist the typed attempt, then compare it with the
+previous durable attempt. No model participates and no exception is converted into a
+successful/incomplete observation implicitly.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from .delta import WatchAttempt, WatchDelta, compare_attempts
 from .jobs import FixedWatchJob
@@ -23,6 +24,14 @@ def _require_sha256(name: str, value: str) -> None:
         or any(ch not in "0123456789abcdef" for ch in value)
     ):
         raise ValueError(f"{name} must be lowercase SHA-256")
+
+
+def _require_uuid(name: str, value: str) -> str:
+    try:
+        parsed = UUID(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a UUID") from exc
+    return str(parsed)
 
 
 @dataclass(frozen=True)
@@ -91,13 +100,18 @@ class FixedWatchRunner:
         self.observe_source = observe_source
         self.execute = execute
 
-    def run(self, job: FixedWatchJob) -> FixedWatchRun:
+    def run(self, job: FixedWatchJob, *, run_id: str | None = None) -> FixedWatchRun:
         """Run once; expected failure must be returned as ``complete=False``.
 
+        The run UUID is allocated and validated before source observation or execution.
+        A lifecycle caller may supply it so a watch-origin task can be durably admitted
+        with the same immutable run identity before any effects begin.
+
         If source observation or the executor itself raises, no attempt is invented or
-        persisted. The caller owns that infrastructure fault and may emit a typed watch
-        skip/fault event at the lifecycle layer.
+        persisted. The preallocated UUID may still exist in higher-level lifecycle
+        evidence, but this run store records no successful/incomplete observation.
         """
+        resolved_run_id = _require_uuid("run_id", run_id or str(uuid4()))
         source = self.observe_source(job)
         if not isinstance(source, SourceObservation):
             raise TypeError("watch source observer must return SourceObservation")
@@ -106,7 +120,7 @@ class FixedWatchRunner:
             raise TypeError("watch executor must return WatchExecutionResult")
 
         attempt = WatchAttempt(
-            run_id=str(uuid4()),
+            run_id=resolved_run_id,
             job_id=job.job_id,
             job_revision=job.revision_sha256,
             execution_contract_sha256=self.execution_contract_sha256,
@@ -118,7 +132,7 @@ class FixedWatchRunner:
         )
         previous = self.store.latest_attempt(job.job_id)
         sequence, created = self.store.record_attempt(attempt)
-        if not created:  # uuid4 collision or broken store semantics; never continue quietly.
+        if not created:  # caller reused a run id or the store is broken; never continue quietly.
             raise RuntimeError("new watch run unexpectedly reused an existing run identity")
         delta = None if previous is None else compare_attempts(previous, attempt)
         return FixedWatchRun(
