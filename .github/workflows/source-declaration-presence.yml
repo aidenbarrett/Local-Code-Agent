@@ -7,11 +7,15 @@ jobs:
   contract-declaration:
     name: frozen contract axes match declaration
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install runtime dependencies
+        run: python -m pip install -e .
       - name: Verify exact source provenance and frozen contract axes
         run: python internal/devtools/finalize_change.py
