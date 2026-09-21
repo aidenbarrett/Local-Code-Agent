@@ -796,9 +796,9 @@ def test_the_finishing_protocol_is_in_the_shared_prompt():
 
 
 def test_the_instrument_declaration_is_outside_the_hashed_surface(tmp_path):
-    """INSTRUMENT.json declares the hashes CI checks, so it must not be hashed
-    itself. If it were, every update to it would invalidate the value it just
-    declared and the check could never be satisfied.
+    """INSTRUMENT.json declares the frozen contract hashes CI checks, so it must
+    not be hashed itself. Exact source provenance is derived from the tree rather
+    than declared in this file.
 
     Same for `.github/`. CI configuration decides what runs in CI, not what the
     agent does, and folding it in would make the instrument hash churn on
@@ -830,14 +830,12 @@ def test_the_instrument_declaration_is_outside_the_hashed_surface(tmp_path):
     assert provenance.source_sha256() == before
 
 
-def test_the_declared_identity_matches_this_tree():
-    """The same comparison CI makes, run locally, so drift is caught before a
-    push rather than by a red build afterwards.
+def test_the_declared_contract_axes_match_this_tree_and_source_is_derived():
+    """The declaration freezes only model-facing and outcome-facing contracts.
 
-    A failure here is not a bug to work around. Either the change was meant, in
-    which case update INSTRUMENT.json in the same commit and say what generation
-    it opens, or it was not, in which case something altered measured behaviour
-    by accident.
+    Source provenance remains exact, but is computed from the checkout instead of
+    being copied into shared JSON. That is what allows ordinary source PRs to move
+    without manufacturing a conflict on one bookkeeping line.
     """
     import json
     from pathlib import Path
@@ -847,10 +845,14 @@ def test_the_declared_identity_matches_this_tree():
     repo_root = Path(provenance.__file__).resolve().parents[2]
     declared = json.loads((repo_root / "internal" / "INSTRUMENT.json").read_text())
 
-    assert declared["source_sha256"] == provenance.source_sha256(), \
-        "source_sha256 has drifted from INSTRUMENT.json"
+    assert "source_sha256" not in declared
+    source = provenance.source_sha256()
+    assert len(source) == 64
+    assert all(ch in "0123456789abcdef" for ch in source)
     assert declared["base_prompt_sha256"] == provenance.base_prompt_sha256(), \
         "base_prompt_sha256 has drifted from INSTRUMENT.json, which ends a generation"
+    assert declared["outcome_contract_sha256"] == provenance.outcome_contract_sha256(), \
+        "outcome_contract_sha256 has drifted from INSTRUMENT.json, which changes evaluation semantics"
 
 
 def test_the_hashed_set_is_reported_as_portable_relative_paths():
@@ -911,7 +913,7 @@ def test_no_hashed_file_has_windows_line_endings():
 
     assert not offenders, (
         "CRLF in the hashed source surface, so this checkout cannot reproduce "
-        "the declared source_sha256: " + ", ".join(sorted(offenders))
+        "its derived source_sha256: " + ", ".join(sorted(offenders))
     )
 
 
@@ -1023,7 +1025,7 @@ def test_the_hashed_order_does_not_depend_on_the_host_path_flavour():
     but neither touches iteration order. All three were confirmed together by
     reproducing the observed CI value exactly, from Linux, on the tree at
     5d729478 (so these four are historical: this commit changes provenance.py,
-    which is itself hashed, and INSTRUMENT.json carries the current value):
+    which is itself hashed, and INSTRUMENT.json carried the then-current value):
 
         canonical order, LF       e16b2f01c4fd4ec4623b4588cffa064fe270ca5ee52b1e290762f8ae91e2566b
         canonical order, CRLF     6ba842bd27204895d9511a04106a81079c82af846429e638d69995f4d64e657c
