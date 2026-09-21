@@ -188,4 +188,12 @@ Historical experiments are frozen. Historical tags remain the authoritative way 
 
 ## Licence
 
-Not yet licensed. No rights are granted in the meantime.
+Copyright (c) 2026 Aiden Barrett. All rights reserved.
+
+Local Code Agent is proprietary software. No permission is granted to use, copy,
+modify, distribute, sublicense, sell, host, deploy or create derivative works except
+under prior written permission or a separate written agreement from the copyright
+holder. See [`LICENSE`](LICENSE) for the full terms.
+
+External contributions are not accepted unless explicitly invited and ownership and
+licensing terms are agreed in writing first. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
