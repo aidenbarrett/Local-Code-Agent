@@ -63,6 +63,12 @@ def _admit(service: DurableSessionService, *, execution_epoch: int = 0) -> str:
     return receipt.task_id
 
 
+class _ControllerContract:
+    repo = object()
+    allow_execution = False
+    context_budget_tokens = 4096
+
+
 def test_bridge_recovers_exact_admitted_epoch_and_deadline_before_controller_call(tmp_path):
     service = DurableSessionService(
         SQLiteSessionStore(tmp_path / "session.db"),
@@ -71,7 +77,7 @@ def test_bridge_recovers_exact_admitted_epoch_and_deadline_before_controller_cal
     )
     captured = {}
 
-    class Controller:
+    class Controller(_ControllerContract):
         def run(self, task, **kwargs):
             captured.update(kwargs)
             activity = kwargs["durable_activity"]
@@ -85,7 +91,11 @@ def test_bridge_recovers_exact_admitted_epoch_and_deadline_before_controller_cal
 
     try:
         task_id = _admit(service, execution_epoch=7)
-        bridge = AdmittedDurableTaskController(service, Controller())
+        base = Controller()
+        bridge = AdmittedDurableTaskController(service, base)
+        assert bridge.repo is base.repo
+        assert bridge.allow_execution is False
+        assert bridge.context_budget_tokens == 4096
         result = bridge.run(
             "inspect",
             self_check=False,
@@ -107,7 +117,7 @@ def test_bridge_requires_admitted_task_identity_before_controller_effect(tmp_pat
     )
     calls = []
 
-    class Controller:
+    class Controller(_ControllerContract):
         def run(self, *args, **kwargs):
             calls.append((args, kwargs))
             raise AssertionError("controller must not run")
