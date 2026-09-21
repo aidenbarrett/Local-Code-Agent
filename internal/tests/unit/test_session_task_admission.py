@@ -271,7 +271,8 @@ def test_execution_contract_tracks_effective_controller_configuration(loaded):
 def test_public_session_composes_durable_task_admission_runner():
     repo_root = Path(__file__).resolve().parents[3]
     source = (repo_root / "internal" / "scripts" / "session-hub.py").read_text(encoding="utf-8")
-    assert "DurableTaskExecutor(service, controller)" in source
+    assert "AdmittedDurableTaskController(service, controller)" in source
+    assert "DurableTaskExecutor(service, admitted_controller)" in source
     assert "DurableTaskAdmissionRunner(" in source
     assert "task_runner=task_runner" in source
     assert "DurableTaskHistory(service.store, stream_id=service.stream_id)" in source

@@ -29,6 +29,7 @@ from local_agent.session.conversation_store import (  # noqa: E402
     ensure_runtime,
     new_session,
 )
+from local_agent.session.durable_task_controller import AdmittedDurableTaskController  # noqa: E402
 from local_agent.session.event_buffer import EventBuffer  # noqa: E402
 from local_agent.session.session_event_service import (  # noqa: E402
     DurableSessionService,
@@ -90,6 +91,7 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
                 "durable_session_events",
                 "durable_task_execution",
                 "durable_task_history",
+                "durable_tool_activity",
                 "deterministic_routing",
             ],
             "recovered": recovered,
@@ -158,7 +160,10 @@ def main(argv: list[str] | None = None) -> int:
                     allow_execution=args.allow_execution,
                     context_budget_tokens=worker_config.context_budget_tokens,
                 )
-                task_runner = DurableTaskAdmissionRunner(DurableTaskExecutor(service, controller))
+                admitted_controller = AdmittedDurableTaskController(service, controller)
+                task_runner = DurableTaskAdmissionRunner(
+                    DurableTaskExecutor(service, admitted_controller)
+                )
                 gateway = ConversationGateway(
                     OpenAICompatibleClient(chat_config),
                     controller,
@@ -183,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                 if recovered:
                     print(f"Recovered {len(recovered)} unfinished task(s) as unknown / NO_VERDICT.")
                 print("Task execution: durable admission enabled before controller effects")
+                print("Tool activity: durable start/finish boundary enabled")
                 print("Routing: deterministic rules before model fallback")
                 print("Commands: /check, /quit")
                 print()

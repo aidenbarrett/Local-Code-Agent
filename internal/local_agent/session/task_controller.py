@@ -9,6 +9,7 @@ from ..agent.policy import deny_all_approvals
 from ..config import RepoConfig
 from ..tools import build_registry
 from .contracts import RouteSource, TaskOutcome, TaskResult
+from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
 
 
@@ -33,6 +34,7 @@ class TaskController:
         self_check: bool = False,
         route_source: RouteSource | str = RouteSource.MODEL_PROPOSAL,
         task_id: str | None = None,
+        durable_activity=None,
     ) -> TaskResult:
         source = route_source if isinstance(route_source, RouteSource) else RouteSource(route_source)
         if task_id is None:
@@ -48,6 +50,11 @@ class TaskController:
                 result = run_self_check(self.repo, task_id, self.events)
             else:
                 registry, _ctx, _store = build_registry(self.repo)
+                if durable_activity is not None:
+                    # The wrapper commits tool.started before entering an effectful
+                    # handler and typed tool.finished afterwards. Policy still lives
+                    # in the orchestrator; durable activity is evidence, not authority.
+                    registry = wrap_registry_with_durable_activity(registry, durable_activity)
                 skills = SkillLibrary.discover_many(default_search_path(self.repo.root, self.repo.skills_dir))
 
                 def observe(kind, payload):
