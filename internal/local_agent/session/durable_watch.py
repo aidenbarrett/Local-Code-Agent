@@ -57,7 +57,7 @@ class DurableWatchEvents:
         reason_code: str = "requested",
         due_utc: str | None = None,
         next_due_utc: str | None = None,
-    ) -> int:
+    ) -> None:
         if not isinstance(record, StoredWatchJob):
             raise TypeError("durable watch state requires StoredWatchJob")
         resolved_state = state or ("enabled" if record.enabled else "disabled")
@@ -75,8 +75,7 @@ class DurableWatchEvents:
                 "next_due_utc": next_due_utc,
             },
         )
-        event = receipt.wait(30)
-        return int(event["sequence"])
+        receipt.wait(30)
 
     def record_run(
         self,
@@ -88,7 +87,7 @@ class DurableWatchEvents:
         finished_utc: str,
         due_utc: str | None = None,
         next_due_utc: str | None = None,
-    ) -> int:
+    ) -> None:
         if not isinstance(record, StoredWatchJob):
             raise TypeError("durable watch run requires StoredWatchJob")
         if not isinstance(completed, WatchServiceRun):
@@ -160,8 +159,7 @@ class DurableWatchEvents:
             },
             task_id=task_result.task_id,
         )
-        event = receipt.wait(30)
-        return int(event["sequence"])
+        receipt.wait(30)
 
 
 __all__ = ["DurableWatchError", "DurableWatchEvents", "watch_schedule_revision"]
