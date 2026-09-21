@@ -36,8 +36,11 @@ def process_birth_token(pid: int) -> str | None:
 
 def posix_group_alive(pgid: int) -> bool:
     """Whether the kernel currently exposes any process in the group."""
+    killpg = getattr(os, "killpg", None)
+    if killpg is None:
+        raise OSError("POSIX process-group signalling is unavailable on this platform")
     try:
-        os.killpg(pgid, 0)
+        killpg(pgid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
@@ -63,17 +66,23 @@ class PosixProcessGroupStopper:
         self,
         *,
         birth_token: BirthTokenFn = process_birth_token,
-        group_alive: GroupAliveFn = posix_group_alive,
-        signal_group: SignalGroupFn = os.killpg,
+        group_alive: GroupAliveFn | None = None,
+        signal_group: SignalGroupFn | None = None,
         clock: ClockFn = monotonic,
         sleeper: SleepFn = sleep,
         poll_interval_s: float = 0.05,
     ) -> None:
         if poll_interval_s <= 0:
             raise ValueError("process-stop poll interval must be positive")
+        native_killpg = getattr(os, "killpg", None)
+        uses_native_group_alive = group_alive is None
+        uses_native_signal_group = signal_group is None
+        self._platform_supported = native_killpg is not None or not (
+            uses_native_group_alive or uses_native_signal_group
+        )
         self.birth_token = birth_token
-        self.group_alive = group_alive
-        self.signal_group = signal_group
+        self.group_alive = group_alive or posix_group_alive
+        self.signal_group = signal_group or native_killpg
         self.clock = clock
         self.sleeper = sleeper
         self.poll_interval_s = float(poll_interval_s)
@@ -122,6 +131,13 @@ class PosixProcessGroupStopper:
                 attempted=False,
                 known_stopped=False,
                 reason="unsupported_containment",
+            )
+        if not self._platform_supported:
+            return self._result(
+                started,
+                attempted=False,
+                known_stopped=False,
+                reason="unsupported_platform",
             )
         pgid = int(handle.containment_id)
 
