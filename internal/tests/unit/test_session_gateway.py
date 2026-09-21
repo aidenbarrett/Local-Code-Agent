@@ -101,7 +101,7 @@ def test_followup_preserves_controller_result_without_model_recertification():
     assert any("Compiler rejected" in m["content"] for m in model.calls[1][0])
 
 
-def test_gateway_records_route_source_before_rules_exist():
+def test_gateway_records_model_fallback_and_deterministic_rule_route_sources():
     calls = []
     def run(task, **kwargs):
         calls.append(kwargs)
@@ -116,7 +116,7 @@ def test_gateway_records_route_source_before_rules_exist():
     calls.clear()
     direct = ConversationGateway(Chat(), SimpleNamespace(run=run), EventBuffer("s"))
     direct.turn("/check")
-    assert calls == [{"self_check": True, "route_source": RouteSource.USER_DIRECT}]
+    assert calls == [{"self_check": True, "route_source": RouteSource.RULE}]
 
 
 def test_concurrent_turn_rejected_and_lock_released_after_error():
@@ -223,7 +223,7 @@ def test_check_bypasses_model_and_still_uses_controller_policy(loaded):
     assert "blocked" in gateway.turn("/check")
     assert not model.calls
     started = next(e for e in events.after(0) if e.kind == "task.started")
-    assert started.payload["route_source"] == "user_direct"
+    assert started.payload["route_source"] == "rule"
 
 
 def test_worker_exception_is_unknown_and_presenter_does_not_get_secret(loaded):
