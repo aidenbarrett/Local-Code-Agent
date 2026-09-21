@@ -12,8 +12,12 @@ import json
 import os
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
+
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
 
 
 class Risk(str, Enum):
@@ -70,6 +74,7 @@ class Reason(str, Enum):
     SPAWN_FAILURE = "spawn_failure"
     ORCHESTRATOR_TIMEOUT = "orchestrator_timeout"  # OUR wall clock killed it
     BAD_ARGUMENTS = "bad_arguments"
+    INVALID_MODEL_RESPONSE = "invalid_model_response"
     SANDBOX_VIOLATION = "sandbox_violation"
     UNKNOWN_TOOL = "unknown_tool"        # no such tool anywhere: the model invented it
     TOOL_NOT_ALLOWED = "tool_not_allowed"  # a real tool, not offered by the active skill
@@ -95,6 +100,7 @@ class Reason(str, Enum):
 
 _LOCUS: dict[Reason, Locus] = {
     Reason.BAD_ARGUMENTS: Locus.MODEL,
+    Reason.INVALID_MODEL_RESPONSE: Locus.MODEL,
     Reason.UNKNOWN_TOOL: Locus.MODEL,
     Reason.TOOL_NOT_ALLOWED: Locus.MODEL,
     Reason.SERVER_UNAVAILABLE: Locus.SERVER,
@@ -287,6 +293,31 @@ class Tool:
     handler: Callable[..., ToolResult]
     risk: Risk
 
+    def __post_init__(self) -> None:
+        """Put schema validation in front of the effectful handler itself.
+
+        Schema exposure to the model is not enforcement.  Validating at this
+        final registry boundary guarantees that wrong-but-valid JSON cannot reach
+        a handler body, even when Python would otherwise accept the value.
+        """
+        validator = Draft202012Validator(self.parameters)
+        original = self.handler
+
+        @wraps(original)
+        def validated_handler(**kwargs: Any) -> ToolResult:
+            try:
+                validator.validate(kwargs)
+            except ValidationError as exc:
+                path = ".".join(str(part) for part in exc.absolute_path)
+                where = f" at {path}" if path else ""
+                raise ToolError(
+                    f"arguments for {self.name!r} violate its schema{where}: {exc.message}",
+                    Reason.BAD_ARGUMENTS,
+                ) from exc
+            return original(**kwargs)
+
+        object.__setattr__(self, "handler", validated_handler)
+
     def as_openai_schema(self) -> dict[str, Any]:
         return {
             "type": "function",
@@ -324,6 +355,12 @@ class ToolRegistry:
         return name in self._tools
 
     def get(self, name: str) -> Tool:
+        validation_error = getattr(name, "validation_error", None)
+        if validation_error:
+            raise ToolError(
+                f"invalid model response for tool {str(name)!r}: {validation_error}",
+                Reason.INVALID_MODEL_RESPONSE,
+            )
         if name not in self._tools:
             raise ToolError(
                 f"unknown tool {name!r}; available: {sorted(self._tools)}",

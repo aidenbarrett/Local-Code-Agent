@@ -24,6 +24,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
@@ -135,6 +138,34 @@ def _cache_verdict(cold: Any, hot: Any, hard: bool,
     if speedup is None:
         return SKIP, "server reports neither cached_tokens nor TTFT", data
     return (PASS if speedup > 1.5 else fail), f"{timing}; cached_tokens not reported, timing only", data
+
+
+def _tool_schema_map(tool_schemas: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for schema in tool_schemas:
+        function = schema.get("function") if isinstance(schema, dict) else None
+        if not isinstance(function, dict):
+            continue
+        name = function.get("name")
+        parameters = function.get("parameters")
+        if isinstance(name, str) and name and isinstance(parameters, dict):
+            out[name] = parameters
+    return out
+
+
+def _validate_qualification_call(call: Any, schemas: dict[str, dict[str, Any]]) -> str | None:
+    validation_error = getattr(call.name, "validation_error", None)
+    if validation_error:
+        return f"response validation failed: {validation_error}"
+    name = str(call.name)
+    parameters = schemas.get(name)
+    if parameters is None:
+        return f"model called unoffered tool {name!r}"
+    try:
+        Draft202012Validator(parameters).validate(call.arguments)
+    except ValidationError as exc:
+        return f"arguments for {name!r} violate the offered schema: {exc.message}"
+    return None
 
 
 def run_qualification(
@@ -352,43 +383,80 @@ def run_qualification(
             "server does not report it; cache measured by cold/warm TTFT instead",
         )
 
-    # 4. one tool call round trip ------------------------------------------
+    # 4. one validated inert tool round trip -------------------------------
     if tool_schemas:
-        tool_reply = client.chat(
-            [
-                {"role": "system", "content": "Use a tool. Do not answer in prose."},
-                {"role": "user", "content": "What is the current git status of this repository?"},
-            ],
-            tools=tool_schemas, max_tokens=256,
-        )
-        if tool_reply.tool_calls:
-            call = tool_reply.tool_calls[0]
-            valid = isinstance(call.arguments, dict)
-            q.add(
-                "tool call round trip (streaming)",
-                PASS if valid else FAIL,
-                f"called {call.name} with {call.arguments}",
-                tool=call.name,
+        tool_messages = [
+            {"role": "system", "content": "Use a tool. Do not answer in prose."},
+            {"role": "user", "content": "What is the current git status of this repository?"},
+        ]
+        tool_reply = client.chat(tool_messages, tools=tool_schemas, max_tokens=256)
+        schemas = _tool_schema_map(tool_schemas)
+        round_trip_error: str | None = None
+        call = None
+        follow_up = None
+
+        if len(tool_reply.tool_calls) != 1:
+            round_trip_error = (
+                f"expected exactly one qualified tool call, got {len(tool_reply.tool_calls)}"
             )
         else:
-            # An agent-capable profile that cannot call a tool is a failure, not
-            # an unsupported optional feature. Keep the raw material so it can be
-            # reproduced with curl, outside this code, before anything is blamed.
+            call = tool_reply.tool_calls[0]
+            round_trip_error = _validate_qualification_call(call, schemas)
+
+        if round_trip_error is None and call is not None:
+            fixture_result = {
+                "ok": True,
+                "summary": "qualification fixture tool executed",
+                "fixture": True,
+            }
+            follow_up_messages = [
+                *tool_messages,
+                tool_reply.as_assistant_message(),
+                {
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "name": str(call.name),
+                    "content": json.dumps(fixture_result, sort_keys=True),
+                },
+            ]
+            follow_up = client.chat(follow_up_messages, tools=None, max_tokens=64)
+            if follow_up.validation_errors:
+                round_trip_error = (
+                    "follow-up response failed validation: "
+                    + "; ".join(follow_up.validation_errors)
+                )
+            elif follow_up.tool_calls:
+                round_trip_error = "follow-up unexpectedly requested another tool"
+            elif not (follow_up.content or "").strip():
+                round_trip_error = "follow-up returned no terminal content"
+
+        if round_trip_error is None and call is not None and follow_up is not None:
+            q.add(
+                "tool call round trip (streaming)",
+                PASS,
+                f"validated {str(call.name)} with {call.arguments}; tool result association accepted",
+                tool=str(call.name),
+                call_id=call.id,
+                follow_up=follow_up.content[:120],
+            )
+        else:
             q.add(
                 "tool call round trip (streaming)", FAIL,
-                "model answered in prose with tools available; check the tool "
-                "parser and the chat template",
-                raw_request={
-                    "messages": [
-                        {"role": "system", "content": "Use a tool. Do not answer in prose."},
-                        {"role": "user", "content":
-                         "What is the current git status of this repository?"},
-                    ],
-                    "tools": tool_schemas,
-                },
+                round_trip_error or "tool round trip failed without a typed reason",
+                raw_request={"messages": tool_messages, "tools": tool_schemas},
                 raw_response={
                     "content": tool_reply.content,
                     "finish_reason": tool_reply.finish_reason,
+                    "tool_calls": [
+                        {
+                            "id": c.id,
+                            "name": str(c.name),
+                            "arguments": c.arguments,
+                            "raw_arguments": c.raw_arguments,
+                            "validation_error": getattr(c.name, "validation_error", None),
+                        }
+                        for c in tool_reply.tool_calls
+                    ],
                 },
             )
 
@@ -403,15 +471,18 @@ def run_qualification(
             tools=[s for s in tool_schemas if s["function"]["name"] == "submit_answer"],
             max_tokens=256,
         )
-        submitted = [c for c in finish.tool_calls if c.name == "submit_answer"]
+        submitted = [
+            c for c in finish.tool_calls
+            if str(c.name) == "submit_answer" and not getattr(c.name, "validation_error", None)
+        ]
         if submitted and submitted[0].arguments.get("claim"):
             q.add("structured finish", PASS,
                   f"claim={submitted[0].arguments.get('claim')}")
         else:
             q.add(
                 "structured finish", WARN,
-                "did not call submit_answer; the run will fall back to prose and "
-                "claims will not be checkable",
+                "did not produce a valid submit_answer call; the run will fall back "
+                "to prose and claims will not be checkable",
             )
 
     # 6. prefix cache, without and with tools ------------------------------

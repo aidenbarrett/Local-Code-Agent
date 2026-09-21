@@ -311,7 +311,7 @@ class OpenAICompatibleClient:
         return ChatResponse(
             content=answer,
             tool_calls=[ToolCall.from_openai(c) for c in (message.tool_calls or [])],
-            finish_reason=choice.finish_reason or "stop",
+            finish_reason=choice.finish_reason,
             stats=CallStats(
                 total_s=elapsed,
                 ttft_s=None,
@@ -374,7 +374,7 @@ class OpenAICompatibleClient:
         reasoning_parts: list[str] = []
         # Tool calls arrive as deltas keyed by index, with arguments in fragments.
         partial: dict[int, dict[str, str]] = {}
-        finish_reason = "stop"
+        finish_reason: str | None = None
         prompt = completion_tokens = 0
         chunk_count = 0
 
