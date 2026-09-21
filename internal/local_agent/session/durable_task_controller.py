@@ -12,13 +12,33 @@ from .durable_activity import DurableToolActivity
 
 
 class AdmittedDurableTaskController:
-    """Controller adapter used only after durable task admission."""
+    """Controller adapter used only after durable task admission.
+
+    The admission runner hashes the controller's effective repo/policy/budget before it
+    admits work. Those trusted attributes are delegated unchanged so inserting this
+    activity adapter cannot alter the execution-contract identity.
+    """
 
     def __init__(self, service, controller) -> None:
         if not callable(getattr(controller, "run", None)):
             raise TypeError("admitted durable controller requires a run-capable controller")
+        for name in ("repo", "allow_execution", "context_budget_tokens"):
+            if not hasattr(controller, name):
+                raise TypeError(f"admitted durable controller requires controller.{name}")
         self.service = service
         self.controller = controller
+
+    @property
+    def repo(self):
+        return self.controller.repo
+
+    @property
+    def allow_execution(self):
+        return self.controller.allow_execution
+
+    @property
+    def context_budget_tokens(self):
+        return self.controller.context_budget_tokens
 
     def run(
         self,
