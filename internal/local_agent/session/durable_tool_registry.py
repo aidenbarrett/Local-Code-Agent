@@ -76,7 +76,9 @@ def wrap_registry_with_durable_activity(
                 _finish_exception(activity, opened, _tool.name, exc, started)
                 raise
             if not isinstance(result, ToolResult):
-                exc = TypeError(f"tool {_tool.name!r} returned {type(result).__name__}, not ToolResult")
+                exc = RuntimeError(
+                    f"tool {_tool.name!r} returned {type(result).__name__}, not ToolResult"
+                )
                 _finish_exception(activity, opened, _tool.name, exc, started)
                 raise exc
             activity.finish_tool(
