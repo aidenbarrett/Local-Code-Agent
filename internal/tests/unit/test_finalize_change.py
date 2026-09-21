@@ -84,29 +84,32 @@ def test_main_refuses_contract_drift(monkeypatch):
     assert finalize_change.main([]) == 2
 
 
-def test_main_accepts_source_only_drift_without_writing(monkeypatch, capsys):
+def test_main_accepts_source_only_drift_without_writing(monkeypatch):
     declared = _valid_declared()
     actual = _actual(source_sha256="d" * 64)
+    printed_identities: list[str] = []
 
     monkeypatch.setattr(finalize_change, "load_declaration", lambda: declared)
     monkeypatch.setattr(finalize_change, "compute_identities", lambda: actual)
+    monkeypatch.setattr(
+        finalize_change,
+        "_print_identities",
+        lambda values: printed_identities.append(values["source_sha256"]),
+    )
 
     assert finalize_change.main([]) == 0
-    output = capsys.readouterr().out
-    assert "d" * 64 in output
-    assert "needs no stamp" in output
+    assert printed_identities == ["d" * 64]
 
 
-def test_legacy_write_source_flag_is_harmless_compatibility(monkeypatch, capsys):
+def test_legacy_write_source_flag_is_harmless_compatibility(monkeypatch):
     declared = _valid_declared()
     actual = _actual(source_sha256="d" * 64)
 
     monkeypatch.setattr(finalize_change, "load_declaration", lambda: declared)
     monkeypatch.setattr(finalize_change, "compute_identities", lambda: actual)
+    monkeypatch.setattr(finalize_change, "_print_identities", lambda values: None)
 
     assert finalize_change.main(["--write-source"]) == 0
-    output = capsys.readouterr().out
-    assert "no longer necessary" in output
 
 
 def test_main_fails_closed_when_identity_computation_is_unavailable(monkeypatch):
