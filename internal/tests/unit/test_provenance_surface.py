@@ -72,14 +72,18 @@ def test_source_hash_is_stable_and_sorted():
     assert provenance.source_sha256() == provenance.source_sha256()
 
 
-def test_declared_identity_matches_the_tree():
+def test_declared_contract_axes_match_the_tree_and_source_is_derived():
     declared = json.loads((INTERNAL / "INSTRUMENT.json").read_text(encoding="utf-8"))
+    assert "source_sha256" not in declared
+    source = provenance.source_sha256()
+    assert len(source) == 64
+    assert all(ch in "0123456789abcdef" for ch in source)
     drift = {}
-    for key in ("source_sha256", "base_prompt_sha256", "outcome_contract_sha256"):
+    for key in ("base_prompt_sha256", "outcome_contract_sha256"):
         actual = getattr(provenance, key)()
         if declared.get(key) != actual:
             drift[key] = (declared.get(key), actual)
-    assert not drift, f"INSTRUMENT.json drift: {drift}"
+    assert not drift, f"INSTRUMENT.json frozen-contract drift: {drift}"
 
 
 def _run_stamper(cwd: Path, path_prepend: str | None = None):

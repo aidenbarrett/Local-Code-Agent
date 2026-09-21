@@ -208,7 +208,7 @@ jobs:
         run: |
           python internal/benchmark_fixture/generate_project.py
           git diff --exit-code -- internal/benchmark_fixture/cpp_project
-      - name: Instrument identity matches internal/INSTRUMENT.json
+      - name: Frozen contract identities match internal/INSTRUMENT.json
         shell: bash
         run: |
           python - <<'PY'
@@ -218,40 +218,39 @@ jobs:
 
           with open("internal/INSTRUMENT.json", encoding="utf-8") as fh:
               declared = json.load(fh)
-          actual = {
-              "source_sha256": p.source_sha256(),
+
+          source = p.source_sha256()
+          actual_contracts = {
               "base_prompt_sha256": p.base_prompt_sha256(),
               "outcome_contract_sha256": p.outcome_contract_sha256(),
           }
+          print(f"{'source_sha256':<24} {source}  (derived exact-tree provenance)")
+
           drift = []
-          for key, value in actual.items():
+          for key, value in actual_contracts.items():
               print(f"{key:<24} {value}")
               if declared.get(key) != value:
                   drift.append((key, declared.get(key), value))
-          if not drift:
-              print(f"\nmatches internal/INSTRUMENT.json, generation {declared['generation']}")
-              sys.exit(0)
-          print("\nINSTRUMENT DRIFT\n")
-          for key, want, got in drift:
-              print(f"  {key}\n    declared  {want}\n    computed  {got}")
-          generation_axes = {"base_prompt_sha256", "outcome_contract_sha256"}
-          if any(key in generation_axes for key, _, _ in drift):
-              print("A model-facing or outcome-facing contract moved; review generation semantics before updating the declaration.")
+
+          if drift:
+              print("\nFROZEN CONTRACT DRIFT\n")
+              for key, want, got in drift:
+                  print(f"  {key}\n    declared  {want}\n    computed  {got}")
+              print(
+                  "A model-facing or outcome-facing contract moved; review generation "
+                  "semantics before updating the declaration."
+              )
               sys.exit(1)
 
-          # Stacked PRs are early-CI candidates, not integration candidates.
-          # Keep contract axes fail-closed, but finalize source identity only
-          # after the child is reconciled directly onto live main.
-          import os
-          event = os.environ.get("GITHUB_EVENT_NAME", "")
-          base_ref = os.environ.get("GITHUB_BASE_REF", "")
-          if event == "pull_request" and base_ref and base_ref != "main":
+          if "source_sha256" in declared:
               print(
-                  f"source-only drift is provisional on stacked PR base {base_ref!r}; "
-                  "finalize source_sha256 after retarget/reconciliation onto main."
+                  "internal/INSTRUMENT.json must not declare live source_sha256; "
+                  "source provenance is derived from the exact checkout."
               )
-              sys.exit(0)
+              sys.exit(1)
 
-          print("source_sha256 moved on an integration candidate; update the source declaration after confirming the move is intended.")
-          sys.exit(1)
+          print(
+              f"\nfrozen contract axes match generation {declared['generation']}; "
+              "source identity was derived from this exact checkout."
+          )
           PY
