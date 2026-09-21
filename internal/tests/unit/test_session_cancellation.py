@@ -89,7 +89,7 @@ def test_owned_process_identity_includes_birth_token_to_detect_pid_reuse():
     assert not handle.has_tree_container
 
 
-def test_posix_process_group_and_windows_job_are_explicit_tree_containers():
+def test_posix_process_group_is_signalling_scope_and_windows_job_is_tree_container():
     posix = OwnedProcessHandle(
         task_id=_task_id(),
         execution_epoch=0,
@@ -106,8 +106,10 @@ def test_posix_process_group_and_windows_job_are_explicit_tree_containers():
         containment=ProcessContainment.WINDOWS_JOB,
         containment_id="job-7",
     )
-    assert posix.has_tree_container
+    assert not posix.has_tree_container
+    assert posix.cleanup_proof_scope == "process_group"
     assert windows.has_tree_container
+    assert windows.cleanup_proof_scope == "whole_tree"
 
 
 def test_process_containment_contract_rejects_unsupported_claims():
