@@ -66,8 +66,12 @@ class HubTurnDispatcher:
                 explicit_mode=explicit_mode,
             )
             self._active = future
-            future.add_done_callback(self._clear_active)
-            return future
+
+        # Future.add_done_callback() runs the callback immediately in the caller when
+        # the Future is already complete. Never register it while holding _lock or a
+        # fast/failed gateway turn can deadlock submit() trying to reacquire that lock.
+        future.add_done_callback(self._clear_active)
+        return future
 
     def close(self, *, wait: bool = True) -> None:
         """Stop accepting turns; an already-started turn is never silently abandoned."""
