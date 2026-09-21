@@ -16,6 +16,8 @@ Before a change is merged for product integration:
 4. Merge only that verified integration candidate. Do not merge a child into an already-merged feature parent and assume reachability will follow.
 5. After merge, verify that the intended reviewed head or its preserved ancestry is reachable from live `main`. Repository reachability, not a PR status badge, is the implementation fact.
 
+A base retarget does not make CI from the old stacked topology authoritative for the new integration candidate. The direct-to-`main` candidate must produce a fresh synchronized CI run before merge.
+
 ## Parallel and stacked pull requests
 
 Several independent PRs may be opened directly against the same current `main` and tested concurrently. If their real code changes do not conflict, they may then be merged sequentially. Merging an earlier PR changes the exact-tree source identity of later candidates, but it does not create a synthetic conflict because no branch carries a mutable live source hash in a shared JSON file. The later PR still needs current-base integration CI before merge; source provenance is simply derived from whatever exact tree is tested.
