@@ -1,13 +1,30 @@
 # Local Code Agent
 
-Current implementation source of truth: live GitHub `main`. This document describes
-capabilities, not in-flight work. PR numbers and merge status belong in
+Current implementation source of truth: live GitHub `main`. This document separates
+agreed product direction from implemented capabilities. PR numbers and merge status belong in
 `internal/docs/review-history.md` and the changelog, because a document that names an
 open PR is wrong the moment that PR lands and nobody notices for weeks.
 
 The current product target is an in-process Textual Session Hub around the existing deterministic controller. The model may propose work; deterministic code owns admission, permissions, execution, verification, provenance and durable state.
 
 ## Product goal
+
+The final goal is a dependable local worker: find things, move and rename them
+safely, handle Git, make bounded code changes, build/test, diagnose failures and
+carry useful engineering work through to a verified result. Competing on deep
+reasoning or frontier-model benchmarks is not a product objective.
+
+**The model is a replaceable dependency. The agent is the product.** Users must be
+able to choose cloud independence. Once required models, runtimes, tools and repo
+dependencies are provisioned, every core local workflow must work offline.
+Model/runtime/device independence means qualified configurations behind stable
+contracts, not a promise that every model works on every machine.
+
+[Product roadmap](internal/docs/product-roadmap.md) owns the ten long-term
+objectives, workflow acceptance gates and delivery milestones: capability contracts,
+managed runtimes, qualification, session/context continuity, repository intelligence,
+permissions/isolation, remote topology, VS Code, offline packaging and local model
+routing. These are planned capabilities, not additions to the implemented list below.
 
 Make LCA useful for building and testing LCA, then for recurring engineering work on the Windows-to-Linux development setup. One continuous conversation is the user surface, but conversation prose is not the authority for repository state or task success.
 

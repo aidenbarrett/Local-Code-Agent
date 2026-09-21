@@ -6,6 +6,10 @@ owner's 2026-09-18 direction. Historical evidence and measurement contracts rema
 protected. Operational regression tests and honest verification are still required.
 
 Read root `PROJECT_OVERVIEW.md` and `CURRENT_STATE.md` before substantial work.
+For product priorities and acceptance goals, read `internal/docs/product-roadmap.md`.
+The destination is a dependable offline worker for finding, moving, Git and coding
+work; deep-reasoning competition is not a goal. Roadmap items are not implemented
+features and do not replace the current Session Hub integration sequence.
 For current product architecture, contract and implementation sequence, read
 `internal/docs/session-hub-design.md`, `internal/docs/session-contract/README.md`
 and `internal/docs/session-hub-file-layout.md`. These supersede conflicting earlier
