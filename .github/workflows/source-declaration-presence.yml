@@ -1,26 +1,17 @@
-name: source declaration presence
+name: contract declaration integrity
 
 on:
   pull_request:
 
 jobs:
-  source-declaration:
-    name: hashed source declares identity move
+  contract-declaration:
+    name: frozen contract axes match declaration
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Require source declaration for hashed changes
-        shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -o pipefail
-          git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" | \
-            python internal/devtools/check_source_declaration_diff.py --nul
+      - name: Verify exact source provenance and frozen contract axes
+        run: python internal/devtools/finalize_change.py
