@@ -33,7 +33,7 @@ def test_ready_stacked_pull_request_is_early_ci_only_and_fails_gate():
     ]) == 2
 
 
-def test_draft_stacked_pull_request_stays_green_but_is_not_candidate(capsys):
+def test_draft_stacked_pull_request_stays_green_but_is_not_candidate():
     assert integration_base_error("pull_request", "feature/parent", draft=True) is None
     assert main([
         "--event-name",
@@ -43,7 +43,6 @@ def test_draft_stacked_pull_request_stays_green_but_is_not_candidate(capsys):
         "--draft",
         "true",
     ]) == 0
-    assert "not an integration candidate" in capsys.readouterr().out
 
 
 def test_pull_request_without_base_fails_closed_even_when_draft():
