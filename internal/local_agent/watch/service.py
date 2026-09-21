@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from threading import Lock
 from typing import Callable
+from uuid import uuid4
 
 from .fixed_watch_runner import FixedWatchRun, FixedWatchRunner
 from .job_store import SQLiteWatchJobStore, StoredWatchJob
@@ -39,10 +40,14 @@ class WatchOverlap(WatchLifecycleError):
 class WatchServiceRun:
     configuration_version: int
     trigger: WatchTrigger
+    run_id: str
     run: FixedWatchRun
 
 
-RunnerFactory = Callable[[StoredWatchJob], FixedWatchRunner]
+# The immutable run UUID is supplied before construction so a factory that bridges
+# into Session Hub task admission can use origin={kind: watch, job_id, run_id}
+# before any source observation or command effect begins.
+RunnerFactory = Callable[[StoredWatchJob, str], FixedWatchRunner]
 
 
 class FixedWatchService:
@@ -123,13 +128,17 @@ class FixedWatchService:
 
         self._claim(job_id)
         try:
-            runner = self.runner_factory(record)
+            run_id = str(uuid4())
+            runner = self.runner_factory(record, run_id)
             if not isinstance(runner, FixedWatchRunner):
                 raise TypeError("watch runner factory must return FixedWatchRunner")
-            completed = runner.run(record.job)
+            completed = runner.run(record.job, run_id=run_id)
+            if completed.current.run_id != run_id:
+                raise WatchLifecycleError("watch runner changed the preallocated run identity")
             return WatchServiceRun(
                 configuration_version=record.version,
                 trigger=trigger,
+                run_id=run_id,
                 run=completed,
             )
         finally:

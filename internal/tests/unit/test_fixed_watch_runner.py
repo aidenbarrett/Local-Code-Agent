@@ -69,6 +69,42 @@ def test_first_run_is_baseline_and_second_run_compares_durable_attempts(tmp_path
     assert store.history(job.job_id) == [second.current, first.current]
 
 
+def test_supplied_run_id_is_validated_before_any_effect_and_persisted_exactly(tmp_path):
+    store = SQLiteWatchRunStore(tmp_path / "watch.db")
+    calls: list[str] = []
+
+    def observe_source(_job):
+        calls.append("observe")
+        return SourceObservation(source_head="main", source_digest="c" * 64)
+
+    def execute(_job, _source):
+        calls.append("execute")
+        return WatchExecutionResult(
+            result_schema="lca.watch.result/1",
+            complete=True,
+            observations=(("tests", "pass"),),
+        )
+
+    runner = FixedWatchRunner(
+        store,
+        execution_contract_sha256="b" * 64,
+        observe_source=observe_source,
+        execute=execute,
+    )
+    job = _job()
+
+    with pytest.raises(ValueError, match="run_id must be a UUID"):
+        runner.run(job, run_id="not-a-run-id")
+    assert calls == []
+    assert store.history(job.job_id) == []
+
+    run_id = str(uuid4())
+    completed = runner.run(job, run_id=run_id)
+    assert calls == ["observe", "execute"]
+    assert completed.current.run_id == run_id
+    assert store.latest_attempt(job.job_id).run_id == run_id
+
+
 def test_job_revision_change_makes_next_delta_incomparable(tmp_path):
     store = SQLiteWatchRunStore(tmp_path / "watch.db")
 

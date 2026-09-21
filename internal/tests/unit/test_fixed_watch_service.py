@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from threading import Event, Thread
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -29,11 +29,14 @@ def _job(*, job_id: str | None = None) -> FixedWatchJob:
     )
 
 
-def _service(tmp_path, *, execute=None):
+def _service(tmp_path, *, execute=None, on_factory=None):
     job_store = SQLiteWatchJobStore(tmp_path / "jobs.db")
     run_store = SQLiteWatchRunStore(tmp_path / "runs.db")
 
-    def factory(_record):
+    def factory(record, run_id):
+        UUID(run_id)
+        if on_factory is not None:
+            on_factory(record, run_id)
         return FixedWatchRunner(
             run_store,
             execution_contract_sha256="b" * 64,
@@ -62,9 +65,36 @@ def test_manual_run_works_while_job_is_disabled_and_persists_history(tmp_path):
 
     assert completed.configuration_version == 1
     assert completed.trigger is WatchTrigger.MANUAL
+    assert completed.run_id == completed.run.current.run_id
     assert completed.run.current.job_id == job.job_id
     assert service.latest(job.job_id) == completed.run.current
     assert service.history(job.job_id) == [completed.run.current]
+
+
+def test_run_identity_is_available_to_factory_before_observation_or_execution(tmp_path):
+    order: list[tuple[str, str]] = []
+
+    def on_factory(record, run_id):
+        order.append(("factory", run_id))
+        assert record.job.job_id == job.job_id
+
+    def execute(_job, _source):
+        order.append(("execute", ""))
+        return WatchExecutionResult(
+            result_schema="lca.watch.result/1",
+            complete=True,
+            observations=(("tests", "pass"),),
+        )
+
+    service = _service(tmp_path, execute=execute, on_factory=on_factory)
+    job = _job()
+    service.add_job(job)
+
+    completed = service.run_job(job.job_id)
+
+    assert order[0] == ("factory", completed.run_id)
+    assert order[1][0] == "execute"
+    assert completed.run.current.run_id == completed.run_id
 
 
 def test_scheduled_run_requires_enabled_job_and_durable_schedule(tmp_path):
