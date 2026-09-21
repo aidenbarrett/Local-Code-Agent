@@ -72,17 +72,19 @@ def test_state_then_completed_run_round_trips_through_watch_read_model(tmp_path)
     service = _session_service(tmp_path)
     try:
         durable = DurableWatchEvents(service)
-        assert durable.record_state(record) == 1
+        durable.record_state(record)
         result = TaskResult(str(uuid4()), TaskOutcome.PASS, "green", True)
-        assert durable.record_run(
+        durable.record_run(
             record,
             completed,
             result,
             started_utc="2030-01-01T00:00:00Z",
             finished_utc="2030-01-01T00:00:01Z",
-        ) == 2
+        )
 
-        snapshot = project_watch(service.replay(), job.job_id)
+        events = service.replay()
+        assert [event["sequence"] for event in events] == [1, 2]
+        snapshot = project_watch(events, job.job_id)
         assert snapshot.state == "disabled"
         assert snapshot.job_revision == record.job.revision_sha256
         assert snapshot.schedule_revision == watch_schedule_revision(record)
