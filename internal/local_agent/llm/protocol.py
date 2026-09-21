@@ -12,12 +12,38 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+_QUALIFIED_FINISH_REASONS = frozenset({"stop", "tool_calls"})
+_RESPONSE_VALIDATION_TOOL = "__lca_response_validation__"
+
+
+class ToolName(str):
+    """A tool name carrying controller-visible validation failure provenance.
+
+    It remains a real ``str`` so transcript rendering and backend call association
+    keep the exact model-provided name.  ``ToolRegistry.get`` inspects the marker
+    before policy or handler dispatch, which lets an invalid response fail closed
+    without inventing repaired JSON or turning the failure into a transport fault.
+    """
+
+    validation_error: str | None
+
+    def __new__(cls, value: str, validation_error: str | None = None):
+        obj = str.__new__(cls, value)
+        obj.validation_error = validation_error
+        return obj
+
+
+def _flagged_name(value: str, reason: str) -> ToolName:
+    return ToolName(value or _RESPONSE_VALIDATION_TOOL, reason)
+
+
 @dataclass
 class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
     raw_arguments: str = ""
+    parse_error: str | None = None
 
     @staticmethod
     def from_openai(call: Any) -> "ToolCall":
@@ -28,25 +54,52 @@ class ToolCall:
 
     @staticmethod
     def from_parts(call_id: str, name: str, raw: Any) -> "ToolCall":
-        try:
-            args = json.loads(raw) if isinstance(raw, str) else dict(raw or {})
-        except json.JSONDecodeError:
+        parse_error: str | None = None
+        if isinstance(raw, str):
+            raw_text = raw
+            try:
+                args = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                args = {}
+                parse_error = f"invalid_json:{exc.msg}"
+        else:
+            try:
+                args = dict(raw or {})
+                raw_text = json.dumps(raw)
+            except (TypeError, ValueError) as exc:
+                args = {}
+                raw_text = repr(raw)
+                parse_error = f"invalid_arguments:{type(exc).__name__}"
+
+        if parse_error is None and not isinstance(args, dict):
             args = {}
-        if not isinstance(args, dict):
-            args = {}
+            parse_error = "arguments_not_object"
+        if not isinstance(name, str) or not name:
+            parse_error = parse_error or "missing_tool_name"
+            name = ""
+
+        dispatch_name: str = name
+        if parse_error is not None:
+            dispatch_name = _flagged_name(name, parse_error)
         return ToolCall(
             id=call_id or "call_0",
-            name=name or "",
+            name=dispatch_name,
             arguments=args,
-            raw_arguments=raw if isinstance(raw, str) else json.dumps(raw),
+            raw_arguments=raw_text,
+            parse_error=parse_error,
         )
+
+    def invalidate(self, reason: str) -> None:
+        current = getattr(self.name, "validation_error", None)
+        combined = reason if not current else f"{current};{reason}"
+        self.name = _flagged_name(str(self.name), combined)
 
     def as_assistant_fragment(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "type": "function",
             "function": {
-                "name": self.name,
+                "name": str(self.name),
                 "arguments": self.raw_arguments or json.dumps(self.arguments),
             },
         }
@@ -202,12 +255,49 @@ class LLMTransportError(RuntimeError):
 class ChatResponse:
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
-    finish_reason: str = "stop"
+    finish_reason: str | None = "stop"
     stats: CallStats = field(default_factory=CallStats)
+
+    def __post_init__(self) -> None:
+        """Make incomplete/ambiguous tool output non-dispatchable before effects.
+
+        We currently qualify one tool call at a time. Multiple-call output is
+        deliberately rejected as a whole until a capability test proves batch
+        semantics; this is safer than executing the first valid-looking call and
+        discovering that a later call in the same model response was malformed.
+        """
+        reason: str | None = None
+        if self.finish_reason not in _QUALIFIED_FINISH_REASONS:
+            reason = f"unqualified_finish_reason:{self.finish_reason!r}"
+        elif len(self.tool_calls) > 1:
+            reason = "multiple_tool_calls_not_qualified"
+
+        if reason is not None:
+            if not self.tool_calls:
+                self.tool_calls = [
+                    ToolCall(
+                        id="response_validation",
+                        name=_flagged_name(_RESPONSE_VALIDATION_TOOL, reason),
+                        arguments={},
+                        raw_arguments="{}",
+                        parse_error=reason,
+                    )
+                ]
+            else:
+                for call in self.tool_calls:
+                    call.invalidate(reason)
 
     @property
     def wants_tools(self) -> bool:
         return bool(self.tool_calls)
+
+    @property
+    def validation_errors(self) -> list[str]:
+        return [
+            str(error)
+            for call in self.tool_calls
+            if (error := getattr(call.name, "validation_error", None))
+        ]
 
     def as_assistant_message(self) -> dict[str, Any]:
         msg: dict[str, Any] = {"role": "assistant", "content": self.content or None}
