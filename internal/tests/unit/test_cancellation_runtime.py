@@ -77,20 +77,46 @@ def test_direct_child_exit_cannot_be_misreported_as_process_tree_cleanup():
     assert report.missing_evidence == ("process_tree_containment_unproven",)
 
 
-def test_tree_container_plus_stop_proof_can_reconcile_subprocess_cancel():
+def test_posix_group_exit_cannot_prove_escaped_descendants_are_gone():
     runtime = CancellationRuntime()
     task_id = str(uuid4())
     runtime.register_task(task_id)
-    runtime.attach_process(
-        OwnedProcessHandle(
-            task_id=task_id,
-            execution_epoch=0,
-            pid=456,
-            birth_token="pid-456-birth",
-            containment=ProcessContainment.POSIX_PROCESS_GROUP,
-            containment_id=456,
-        )
+    handle = OwnedProcessHandle(
+        task_id=task_id,
+        execution_epoch=0,
+        pid=456,
+        birth_token="pid-456-birth",
+        containment=ProcessContainment.POSIX_PROCESS_GROUP,
+        containment_id=456,
     )
+    assert handle.cleanup_proof_scope == "process_group"
+    assert handle.has_tree_container is False
+    runtime.attach_process(handle)
+    runtime.request_cancel(task_id, 0)
+
+    # Even if the process-group stopper observed the whole PGID disappear, a child
+    # may have escaped into a different session/process group. Treating that signal
+    # as whole-tree proof was the false-cleanup bug this regression closes.
+    report = runtime.reconcile(task_id, process_tree_stopped=True)
+    assert report.complete is False
+    assert report.missing_evidence == ("process_tree_containment_unproven",)
+
+
+def test_windows_job_container_plus_stop_proof_can_reconcile_subprocess_cancel():
+    runtime = CancellationRuntime()
+    task_id = str(uuid4())
+    runtime.register_task(task_id)
+    handle = OwnedProcessHandle(
+        task_id=task_id,
+        execution_epoch=0,
+        pid=456,
+        birth_token="pid-456-birth",
+        containment=ProcessContainment.WINDOWS_JOB,
+        containment_id="job-456",
+    )
+    assert handle.cleanup_proof_scope == "whole_tree"
+    assert handle.has_tree_container is True
+    runtime.attach_process(handle)
     runtime.request_cancel(task_id, 0)
 
     assert runtime.reconcile(task_id).missing_evidence == ("process_tree_stop_unproven",)

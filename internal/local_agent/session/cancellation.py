@@ -185,10 +185,26 @@ class OwnedProcessHandle:
 
     @property
     def has_tree_container(self) -> bool:
-        return self.containment in {
-            ProcessContainment.POSIX_PROCESS_GROUP,
-            ProcessContainment.WINDOWS_JOB,
-        }
+        """Whether the handle names a container that proves whole-tree membership.
+
+        A POSIX process group is a signalling scope, not a containment boundary:
+        descendants can escape it with ``setsid()``/``setpgid()``. Therefore group
+        disappearance can prove only that the group disappeared, never that every
+        descendant owned by the task is gone. Windows job ownership is the only
+        whole-tree container represented by this contract today.
+        """
+        return self.containment == ProcessContainment.WINDOWS_JOB
+
+    @property
+    def cleanup_proof_scope(self) -> str:
+        """Return the strongest cleanup scope this handle can represent."""
+        if self.containment == ProcessContainment.WINDOWS_JOB:
+            return "whole_tree"
+        if self.containment == ProcessContainment.POSIX_PROCESS_GROUP:
+            return "process_group"
+        if self.containment == ProcessContainment.DIRECT_CHILD:
+            return "direct_child"
+        return "unknown"
 
 
 @dataclass(frozen=True)
