@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 
 from .session_event_service import DurableSessionService, ReplaySubscription, SubscriptionGap
 from .textual_hub import ConversationEntry, HubViewState, build_view_state
+from .textual_route_read_model import RouteReadModelError, latest_route_summary
 
 
 class HubFeedError(RuntimeError):
@@ -49,7 +50,7 @@ class DurableHubFeed:
             raise ValueError("feed event limit must be positive")
         self.service = service
         self.conversation_provider = conversation_provider or (lambda: ())
-        self.route_summary_provider = route_summary_provider or (lambda: None)
+        self.route_summary_provider = route_summary_provider
         self.capacity = capacity
         self.replay_page = replay_page
         self.max_events = max_events
@@ -147,7 +148,14 @@ class DurableHubFeed:
         conversation = tuple(self.conversation_provider())
         if any(not isinstance(entry, ConversationEntry) for entry in conversation):
             raise TypeError("conversation provider must return ConversationEntry values")
-        route_summary = self.route_summary_provider()
+        try:
+            route_summary = (
+                latest_route_summary(self._events)
+                if self.route_summary_provider is None
+                else self.route_summary_provider()
+            )
+        except RouteReadModelError as exc:
+            raise HubFeedError("durable route history cannot be projected truthfully") from exc
         if status is None:
             status = f"Live · durable seq {self._cursor}"
             if self._recovered_gap:
