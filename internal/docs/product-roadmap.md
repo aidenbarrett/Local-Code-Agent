@@ -125,20 +125,60 @@ when a requested NPU/GPU cannot run the chosen model.
 ### 3. Qualification and honest support matrix
 
 Build on existing server probes with a versioned product qualification suite for
-each model/runtime/device/OS/topology combination. Check transport and template
-behaviour, tool calls, structured output, context limits, cancellation, resource
-limits, recovery, policy boundaries and representative job completion.
+each model/runtime/device/OS/topology combination. A matrix cell is identified by
+its exact model/artifact revision, quantisation, runtime and version, device and
+driver stack, operating system/topology, tokenizer/chat template/tool parser,
+context/output limits and relevant controller/execution-contract identity. A model
+name by itself is never a qualified configuration.
+
+Treat qualification as three separate layers rather than one aggregate percentage:
+
+1. **Platform conformance.** Check transport and template behaviour, tool calls,
+   structured output, streaming where advertised, malformed-response handling,
+   context/output limits, timeout and cancellation semantics, restart/reconnect,
+   endpoint ownership/quarantine, policy boundaries and deterministic verifier
+   interaction. Required conformance checks target 100% execution; execution
+   coverage and pass rate are reported separately. A skipped required check is not
+   a pass.
+2. **Agent capability.** Run representative Git, repository navigation, coding,
+   diagnosis and verification tasks. These fixtures should retain enough difficulty
+   and headroom to expose differences, so 100% completion is not itself the target.
+   Report verified completion, refusals/unknowns, scope violations, tool calls,
+   latency, model usage when observable, retries, escalation and interventions.
+3. **Operational reliability.** Exercise long sessions, repeated inference,
+   concurrent jobs, soak/memory-growth behaviour, mid-inference cancellation,
+   subprocess/process-tree cleanup, endpoint quarantine and reconciliation,
+   server crash/hang, runtime/model switching and restart recovery. Measure
+   throughput, latency and peak memory; record power/energy per verified task only
+   where trustworthy hardware telemetry and its provenance are available.
 
 Separate deterministic adapter/negative tests from stochastic model task results.
-Record attempts, failures, refusals and unknown outcomes, along with source,
-configuration, dependencies and artifact identities. Missing required evidence
-blocks promotion; a skipped required check is not a pass. Start with the actual
-Panther Lake and NUC development configurations, then add cells deliberately.
+Record every intended check as passed, failed, refused, unknown or not executed,
+along with source, configuration, dependencies and artifact identities. Never let
+an aggregate pass percentage hide missing execution. Known non-blocking failures
+need an explicit disposition, affected surface, rationale, owner and exit condition.
 
-**Gate:** every supported matrix cell has a reproducible report covering its
-advertised features. Changes to model weights, templates, runtime, drivers or
-execution contracts trigger relevant requalification. Product qualification does
-not reopen paused research collection or reinterpret frozen experiments.
+Define blocker classes before release qualification. At minimum, controller or
+policy fail-open behaviour, unsafe or unrelated mutation, stale proof accepted as
+current proof, evidence/provenance corruption, false success, process/endpoint
+ownership loss that permits further unsafe effects, hidden fallback, and recovery
+that can duplicate effects block the affected supported capability. Model task
+failure is a measured capability outcome; a controller safety or integrity failure
+is a product blocker.
+
+Use a small representative matrix rather than chasing a vanity model count. Cover
+meaningfully different model sizes/architectures, quantisation/runtime paths and
+CPU/GPU/NPU devices only as they become useful. Cross-platform claims require the
+same qualification discipline on each claimed OS. Start with the actual Panther
+Lake and NUC development configurations, then add cells deliberately.
+
+**Gate:** every supported matrix cell has a reproducible qualification report for
+its advertised features, 100% of its required conformance checks were executed,
+and it has zero unresolved blocker failures. Any accepted non-blocking failure is
+visible and dispositioned. Changes to model weights, templates, runtime, drivers,
+OS/device stack or execution contracts trigger relevant requalification. Product
+qualification does not reopen paused research collection or reinterpret frozen
+experiments.
 
 ### 4. Session and context continuity
 
@@ -271,7 +311,7 @@ all ten objectives in full before anyone can use the product.
 | P2: dependable daily worker | Find/Git inspection, scoped move/rename, isolated bounded code fixes, review/apply and verification | Real daily jobs completed end to end; negative cases preserve user work; versioned write approvals and containment gates before writes | 5, 6; continued 3, 4 |
 | P3: easy setup and replacement | Managed runtime lifecycle, effective capability contracts, first supported matrix, complete install/import artifacts | Clean setup to useful work; a second model/backend substituted; offline single-host scenarios pass | 1, 2, 3, 9 |
 | P4: remote and editor workflow | Windows inference with Linux SSH execution; VS Code client over the same service | Real Remote SSH workflow, built VSIX and reconnect/cancel acceptance on both hosts | 7, 8; continued 6 |
-| P5: release quality and scale | Large-repo qualification, resource/performance budgets, recovery/upgrade support, full offline release checks | Published supported matrix and release acceptance pack; all advertised workflows pass their declared gates | 3, 5, 9; regression of 1-8 |
+| P5: release quality and scale | Large-repo qualification, soak/stress/failure-injection coverage, resource/performance budgets, recovery/upgrade support, full offline release checks | Published supported matrix and release acceptance pack; 100% required conformance execution, zero unresolved blockers, and every advertised workflow satisfies its declared gate | 3, 5, 9; regression of 1-8 |
 | P6: useful multi-model choice | Optional local routing and resource-aware model residency | Same-task comparison demonstrates practical benefit; pinned single-model path remains supported | 10; regression of 1-9 |
 
 Offline behaviour, host identity, replaceable models and safe effects are design
@@ -289,16 +329,26 @@ acceptance. Do not replace those slices with a new generic agent framework.
 
 For each shipped workflow, record verified completion within its scope, failure,
 refusal and unknown outcomes; human interventions; time to a useful result; model
-calls/tokens where actually reported; and peak memory/disk use. Deterministic
-operations should bypass inference when the user's request is already explicit.
-Optimise avoidable calls, repeated reads and invalid caches before adding machinery.
+calls/tokens where actually reported; and peak memory/disk use. Where trustworthy
+device telemetry exists, also record power/energy with enough provenance to make
+comparisons reproducible. Deterministic operations should bypass inference when
+the user's request is already explicit. Optimise avoidable calls, repeated reads
+and invalid caches before adding machinery.
+
+Keep release/product exit separate from capability benchmarking. Release exit is
+about the integrity of the platform and its advertised workflows: required checks
+must execute, blockers must be zero, and known non-blocking failures must be
+explicitly dispositioned. Capability benchmarks should remain difficult enough to
+measure useful differences between models, skills and routing; forcing those tasks
+toward 100% would make the benchmark less informative rather than the product safer.
 
 Before a milestone's acceptance run, specify its task set, supported configuration,
 minimum successful completion and maximum intervention counts, repeat policy,
-latency/resource budgets and required checks. A refused supported positive case
-does not count as a completed job. An expected refusal in a negative case may pass
-that safety check. Never hide failure behind a green aggregate or treat a few
-successful runs as a population-wide reliability estimate.
+latency/resource budgets and required checks. Report both execution coverage and
+pass rate. A refused supported positive case does not count as a completed job. An
+expected refusal in a negative case may pass that safety check. Never hide failure
+behind a green aggregate or treat a few successful runs as a population-wide
+reliability estimate.
 
 Use Aiden's actual recurring work to set those budgets. Publish observations and
 remaining gaps separately from targets. Research comparisons, if resumed later,
