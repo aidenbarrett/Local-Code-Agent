@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from internal.devtools.check_integration_base import integration_base_error, main
+from devtools.check_integration_base import integration_base_error, main
 
 
 def test_pull_request_to_main_is_merge_eligible():
