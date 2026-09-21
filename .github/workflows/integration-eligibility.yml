@@ -1,9 +1,9 @@
 name: integration eligibility
 
-# Stacked PRs are allowed to run the normal test matrix while they are being
-# developed, but they are not integration candidates. A child merged into an
-# already-merged feature branch can otherwise look "merged" while remaining
-# unreachable from main. This dedicated red/green gate makes that state visible.
+# Stacked PRs may run the normal matrix while they are being developed. Draft
+# stacks are intentionally not integration candidates yet, so this workflow stays
+# green-but-explicit for them. Once a PR is ready for review, a non-main base fails
+# closed until the branch is reconciled directly onto main.
 on:
   pull_request:
 
@@ -18,5 +18,7 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
-      - name: Require direct integration base
+      - name: Require direct integration base when merge-ready
+        env:
+          LCA_PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: python internal/devtools/check_integration_base.py
