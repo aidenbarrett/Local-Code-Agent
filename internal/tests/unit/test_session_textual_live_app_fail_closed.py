@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from local_agent.session import textual_live_app as live_app_module
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
 from local_agent.session.textual_feed import DurableHubFeed
@@ -25,9 +26,10 @@ def test_live_app_freezes_last_truthful_state_after_feed_failure(tmp_path):
 
         class BrokenBinding:
             def poll(self):
-                from local_agent.session.textual_feed import HubFeedError
-
-                raise HubFeedError("boom")
+                # Raise the exact exception class captured by textual_live_app. Some
+                # import-boundary tests reload sibling modules during the full suite,
+                # which can otherwise create a second class object with the same name.
+                raise live_app_module.HubFeedError("boom")
 
         app.live_binding = BrokenBinding()
         app.replace_state = lambda state: setattr(app, "view_state", state)
