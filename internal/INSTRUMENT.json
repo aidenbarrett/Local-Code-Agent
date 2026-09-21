@@ -30,6 +30,7 @@
     "A source-only move does not automatically end a generation; archived rows are re-scored only when retained evidence supports it.",
     "CI coverage hardening moves source identity through pyproject.toml; both frozen contract axes remain unchanged.",
     "Normative runtime Session Hub v1 JSON schemas are hashed source even though they live under internal/docs/session-contract/v1.",
+    "Inference response validation and tool argument enforcement are source hardening; they do not change the pinned model-facing or outcome-facing contract axes.",
     "",
     "base_prompt_sha256 moves when the model-facing contract changes.",
     "outcome_contract_sha256 moves when task contracts, oracle/evaluator semantics, endpoint definitions or bounded repeat policy change.",
