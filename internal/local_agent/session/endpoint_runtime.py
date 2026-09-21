@@ -28,6 +28,10 @@ class EndpointAcquireTimeout(EndpointLeaseError):
     """A queued request did not acquire its endpoint within the caller's bound."""
 
 
+class EndpointRequestCancelled(EndpointLeaseError):
+    """The exact queued endpoint request was atomically removed before dispatch."""
+
+
 class EndpointRuntime:
     """Blocking lifecycle wrapper around one deterministic ``EndpointArbiter``."""
 
@@ -37,6 +41,7 @@ class EndpointRuntime:
         self.arbiter = arbiter
         self._condition = Condition()
         self._granted: dict[str, EndpointLease] = {}
+        self._cancelled: set[str] = set()
 
     @property
     def endpoint_id(self) -> str:
@@ -65,7 +70,8 @@ class EndpointRuntime:
 
         Timeout removes only a still-queued request. Because grant/release/pumping all
         happen under the same condition, timeout cannot race a hidden grant into a ghost
-        active lease.
+        active lease. Explicit queued cancellation uses the same condition and wakes the
+        exact waiter with ``EndpointRequestCancelled`` rather than leaving it blocked.
         """
         if not isinstance(request, EndpointRequest):
             raise TypeError("endpoint runtime accepts EndpointRequest values")
@@ -86,6 +92,12 @@ class EndpointRuntime:
                     wait_ms = max(0, int((monotonic() - started) * 1000))
                     return ManagedEndpointLease(self, granted, wait_ms=wait_ms)
 
+                if request.request_id in self._cancelled:
+                    self._cancelled.remove(request.request_id)
+                    raise EndpointRequestCancelled(
+                        f"endpoint request {request.request_id!r} was cancelled before dispatch"
+                    )
+
                 if timeout is None:
                     self._condition.wait()
                     continue
@@ -104,6 +116,33 @@ class EndpointRuntime:
                         f"endpoint request did not acquire {self.endpoint_id!r} before timeout"
                     )
                 self._condition.wait(remaining)
+
+    def cancel_queued(self, request_id: str) -> EndpointRequest | None:
+        """Atomically remove one still-queued request and wake its exact waiter.
+
+        This operation deliberately refuses to reinterpret an already-granted request
+        as a clean queued cancellation. Once a lease exists, cancellation must use the
+        active-call quarantine/reconciliation path because Python-side cancellation is
+        not proof that inference stopped.
+        """
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError("endpoint request id must be nonempty")
+        with self._condition:
+            granted = self._granted.get(request_id)
+            active = self.arbiter.active_lease
+            if granted is not None or (
+                active is not None and active.request.request_id == request_id
+            ):
+                raise EndpointLeaseConflict(
+                    "cannot cancel endpoint request as queued after it was granted"
+                )
+            removed = self.arbiter.remove_queued(request_id)
+            if removed is None:
+                return None
+            self._cancelled.add(request_id)
+            self._pump_locked()
+            self._condition.notify_all()
+            return removed
 
     def release(self, lease_id: str) -> EndpointLease:
         """Release a known-clean active lease, then grant the next eligible request."""
