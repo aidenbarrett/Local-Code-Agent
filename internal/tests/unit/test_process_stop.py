@@ -43,6 +43,13 @@ def _stopper(*, birth_token=lambda _pid: "123:1.000000", alive=None, signal_grou
     ), clock
 
 
+def _install_posix_sigkill(monkeypatch):
+    """Let injected POSIX fakes exercise SIGKILL semantics on Windows runners."""
+    sigkill = getattr(signal, "SIGKILL", 9)
+    monkeypatch.setattr(signal, "SIGKILL", sigkill, raising=False)
+    return sigkill
+
+
 def test_unsupported_containment_is_not_signalled_or_reported_stopped():
     signals = []
     stopper, _clock = _stopper(signal_group=lambda pgid, sig: signals.append((pgid, sig)))
@@ -103,13 +110,14 @@ def test_term_success_proves_group_stopped_without_kill():
     assert signals == [(123, signal.SIGTERM)]
 
 
-def test_term_timeout_escalates_to_kill_and_requires_observed_group_exit():
+def test_term_timeout_escalates_to_kill_and_requires_observed_group_exit(monkeypatch):
+    sigkill = _install_posix_sigkill(monkeypatch)
     signals = []
     killed = {"value": False}
 
     def signal_group(pgid, sig):
         signals.append((pgid, sig))
-        if sig == signal.SIGKILL:
+        if sig == sigkill:
             killed["value"] = True
 
     def alive(_pgid):
@@ -121,10 +129,11 @@ def test_term_timeout_escalates_to_kill_and_requires_observed_group_exit():
     assert result.reason == "stopped_after_kill"
     assert result.term_sent is True
     assert result.kill_sent is True
-    assert signals == [(123, signal.SIGTERM), (123, signal.SIGKILL)]
+    assert signals == [(123, signal.SIGTERM), (123, sigkill)]
 
 
-def test_group_still_alive_after_kill_is_not_cleanup_proof():
+def test_group_still_alive_after_kill_is_not_cleanup_proof(monkeypatch):
+    _install_posix_sigkill(monkeypatch)
     signals = []
     stopper, _clock = _stopper(
         alive=lambda _pgid: True,
