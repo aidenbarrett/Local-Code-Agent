@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from uuid import uuid4
 
 import pytest
@@ -12,7 +13,11 @@ from local_agent.session.endpoint_lease import (
     EndpointRole,
     EndpointUnavailable,
 )
-from local_agent.session.endpoint_runtime import EndpointAcquireTimeout, EndpointRuntime
+from local_agent.session.endpoint_runtime import (
+    EndpointAcquireTimeout,
+    EndpointRequestCancelled,
+    EndpointRuntime,
+)
 
 
 def _conversation_request(endpoint_id: str, session_id: str = "session-a") -> EndpointRequest:
@@ -32,6 +37,14 @@ def _work_request(endpoint_id: str) -> EndpointRequest:
         task_id=str(uuid4()),
         execution_epoch=0,
     )
+
+
+def _wait_until_queued(runtime: EndpointRuntime, request_id: str) -> None:
+    deadline = time.monotonic() + 1
+    while runtime.arbiter.pending_position(request_id) is None:
+        if time.monotonic() >= deadline:
+            raise AssertionError("endpoint request did not enter the queue")
+        time.sleep(0.005)
 
 
 def test_clean_context_release_allows_the_next_request_to_acquire():
@@ -97,6 +110,86 @@ def test_timeout_removes_queued_request_without_leaving_a_ghost_lease():
 
     first.release()
     assert runtime.arbiter.active_lease is None
+
+
+def test_queued_cancellation_wakes_exact_unbounded_waiter_without_dispatch():
+    endpoint_id = "ovms:npu:8000"
+    runtime = EndpointRuntime(EndpointArbiter(endpoint_id))
+    first = runtime.acquire(_conversation_request(endpoint_id), timeout=0.1)
+    queued = _work_request(endpoint_id)
+    box = {}
+
+    def waiter():
+        try:
+            runtime.acquire(queued, timeout=None)
+        except BaseException as exc:
+            box["error"] = exc
+
+    thread = threading.Thread(target=waiter)
+    thread.start()
+    _wait_until_queued(runtime, queued.request_id)
+
+    removed = runtime.cancel_queued(queued.request_id)
+    thread.join(1)
+
+    assert removed == queued
+    assert isinstance(box.get("error"), EndpointRequestCancelled)
+    assert not thread.is_alive()
+    assert runtime.arbiter.pending_position(queued.request_id) is None
+    assert runtime.arbiter.active_lease.lease_id == first.lease_id
+    first.release()
+    assert runtime.arbiter.active_lease is None
+
+
+def test_queued_cancellation_is_exact_and_does_not_remove_other_waiters():
+    endpoint_id = "ovms:npu:8000"
+    runtime = EndpointRuntime(EndpointArbiter(endpoint_id))
+    first = runtime.acquire(_conversation_request(endpoint_id), timeout=0.1)
+    cancelled = _work_request(endpoint_id)
+    survivor = _work_request(endpoint_id)
+    errors = {}
+    leases = {}
+
+    def wait_cancelled():
+        try:
+            runtime.acquire(cancelled, timeout=None)
+        except BaseException as exc:
+            errors["cancelled"] = exc
+
+    def wait_survivor():
+        try:
+            leases["survivor"] = runtime.acquire(survivor, timeout=2)
+        except BaseException as exc:
+            errors["survivor"] = exc
+
+    first_thread = threading.Thread(target=wait_cancelled)
+    second_thread = threading.Thread(target=wait_survivor)
+    first_thread.start()
+    _wait_until_queued(runtime, cancelled.request_id)
+    second_thread.start()
+    _wait_until_queued(runtime, survivor.request_id)
+
+    assert runtime.cancel_queued(cancelled.request_id) == cancelled
+    first_thread.join(1)
+    assert isinstance(errors.get("cancelled"), EndpointRequestCancelled)
+    assert runtime.arbiter.pending_position(survivor.request_id) is not None
+
+    first.release()
+    second_thread.join(1)
+    assert "survivor" not in errors
+    assert leases["survivor"].request == survivor
+    leases["survivor"].release()
+
+
+def test_granted_request_cannot_be_relabelled_as_queued_cancellation():
+    endpoint_id = "ovms:npu:8000"
+    runtime = EndpointRuntime(EndpointArbiter(endpoint_id))
+    lease = runtime.acquire(_work_request(endpoint_id), timeout=0.1)
+
+    with pytest.raises(EndpointLeaseConflict, match="after it was granted"):
+        runtime.cancel_queued(lease.request.request_id)
+    assert runtime.arbiter.active_lease.lease_id == lease.lease_id
+    lease.release()
 
 
 def test_exception_in_lease_scope_quarantines_instead_of_releasing():
