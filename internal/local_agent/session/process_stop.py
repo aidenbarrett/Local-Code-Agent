@@ -24,6 +24,11 @@ SignalGroupFn = Callable[[int, int], None]
 ClockFn = Callable[[], float]
 SleepFn = Callable[[float], None]
 
+# ``signal.SIGKILL`` is not exposed on Windows, but injected POSIX fakes are used
+# there to exercise the deterministic stop state machine. Native Windows execution
+# still fails closed before signalling because ``os.killpg`` is unavailable.
+_POSIX_SIGKILL = getattr(signal, "SIGKILL", 9)
+
 
 def process_birth_token(pid: int) -> str | None:
     """Return a stable-enough process identity token for one observed PID."""
@@ -198,7 +203,7 @@ class PosixProcessGroupStopper:
 
         kill_sent = False
         try:
-            self.signal_group(pgid, signal.SIGKILL)
+            self.signal_group(pgid, _POSIX_SIGKILL)
             kill_sent = True
         except ProcessLookupError:
             stopped = not self.group_alive(pgid)
