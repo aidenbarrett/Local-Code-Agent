@@ -91,6 +91,9 @@ RULES: tuple[tuple[str, tuple[str, ...] | None, str, str], ...] = (
      "identity of the instrument that produced them"),
     ("internal/personas/", None, NOT_INSTRUMENT,
      "chat persona configuration, deliberately outside the instrument"),
+    ("internal/ui/", None, NOT_INSTRUMENT,
+     "presentation assets and themes only; they do not grant authority, execute work, "
+     "or alter measurement/evaluation semantics"),
     ("internal/benchmark_fixture/", None, NOT_INSTRUMENT,
      "the fixture generator produces cpp_project; only its output is measured"),
     ("internal/bootstrap-work-laptop-core.ps1", None, NOT_INSTRUMENT,
@@ -112,7 +115,7 @@ RULES: tuple[tuple[str, tuple[str, ...] | None, str, str], ...] = (
 # already; this list makes the intent readable and the failure message specific.
 DECLARED_AREAS = frozenset({
     "benchmark_fixture", "devtools", "docs", "evaluation", "experiments", "local_agent",
-    "measurement", "personas", "scripts", "skills", "tests",
+    "measurement", "personas", "scripts", "skills", "tests", "ui",
 })
 
 

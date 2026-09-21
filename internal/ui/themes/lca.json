@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "neon": {
+    "background": "#070A12",
+    "surface": "#111522",
+    "foreground": "#EBF0F6",
+    "accent": "#FF36E2",
+    "secondary": "#00FFF0",
+    "warn": "#FFB840",
+    "fail": "#FF526E",
+    "verified": "#50FF96",
+    "muted": "#8791A5",
+    "focus": "#FFFFFF"
+  },
+  "high_contrast": {
+    "background": "#000000",
+    "surface": "#111111",
+    "foreground": "#FFFFFF",
+    "accent": "#FF7BE5",
+    "secondary": "#55FFFF",
+    "warn": "#FFD75F",
+    "fail": "#FF6B7A",
+    "verified": "#66FF99",
+    "muted": "#D0D0D0",
+    "focus": "#FFFFFF"
+  }
+}
