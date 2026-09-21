@@ -47,6 +47,19 @@ class RouteSnapshot:
         return " · ".join(parts)
 
 
+def _proposal_snapshot(payload: dict) -> RouteSnapshot:
+    return RouteSnapshot(
+        route_id=payload["route_id"],
+        revision=int(payload["revision"]),
+        source=payload["source"],
+        mode=payload["mode"],
+        skill=payload["skill"],
+        rule_id=payload["rule_id"],
+        explanation=payload["explanation"],
+        requires_acceptance=bool(payload["requires_acceptance"]),
+    )
+
+
 def project_routes(events: Iterable[dict]) -> tuple[RouteSnapshot, ...]:
     """Project route events in durable sequence order and fail on impossible transitions."""
     routes: dict[str, RouteSnapshot] = {}
@@ -60,21 +73,17 @@ def project_routes(events: Iterable[dict]) -> tuple[RouteSnapshot, ...]:
         last_sequence = sequence
         kind = event.get("kind")
         if kind == "route.proposed":
-            payload = event["payload"]
-            route_id = payload["route_id"]
-            if route_id in routes:
-                raise RouteReadModelError("route proposal identity was reused")
-            routes[route_id] = RouteSnapshot(
-                route_id=route_id,
-                revision=int(payload["revision"]),
-                source=payload["source"],
-                mode=payload["mode"],
-                skill=payload["skill"],
-                rule_id=payload["rule_id"],
-                explanation=payload["explanation"],
-                requires_acceptance=bool(payload["requires_acceptance"]),
-            )
-            order.append(route_id)
+            proposed = _proposal_snapshot(event["payload"])
+            current = routes.get(proposed.route_id)
+            if current is None:
+                routes[proposed.route_id] = proposed
+                order.append(proposed.route_id)
+                continue
+            # The producer derives a stable route UUID from the exact typed intent, so an
+            # exact repeated proposal is idempotent presentation input. A changed proposal
+            # under the same UUID, or a proposal after resolution, is inconsistent history.
+            if current.resolution is not None or current != proposed:
+                raise RouteReadModelError("route proposal identity was reused inconsistently")
             continue
 
         if kind != "route.resolved":
