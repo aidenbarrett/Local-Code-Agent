@@ -237,7 +237,21 @@ jobs:
           generation_axes = {"base_prompt_sha256", "outcome_contract_sha256"}
           if any(key in generation_axes for key, _, _ in drift):
               print("A model-facing or outcome-facing contract moved; review generation semantics before updating the declaration.")
-          else:
-              print("source_sha256 moved without a contract-axis move; update the source declaration after confirming the move is intended.")
+              sys.exit(1)
+
+          # Stacked PRs are early-CI candidates, not integration candidates.
+          # Keep contract axes fail-closed, but finalize source identity only
+          # after the child is reconciled directly onto live main.
+          import os
+          event = os.environ.get("GITHUB_EVENT_NAME", "")
+          base_ref = os.environ.get("GITHUB_BASE_REF", "")
+          if event == "pull_request" and base_ref and base_ref != "main":
+              print(
+                  f"source-only drift is provisional on stacked PR base {base_ref!r}; "
+                  "finalize source_sha256 after retarget/reconciliation onto main."
+              )
+              sys.exit(0)
+
+          print("source_sha256 moved on an integration candidate; update the source declaration after confirming the move is intended.")
           sys.exit(1)
           PY
