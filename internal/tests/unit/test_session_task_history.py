@@ -210,39 +210,74 @@ def test_existing_admission_event_backfills_turn_association_without_inventing_b
         reopened.artifact_bytes(request_ref)
 
 
-def test_gateway_uses_durable_history_not_process_local_last_result_after_resume(tmp_path, loaded):
+def test_gateway_routes_one_durable_failure_without_model_after_resume(tmp_path, loaded):
     _sandbox, repo, _reg, _store, _skills = loaded
     session = new_session("p", "m", "d")
     append_turn(session, "user", "inspect foo.py", 0)
     origin = turn_ref(session, 0)
     service = _service(tmp_path)
+    calls = []
+
+    class Runner:
+        def run(self, task, **kwargs):
+            calls.append((task, kwargs))
+            return TaskResult("diagnostic-task", TaskOutcome.BLOCKED, "diagnostic blocked", False)
+
     try:
         runner = DurableTaskAdmissionRunner(
             DurableTaskExecutor(service, _controller(repo, service, "durable compiler failure"))
         )
         runner.run("inspect foo.py", turn_ref=origin, route_source=RouteSource.USER_DIRECT)
 
-        chat = Chat(_reply("explained"))
+        chat = Chat()
         gateway = ConversationGateway(
             chat,
-            SimpleNamespace(run=lambda *a, **k: (_ for _ in ()).throw(AssertionError())),
+            SimpleNamespace(repo=repo, run=lambda *a, **k: (_ for _ in ()).throw(AssertionError())),
             EventBuffer("s"),
-            task_history=DurableTaskHistory(service.store),
+            task_runner=Runner(),
+            task_history=DurableTaskHistory(service.store, stream_id=service.stream_id),
         )
         gateway.session = session
         gateway.last_result = None
-        answer = gateway.turn("Why did that fail?")
+        gateway.turn("Why did that fail?")
 
-        assert "explained" in answer
-        prompt = chat.calls[0][0]
-        historical = [
-            item["content"] for item in prompt
-            if item["role"] == "system" and item["content"].startswith("Historical task observation")
-        ]
-        assert len(historical) == 1
-        assert "durable compiler failure" in historical[0]
-        assert "untrusted; not current verification" in historical[0]
-        assert [turn.role for turn in session.turns] == ["user", "user", "assistant"]
+        assert chat.calls == []
+        assert len(calls) == 1
+        task, kwargs = calls[0]
+        assert kwargs["route_source"] == RouteSource.RULE
+        assert kwargs["rule_id"] == "task-diagnostic/v1"
+        assert "durable compiler failure" in task
+        assert "untrusted historical data" in task
+        assert [turn.role for turn in session.turns] == ["user", "user"]
+    finally:
+        service.close()
+
+
+def test_durable_failure_candidates_do_not_hide_ambiguity(tmp_path, loaded):
+    _sandbox, repo, _reg, _store, _skills = loaded
+    service = _service(tmp_path)
+    try:
+        runner = DurableTaskAdmissionRunner(
+            DurableTaskExecutor(service, _controller(repo, service))
+        )
+        one = {
+            "conversation_id": "conv-1",
+            "turn_index": 0,
+            "turn_sha256": "a" * 64,
+        }
+        two = {
+            "conversation_id": "conv-1",
+            "turn_index": 1,
+            "turn_sha256": "b" * 64,
+        }
+        first = runner.run("first", turn_ref=one, route_source=RouteSource.USER_DIRECT)
+        second = runner.run("second", turn_ref=two, route_source=RouteSource.USER_DIRECT)
+        history = DurableTaskHistory(service.store, stream_id=service.stream_id)
+        candidates = history.failure_candidates("conv-1")
+        assert tuple(candidate.task_id for candidate in candidates) == (first.task_id, second.task_id)
+        assert candidates[0].turn_ref == one
+        assert candidates[1].turn_ref == two
+        assert history.observation_for(candidates[0]).answer == "Compiler rejected foo.py"
     finally:
         service.close()
 

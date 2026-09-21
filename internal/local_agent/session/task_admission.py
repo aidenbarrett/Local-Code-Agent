@@ -89,6 +89,16 @@ def _deadline_utc(controller) -> str:
     return deadline.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _optional_label(value: str | None, *, name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a nonempty string when present")
+    if len(value) > 128:
+        raise ValueError(f"{name} exceeds size limit")
+    return value
+
+
 class DurableTaskAdmissionRunner:
     """Synchronous gateway adapter over the non-blocking durable executor."""
 
@@ -101,17 +111,30 @@ class DurableTaskAdmissionRunner:
         *,
         turn_ref: dict[str, object],
         request_id: str,
+        rule_id: str | None,
     ) -> dict[str, object]:
         if source == RouteSource.USER_DIRECT:
+            if rule_id is not None:
+                raise ValueError("user-direct admission cannot carry rule identity")
             return {"kind": "user_direct", "turn_ref": turn_ref}
         if source == RouteSource.MODEL_PROPOSAL:
+            if rule_id is not None:
+                raise ValueError("model-proposal admission cannot carry rule identity")
             proposal_id = uuid5(UUID(self.executor.service.stream_id), request_id + ":proposal")
             return {
                 "kind": "model_proposal",
                 "turn_ref": turn_ref,
                 "proposal_id": str(proposal_id),
             }
-        raise ValueError("rule admission requires a resolved rule identity")
+        if source == RouteSource.RULE:
+            if rule_id is None:
+                raise ValueError("rule admission requires a resolved rule identity")
+            return {
+                "kind": "user_rule",
+                "turn_ref": turn_ref,
+                "rule_id": rule_id,
+            }
+        raise ValueError(f"unsupported route source: {source.value}")
 
     def run(
         self,
@@ -120,13 +143,24 @@ class DurableTaskAdmissionRunner:
         turn_ref: dict[str, object],
         self_check: bool = False,
         route_source: RouteSource | str = RouteSource.MODEL_PROPOSAL,
+        rule_id: str | None = None,
+        skill: str | None = None,
     ) -> TaskResult:
         source = route_source if isinstance(route_source, RouteSource) else RouteSource(route_source)
         saved_turn = _turn_ref(turn_ref)
+        rule_id = _optional_label(rule_id, name="rule_id")
+        skill = _optional_label(skill, name="skill")
+        if source != RouteSource.RULE and rule_id is not None:
+            raise ValueError("only rule-origin admission may carry rule identity")
+        if source == RouteSource.RULE and rule_id is None:
+            raise ValueError("rule admission requires a resolved rule identity")
+
         request_identity = {
             "turn_ref": saved_turn,
             "route_source": source.value,
             "self_check": bool(self_check),
+            "rule_id": rule_id,
+            "skill": skill,
         }
         request_id = "gateway:" + hashlib.sha256(_canonical_bytes(request_identity)).hexdigest()
         request_bytes = _canonical_bytes({**request_identity, "task": task})
@@ -136,7 +170,12 @@ class DurableTaskAdmissionRunner:
             request_id + ":request",
         )
         admission_payload = {
-            "origin": self._origin(source, turn_ref=saved_turn, request_id=request_id),
+            "origin": self._origin(
+                source,
+                turn_ref=saved_turn,
+                request_id=request_id,
+                rule_id=rule_id,
+            ),
             "request_ref": {
                 "artifact_id": str(request_artifact_id),
                 "sha256": payload_sha256,
@@ -146,7 +185,7 @@ class DurableTaskAdmissionRunner:
             },
             "contract_sha256": execution_contract_sha256(self.executor.controller),
             "repository_id": repository_id(self.executor.controller.repo),
-            "skill": None,
+            "skill": skill,
             "execution_epoch": 0,
             "deadline_utc": _deadline_utc(self.executor.controller),
         }

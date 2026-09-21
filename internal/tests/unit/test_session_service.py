@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 
 from local_agent.session.contracts import TaskOutcome, TaskResult
+from local_agent.session.results import verdict_block_from_task_result
 from local_agent.session.session_event_service import (
     DurableSessionService,
     DurableTaskExecutor,
@@ -274,6 +275,8 @@ def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(
                 TaskOutcome.FAIL,
                 "verification failed",
                 False,
+                ("compiler:0",),
+                {"tree_sha256": "1" * 64},
                 verification_ran=True,
             )
 
@@ -290,12 +293,17 @@ def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(
         result = first.wait(10)
         assert result is not None and result.outcome == TaskOutcome.FAIL
         assert calls == [first.task_id]
-        assert [event["kind"] for event in service.replay()] == [
+        events = service.replay()
+        assert [event["kind"] for event in events] == [
             "task.admitted", "task.state_changed", "task.verdict", "task.closed"
         ]
+        verdict = next(event for event in events if event["kind"] == "task.verdict")
+        assert verdict["payload"]["completion"]["verdict_block"] == (
+            verdict_block_from_task_result(result).as_payload()
+        )
         record = service.store.task_record(first.task_id)
         assert record is not None and record["terminal"] is True
-        assert record["result_ref"] == service.replay()[-1]["payload"]["result_ref"]
+        assert record["result_ref"] == events[-1]["payload"]["result_ref"]
         assert record["result_ref"]["availability"] == "retained"
         assert service.store.artifact_bytes(record["result_ref"])
 
