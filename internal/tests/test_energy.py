@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import math
 from pathlib import Path
@@ -59,16 +59,21 @@ def test_duplicate_sensor_name_refuses(tmp_path):
 
 def test_command_manifest_with_synthetic_csv_sampler(tmp_path):
     # Synthetic watts test wiring and integration only, not a hardware energy claim.
+    # Give the synthetic stream a small explicit bracketing margin. energy.main records
+    # the command end and immediately reads the CSV, so a real-time-only producer races
+    # that read on fast commands and can truthfully be rejected as unobserved.
     import threading
-    import time
     csv_path = tmp_path/'live.csv'
     done = threading.Event()
     ready = threading.Event()
+    margin = timedelta(seconds=.05)
     def logger():
         with csv_path.open('w') as fh:
             fh.write('Date,Time,CPU Package Power [W]\n')
+            before = (datetime.now() - margin).strftime('%d.%m.%Y,%H:%M:%S.%f')
+            fh.write(before+',10\n')
             while not done.is_set():
-                stamp = datetime.now().strftime('%d.%m.%Y,%H:%M:%S.%f')
+                stamp = (datetime.now() + margin).strftime('%d.%m.%Y,%H:%M:%S.%f')
                 fh.write(stamp+',10\n'); fh.flush(); ready.set()
                 done.wait(.02)
     thread = threading.Thread(target=logger)
