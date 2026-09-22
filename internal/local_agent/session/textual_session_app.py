@@ -88,6 +88,15 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
 
     def on_hub_input_submitted(self, message: HubInputSubmitted) -> None:
         """Submit exact composer text without blocking Textual or inventing UI state."""
+        normalized = message.text.strip().lower()
+        if normalized in {"/quit", "/exit"}:
+            if self._turn_future is not None and not self._turn_future.done():
+                self._status("Quit refused · conversation turn is still running")
+                return
+            self._turn_status = None
+            self.exit()
+            return
+
         if self._turn_future is not None and not self._turn_future.done():
             self._status("Busy · one conversation turn is already running")
             return
