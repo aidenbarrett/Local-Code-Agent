@@ -11,6 +11,7 @@ from ..tools import build_registry
 from .contracts import RouteSource, TaskOutcome, TaskResult
 from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
+from .execution_source import TaskExecutionSource
 
 
 class TaskController:
@@ -32,11 +33,14 @@ class TaskController:
         task: str,
         *,
         self_check: bool = False,
-        route_source: RouteSource | str = RouteSource.MODEL_PROPOSAL,
+        route_source: RouteSource | TaskExecutionSource | str = RouteSource.MODEL_PROPOSAL,
         task_id: str | None = None,
         durable_activity=None,
     ) -> TaskResult:
-        source = route_source if isinstance(route_source, RouteSource) else RouteSource(route_source)
+        # ``route_source`` is retained as the existing call-surface name while the
+        # controller now validates the broader execution provenance vocabulary. The
+        # conversation layer still owns RouteSource; watch is never a synthetic route.
+        source = TaskExecutionSource.coerce(route_source)
         if task_id is None:
             task_id = uuid4().hex
         else:
