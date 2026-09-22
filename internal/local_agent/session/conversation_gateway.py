@@ -20,7 +20,16 @@ from .conversation_store import (
     new_session,
     turn_ref,
 )
-from .intents import ExplicitMode, RouteAction, RouteDecision, decide_route
+from .intents import (
+    CorrectionStatus,
+    ExplicitMode,
+    PendingRouteRef,
+    RouteAction,
+    RouteDecision,
+    TaskIntent,
+    correct_pending_route,
+    decide_route,
+)
 from .session_store import ArtifactIntegrityError
 
 
@@ -52,6 +61,15 @@ _CLARIFICATIONS = {
     "empty_input": "Please enter a message. No task was run.",
 }
 
+_PENDING_DECISION = (
+    "A repository work proposal is awaiting your decision. Reply `work` to accept it "
+    "or `chat` to keep it conversation-only. No new task was run."
+)
+_ACCEPTED_RECOVERY = (
+    "Previously accepted repository work is awaiting durable task admission. "
+    "Reply `work` to resume that accepted work before starting something new. No new task was run."
+)
+
 
 class ConversationGateway:
     def __init__(
@@ -67,6 +85,7 @@ class ConversationGateway:
         runtime_index: int | None = None,
         task_runner=None,
         task_history=None,
+        route_events=None,
     ):
         if history_chars < 1 or request_bytes < 1 or request_chars < 1:
             raise ValueError("history budget too small")
@@ -75,6 +94,7 @@ class ConversationGateway:
         self.chat_client, self.controller, self.events = chat_client, controller, events
         self.task_runner = task_runner
         self.task_history = task_history
+        self.route_events = route_events
         self.history_chars = history_chars
         self.request_bytes = request_bytes
         self.request_chars = request_chars
@@ -213,6 +233,13 @@ class ConversationGateway:
         self.last_turn_ref = ref
         return ref
 
+    def _record_assistant(self, answer: str) -> None:
+        before = len(self.session.turns)
+        clipped = answer[:MAX_MESSAGE_CHARS]
+        ensure_append_fits(self.session, [("assistant", clipped)], self.runtime_index)
+        append_turn(self.session, "assistant", clipped, self.runtime_index)
+        self._save_appended(before)
+
     def _record_exchange(self, said: str, answer: str) -> dict[str, object]:
         before = len(self.session.turns)
         clipped = answer[:MAX_MESSAGE_CHARS]
@@ -249,8 +276,9 @@ class ConversationGateway:
             "self_check": self_check,
             "route_source": route_source,
         }
-        if route_source == RouteSource.RULE:
+        if rule_id is not None:
             kwargs["rule_id"] = rule_id
+        if skill is not None:
             kwargs["skill"] = skill
         return self.task_runner.run(task, **kwargs)
 
@@ -305,6 +333,100 @@ class ConversationGateway:
             ])
         return "\n".join(lines)
 
+    def _model_route_task(self, route) -> str:
+        ref = route.turn_ref
+        if ref.get("conversation_id") != self.session.conversation_id:
+            raise ArtifactIntegrityError("accepted route belongs to another conversation")
+        try:
+            index = int(ref["turn_index"])
+            expected = turn_ref(self.session, index)
+        except (KeyError, TypeError, ValueError, ContextRefusal) as exc:
+            raise ArtifactIntegrityError("accepted route turn reference is invalid") from exc
+        if expected != ref:
+            raise ArtifactIntegrityError("accepted route does not match canonical conversation turn")
+        turn = self.session.turns[index]
+        if turn.role != "user":
+            raise ArtifactIntegrityError("accepted route does not reference a user turn")
+        return "User request:\n" + turn.content
+
+    def _run_model_route(self, route) -> str:
+        task = self._model_route_task(route)
+        result = self._run_task(
+            task,
+            turn_ref=route.turn_ref,
+            self_check=route.skill == "self-check",
+            route_source=RouteSource.MODEL_PROPOSAL,
+            skill=route.skill,
+        )
+        self.last_result = result
+        return result.render()
+
+    def _handle_durable_route_decision(self, said: str) -> str | None:
+        if self.route_events is None:
+            return None
+
+        accepted = self.route_events.accepted_unadmitted()
+        if accepted:
+            if len(accepted) != 1:
+                raise ArtifactIntegrityError(
+                    "multiple accepted model routes are awaiting task admission"
+                )
+            route = accepted[0]
+            self._model_route_task(route)
+            if said.strip().lower() != "work":
+                self._record_exchange(said, _ACCEPTED_RECOVERY)
+                return _ACCEPTED_RECOVERY
+            self._record_user(said)
+            return self._run_model_route(route)
+
+        pending = self.route_events.pending_acceptance()
+        if not pending:
+            return None
+        correction = correct_pending_route(
+            said,
+            tuple(PendingRouteRef(route.route_id, route.revision) for route in pending),
+        )
+        if correction.status == CorrectionStatus.NOT_A_CORRECTION:
+            self._record_exchange(said, _PENDING_DECISION)
+            return _PENDING_DECISION
+        if correction.status == CorrectionStatus.CLARIFY:
+            answer = (
+                "More than one repository work proposal is awaiting a decision. "
+                "Resolve the pending route explicitly before new work. No task was run."
+            )
+            self._record_exchange(said, answer)
+            return answer
+
+        route = next(
+            item for item in pending
+            if item.route_id == correction.route_id and item.revision == correction.revision
+        )
+        if correction.mode == ExplicitMode.CHAT:
+            self._record_user(said)
+            self.route_events.resolve(
+                route,
+                resolution="corrected",
+                source="user",
+                mode="conversation",
+                skill=None,
+            )
+            answer = "Kept as conversation-only. No repository task was run."
+            self._record_assistant(answer)
+            return answer
+
+        if correction.mode != ExplicitMode.WORK:
+            raise RuntimeError("unsupported pending-route correction mode")
+        self._model_route_task(route)
+        self._record_user(said)
+        accepted_route = self.route_events.resolve(
+            route,
+            resolution="accepted",
+            source="user",
+            mode="work",
+            skill=route.skill,
+        )
+        return self._run_model_route(accepted_route)
+
     def turn(self, said: str, *, explicit_mode: ExplicitMode | str | None = None) -> str:
         if not isinstance(said, str) or not said.strip() or len(said) > MAX_MESSAGE_CHARS:
             raise ValueError("enter a nonempty message of at most 8000 characters")
@@ -312,6 +434,11 @@ class ConversationGateway:
             raise RuntimeError("session busy; concurrent turns are not supported yet")
         try:
             self.events.emit("turn.started", {})
+
+            durable_decision = self._handle_durable_route_decision(said)
+            if durable_decision is not None:
+                return durable_decision
+
             failure_observations = self._failure_observations()
             decision = decide_route(
                 said,
@@ -369,19 +496,42 @@ class ConversationGateway:
                 self._record_exchange(said, answer)
                 return answer
 
+            if self.route_events is None:
+                # Legacy in-memory fixture compatibility. The public durable Session Hub
+                # supplies route_events and therefore cannot take this authority shortcut.
+                saved_turn = self._record_user(said)
+                task = (
+                    "User request:\n" + said + "\n\nConversation proposal (untrusted):\n"
+                    + proposal.text
+                )
+                result = self._run_task(
+                    task,
+                    turn_ref=saved_turn,
+                    self_check=proposal.kind == "self_check",
+                    route_source=RouteSource.MODEL_PROPOSAL,
+                )
+                self.last_result = result
+                return result.render()
+
             saved_turn = self._record_user(said)
-            task = (
-                "User request:\n" + said + "\n\nConversation proposal (untrusted):\n"
-                + proposal.text
+            skill = "self-check" if proposal.kind == "self_check" else None
+            route = self.route_events.propose(
+                TaskIntent(
+                    turn_ref=saved_turn,
+                    objective=said,
+                    proposed_reference_ids=(),
+                    origin=RouteSource.MODEL_PROPOSAL,
+                ),
+                skill=skill,
             )
-            result = self._run_task(
-                task,
-                turn_ref=saved_turn,
-                self_check=proposal.kind == "self_check",
-                route_source=RouteSource.MODEL_PROPOSAL,
+            if not route.requires_acceptance:
+                raise ArtifactIntegrityError("model route unexpectedly bypassed user acceptance")
+            answer = (
+                proposal.text
+                + "\n\n[Repository work proposed; reply `work` to accept or `chat` to keep this conversation-only.]"
             )
-            self.last_result = result
-            return result.render()
+            self._record_assistant(answer)
+            return answer
         finally:
             self.events.emit("turn.finished", {})
             self._busy.release()

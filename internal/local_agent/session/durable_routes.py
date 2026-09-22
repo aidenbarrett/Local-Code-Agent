@@ -71,8 +71,6 @@ class DurableRouteEvents:
 
     def __init__(self, service) -> None:
         self.service = service
-        # Route UUIDs are stream-scoped so a persisted route cannot be confused
-        # with a proposal from another Session Hub event stream.
         UUID(service.stream_id)
 
     def propose(self, intent: TaskIntent, *, skill: str | None = None) -> DurableRouteRef:
@@ -110,26 +108,24 @@ class DurableRouteEvents:
             requires_acceptance=requires_acceptance,
         )
 
-    def pending_acceptance(
+    def _recover_history(
         self,
         *,
-        replay_page: int = 1000,
-        max_events: int = 20_000,
-    ) -> tuple[DurableRouteRef, ...]:
-        """Recover unresolved routes that still require explicit user acceptance.
-
-        This is producer-side recovery state, not a presentation projection. It rebuilds
-        only from committed events so a future gateway acceptance turn can survive a
-        process restart without trusting UI memory. Impossible route history fails closed.
-        """
+        replay_page: int,
+        max_events: int,
+    ) -> tuple[
+        list[str],
+        dict[str, tuple[DurableRouteRef, bytes, dict[str, object]]],
+        dict[str, dict[str, object]],
+    ]:
         if not isinstance(replay_page, int) or isinstance(replay_page, bool) or replay_page < 1:
             raise ValueError("route replay page must be a positive integer")
         if not isinstance(max_events, int) or isinstance(max_events, bool) or max_events < 1:
             raise ValueError("route replay event limit must be a positive integer")
 
-        proposals: dict[str, tuple[DurableRouteRef, bytes]] = {}
+        proposals: dict[str, tuple[DurableRouteRef, bytes, dict[str, object]]] = {}
         order: list[str] = []
-        resolved: set[str] = set()
+        resolutions: dict[str, dict[str, object]] = {}
         cursor = 0
         seen = 0
 
@@ -168,6 +164,7 @@ class DurableRouteEvents:
                             or revision != 0
                         ):
                             raise ValueError("proposal revision must be zero")
+                        source = RouteSource(payload["source"])
                         ref = DurableRouteRef(
                             route_id=payload["route_id"],
                             revision=revision,
@@ -178,16 +175,19 @@ class DurableRouteEvents:
                         fingerprint = _canonical_bytes(payload)
                     except (KeyError, TypeError, ValueError) as exc:
                         raise DurableRouteError("durable route proposal is malformed") from exc
+                    if ref.requires_acceptance != (source == RouteSource.MODEL_PROPOSAL):
+                        raise DurableRouteError(
+                            "durable route proposal acceptance requirement disagrees with source"
+                        )
 
                     current = proposals.get(ref.route_id)
                     if current is not None:
-                        if ref.route_id in resolved or current[1] != fingerprint:
+                        if ref.route_id in resolutions or current[1] != fingerprint:
                             raise DurableRouteError(
                                 "durable route proposal identity was reused inconsistently"
                             )
-                        # Exact replay of the same deterministic proposal is idempotent.
                         continue
-                    proposals[ref.route_id] = (ref, fingerprint)
+                    proposals[ref.route_id] = (ref, fingerprint, dict(payload))
                     order.append(ref.route_id)
                     continue
 
@@ -200,7 +200,7 @@ class DurableRouteEvents:
                 current = proposals.get(route_id)
                 if current is None:
                     raise DurableRouteError("durable route resolution has no proposal")
-                if route_id in resolved:
+                if route_id in resolutions:
                     raise DurableRouteError("durable route was resolved more than once")
                 resolution = payload.get("resolution")
                 if resolution not in {"accepted", "corrected", "rejected"}:
@@ -211,13 +211,79 @@ class DurableRouteEvents:
                 expected = current[0].revision + (1 if resolution == "corrected" else 0)
                 if revision != expected:
                     raise DurableRouteError("durable route resolution revision is inconsistent")
-                resolved.add(route_id)
+                mode = payload.get("mode")
+                source = payload.get("source")
+                if mode not in {"conversation", "work", "clarify"}:
+                    raise DurableRouteError("durable route resolution mode is unknown")
+                if source not in {"user", "controller"}:
+                    raise DurableRouteError("durable route resolution source is unknown")
+                try:
+                    skill = _optional_skill(payload.get("skill"))
+                except ValueError as exc:
+                    raise DurableRouteError("durable route resolution skill is malformed") from exc
+                if mode != "work" and skill is not None:
+                    raise DurableRouteError("non-work durable route resolution carries a skill")
+                if resolution in {"corrected", "rejected"} and source != "user":
+                    raise DurableRouteError("route correction/rejection is not user-authored")
+                if current[0].requires_acceptance and resolution == "accepted":
+                    if source != "user" or mode != "work":
+                        raise DurableRouteError(
+                            "model-proposed work was accepted without explicit user work authority"
+                        )
+                    if skill != current[0].skill:
+                        raise DurableRouteError(
+                            "accepted model route changed skill without a correction revision"
+                        )
+                resolutions[str(route_id)] = dict(payload)
 
+        return order, proposals, resolutions
+
+    def pending_acceptance(
+        self,
+        *,
+        replay_page: int = 1000,
+        max_events: int = 20_000,
+    ) -> tuple[DurableRouteRef, ...]:
+        """Recover unresolved routes that still require explicit user acceptance."""
+        order, proposals, resolutions = self._recover_history(
+            replay_page=replay_page,
+            max_events=max_events,
+        )
         return tuple(
             proposals[route_id][0]
             for route_id in order
-            if route_id not in resolved and proposals[route_id][0].requires_acceptance
+            if route_id not in resolutions and proposals[route_id][0].requires_acceptance
         )
+
+    def accepted_unadmitted(
+        self,
+        *,
+        replay_page: int = 1000,
+        max_events: int = 20_000,
+    ) -> tuple[DurableRouteRef, ...]:
+        """Recover accepted model-work routes whose original turn has no durable task."""
+        order, proposals, resolutions = self._recover_history(
+            replay_page=replay_page,
+            max_events=max_events,
+        )
+        out: list[DurableRouteRef] = []
+        for route_id in order:
+            ref = proposals[route_id][0]
+            resolved = resolutions.get(route_id)
+            if not ref.requires_acceptance or resolved is None:
+                continue
+            if resolved.get("resolution") != "accepted":
+                continue
+            if self.service.store.task_ids_for_turn(ref.turn_ref):
+                continue
+            out.append(DurableRouteRef(
+                route_id=ref.route_id,
+                revision=int(resolved["revision"]),
+                turn_ref=ref.turn_ref,
+                skill=_optional_skill(resolved.get("skill")),
+                requires_acceptance=False,
+            ))
+        return tuple(out)
 
     def resolve(
         self,
