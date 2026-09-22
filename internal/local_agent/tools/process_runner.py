@@ -4,16 +4,16 @@ Every command runs with a fixed argv from the repository config, a working
 directory pinned to the repository root, a timeout, and its output captured to
 disk rather than into the context window.
 
-Timeout is an execution-state claim, not just a return code. A POSIX session gives
-us a useful process group to kill, but it is not containment: a descendant can
-call ``setsid()`` and escape that group. Windows process enumeration has the same
-proof problem until the runner owns a Job Object. Timeout cleanup is therefore
-reported as unconfirmed on both platforms unless stronger OS containment exists.
+Timeout and cancellation are execution-state claims, not just return codes. A POSIX
+session gives us a useful process group to kill, but it is not containment: a descendant
+can call ``setsid()`` and escape that group. Windows process enumeration has the same
+proof problem until the runner owns a Job Object. Cleanup is therefore reported as
+unconfirmed on both platforms unless stronger OS containment exists.
 
 Child output is written to private temporary files and snapshotted into the
-public run artifacts only after the direct child exits or timeout handling
-completes. An escaped descendant can therefore neither hold ``communicate()``
-open forever nor mutate the evidence files after ``run_command`` returns.
+public run artifacts only after the direct child exits or timeout/cancellation handling
+completes. An escaped descendant can therefore neither hold ``communicate()`` open forever
+nor mutate the evidence files after ``run_command`` returns.
 """
 
 from __future__ import annotations
@@ -28,13 +28,23 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Protocol
 
 import psutil
 
 
 _POST_KILL_WAIT_S = 2.0
 _POST_KILL_FORCE_WAIT_S = 1.0
+_CANCEL_POLL_S = 0.05
+
+
+class CommandCancellationRequested(RuntimeError):
+    """Cancellation was already requested before a command side effect began."""
+
+
+class CancellationProbe(Protocol):
+    @property
+    def requested(self) -> bool: ...
 
 
 @dataclass
@@ -47,15 +57,16 @@ class RunOutcome:
     stdout_path: Path
     stderr_path: Path
     combined_path: Path
-    # None means no timeout cleanup was required. False means best-effort
-    # cleanup ran but the runner cannot prove whole-tree containment. True is
-    # reserved for a future implementation that owns the process tree with a
-    # primitive such as a Linux cgroup or Windows Job Object.
+    # None means no timeout/cancellation cleanup was required. False means best-effort
+    # cleanup ran but the runner cannot prove whole-tree containment. True is reserved
+    # for a future implementation that owns the process tree with a primitive such as a
+    # Linux cgroup or Windows Job Object.
     process_cleanup_confirmed: bool | None = None
+    cancel_requested: bool = False
 
     @property
     def ok(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out
+        return self.exit_code == 0 and not self.timed_out and not self.cancel_requested
 
 
 def new_run_dir(run_root: Path) -> tuple[str, Path]:
@@ -95,8 +106,8 @@ def _best_effort_windows_tree_kill(proc: subprocess.Popen) -> None:
             pass
 
 
-def _kill_timed_out_process(proc: subprocess.Popen) -> bool:
-    """Best-effort timeout cleanup; return whether whole-tree cleanup is proven."""
+def _kill_process_tree_best_effort(proc: subprocess.Popen) -> bool:
+    """Best-effort cleanup; return whether whole-tree cleanup is proven."""
     if os.name == "nt":
         _best_effort_windows_tree_kill(proc)
         # Enumeration is not containment. A Windows Job Object is required before
@@ -116,7 +127,7 @@ def _kill_timed_out_process(proc: subprocess.Popen) -> bool:
 
 
 def _bounded_reap(proc: subprocess.Popen) -> None:
-    """Reap the direct child without ever turning timeout cleanup into a hang."""
+    """Reap the direct child without ever turning cleanup into a hang."""
     try:
         proc.wait(timeout=_POST_KILL_WAIT_S)
         return
@@ -130,8 +141,8 @@ def _bounded_reap(proc: subprocess.Popen) -> None:
     try:
         proc.wait(timeout=_POST_KILL_FORCE_WAIT_S)
     except subprocess.TimeoutExpired:
-        # The timeout result remains fail-closed. Returning is preferable to
-        # hanging the controller while pretending the process tree was owned.
+        # The timeout/cancellation result remains fail-closed. Returning is preferable
+        # to hanging the controller while pretending the process tree was owned.
         pass
 
 
@@ -144,15 +155,29 @@ def _snapshot_capture(capture: BinaryIO) -> str:
         return view[:].decode("utf-8", errors="replace")
 
 
+def _probe_requested(probe: CancellationProbe | None) -> bool:
+    if probe is None:
+        return False
+    requested = probe.requested
+    if not isinstance(requested, bool):
+        raise TypeError("cancellation probe requested state must be boolean")
+    return requested
+
+
 def run_command(
     command: list[str],
     cwd: Path,
     run_root: Path,
     timeout_s: int,
     env_overrides: dict[str, str] | None = None,
+    cancellation_probe: CancellationProbe | None = None,
 ) -> RunOutcome:
     if not command:
         raise ValueError("empty command")
+    if timeout_s <= 0:
+        raise ValueError("command timeout must be positive")
+    if _probe_requested(cancellation_probe):
+        raise CommandCancellationRequested("command cancellation was requested before spawn")
 
     from .tool_primitives import BlockedError, Reason
 
@@ -176,7 +201,9 @@ def run_command(
     env.setdefault("GIT_PAGER", "cat")
 
     started = time.monotonic()
+    deadline = started + timeout_s
     timed_out = False
+    cancel_requested = False
     cleanup_confirmed: bool | None = None
     try:
         # These captures never live inside the public run directory. If an
@@ -195,13 +222,32 @@ def run_command(
                 stderr=stderr_capture,
                 start_new_session=(os.name != "nt"),
             )
-            try:
-                code = int(proc.wait(timeout=timeout_s))
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                cleanup_confirmed = _kill_timed_out_process(proc)
-                _bounded_reap(proc)
-                code = 124
+            code: int | None = None
+            while code is None:
+                try:
+                    if _probe_requested(cancellation_probe):
+                        cancel_requested = True
+                        cleanup_confirmed = _kill_process_tree_best_effort(proc)
+                        _bounded_reap(proc)
+                        code = 130
+                        break
+                except BaseException:
+                    # A broken cancellation source must not strand a child process.
+                    _kill_process_tree_best_effort(proc)
+                    _bounded_reap(proc)
+                    raise
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    cleanup_confirmed = _kill_process_tree_best_effort(proc)
+                    _bounded_reap(proc)
+                    code = 124
+                    break
+                try:
+                    code = int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
+                except subprocess.TimeoutExpired:
+                    continue
 
             stdout = _snapshot_capture(stdout_capture)
             stderr = _snapshot_capture(stderr_capture)
@@ -215,6 +261,11 @@ def run_command(
             f"\n[local-agent] command exceeded {timeout_s}s; "
             f"process-tree cleanup confirmed={str(cleanup_confirmed).lower()}\n"
         )
+    if cancel_requested:
+        stderr += (
+            "\n[local-agent] command cancellation requested; "
+            f"process-tree cleanup confirmed={str(cleanup_confirmed).lower()}\n"
+        )
 
     elapsed = time.monotonic() - started
 
@@ -224,6 +275,7 @@ def run_command(
     (run_dir / "command.txt").write_text(
         " ".join(command)
         + f"\nexit={code} elapsed={elapsed:.2f}s timed_out={str(timed_out).lower()} "
+        + f"cancel_requested={str(cancel_requested).lower()} "
         + f"cleanup_confirmed={cleanup_confirmed}\n",
         encoding="utf-8",
     )
@@ -238,4 +290,5 @@ def run_command(
         stderr_path=stderr_path,
         combined_path=combined_path,
         process_cleanup_confirmed=cleanup_confirmed,
+        cancel_requested=cancel_requested,
     )
