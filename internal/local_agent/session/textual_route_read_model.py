@@ -116,16 +116,21 @@ def project_routes(events: Iterable[dict]) -> tuple[RouteSnapshot, ...]:
     return tuple(routes[route_id] for route_id in order)
 
 
-def latest_route_summary(events: Iterable[dict]) -> str | None:
+def latest_route_snapshot(events: Iterable[dict]) -> RouteSnapshot | None:
+    """Return the latest typed durable route state for presentation decisions."""
     routes = project_routes(events)
-    if not routes:
-        return None
-    return routes[-1].summary()
+    return None if not routes else routes[-1]
+
+
+def latest_route_summary(events: Iterable[dict]) -> str | None:
+    latest = latest_route_snapshot(events)
+    return None if latest is None else latest.summary()
 
 
 __all__ = [
     "RouteReadModelError",
     "RouteSnapshot",
+    "latest_route_snapshot",
     "latest_route_summary",
     "project_routes",
 ]
