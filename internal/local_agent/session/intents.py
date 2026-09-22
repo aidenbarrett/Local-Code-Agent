@@ -315,7 +315,7 @@ def task_intent_from_decision(decision: RouteDecision, turn_ref: dict[str, objec
 
 
 def correct_pending_route(text: str, pending: Sequence[PendingRouteRef]) -> RouteCorrection:
-    """Apply the one-word work/chat correction only to one explicit pending route."""
+    """Apply one-word work acceptance or chat correction to one pending route."""
     if not isinstance(text, str):
         raise TypeError("route correction must be text")
     normalized = text.strip().lower()
@@ -329,9 +329,11 @@ def correct_pending_route(text: str, pending: Sequence[PendingRouteRef]) -> Rout
     if len(candidates) > 1:
         return RouteCorrection(CorrectionStatus.CLARIFY, reason_code="ambiguous_pending_route")
     current = candidates[0]
+    mode = ExplicitMode(normalized)
+    revision = current.revision + (1 if mode == ExplicitMode.CHAT else 0)
     return RouteCorrection(
         CorrectionStatus.APPLIED,
         route_id=current.route_id,
-        revision=current.revision + 1,
-        mode=ExplicitMode(normalized),
+        revision=revision,
+        mode=mode,
     )
