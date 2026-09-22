@@ -34,6 +34,21 @@ def test_session_modules_use_explicit_role_names():
         import_module(f"local_agent.session.{Path(new_name).stem}")
 
 
+def test_endpoint_arbitration_has_one_policy_owner():
+    """Do not reintroduce the duplicate scheduler merged in PR #148.
+
+    EndpointArbiter is the controller-owned queue/lease policy. EndpointRuntime and
+    EndpointCallAdapter may compose it, but a sibling scheduler module is a second
+    authority and must fail structurally before callers can accidentally select it.
+    """
+    assert not (SESSION_DIR / "scheduler.py").exists(), (
+        "duplicate endpoint scheduler authority returned; extend endpoint_lease.py / "
+        "endpoint_runtime.py / endpoint_call.py instead"
+    )
+    endpoint_lease = import_module("local_agent.session.endpoint_lease")
+    assert hasattr(endpoint_lease, "EndpointArbiter")
+
+
 def test_python_module_names_do_not_collide_with_durable_wire_namespace():
     module_names = {
         path.stem
