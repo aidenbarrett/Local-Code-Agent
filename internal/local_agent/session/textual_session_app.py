@@ -10,6 +10,8 @@ from __future__ import annotations
 from concurrent.futures import Future
 from dataclasses import replace
 
+from textual.widgets import Input
+
 from .textual_dispatch import HubTurnBusy, HubTurnDispatcher, HubTurnDispatcherClosed
 from .textual_feed import DurableHubFeed, HubFeedError
 from .textual_hub import HubInputSubmitted, HubViewState
@@ -86,26 +88,43 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
         self._turn_status = text
         self.replace_state(replace(self.view_state, status=text))
 
+    def _restore_draft(self, text: str) -> None:
+        """Put rejected composer text back; refusal must never silently eat user input."""
+        self.query_one("#composer", Input).value = text
+
     def on_hub_input_submitted(self, message: HubInputSubmitted) -> None:
         """Submit exact composer text without blocking Textual or inventing UI state."""
         normalized = message.text.strip().lower()
         if normalized in {"/quit", "/exit"}:
             if self._turn_future is not None and not self._turn_future.done():
+                self._restore_draft(message.text)
                 self._status("Quit refused · conversation turn is still running")
                 return
             self._turn_status = None
             self.exit()
             return
 
+        # Once the durable truth feed fails, the presentation no longer knows enough
+        # to authorize another conversation turn. Refuse new work until a fresh app/feed
+        # establishes an authoritative replay boundary. The base shell clears the Input
+        # before posting this message, so every refusal restores the exact submitted text.
+        if self._feed_failed:
+            self._restore_draft(message.text)
+            self._status("Turn refused · durable feed is unavailable; restart to resnapshot")
+            return
+
         if self._turn_future is not None and not self._turn_future.done():
+            self._restore_draft(message.text)
             self._status("Busy · one conversation turn is already running")
             return
         try:
             future = self.turn_dispatcher.submit(message.text)
         except HubTurnBusy:
+            self._restore_draft(message.text)
             self._status("Busy · one conversation turn is already running")
             return
         except HubTurnDispatcherClosed:
+            self._restore_draft(message.text)
             self._status("Turn refused · conversation dispatcher is closed")
             return
         self._turn_future = future
