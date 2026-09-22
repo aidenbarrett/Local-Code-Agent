@@ -22,7 +22,8 @@ $python = @(
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if (-not $python) {
-    $python = (Get-Command python -ErrorAction SilentlyContinue).Source
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCommand) { $python = $pythonCommand.Source }
 }
 if (-not $python) {
     Write-Host ''
@@ -34,6 +35,29 @@ if (-not $python) {
 
 $existingPythonPath = if (Test-Path Env:PYTHONPATH) { $env:PYTHONPATH } else { $null }
 $env:PYTHONPATH = if ($existingPythonPath) { "$internal;$existingPythonPath" } else { $internal }
+
+# Validate the exact interpreter selected above before any public command can import
+# product code, start OVMS, or prepare a model.  This is diagnostic-only: startup never
+# runs pip or reaches the network to repair a stale checkout environment.
+$preflight = Join-Path $internal 'scripts\runtime-preflight.py'
+$pyproject = Join-Path $root 'pyproject.toml'
+if (-not (Test-Path $preflight) -or -not (Test-Path $pyproject)) {
+    Write-Host ''
+    Write-Host 'Local Code Agent checkout is incomplete.'
+    Write-Host 'Run git status, restore the missing product files, then run .\install.ps1.'
+    Write-Host ''
+    exit 2
+}
+
+& $python $preflight --pyproject $pyproject
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ''
+    Write-Host 'Local Code Agent will not start with this Python environment.'
+    Write-Host ("Selected interpreter: {0}" -f $python)
+    Write-Host 'Run .\install.ps1 to update the checkout environment, then retry.'
+    Write-Host ''
+    exit 2
+}
 
 function Show-Help {
     & $python (Join-Path $internal 'scripts\product-help.py')
