@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 import re
 from typing import Sequence
+from uuid import UUID
 
 from .contracts import MAX_MESSAGE_CHARS, RouteSource
 
@@ -165,6 +166,7 @@ class RouteCorrection:
 _GIT_REVIEW = re.compile(r"^what changed on my branch\??$", re.IGNORECASE)
 _BUILD = re.compile(r"^build (?:it|this|the repo|the repository)[.!]?$", re.IGNORECASE)
 _DIAGNOSTIC = re.compile(r"^why did that fail\??$", re.IGNORECASE)
+_EXPLICIT_DIAGNOSTIC = re.compile(r"^why did task (?P<task_id>\S+) fail\??$", re.IGNORECASE)
 _FIX = re.compile(r"^fix it[.!]?$", re.IGNORECASE)
 _SELF_CHECK = re.compile(r"^/check$", re.IGNORECASE)
 _CONTROL = {"/quit": "quit", "/exit": "quit"}
@@ -196,6 +198,25 @@ def _unique_referent(eligible_task_ids: Sequence[str]) -> tuple[str | None, str 
     if len(values) > 1:
         return None, "ambiguous_task_reference"
     return values[0], None
+
+
+def _explicit_referent(
+    raw_task_id: str,
+    eligible_task_ids: Sequence[str],
+) -> tuple[str | None, str | None]:
+    """Resolve only a canonical durable UUID present in the eligible candidate set."""
+    try:
+        task_id = str(UUID(raw_task_id))
+    except (ValueError, AttributeError):
+        return None, "invalid_task_reference"
+    # UUID() accepts braces and compact forms. The conversation contract deliberately
+    # requires the visible canonical UUID so referent authority is explicit and auditable.
+    if raw_task_id.lower() != task_id:
+        return None, "invalid_task_reference"
+    values = _validate_reference_ids(eligible_task_ids)
+    if task_id not in values:
+        return None, "ineligible_task_reference"
+    return task_id, None
 
 
 def _repository_target_reason(active_repo_count: int | None) -> str | None:
@@ -276,6 +297,23 @@ def decide_route(
             source=RouteSource.RULE,
             rule_id=RULE_BUILD_AND_TEST,
             skill="build-and-test",
+        )
+
+    explicit_diagnostic = _EXPLICIT_DIAGNOSTIC.fullmatch(stripped)
+    if explicit_diagnostic is not None:
+        task_id, reason = _explicit_referent(
+            explicit_diagnostic.group("task_id"),
+            eligible_task_ids,
+        )
+        if task_id is None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_TASK_DIAGNOSTIC,
+            skill="task-diagnostic",
+            reference_ids=(task_id,),
         )
 
     if _DIAGNOSTIC.fullmatch(stripped):
