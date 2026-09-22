@@ -187,9 +187,35 @@ if (!(Test-Path (Join-Path $modelRoot "openvino_model.xml"))) {
     $modelRoot = $plan.model_dir
 }
 WriteModelManifest $modelRoot
+
+# Establish whether a currently running process is controller-owned before attempting
+# startup. A configuration mismatch or unhealthy owned process may be reconciled once;
+# an unowned/ambiguous process is never killed by setup.
+$hadOwnedProcess = $false
+$statusText = & $VenvPython $Controller status @serveArgs
+$statusExit = $LASTEXITCODE
+if ($statusExit -ne 0) {
+    Fail "could not establish managed server ownership before startup. Inspect $StdoutLog and $StderrLog"
+}
+$status = ($statusText -join "`n") | ConvertFrom-Json
+$hadOwnedProcess = [bool]$status.process_alive
+
 Say "starting server through controller; first NPU compile may take several minutes"
 $runtimeText = & $VenvPython $Controller start @serveArgs --wait-seconds 900
-if ($LASTEXITCODE -ne 0) { Fail "server refused or not ready. Inspect $StdoutLog and $StderrLog" }
+$startExit = $LASTEXITCODE
+if ($startExit -ne 0 -and $hadOwnedProcess) {
+    Say "managed server differs from this checkout or is unhealthy; stopping only the verified controller-owned profile and retrying once"
+    & $VenvPython $Controller stop @serveArgs
+    $stopExit = $LASTEXITCODE
+    if ($stopExit -ne 0) {
+        Fail "server start was refused and the existing profile could not be proven/stopped as controller-owned. Inspect $StdoutLog and $StderrLog"
+    }
+    $runtimeText = & $VenvPython $Controller start @serveArgs --wait-seconds 900
+    $startExit = $LASTEXITCODE
+}
+if ($startExit -ne 0) {
+    Fail "server refused or not ready after safe owned-profile reconciliation. Inspect $StdoutLog and $StderrLog"
+}
 $runtimeText | Set-Content -Encoding UTF8 $RuntimeProfile
 Say "OVMS endpoint ready: $BaseUrl"
 
