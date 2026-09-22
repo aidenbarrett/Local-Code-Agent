@@ -105,7 +105,8 @@ def test_blocked_reason_is_projected_without_tool_arguments(loaded, monkeypatch)
     class Worker:
         def __init__(self, **kwargs):
             self.observe = kwargs["observer"]
-        def run(self, task):
+        def run(self, task, *, skill_name=None):
+            assert skill_name is None
             self.observe("blocked", {"reason": "build_target could not run (policy)",
                                      "skill": "build", "args": {"secret": "SECRET"}})
             raise RuntimeError("SECRET")
