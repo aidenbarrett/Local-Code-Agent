@@ -11,6 +11,9 @@ answers are hidden, the Hub can accept work after feed failure, effective execut
 identity is incomplete, endpoint ownership is duplicated/uncomposed and installed
 product acceptance is weaker than the unit/structural suite suggests.
 
+All fourteen review findings are P1 for the current hardening programme. Ordering below
+is dependency/order-of-attack guidance, not a lower priority classification.
+
 ## Active P1 programme
 
 ### R01, startup/update preflight
@@ -94,8 +97,6 @@ Linux/Windows authoritative pytest and frozen-contract guards. Repository-owner 
 must enforce required checks/current-base policy; a workflow file alone is not branch
 protection.
 
-## P2 after the P1 programme
-
 ### R10, incremental projections and resumable history
 
 Advance projections only from new committed events, add close/unsubscribe lifecycle and
@@ -110,9 +111,11 @@ or refuse accurately.
 
 ### R12, explicit module/component names
 
-After correctness changes settle, run rename preflight, map dependencies and retire
-unused/duplicate composition paths. One public orchestrator, one public Session Hub
-composition, descriptive module names and no historical-PR naming.
+After correctness boundaries settle enough to rename safely, run rename preflight, map
+dependencies and retire unused/duplicate composition paths. One public orchestrator, one
+public Session Hub composition, descriptive module names and no historical-PR naming.
+This remains P1 even though it is intentionally sequenced after the higher-coupling
+correctness repairs.
 
 ## Definition of done for every repair
 
