@@ -41,6 +41,7 @@ _REQUIRED_ROLES = frozenset(
     }
 )
 _LAYOUTS = ("wide", "medium", "compact")
+_RECENT_TASK_LIMIT = 3
 
 
 class PaletteError(RuntimeError):
@@ -159,6 +160,21 @@ def _active_task(tasks: Sequence[TaskSnapshot]) -> TaskSnapshot | None:
     return None if not tasks else tuple(tasks)[-1]
 
 
+def _recent_terminal_tasks(
+    tasks: Sequence[TaskSnapshot],
+    current: TaskSnapshot,
+    *,
+    limit: int = _RECENT_TASK_LIMIT,
+) -> tuple[TaskSnapshot, ...]:
+    """Return bounded prior terminal tasks with their canonical durable IDs intact."""
+    prior = [
+        task
+        for task in reversed(tuple(tasks))
+        if task.task_id != current.task_id and task.terminal
+    ]
+    return tuple(prior[:limit])
+
+
 def render_activity(state: HubViewState) -> str:
     task = _active_task(state.tasks)
     lines: list[str] = []
@@ -202,6 +218,13 @@ def render_activity(state: HubViewState) -> str:
     if task.faults:
         reason, message = task.faults[-1]
         lines.append(f"Fault: {reason} · {message}")
+
+    recent = _recent_terminal_tasks(state.tasks, task)
+    if recent:
+        lines.extend(("", "Recent tasks (copy full ID for follow-up):"))
+        for prior in recent:
+            verdict = prior.verdict or "NO_VERDICT"
+            lines.append(f"{prior.task_id} · {prior.state} · {verdict}")
     return "\n".join(lines)
 
 
