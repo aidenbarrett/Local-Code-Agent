@@ -139,3 +139,29 @@ def test_combined_app_refuses_closed_dispatcher_visibly(tmp_path):
             service.close()
 
     asyncio.run(scenario())
+
+
+def test_quit_is_owned_by_textual_session_and_never_dispatched(tmp_path):
+    service = _service(tmp_path)
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def turn(self, text, *, explicit_mode=None):
+            self.calls.append(text)
+            return "unused"
+
+    gateway = Gateway()
+    dispatcher = HubTurnDispatcher(gateway)
+    app = LiveDispatchingSessionHubApp(DurableHubFeed(service), dispatcher)
+    exited: list[bool] = []
+    app.exit = lambda *args, **kwargs: exited.append(True)  # type: ignore[method-assign]
+    try:
+        app.on_hub_input_submitted(HubInputSubmitted(" /QUIT "))
+        assert exited == [True]
+        assert gateway.calls == []
+        assert dispatcher.busy is False
+    finally:
+        dispatcher.close()
+        service.close()
