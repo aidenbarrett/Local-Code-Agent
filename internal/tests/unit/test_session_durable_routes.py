@@ -187,7 +187,7 @@ def test_pending_acceptance_recovers_only_unresolved_model_routes_across_pages(t
         service.close()
 
 
-def test_pending_acceptance_ignores_non_user-gated_and_deduplicates_exact_proposal(tmp_path):
+def test_pending_acceptance_ignores_non_user_gated_and_deduplicates_exact_proposal(tmp_path):
     service = _service(tmp_path)
     try:
         routes = DurableRouteEvents(service)
