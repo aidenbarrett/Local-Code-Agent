@@ -1,40 +1,33 @@
-# Endpoint scheduler design
+# Endpoint arbitration design
 
-Status: **bounded in-process lease arbitration implemented; runtime/client wiring still pending**.
+Status: **one in-process endpoint authority exists; public client/runtime composition remains incomplete**.
 
-`internal/local_agent/session/scheduler.py` owns deterministic access to a physical
-inference endpoint identity. It deliberately does not choose models, routes or task
-policy. The implemented boundary provides:
+`internal/local_agent/session/endpoint_lease.py` is the policy owner for endpoint admission, queueing, lease ownership and quarantine. `EndpointArbiter` is the only supported in-process arbitration authority. `EndpointRuntime` and `EndpointCallAdapter` compose that policy into runtime calls.
 
-- one active non-preemptive lease per physical endpoint;
-- bounded FIFO queueing and explicit monotonic deadlines;
-- explicit queued-request cancellation that never pretends to cancel an active call;
-- endpoint quarantine that wakes/refuses queued work and blocks new acquisition until
-  an owner explicitly clears it;
-- inspectable active/queued/quarantined state;
-- endpoint identity derived from normalized endpoint URL plus served model revision and
-  device, never from a friendly profile name;
-- embedded endpoint credentials are rejected rather than normalized into identity.
+Do not introduce a second scheduler, queue, lease vocabulary or endpoint owner beside this stack. New behaviour belongs in these existing boundaries unless a materially different ownership domain is demonstrated first.
 
-The remaining runtime composition must preserve these rules:
+The current authority provides:
 
-- interactive chat/control may receive a slot between worker calls, but active calls are
-  not preempted;
-- cancellation of an active inference call belongs to the runtime/client cancellation
-  path; unresolved cancellation quarantines the endpoint rather than returning the lease
-  as healthy;
-- two logical contexts on one endpoint do not imply two weight copies or simultaneous
-  generation;
-- mutation work is never preempted in the middle of a side effect;
-- queue admission and lease state may inform presentation, but UI state cannot create or
-  release execution authority.
+- one active non-preemptive lease per endpoint ID;
+- bounded chat and work queues;
+- explicit chat/work fairness rather than one undifferentiated FIFO queue;
+- exact request and lease identities;
+- queued-request removal without pretending to cancel active inference;
+- endpoint quarantine and explicit reconciliation;
+- fail-closed lease release while endpoint completion is uncertain;
+- runtime/call adapters that preserve ownership across the supported in-process call path.
 
-This scheduler is intentionally process-local today. Durable task state remains the
-Session Hub authority across restart; reconnect/recovery must not infer that an old
-process-local lease still owns hardware. Shared-daemon or cross-process arbitration, if
-needed later, requires a separate ownership design rather than silently treating this
-object as distributed locking.
+The physical endpoint identity used by product composition must be derived from effective endpoint properties, not a friendly profile name. URL/model/revision/device normalization belongs at the composition/configuration boundary before `EndpointRequest` is created. Credentials must never become durable endpoint identity.
 
-See [Session Hub design](session-hub-design.md), especially the endpoint arbitration
-section, and [file layout](session-hub-file-layout.md) for the intended composition
-location.
+Remaining P1 composition work:
+
+- wrap the real conversation and worker inference calls with the existing endpoint authority;
+- define one canonical endpoint identity mapping for aliases/profiles;
+- surface waiting/acquired/released/quarantined state truthfully from that same implementation;
+- connect queued cancellation and unresolved active cancellation to the cancellation runtime;
+- quarantine capacity when inference completion is unknown rather than releasing it as healthy;
+- either provide a shared owner for supported multi-process topologies or explicitly refuse/document concurrent-process use. The current arbiter is process-local and must not be described as cross-process protection.
+
+Durable task state remains separate from process-local hardware ownership. Restart/recovery must never infer that an old process-local lease still owns hardware.
+
+See [Session Hub design](session-hub-design.md) and [file layout](session-hub-file-layout.md).
