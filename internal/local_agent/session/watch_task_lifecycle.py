@@ -19,6 +19,7 @@ from .contracts import TaskOutcome, TaskResult
 from .durable_watch import DurableWatchEvents, watch_schedule_revision
 from .results import verdict_block_from_task_result
 from .session_event_service import DurableSessionService, DurableTaskExecutor
+from .task_admission import execution_contract_sha256
 from .watch_read_model import WatchReadModelError, project_watch
 from .watch_task_admission import DurableWatchTaskAdmission
 
@@ -87,6 +88,7 @@ class DurableWatchTaskLifecycle:
             raise TypeError("durable watch lifecycle requires a deterministic verifier")
         self.service = service
         self.admission = DurableWatchTaskAdmission(service, controller)
+        self.execution_contract_sha256 = execution_contract_sha256(controller)
         self.verifier = verifier
         self.events = DurableWatchEvents(service)
         self._lock = Lock()
@@ -179,6 +181,10 @@ class DurableWatchTaskLifecycle:
         verification_error: BaseException | None = None
         try:
             try:
+                if run.run.current.execution_contract_sha256 != self.execution_contract_sha256:
+                    raise DurableWatchLifecycleError(
+                        "fixed-watch attempt execution contract differs from durable admission"
+                    )
                 result = self.verifier(record, run, state.task_id)
                 if not isinstance(result, TaskResult):
                     raise TypeError("watch verifier must return TaskResult")
