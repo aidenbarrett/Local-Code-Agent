@@ -20,6 +20,15 @@ def _service(tmp_path) -> DurableSessionService:
     )
 
 
+async def _wait_until(predicate, *, timeout: float = 2.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() >= deadline:
+            raise AssertionError("timed out waiting for deterministic Textual test condition")
+        await asyncio.sleep(0.01)
+
+
 def _opened(service: DurableSessionService, label: str) -> None:
     receipt = service.append(
         "session.opened",
@@ -57,7 +66,11 @@ def test_completed_turn_refreshes_canonical_conversation_not_returned_prose(tmp_
         try:
             async with app.run_test(size=(100, 30)) as pilot:
                 app.post_message(HubInputSubmitted("hello exactly"))
-                await asyncio.sleep(0.08)
+                await _wait_until(
+                    lambda: app.live_binding.state.status == "Live · durable seq 1"
+                    and [entry.text for entry in app.view_state.conversation]
+                    == ["hello exactly", "persisted answer"]
+                )
                 await pilot.pause()
                 assert [entry.text for entry in app.view_state.conversation] == [
                     "hello exactly",
@@ -103,12 +116,15 @@ def test_live_feed_advances_without_hiding_inflight_turn_status(tmp_path):
                 await pilot.pause()
                 assert gateway.entered.wait(1)
                 _opened(service, "while-busy")
-                await asyncio.sleep(0.05)
+                await _wait_until(
+                    lambda: app.live_binding.state.status == "Live · durable seq 1"
+                    and app.view_state.status == "Working · conversation turn in progress"
+                )
                 await pilot.pause()
                 assert app.live_binding.state.status == "Live · durable seq 1"
                 assert app.view_state.status == "Working · conversation turn in progress"
                 gateway.release.set()
-                await asyncio.sleep(0.05)
+                await _wait_until(lambda: app.view_state.status == "Live · durable seq 1")
                 await pilot.pause()
                 assert app.view_state.status == "Live · durable seq 1"
         finally:
