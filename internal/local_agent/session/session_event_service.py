@@ -438,6 +438,7 @@ class DurableTaskExecutor:
         request_bytes: bytes | None = None,
         self_check: bool = False,
         route_source: RouteSource | str = RouteSource.MODEL_PROPOSAL,
+        skill_name: str | None = None,
     ) -> TaskHandle:
         admission = self.service.submit_task(
             request_id=request_id,
@@ -449,7 +450,14 @@ class DurableTaskExecutor:
         handle = TaskHandle(admission.task_id, admission)
         Thread(
             target=self._run,
-            args=(handle, task, self_check, route_source, int(admission_payload["execution_epoch"])),
+            args=(
+                handle,
+                task,
+                self_check,
+                route_source,
+                int(admission_payload["execution_epoch"]),
+                skill_name,
+            ),
             name=f"lca-task-{admission.task_id[:8]}",
             daemon=True,
         ).start()
@@ -477,6 +485,7 @@ class DurableTaskExecutor:
         self_check: bool,
         route_source: RouteSource | str,
         execution_epoch: int,
+        skill_name: str | None,
     ) -> None:
         try:
             handle.admission.wait(30)
@@ -494,6 +503,7 @@ class DurableTaskExecutor:
                 self_check=self_check,
                 route_source=route_source,
                 task_id=handle.task_id,
+                skill_name=skill_name,
             )
             handle.result = result
             result_ref, result_bytes = self._result_artifact(result)
