@@ -152,3 +152,84 @@ def test_correction_and_rejection_cannot_be_attributed_to_controller(tmp_path):
         assert [event["kind"] for event in service.replay()] == ["route.proposed"]
     finally:
         service.close()
+
+
+def test_pending_acceptance_recovers_only_unresolved_model_routes_across_pages(tmp_path):
+    service = _service(tmp_path)
+    try:
+        routes = DurableRouteEvents(service)
+        first = routes.propose(
+            TaskIntent(
+                turn_ref=_turn_ref(0),
+                objective="inspect cache",
+                proposed_reference_ids=(),
+                origin=RouteSource.MODEL_PROPOSAL,
+            ),
+            skill="repo-navigation",
+        )
+        second = routes.propose(
+            TaskIntent(
+                turn_ref=_turn_ref(1),
+                objective="inspect scheduler",
+                proposed_reference_ids=(),
+                origin=RouteSource.MODEL_PROPOSAL,
+            ),
+            skill="repo-navigation",
+        )
+        routes.resolve(first, resolution="rejected", source="user", mode="clarify")
+
+        pending = routes.pending_acceptance(replay_page=1)
+        assert pending == (second,)
+        assert pending[0].turn_ref == _turn_ref(1)
+        assert pending[0].skill == "repo-navigation"
+        assert pending[0].requires_acceptance is True
+    finally:
+        service.close()
+
+
+def test_pending_acceptance_ignores_non_user_gated_and_deduplicates_exact_proposal(tmp_path):
+    service = _service(tmp_path)
+    try:
+        routes = DurableRouteEvents(service)
+        rule = TaskIntent(
+            turn_ref=_turn_ref(0),
+            objective="Build it",
+            proposed_reference_ids=(),
+            origin=RouteSource.RULE,
+            rule_id="build-and-test/v1",
+        )
+        routes.propose(rule, skill="build-and-test")
+
+        model = TaskIntent(
+            turn_ref=_turn_ref(1),
+            objective="inspect cache",
+            proposed_reference_ids=(),
+            origin=RouteSource.MODEL_PROPOSAL,
+        )
+        first = routes.propose(model, skill="repo-navigation")
+        repeated = routes.propose(model, skill="repo-navigation")
+        assert first == repeated
+
+        assert routes.pending_acceptance() == (first,)
+    finally:
+        service.close()
+
+
+def test_pending_acceptance_fails_closed_when_replay_bound_is_exceeded(tmp_path):
+    service = _service(tmp_path)
+    try:
+        routes = DurableRouteEvents(service)
+        for index in range(2):
+            routes.propose(
+                TaskIntent(
+                    turn_ref=_turn_ref(index),
+                    objective=f"inspect target {index}",
+                    proposed_reference_ids=(),
+                    origin=RouteSource.MODEL_PROPOSAL,
+                )
+            )
+
+        with pytest.raises(DurableRouteError, match="bounded event history"):
+            routes.pending_acceptance(max_events=1)
+    finally:
+        service.close()
