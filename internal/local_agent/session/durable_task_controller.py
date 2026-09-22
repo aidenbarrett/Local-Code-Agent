@@ -22,6 +22,8 @@ class AdmittedDurableTaskController:
     def __init__(self, service, controller) -> None:
         if not callable(getattr(controller, "run", None)):
             raise TypeError("admitted durable controller requires a run-capable controller")
+        if not callable(getattr(controller, "resolve_skill", None)):
+            raise TypeError("admitted durable controller requires controller.resolve_skill")
         for name in ("repo", "allow_execution", "context_budget_tokens"):
             if not hasattr(controller, name):
                 raise TypeError(f"admitted durable controller requires controller.{name}")
@@ -40,6 +42,9 @@ class AdmittedDurableTaskController:
     def context_budget_tokens(self):
         return self.controller.context_budget_tokens
 
+    def resolve_skill(self, skill_name: str) -> str:
+        return self.controller.resolve_skill(skill_name)
+
     def run(
         self,
         task: str,
@@ -47,6 +52,7 @@ class AdmittedDurableTaskController:
         self_check: bool = False,
         route_source=None,
         task_id: str | None = None,
+        skill_name: str | None = None,
     ):
         if task_id is None:
             raise ValueError("durable controller execution requires an admitted task id")
@@ -57,6 +63,7 @@ class AdmittedDurableTaskController:
             route_source=route_source,
             task_id=task_id,
             durable_activity=activity,
+            skill_name=skill_name,
         )
 
 

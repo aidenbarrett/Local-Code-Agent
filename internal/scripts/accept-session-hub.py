@@ -240,12 +240,14 @@ def durable_event_gates() -> None:
         store = SQLiteSessionStore(Path(temp) / "session.db")
         service = DurableSessionService(store, stream_id=str(uuid4()), session_id=str(uuid4()))
         seen: list[str] = []
+        seen_skills: list[str | None] = []
 
         class Controller:
-            def run(self, task, *, self_check=False, route_source=None, task_id=None):
+            def run(self, task, *, self_check=False, route_source=None, task_id=None, skill_name=None):
                 assert task_id is not None
                 assert [row["task_id"] for row in store.unterminated_tasks(service.stream_id)] == [task_id]
                 seen.append(task_id)
+                seen_skills.append(skill_name)
                 return TaskResult(task_id, TaskOutcome.FAIL, "observed failure", False, verification_ran=True)
 
         try:
@@ -264,9 +266,11 @@ def durable_event_gates() -> None:
                 admission_payload=_admission_payload(request_ref),
                 request_bytes=request,
                 route_source="user_direct",
+                skill_name="inspect",
             )
             handle.wait(10)
             require(seen == [handle.task_id], "controller execution begins only after durable admission")
+            require(seen_skills == ["inspect"], "admitted worker skill reaches controller execution unchanged")
             events = service.replay()
             require([event["kind"] for event in events] == ["task.admitted", "task.state_changed", "task.verdict", "task.closed"], "controller result follows admitted-running-verdict-close lifecycle")
             record = store.task_record(handle.task_id)
@@ -278,6 +282,7 @@ def durable_event_gates() -> None:
                 admission_payload=_admission_payload(request_ref),
                 request_bytes=request,
                 route_source="user_direct",
+                skill_name="inspect",
             )
             retry.wait(10)
             require(seen == [handle.task_id], "idempotent admission never replays controller effects")

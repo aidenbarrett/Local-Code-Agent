@@ -266,7 +266,8 @@ def test_durable_executor_waits_for_admission_and_never_reexecutes_same_request(
     calls: list[str] = []
 
     class Controller:
-        def run(self, task, *, self_check=False, route_source=None, task_id=None):
+        def run(self, task, *, self_check=False, route_source=None, task_id=None, skill_name=None):
+            assert skill_name is None
             assert task_id is not None
             assert [row["task_id"] for row in service.store.unterminated_tasks(service.stream_id)] == [task_id]
             calls.append(task_id)

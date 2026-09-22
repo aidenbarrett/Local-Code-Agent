@@ -154,6 +154,21 @@ class DurableTaskAdmissionRunner:
             raise ValueError("only rule-origin admission may carry rule identity")
         if source == RouteSource.RULE and rule_id is None:
             raise ValueError("rule admission requires a resolved rule identity")
+        if source == RouteSource.RULE and skill is None and not self_check:
+            raise ValueError("rule admission requires a resolved worker skill")
+
+        # Resolve controller-owned procedure authority before admission. The durable
+        # record and the worker must consume the same effective skill; an unknown or
+        # empty-allowlist procedure is refused before any task event/effect exists.
+        if self_check:
+            if skill not in (None, "self-check"):
+                raise ValueError("self-check admission cannot carry a worker skill")
+            skill = "self-check" if skill is not None else None
+        elif skill is not None:
+            resolver = getattr(self.executor.controller, "resolve_skill", None)
+            if not callable(resolver):
+                raise TypeError("durable task controller cannot resolve admitted skills")
+            skill = resolver(skill)
 
         request_identity = {
             "turn_ref": saved_turn,
@@ -197,6 +212,7 @@ class DurableTaskAdmissionRunner:
             request_bytes=request_bytes,
             self_check=self_check,
             route_source=source,
+            skill_name=skill,
         )
         result = handle.wait()
         if result is None:

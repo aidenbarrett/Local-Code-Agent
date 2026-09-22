@@ -112,7 +112,8 @@ def test_durable_gateway_runner_commits_admission_before_controller_effects(tmp_
             self.allow_execution = False
             self.context_budget_tokens = 12_000
 
-        def run(self, task, *, self_check=False, route_source=None, task_id=None):
+        def run(self, task, *, self_check=False, route_source=None, task_id=None, skill_name=None):
+            assert skill_name is None
             assert task_id is not None
             record = service.store.task_record(task_id)
             assert record is not None
@@ -171,7 +172,8 @@ def test_identical_saved_turn_never_reexecutes_durable_effects(tmp_path, loaded)
         def __init__(self):
             self.repo = repo
 
-        def run(self, task, *, self_check=False, route_source=None, task_id=None):
+        def run(self, task, *, self_check=False, route_source=None, task_id=None, skill_name=None):
+            assert skill_name is None
             calls.append(task_id)
             return TaskResult(
                 task_id,
@@ -226,7 +228,30 @@ def test_rule_route_fails_closed_until_rule_identity_exists(tmp_path, loaded):
         service.close()
 
 
-def test_resolved_rule_route_persists_rule_and_skill(tmp_path, loaded):
+def test_rule_route_without_selected_skill_refuses_before_admission(tmp_path, loaded):
+    _sandbox, repo, _reg, _store, _skills = loaded
+    service = _service(tmp_path)
+    controller = SimpleNamespace(
+        repo=repo,
+        allow_execution=False,
+        context_budget_tokens=12_000,
+        run=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not execute")),
+    )
+    try:
+        runner = DurableTaskAdmissionRunner(DurableTaskExecutor(service, controller))
+        with pytest.raises(ValueError, match="resolved worker skill"):
+            runner.run(
+                "build",
+                turn_ref=_turn_ref(),
+                route_source=RouteSource.RULE,
+                rule_id="build-and-test/v1",
+            )
+        assert service.replay() == []
+    finally:
+        service.close()
+
+
+def test_unknown_selected_skill_refuses_before_admission(tmp_path, loaded):
     _sandbox, repo, _reg, _store, _skills = loaded
     service = _service(tmp_path)
 
@@ -237,8 +262,46 @@ def test_resolved_rule_route_persists_rule_and_skill(tmp_path, loaded):
         def __init__(self):
             self.repo = repo
 
-        def run(self, task, *, self_check=False, route_source=None, task_id=None):
+        def resolve_skill(self, skill_name):
+            raise ValueError(f"selected skill is not installed: {skill_name}")
+
+        def run(self, *args, **kwargs):
+            raise AssertionError("must not execute")
+
+    try:
+        runner = DurableTaskAdmissionRunner(DurableTaskExecutor(service, Controller()))
+        with pytest.raises(ValueError, match="not installed"):
+            runner.run(
+                "diagnose it",
+                turn_ref=_turn_ref(),
+                route_source=RouteSource.RULE,
+                rule_id="task-diagnostic/v1",
+                skill="missing-diagnostic",
+            )
+        assert service.replay() == []
+    finally:
+        service.close()
+
+
+def test_resolved_rule_route_persists_and_executes_exact_skill(tmp_path, loaded):
+    _sandbox, repo, _reg, _store, _skills = loaded
+    service = _service(tmp_path)
+    seen = []
+
+    class Controller:
+        allow_execution = False
+        context_budget_tokens = 12_000
+
+        def __init__(self):
+            self.repo = repo
+
+        def resolve_skill(self, skill_name):
+            assert skill_name == "build-and-test"
+            return skill_name
+
+        def run(self, task, *, self_check=False, route_source=None, task_id=None, skill_name=None):
             assert route_source == RouteSource.RULE
+            seen.append(skill_name)
             return TaskResult(task_id, TaskOutcome.FAIL, "failed", False, verification_ran=True)
 
     try:
@@ -257,6 +320,7 @@ def test_resolved_rule_route_persists_rule_and_skill(tmp_path, loaded):
             "rule_id": "build-and-test/v1",
         }
         assert admitted["skill"] == "build-and-test"
+        assert seen == ["build-and-test"]
     finally:
         service.close()
 
