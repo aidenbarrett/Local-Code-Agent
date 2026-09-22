@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+import subprocess
 import sys
+
+import pytest
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -58,3 +61,26 @@ def test_public_install_check_uses_managed_interpreter_for_same_preflight():
 
     assert ".venv-workstation\\Scripts\\python.exe" in installer
     assert "& $managedPython $runtimePreflight --pyproject $pyproject" in installer
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows PowerShell acceptance")
+def test_windows_public_launcher_preflights_real_product_help():
+    completed = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(REPO / "local-code-agent.ps1"),
+            "help",
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "Local Code Agent runtime preflight failed" not in completed.stdout + completed.stderr
