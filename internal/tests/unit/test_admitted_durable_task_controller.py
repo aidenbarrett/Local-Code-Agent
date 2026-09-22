@@ -68,6 +68,9 @@ class _ControllerContract:
     allow_execution = False
     context_budget_tokens = 4096
 
+    def resolve_skill(self, skill_name: str) -> str:
+        return skill_name
+
 
 def test_bridge_recovers_exact_admitted_epoch_and_deadline_before_controller_call(tmp_path):
     service = DurableSessionService(
@@ -105,6 +108,7 @@ def test_bridge_recovers_exact_admitted_epoch_and_deadline_before_controller_cal
         assert result.task_id == task_id
         assert captured["task_id"] == task_id
         assert captured["route_source"] == "user_direct"
+        assert captured["skill_name"] is None
     finally:
         service.close()
 
