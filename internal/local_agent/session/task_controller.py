@@ -28,6 +28,27 @@ class TaskController:
         self.allow_execution = allow_execution
         self.context_budget_tokens = context_budget_tokens
 
+    def _skill_library(self) -> SkillLibrary:
+        return SkillLibrary.discover_many(
+            default_search_path(self.repo.root, self.repo.skills_dir)
+        )
+
+    def resolve_skill(self, skill_name: str) -> str:
+        """Resolve one controller-selected skill before durable admission/effects.
+
+        Routing authority belongs to the controller. A recorded deterministic skill must
+        therefore exist in the effective skill search path before work is admitted; the
+        worker is never allowed to silently broaden to heuristic/default routing.
+        """
+        if not isinstance(skill_name, str) or not skill_name.strip():
+            raise ValueError("selected skill must be a nonempty string")
+        skill = self._skill_library().get(skill_name)
+        if skill is None:
+            raise ValueError(f"selected skill is not installed: {skill_name}")
+        if not skill.tools:
+            raise ValueError(f"selected skill has an empty tool allowlist: {skill_name}")
+        return skill.name
+
     def run(
         self,
         task: str,
@@ -36,11 +57,18 @@ class TaskController:
         route_source: RouteSource | TaskExecutionSource | str = RouteSource.MODEL_PROPOSAL,
         task_id: str | None = None,
         durable_activity=None,
+        skill_name: str | None = None,
     ) -> TaskResult:
         # ``route_source`` is retained as the existing call-surface name while the
         # controller now validates the broader execution provenance vocabulary. The
         # conversation layer still owns RouteSource; watch is never a synthetic route.
         source = TaskExecutionSource.coerce(route_source)
+        if self_check:
+            if skill_name not in (None, "self-check"):
+                raise ValueError("self-check execution cannot consume a worker skill")
+            resolved_skill = None
+        else:
+            resolved_skill = self.resolve_skill(skill_name) if skill_name is not None else None
         if task_id is None:
             task_id = uuid4().hex
         else:
@@ -59,7 +87,7 @@ class TaskController:
                     # handler and typed tool.finished afterwards. Policy still lives
                     # in the orchestrator; durable activity is evidence, not authority.
                     registry = wrap_registry_with_durable_activity(registry, durable_activity)
-                skills = SkillLibrary.discover_many(default_search_path(self.repo.root, self.repo.skills_dir))
+                skills = self._skill_library()
 
                 def observe(kind, payload):
                     fields = {
@@ -78,7 +106,7 @@ class TaskController:
                     context_budget_tokens=self.context_budget_tokens,
                     allow_escalation=False,
                 )
-                run = worker.run(task)
+                run = worker.run(task, skill_name=resolved_skill)
                 verified = bool(run.outcome.succeeded and run.state.verified)
                 task_outcome = TaskOutcome(run.outcome.value)
                 if task_outcome.succeeded and not verified:
