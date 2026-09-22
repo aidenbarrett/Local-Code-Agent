@@ -162,10 +162,12 @@ def main(argv: list[str] | None = None) -> int:
                     allow_execution=args.allow_execution,
                     context_budget_tokens=worker_config.context_budget_tokens,
                 )
+                # Composition contract: durable admission enabled before controller effects.
                 admitted_controller = AdmittedDurableTaskController(service, controller)
                 task_runner = DurableTaskAdmissionRunner(
                     DurableTaskExecutor(service, admitted_controller)
                 )
+                # Routing contract remains gateway-owned: deterministic rules before model fallback.
                 gateway = ConversationGateway(
                     OpenAICompatibleClient(chat_config),
                     controller,
