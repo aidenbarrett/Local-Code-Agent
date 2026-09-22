@@ -1,14 +1,14 @@
 <#
 .SYNOPSIS
-  User-facing entrypoint for the controlled repository agent.
+  Canonical user-facing entrypoint for Local Code Agent.
 
 .DESCRIPTION
-  Direct model chat lives in chat.ps1.
-  Local Code Agent adds controlled repository access, approved tools, skills,
-  policy and independent verification.
+  Running this script with no command opens the Textual Session Hub.
+  Lower-level direct model chat and automation/debug surfaces remain available
+  as explicit subcommands behind the same product entrypoint.
 #>
 param(
-    [string]$Command = 'help',
+    [string]$Command = 'session',
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
 )
 
@@ -37,8 +37,8 @@ $existingPythonPath = if (Test-Path Env:PYTHONPATH) { $env:PYTHONPATH } else { $
 $env:PYTHONPATH = if ($existingPythonPath) { "$internal;$existingPythonPath" } else { $internal }
 
 # Validate the exact interpreter selected above before any public command can import
-# product code, start OVMS, or prepare a model.  This is diagnostic-only: startup never
-# runs pip or reaches the network to repair a stale checkout environment.
+# product code, start OVMS, or prepare a model. Startup remains diagnostic-only: it
+# never runs pip or reaches the network to repair a stale checkout environment.
 $preflight = Join-Path $internal 'scripts\runtime-preflight.py'
 $pyproject = Join-Path $root 'pyproject.toml'
 if (-not (Test-Path $preflight) -or -not (Test-Path $pyproject)) {
@@ -68,6 +68,12 @@ switch ($Command.ToLowerInvariant()) {
         & $python (Join-Path $internal 'scripts\session-hub.py') @Rest
         exit $LASTEXITCODE
     }
+    'chat' {
+        # Raw model chat is deliberately subordinate to the main product surface:
+        # no repository tools, no task admission and no verification authority.
+        & $python (Join-Path $internal 'scripts\chat.py') @Rest
+        exit $LASTEXITCODE
+    }
     'help' {
         Show-Help
         exit $LASTEXITCODE
@@ -86,9 +92,6 @@ switch ($Command.ToLowerInvariant()) {
             exit 2
         }
 
-        # Product presentation lives outside the measured agent source. The
-        # presenter still delegates server ownership to chat.ps1 and execution
-        # through the controlled developer path using the provisioned ptl-npu-8b profile.
         & $python (Join-Path $internal 'scripts\run-task-ui.py') @Rest
         exit $LASTEXITCODE
     }
