@@ -115,6 +115,12 @@ class DurableWatchTaskLifecycle:
 
     def admit(self, record: StoredWatchJob, run_id: str) -> None:
         self._require_matching_watch_state(record)
+        # Check local ownership before the durable write so that, once task.admitted is
+        # committed, the remaining path is just an in-memory assignment and cannot leave
+        # a task orphaned because of a later duplicate-state validation error.
+        with self._lock:
+            if run_id in self._runs:
+                raise DurableWatchLifecycleError("watch lifecycle reused an active run identity")
         admitted = self.admission.admit(
             record,
             run_id=run_id,
@@ -125,8 +131,6 @@ class DurableWatchTaskLifecycle:
                 "watch run was already admitted; refusing to replay deterministic effects"
             )
         with self._lock:
-            if run_id in self._runs:
-                raise DurableWatchLifecycleError("watch lifecycle reused an active run identity")
             self._runs[run_id] = _RunState(task_id=admitted.task_id)
 
     def start(self, record: StoredWatchJob, run_id: str) -> None:
