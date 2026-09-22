@@ -25,9 +25,15 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $entry = Join-Path $root 'internal\work-laptop-one-shot.ps1'
+$runtimePreflight = Join-Path $root 'internal\scripts\runtime-preflight.py'
+$managedPython = Join-Path $root '.venv-workstation\Scripts\python.exe'
+$pyproject = Join-Path $root 'pyproject.toml'
 
 if (-not (Test-Path $entry)) {
     throw "Local Code Agent installation files are incomplete: $entry is missing."
+}
+if (-not (Test-Path $runtimePreflight) -or -not (Test-Path $pyproject)) {
+    throw 'Local Code Agent installation files are incomplete: runtime preflight contract is missing.'
 }
 if ($CheckOnly -and ($InstallMissing -or $AttemptWslInstall -or $OpenDriverPage)) {
     throw "-CheckOnly is read-only and cannot be combined with -InstallMissing, -AttemptWslInstall or -OpenDriverPage."
@@ -119,6 +125,37 @@ if ($rc -ne 0) {
     Write-Host 'package named in the failure above, then run .\install.ps1 -CheckOnly.'
     Write-Host ''
     exit $rc
+}
+
+# The bootstrap historically proved only `import local_agent`, which cannot detect a
+# checkout whose newly-declared runtime dependency is absent from an older venv.  Validate
+# the same managed interpreter used by the public launcher against this checkout before
+# either setup or -CheckOnly is allowed to report readiness.
+if (-not (Test-Path $managedPython)) {
+    Write-Host ''
+    Write-Host 'Runtime integrity check failed: the managed checkout environment is missing.'
+    Write-Host ("Expected interpreter: {0}" -f $managedPython)
+    Write-Host $(if ($CheckOnly) { 'Run .\install.ps1 to create/update it.' } else { 'Setup did not produce the required managed environment.' })
+    Write-Host ''
+    exit 2
+}
+
+$previousPythonPath = if (Test-Path Env:PYTHONPATH) { $env:PYTHONPATH } else { $null }
+$internal = Join-Path $root 'internal'
+$env:PYTHONPATH = if ($previousPythonPath) { "$internal;$previousPythonPath" } else { $internal }
+try {
+    & $managedPython $runtimePreflight --pyproject $pyproject
+    $runtimeRc = $LASTEXITCODE
+} finally {
+    if ($null -eq $previousPythonPath) { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
+    else { $env:PYTHONPATH = $previousPythonPath }
+}
+if ($runtimeRc -ne 0) {
+    Write-Host ''
+    Write-Host 'The managed Python environment does not satisfy this checkout.'
+    Write-Host $(if ($CheckOnly) { 'Run .\install.ps1 to update it.' } else { 'Setup completed its earlier stages but runtime validation failed.' })
+    Write-Host ''
+    exit 2
 }
 
 if (-not $CheckOnly) {
