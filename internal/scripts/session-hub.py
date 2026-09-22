@@ -29,6 +29,7 @@ from local_agent.session.conversation_store import (  # noqa: E402
     ensure_runtime,
     new_session,
 )
+from local_agent.session.durable_routes import DurableRouteEvents  # noqa: E402
 from local_agent.session.durable_task_controller import AdmittedDurableTaskController  # noqa: E402
 from local_agent.session.event_buffer import EventBuffer  # noqa: E402
 from local_agent.session.session_event_service import (  # noqa: E402
@@ -96,6 +97,7 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
                 "deterministic_routing",
                 "textual_session_hub",
                 "non_blocking_turn_dispatch",
+                "explicit_model_route_acceptance",
             ],
             "recovered": recovered,
         },
@@ -176,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
                     runtime_index=runtime_index,
                     task_runner=task_runner,
                     task_history=DurableTaskHistory(service.store, stream_id=service.stream_id),
+                    route_events=DurableRouteEvents(service),
                     **budgets,
                 )
 

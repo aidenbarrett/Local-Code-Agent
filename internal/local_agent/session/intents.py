@@ -315,7 +315,7 @@ def task_intent_from_decision(decision: RouteDecision, turn_ref: dict[str, objec
 
 
 def correct_pending_route(text: str, pending: Sequence[PendingRouteRef]) -> RouteCorrection:
-    """Apply the one-word work/chat correction only to one explicit pending route."""
+    """Target one pending revision with an explicit one-word work/chat decision."""
     if not isinstance(text, str):
         raise TypeError("route correction must be text")
     normalized = text.strip().lower()
@@ -332,6 +332,6 @@ def correct_pending_route(text: str, pending: Sequence[PendingRouteRef]) -> Rout
     return RouteCorrection(
         CorrectionStatus.APPLIED,
         route_id=current.route_id,
-        revision=current.revision + 1,
+        revision=current.revision,
         mode=ExplicitMode(normalized),
     )
