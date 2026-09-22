@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 
 from .session_event_service import DurableSessionService, ReplaySubscription, SubscriptionGap
 from .textual_hub import ConversationEntry, HubViewState, build_view_state
-from .textual_route_read_model import RouteReadModelError, latest_route_summary
+from .textual_route_read_model import RouteReadModelError, latest_route_snapshot
 
 
 class HubFeedError(RuntimeError):
@@ -149,17 +149,23 @@ class DurableHubFeed:
         if any(not isinstance(entry, ConversationEntry) for entry in conversation):
             raise TypeError("conversation provider must return ConversationEntry values")
         try:
+            latest_route = latest_route_snapshot(self._events)
             route_summary = (
-                latest_route_summary(self._events)
-                if self.route_summary_provider is None
-                else self.route_summary_provider()
-            )
+                None if latest_route is None else latest_route.summary()
+            ) if self.route_summary_provider is None else self.route_summary_provider()
         except RouteReadModelError as exc:
             raise HubFeedError("durable route history cannot be projected truthfully") from exc
         if status is None:
-            status = f"Live · durable seq {self._cursor}"
-            if self._recovered_gap:
-                status += " · replay recovered"
+            if (
+                self.route_summary_provider is None
+                and latest_route is not None
+                and latest_route.pending
+            ):
+                status = "Decision required · reply work to accept · chat to keep conversation-only"
+            else:
+                status = f"Live · durable seq {self._cursor}"
+                if self._recovered_gap:
+                    status += " · replay recovered"
         return build_view_state(
             conversation,
             self._events,
