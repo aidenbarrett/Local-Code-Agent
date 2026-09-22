@@ -49,7 +49,8 @@ def _controller(repo, service, answer="Compiler rejected foo.py"):
         def __init__(self):
             self.repo = repo
 
-        def run(self, task, *, self_check=False, route_source=None, task_id=None):
+        def run(self, task, *, self_check=False, route_source=None, task_id=None, skill_name=None):
+            assert skill_name is None
             assert task_id is not None
             # Execution can begin only after admission + association are durable.
             assert service.store.task_record(task_id)["state"] == "running"
