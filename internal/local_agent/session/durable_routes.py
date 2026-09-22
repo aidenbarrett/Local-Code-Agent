@@ -67,7 +67,7 @@ def _proposal_explanation(intent: TaskIntent) -> str:
 
 
 class DurableRouteEvents:
-    """Commit typed route provenance to one ``DurableSessionService`` stream."""
+    """Commit and recover typed route provenance for one durable event stream."""
 
     def __init__(self, service) -> None:
         self.service = service
@@ -108,6 +108,115 @@ class DurableRouteEvents:
             turn_ref=intent.turn_ref,
             skill=skill,
             requires_acceptance=requires_acceptance,
+        )
+
+    def pending_acceptance(
+        self,
+        *,
+        replay_page: int = 1000,
+        max_events: int = 20_000,
+    ) -> tuple[DurableRouteRef, ...]:
+        """Recover unresolved routes that still require explicit user acceptance.
+
+        This is producer-side recovery state, not a presentation projection. It rebuilds
+        only from committed events so a future gateway acceptance turn can survive a
+        process restart without trusting UI memory. Impossible route history fails closed.
+        """
+        if not isinstance(replay_page, int) or isinstance(replay_page, bool) or replay_page < 1:
+            raise ValueError("route replay page must be a positive integer")
+        if not isinstance(max_events, int) or isinstance(max_events, bool) or max_events < 1:
+            raise ValueError("route replay event limit must be a positive integer")
+
+        proposals: dict[str, tuple[DurableRouteRef, bytes]] = {}
+        order: list[str] = []
+        resolved: set[str] = set()
+        cursor = 0
+        seen = 0
+
+        while True:
+            batch = self.service.replay(after=cursor, limit=replay_page)
+            if not batch:
+                break
+            for event in batch:
+                seen += 1
+                if seen > max_events:
+                    raise DurableRouteError(
+                        "durable route recovery exceeded its bounded event history"
+                    )
+                try:
+                    sequence = int(event["sequence"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise DurableRouteError("durable route history has an invalid sequence") from exc
+                if sequence <= cursor:
+                    raise DurableRouteError("durable route replay is not strictly increasing")
+                cursor = sequence
+
+                kind = event.get("kind")
+                if kind == "route.proposed":
+                    payload = event.get("payload")
+                    if not isinstance(payload, dict):
+                        raise DurableRouteError("durable route proposal payload is malformed")
+                    if not isinstance(payload.get("requires_acceptance"), bool):
+                        raise DurableRouteError(
+                            "durable route proposal acceptance flag is malformed"
+                        )
+                    try:
+                        revision = payload["revision"]
+                        if (
+                            not isinstance(revision, int)
+                            or isinstance(revision, bool)
+                            or revision != 0
+                        ):
+                            raise ValueError("proposal revision must be zero")
+                        ref = DurableRouteRef(
+                            route_id=payload["route_id"],
+                            revision=revision,
+                            turn_ref=payload["turn_ref"],
+                            skill=_optional_skill(payload.get("skill")),
+                            requires_acceptance=payload["requires_acceptance"],
+                        )
+                        fingerprint = _canonical_bytes(payload)
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise DurableRouteError("durable route proposal is malformed") from exc
+
+                    current = proposals.get(ref.route_id)
+                    if current is not None:
+                        if ref.route_id in resolved or current[1] != fingerprint:
+                            raise DurableRouteError(
+                                "durable route proposal identity was reused inconsistently"
+                            )
+                        # Exact replay of the same deterministic proposal is idempotent.
+                        continue
+                    proposals[ref.route_id] = (ref, fingerprint)
+                    order.append(ref.route_id)
+                    continue
+
+                if kind != "route.resolved":
+                    continue
+                payload = event.get("payload")
+                if not isinstance(payload, dict):
+                    raise DurableRouteError("durable route resolution payload is malformed")
+                route_id = payload.get("route_id")
+                current = proposals.get(route_id)
+                if current is None:
+                    raise DurableRouteError("durable route resolution has no proposal")
+                if route_id in resolved:
+                    raise DurableRouteError("durable route was resolved more than once")
+                resolution = payload.get("resolution")
+                if resolution not in {"accepted", "corrected", "rejected"}:
+                    raise DurableRouteError("durable route resolution is unknown")
+                revision = payload.get("revision")
+                if not isinstance(revision, int) or isinstance(revision, bool):
+                    raise DurableRouteError("durable route resolution revision is malformed")
+                expected = current[0].revision + (1 if resolution == "corrected" else 0)
+                if revision != expected:
+                    raise DurableRouteError("durable route resolution revision is inconsistent")
+                resolved.add(route_id)
+
+        return tuple(
+            proposals[route_id][0]
+            for route_id in order
+            if route_id not in resolved and proposals[route_id][0].requires_acceptance
         )
 
     def resolve(
