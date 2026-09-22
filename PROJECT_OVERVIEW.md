@@ -46,11 +46,14 @@ The Session Hub foundation on `main` provides:
 - terminalization atomically records a bounded retained result artifact alongside verdict, closure and terminal task state
 - resumed conversations reconstruct bounded historical task context from integrity-checked durable artifacts rather than process-local `last_result`
 - historical task context is explicitly untrusted and never treated as current verification or inserted into raw user/assistant history
+- an anchored `why did task <durable-uuid> fail?` form resolves one explicit eligible failed task deterministically and refuses malformed, ineligible or ambiguous references rather than asking the model to invent referent authority
 - product-side outcomes are closed and typed, including `NO_VERDICT`
 - successful outcomes require verification to have been established
 - product outcomes have explicit lifecycle/verdict projections and bounded CLI exit classes
 - route provenance is recorded before deterministic routing becomes richer
 - controller/worker exceptions fail closed to unknown/no-verdict semantics rather than success-shaped completion
+- a Textual Session Hub surface is implemented against the session/event foundation and its activity view can expose recent durable task IDs; this is a real product surface, not a design-only future item
+- the generic command runner has a cancellation/timeout seam for its owned direct child, while whole-task and descendant reconciliation remain incomplete
 - Generation-2 evaluator success is executable-frozen as `pass` and `escalated_pass`, with the outcome-contract hash pinned before any Gen2 model rows exist
 - evaluator ledger reporting cannot silently drop an unfamiliar outcome; unclassified rows remain visible
 - behavioural Session Hub acceptance gates replaced prose-presence checks
@@ -102,31 +105,49 @@ UUID. Final verdict/closure/result indexing and bounded retained result bytes ar
 atomically committed before the synchronous gateway returns. Re-submitting the same saved
 turn returns the already-admitted identity and refuses to replay the effect.
 
-For a later conversation turn, `task_history.py` may project the latest terminal task
-associated with that conversation into one bounded historical observation. The gateway
-recomputes the referenced `TurnRef` from the canonical raw conversation before any task
-text may reach the conversation model. Missing pre-retention bytes, corrupt artifacts or
-a stale/mismatched turn reference are omitted rather than converted into model context.
-The observation remains labelled untrusted historical data and is not a current verifier.
+For a later conversation turn, durable task history may project integrity-checked terminal
+task observations into bounded context. The gateway recomputes referenced `TurnRef` values
+from canonical raw conversation before task text may reach the conversation model.
+Missing pre-retention bytes, corrupt artifacts or stale/mismatched turn references are
+omitted rather than converted into model context. The observations remain labelled
+historical and untrusted. Explicit durable UUID syntax can select one eligible failed task
+for the deterministic diagnostic route; broader pronouns, fuzzy matching and general
+multi-task referent inference are not deterministic authority.
 
-What it is not yet, stated because a diagram makes it look finished:
+What it is not yet, stated because the amount of foundation can make it look finished:
 
-- **deterministic referent selection and deterministic-first routing are incomplete.**
-  Durable history can supply the latest associated terminal task as bounded context, but
-  it does not decide which of multiple prior tasks a phrase such as “that one” should
-  target. Direct `/check` and model-proposal task origins are live; rule-origin admission
-  deliberately fails until the routing slice can provide a real rule identity.
+- **deterministic-first routing is incomplete.** One explicit durable-task diagnostic
+  referent is deterministic, but general Work/Chat/rule routing and broader referent
+  selection are not complete. Model proposal remains advice, not permission.
+- **admission provenance is not yet proof of the exact worker procedure.** The current
+  hardening programme is closing the join between recorded skill selection and the
+  procedure/tool authority actually executed.
+- **terminal storage still needs stronger semantic invariants.** Atomicity exists, but
+  status, verdict, retained result, cleanup and verification facts must also be proven
+  mutually consistent before commit.
 - **most declared activity events are not yet durable.** Task admission/state/verdict/
-  closure are durable, but controller/worker/tool activity still uses the process-local
-  activity buffer.
-- **whole-task cancellation is not yet complete.** Admission records a required deadline
-  derived conservatively from existing bounded configuration, but that timestamp is
-  provenance rather than proof that every process was stopped at expiry.
+  closure are durable, but controller/worker/tool activity still has process-local paths.
+- **the Textual product surface is not complete.** Recent durable task IDs are visible,
+  but retained answer/evidence detail, truthful unhealthy-feed input behaviour and full
+  result interaction are still hardening work.
+- **endpoint ownership is not yet fully composed through live inference.** Queue/lease
+  primitives exist, but the product must have one policy authority across real chat and
+  worker calls and state its process-local versus cross-process limits explicitly.
+- **whole-task cancellation is not yet complete.** Admission records a deadline and the
+  generic command runner has a direct-child cancellation seam, but queued work, inference,
+  descendant cleanup, endpoint reconciliation and final durable terminalization are not
+  yet one bounded end-to-end contract.
+- **installed-product acceptance and merge enforcement remain incomplete.** Linux/Windows
+  pytest and structural gates exist, but public install/update/launcher workflows and
+  repository-required-check policy need explicit acceptance/enforcement.
 
-The remaining product slices begin with deterministic Work/Chat/rule routing and fixed
-watch execution, followed by task/run ownership plus endpoint/cancellation semantics, the
-fixture-driven Textual UI, then live controller/endpoint wiring and physical-laptop
-acceptance.
+Before more feature breadth, the project is executing the adversarial-review correctness
+programme in [the standards repair backlog](internal/docs/standards-repair-backlog-2026-09-22.md).
+All fourteen findings are P1. They cover startup/runtime integrity, admitted-skill
+authority, terminal semantic invariants, feed/input health, truthful result semantics and
+detail, effective execution identity, endpoint ownership, cancellation, incremental
+projection, bounded repository discovery, component naming and installed-product/merge
+acceptance. Ordering is dependency-driven; it does not downgrade later items.
 
 ## Architecture
 

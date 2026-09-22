@@ -1,152 +1,172 @@
 # Current state
 
-Authoritative implementation: live GitHub `main`. This file describes what the tree can
-do and what it cannot. It deliberately names no PR numbers: a current-state document
-that tracks in-flight PRs is stale the day they merge, and nothing fails when it is.
-Merge history lives in `internal/docs/review-history.md`.
+Reconciled against live GitHub `main` on 2026-09-22 at
+`b24241ff40e91b0152693c2fd5abef7b6fd6a56c` (merge of the recent-task-ID Textual
+slice). Recheck volatile fields and CI before making a new implementation claim.
+
+Live GitHub `main` is authoritative for current code. Frozen artifacts/hashes are
+authoritative for historical experiment claims. `PROJECT_OVERVIEW.md` owns durable
+architecture, decisions and interpretation.
 
 ## Product direction
 
-The final destination is a dependable local worker for finding, moving, Git and
-coding/build/test work, with replaceable models and no required cloud AI dependency.
-Deep-reasoning competition is not a product goal. The
-[product roadmap](internal/docs/product-roadmap.md) records all ten objectives and
-their acceptance gates; it does not mark them as implemented or replace the next
-integration order below.
+The active goal is a dependable local/offline engineering worker for finding, moving,
+Git and coding/build/test work with replaceable model/runtime backends. Deep-reasoning
+competition is not the goal. The deterministic controller owns routing authority,
+verification, execution state and evidence; models propose work but do not certify it.
 
-The active direction is the **Session Hub**: one continuous conversation surface around a deterministic controller, with task admission, execution, evidence, verdict and recovery represented separately from model prose.
+The active product surface is the **Session Hub**: one continuous Textual conversation
+surface around a deterministic controller, with raw conversation, route decisions, task
+execution, evidence/verdicts and watches represented as distinct state.
 
-The earlier design-only state has been replaced by a real execution and session
-foundation, including durable admission, durable sibling task artifacts and restart-safe
-bounded follow-up context.
+Measurement collection is paused while the product correctness programme is active.
+Frozen historical experiments remain immutable.
 
-## What `main` implements now
+## What the public product actually reaches today
 
-- Direct chat persistence is wired. Existing conversations are opened under an exclusive lock before loading, preventing the stale-writer lost-update race.
-- The public `session` command opens the canonical persisted conversation under the same ownership model and constructs the durable Session Hub event service for that conversation.
-- Repository and self-check work from the public Session Hub is handed through durable task admission before controller effects run.
-- The saved user `TurnRef` is the task origin. Direct-user and model-proposal origins remain typed separately; a future rule origin is refused until a real resolved rule identity exists.
-- Durable gateway request identity is deterministic. Re-submitting the same saved turn cannot replay task effects.
-- The admitted execution-contract digest covers current source identity plus the controller's effective repository policy, build/test profiles and context budget. Environment values affect that digest without being copied into durable events.
-- Conversation-originated task admission atomically persists the exact `TurnRef` association and retained request bytes beside the task row and admitted event.
-- Terminalization atomically persists bounded retained result bytes beside verdict, closure and the terminal task/result index.
-- Retained artifact reads verify the recorded SHA-256, byte count and media type before returning data.
-- Resumed conversations can reconstruct one bounded historical task observation from durable state with `last_result` absent. The gateway recomputes the associated `TurnRef` from canonical raw conversation first; corrupt, stale or unavailable task history is omitted before model context is composed.
-- Historical task observations are labelled untrusted and are not current verification, assistant turns or deterministic referent authority.
-- Databases created before retained task artifacts existed rebuild only the turn-to-task association already present in validated admission events. Missing historical bytes remain unavailable.
-- Raw persisted load/save primitives are private. Owned contexts save explicitly; abandoning an edit does not auto-save it.
-- Product-side task outcomes are a closed vocabulary with explicit `NO_VERDICT`.
-- A success-shaped product result cannot be constructed unless verification was established.
-- Product outcomes project explicitly into lifecycle/verdict state and CLI exit classes.
-- Worker/controller exceptions produce unknown/no-verdict semantics rather than a normal finished-success shape.
-- Current task routing records provenance (`model_proposal` or `user_direct`) before richer deterministic routing is added.
-- Generation-2 evaluator success is executable-frozen as exactly `pass` and `escalated_pass`; the frozen outcome-contract hash is pinned in tests.
-- Ledger reporting has an `unclassified` partition so an unfamiliar observed outcome cannot disappear silently.
-- Session Hub acceptance gates execute real behavioural/structural checks, including retained artifact and TurnRef-association behaviour, rather than merely searching prose for desired words.
+- `local-code-agent.ps1 session` launches the in-process Textual Session Hub rather than
+  the old blocking input/print loop. `--check` remains the deterministic headless path.
+- Canonical raw conversation persistence is owned separately from task/result artifacts.
+  Task result prose is not fabricated into assistant history.
+- Model-proposed repository work is durably proposed and requires explicit `work`
+  acceptance before execution; `chat` resolves it as conversation-only. Accepted work
+  is executed from the canonical original user turn, not proposal prose.
+- Deterministic rules run before model fallback. Explicit failed-task references of the
+  supported form `why did task <durable-uuid> fail?` resolve only against eligible,
+  integrity-checked durable failure candidates. Invalid/ineligible IDs fail closed.
+- The Textual activity pane exposes the current durable task identity and a bounded set
+  of recent terminal task UUIDs so deterministic follow-up syntax is usable.
+- Conversation-originated repository/self-check work goes through durable task admission
+  before controller effects. Admission, task lifecycle, retained request/result bytes and
+  terminal task/result indexing are durable.
+- Tool activity on the admitted controller path is durably wrapped. Canonical evidence
+  identifiers are preserved; retained artifact bytes are hash/size/media-type checked.
+- Fixed-watch work has durable watch admission and an execution lifecycle bridge using
+  preallocated `(job_id, run_id)` identity and deterministic verification. This does not
+  yet mean recurring watch scheduling is a complete public workflow.
+- Task execution provenance distinguishes conversation routes from watch-origin work.
+- The command runner has an execution-level cancellation probe: cancellation can be
+  observed before spawn or while a configured command runs, and cleanup claims remain
+  conservative. This is a primitive, not complete Session Hub cancellation.
+- Source mutation/staging/commit authority remains disabled on the conversation product
+  path.
 
-Source mutation, staging and commit behaviour remain disabled on the conversation product path.
+## Correctness gaps currently treated as P1
 
-## Durable event service and public task execution
+The 2026-09-22 adversarial review found useful defensive primitives but material failures
+at their joins. Until these are closed, do not describe the corresponding workflows as
+dependable end-to-end product capabilities.
 
-`local_agent/session/` implements the executable `lca.session.events/1` path:
+1. **Startup/update preflight.** Public launchers can select a stale editable Python
+   environment and fail on current dependencies after a superficial package import
+   check. Product startup needs one exact-interpreter preflight and explicit repair path.
+2. **Admitted skill execution.** At this snapshot the selected skill is retained in
+   admission but is dropped before the worker call, allowing heuristic rerouting. The
+   audit record and actual tool authority can therefore disagree.
+3. **Durable completion invariants.** Atomic storage validates bytes/sequence ownership
+   but does not yet reject contradictory result/verdict/status/cleanup/evidence claims.
+4. **Result semantics.** Successful observation, observed verification failure,
+   protocol/transport failure and incomplete verification are still collapsed too
+   aggressively into coarse outcomes.
+5. **Result reachability.** Retained worker answers exist but the public Hub does not yet
+   provide a proper task-result detail surface that separates worker analysis from the
+   deterministic verdict/evidence.
+6. **Feed/input health.** A broken durable feed can stop polling without disabling input
+   dispatch, and rejected/busy input can lose the user's draft.
+7. **Effective execution identity.** The execution digest does not yet bind the actual
+   effective external/repository skill bytes and exact worker/runtime configuration.
+8. **Endpoint ownership.** `EndpointArbiter`, `EndpointRuntime` and
+   `EndpointCallAdapter` already exist, but the recently merged endpoint scheduler slice
+   introduced a second queue/lease authority beside them. The live conversation/worker
+   calls are not yet composed through one canonical owner. This must be reconciled before
+   further endpoint work.
+9. **Cancellation/reconciliation.** Cancellation primitives and command-level polling
+   exist, but public Session Hub input, task epoch fencing, endpoint quarantine and
+   bounded shutdown are not yet one complete stop-and-reconcile workflow.
+10. **Installed-product acceptance/merge gates.** CI contains useful Linux/Windows and
+    contract checks, but installed/update/public-entrypoint acceptance is incomplete.
+    Repository `main` also had no enforced branch protection/required checks at the
+    reviewed snapshot, so workflow files alone do not enforce merge policy.
+11. **Contributor/current-status documentation.** Some root/docs instructions still
+    describe superseded provenance rules and older product reachability. Documentation
+    is an active coding-agent input and must match current source.
 
-- JSON Schema validation before durable commit or publication, against the versioned
-  contract under `internal/docs/session-contract/v1/`
-- SQLite WAL session, task, association and retained-artifact storage
-- one writer owning sequence assignment and persistence
-- admission keyed by request identity and payload digest
-- atomic admission + exact `TurnRef` association + retained request artifact
-- atomic verdict + closure + terminal task/result indexing + retained bounded result
-- stream-scoped crash recovery to unknown / `NO_VERDICT`, never automatic retry; recovery writes an inspectable bounded unknown result artifact
-- accepted-write/shutdown linearization so a returned receipt cannot be abandoned
-  behind the shutdown sentinel
-- durable non-terminal task state and execution-epoch fencing; stale state or stale
-  epoch events fail without consuming a stream sequence
-- replay from committed events
-- bounded thread-safe subscriptions with explicit overflow/gap handling
-- an explicit replay-to-live handoff boundary so a concurrent commit is either in the
-  replay window or delivered live, without a silent gap or duplicate
-- non-blocking task submission, so a future Textual event loop need not wait on controller
-  or tool execution
+The P2 maintainability/scale backlog remains important but is deliberately behind these
+correctness repairs: incremental history projections/retention, bounded repository
+enumeration and explicit module/composition naming cleanup.
 
-The public `local-code-agent.ps1 session` path composes that service beside the owned raw
-conversation. A conversation deterministically maps to distinct stable UUID stream/session
-identities, uses the shared Session Hub SQLite store, reconciles that stream's unfinished
-durable tasks to unknown / `NO_VERDICT` on restart, and commits a validated
-`session.opened` event before entering the interactive loop.
+## Endpoint ownership at this snapshot
 
-For repository or self-check work, the gateway first commits the user turn and keeps its
-stable `TurnRef`. Hashed `task_admission.py` then derives the durable request identity,
-retained request artifact, typed origin, repository identity and effective execution-
-contract digest. `DurableTaskExecutor` commits `task.admitted`, the association and request
-bytes, advances the task to `running`, and only then invokes `TaskController` with the
-durable task UUID. Verdict, closure, bounded result bytes and result indexing commit
-atomically before the synchronous gateway returns the controller result. An identical
-request retry returns the existing task identity and is refused rather than executing the
-effect again.
+Current `main` contains two competing in-process endpoint arbitration concepts. The
+established stack is:
 
-`task_history.py` reads only terminal associated task state. A retained result must pass
-artifact-integrity checks and strict typed result parsing. The gateway then recomputes the
-referenced raw-turn hash from the canonical conversation before composing one bounded
-system observation labelled historical, untrusted and not current verification. Old tasks
-whose request/result bytes were never retained remain durable facts but do not acquire
-invented text during migration.
+- `session/endpoint_lease.py` -> `EndpointArbiter`, queue/lease/quarantine policy owner
+- `session/endpoint_runtime.py` -> runtime composition
+- `session/endpoint_call.py` -> call adapter
 
-The admission schema requires `deadline_utc`. The current adapter records a conservative
-deadline envelope over existing bounded command/call configuration, but whole-task
-cancellation is not implemented yet. That deadline is provenance, not proof that all
-processes were stopped at expiry, and must not be rendered as such.
+A later `session/scheduler.py` added another endpoint identity, queue and lease owner.
+Do not build callers against both. Reconcile to one authority first. Neither in-process
+implementation is proof of cross-process ownership, and the public inference calls are
+not yet fully wrapped by the canonical owner.
 
-Important limits still remain:
+## Verification and result semantics
 
-- **Deterministic referent resolution and deterministic-first routing are incomplete.**
-  The latest terminal associated task can be composed as bounded historical context, but
-  selection among multiple candidate tasks is not yet deterministic. Current public task
-  origins are direct `/check` or model proposal. Rule-origin admission fails closed until
-  a real rule ID is available.
-- **Most declared event kinds are not yet emitted durably by the live product path.**
-  Task admission/state/verdict/closure are durable. Controller/worker/tool activity still
-  passes through the process-local `EventBuffer`; do not describe those transient records
-  as durable activity history.
-- **Whole-task cancellation is not yet complete.** Admission records a required deadline
-  derived conservatively from existing bounded configuration, but that timestamp is
-  provenance rather than proof that every process was stopped at expiry.
+Controller verdicts are deterministic product claims, not model prose. Historical
+worker text is untrusted context and cannot change task lifecycle/verdict authority.
+Build/test proof belongs to a repository state and becomes stale after relevant mutation.
 
-## Known product gaps
+`NO_VERDICT` means reliable final verification was not established. `NOT_REQUIRED`
+should be used only when the admitted plan genuinely does not require build/test
+verification, not as a fallback for failed/missing verification.
 
-- Deterministic-first Work/Chat/rule routing and deterministic referent selection are not complete.
-- Fixed watch execution and its scheduler lifecycle are not complete.
-- Full process-tree containment and truthful cancellation are not complete. The generic command runner owns the direct child, bounds timeout return and snapshots immutable public evidence, but POSIX process groups and Windows descendant enumeration are best-effort cleanup rather than proof of whole-tree containment. Session Hub cancel requests are not yet wired through to execution ownership.
-- Endpoint lease/queue arbitration for shared OVMS use is not complete.
-- Textual UI and durable activity/watch panes are later slices.
-- No hidden source-mutation path exists behind these interfaces.
+The current durable terminal transaction is atomic, but semantic consistency validation
+across retained result bytes, terminal envelopes, evidence identities and cleanup state
+is still a P1 repair. Do not equate atomic commit with verifier completeness.
 
-## Verification semantics
+## UI and feed truth
 
-Controller verdicts are deterministic product claims, not model prose. `NO_VERDICT` means no reliable final verification can be established. Historical evidence never becomes current-tree proof merely because it was previously green.
+The Textual Hub is real and public now. It renders canonical conversation, durable task
+activity, route state and watches and submits turns without blocking the Textual event
+loop. Model-return prose is deliberately not injected into canonical conversation.
 
-The worker tracks whether verification was attempted separately from whether it succeeded.
-The durable terminal boundary preserves that distinction and cannot turn missing proof into
-a verified result. A retained historical result can explain what a previous task reported;
-it cannot certify the present repository or resolve an ambiguous target by itself.
+Remaining UI correctness work is not cosmetic: when the durable feed cannot establish
+current task truth the Hub must refuse new task actions until an authoritative resnapshot
+succeeds, and rejected submissions must preserve the draft. A separate retained
+result-detail surface is also required so useful worker answers are visible without
+making prose authoritative.
+
+## Watch status
+
+Fixed-watch primitives, durable admission and durable execution lifecycle composition are
+implemented. Recurring public scheduling, complete Session Hub watch controls and the
+full cancellation/recovery acceptance path are not yet delivered. A merged primitive is
+not a delivered watch product until the public composition and physical acceptance path
+exercise it.
 
 ## Experimental status
 
-Measurement collection is paused. Frozen historical runs are not rescored in place.
+Historical Generation-1/smoke evidence remains frozen and must not be modified or
+silently reinterpreted using current instrumentation. New claim vocabularies, routing,
+verification or task contracts belong to a new generation.
 
-Generation 1's published pooled table uses its historical weighted `succeeded` accounting: Control 9/30, Narrow 22/30 and Skill 23/29. A newer typed `verified_completion` characterization of the same frozen rows gives 1/30, 12/30 and 9/29. That characterization is useful for understanding endpoint semantics but does not rewrite Generation 1.
+Generation 2 has no collected model rows at this snapshot. Its frozen model-facing and
+outcome-facing contract axes remain protected. `source_sha256` is derived from the exact
+tree/run and is not a mutable live declaration in `internal/INSTRUMENT.json`.
 
-Generation 2 currently has no collected model rows. Its success vocabulary and outcome-contract identity are pinned before collection begins, so accidental evaluator changes fail loudly rather than silently changing the generation.
+## Active integration order
 
-## Next integration order
+Until the P1 programme is closed, feature expansion is subordinate to correctness:
 
-The durable correctness foundation, public composition path, admission-before-effects
-handoff and restart-safe task-history projection are in place. The next product integration
-order is:
+1. reconcile endpoint ownership to one implementation;
+2. repair public startup/update preflight and contributor/current-status authority;
+3. enforce admitted skill through the worker boundary;
+4. enforce semantic durable-completion invariants;
+5. repair feed/input health and truthful result semantics;
+6. expose retained task answers/evidence without giving model prose status authority;
+7. freeze/fingerprint effective execution inputs;
+8. finish public cancellation + endpoint reconciliation;
+9. assemble installed-product acceptance and enforce merge gates;
+10. only then resume P2 scale/naming cleanup and new feature slices.
 
-1. Add deterministic Work/Chat/rule routing, deterministic referent selection and fixed watch execution on top of recorded route provenance.
-2. Add task/run process ownership, endpoint arbitration and truthful cancellation semantics where not already completed by the foundation.
-3. Build the fixture-driven Textual shell against the durable event interface.
-4. Wire the live controller/endpoint path and run physical-laptop acceptance.
-
-Historical experiments and their artifacts remain frozen. New instrumentation or methodology belongs to a new experimental generation, never a silent reinterpretation of old evidence.
+Every repair gets a failing behavioural regression at the broken boundary, exact-base
+CI, preserved frozen experiment identities and current documentation in the same change.
