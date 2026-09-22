@@ -42,27 +42,34 @@ def test_feed_projects_pending_and_resolved_route_from_durable_events(tmp_path):
         feed = DurableHubFeed(service)
         state = feed.start()
         assert state.route_summary == "model proposal · work · repo-navigation · awaiting acceptance"
+        assert state.status == (
+            "Decision required · reply work to accept · chat to keep conversation-only"
+        )
 
         routes.resolve(proposal, source="user")
         assert feed.poll() is True
-        assert feed.state().route_summary == "model proposal · work · repo-navigation · accepted"
+        resolved = feed.state()
+        assert resolved.route_summary == "model proposal · work · repo-navigation · accepted"
+        assert resolved.status.startswith("Live · durable seq ")
     finally:
         service.close()
 
 
-def test_explicit_route_summary_provider_remains_an_override(tmp_path):
+def test_explicit_route_summary_provider_remains_an_override_without_inventing_decision_state(tmp_path):
     service = _service(tmp_path)
     try:
         routes = DurableRouteEvents(service)
         routes.propose(
             TaskIntent(
                 turn_ref=_turn_ref(),
-                objective="build",
+                objective="inspect repository",
                 proposed_reference_ids=(),
-                origin=RouteSource.USER_DIRECT,
+                origin=RouteSource.MODEL_PROPOSAL,
             )
         )
         feed = DurableHubFeed(service, route_summary_provider=lambda: "fixture override")
-        assert feed.start().route_summary == "fixture override"
+        state = feed.start()
+        assert state.route_summary == "fixture override"
+        assert state.status.startswith("Live · durable seq ")
     finally:
         service.close()
