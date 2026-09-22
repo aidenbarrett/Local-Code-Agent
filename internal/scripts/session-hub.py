@@ -43,6 +43,7 @@ from local_agent.session.task_admission import (  # noqa: E402
 from local_agent.session.task_controller import TaskController  # noqa: E402
 from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
 from local_agent.session.cli import conversation_budgets, safe_terminal  # noqa: E402
+from local_agent.session.textual_runtime import build_textual_session_runtime  # noqa: E402
 
 
 def _runtime_root() -> Path:
@@ -93,6 +94,8 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
                 "durable_task_history",
                 "durable_tool_activity",
                 "deterministic_routing",
+                "textual_session_hub",
+                "non_blocking_turn_dispatch",
             ],
             "recovered": recovered,
         },
@@ -144,11 +147,10 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 _emit_session_opened(service, conversation_id=conversation_id, repo=repo, recovered=bool(recovered))
 
-                def show(event) -> None:
-                    detail = event.payload.get("summary") or event.payload.get("message") or ""
-                    print(f"[{event.sequence:04d}] {event.kind}" + (f"  {detail}" if detail else ""))
-
-                events = EventBuffer(service.stream_id, show)
+                # Transient controller events remain an internal compatibility surface.
+                # Do not print them behind Textual and corrupt the terminal UI; the Hub
+                # renders committed durable state as its authority.
+                events = EventBuffer(service.stream_id)
 
                 def worker_factory():
                     return OpenAICompatibleClient(worker_config)
@@ -160,10 +162,12 @@ def main(argv: list[str] | None = None) -> int:
                     allow_execution=args.allow_execution,
                     context_budget_tokens=worker_config.context_budget_tokens,
                 )
+                # Composition contract: durable admission enabled before controller effects.
                 admitted_controller = AdmittedDurableTaskController(service, controller)
                 task_runner = DurableTaskAdmissionRunner(
                     DurableTaskExecutor(service, admitted_controller)
                 )
+                # Routing contract remains gateway-owned: deterministic rules before model fallback.
                 gateway = ConversationGateway(
                     OpenAICompatibleClient(chat_config),
                     controller,
@@ -180,35 +184,9 @@ def main(argv: list[str] | None = None) -> int:
                     print(answer)
                     return 0 if gateway.last_result and gateway.last_result.outcome.succeeded else 2
 
-                print("Local Code Agent Session Hub")
-                print(f"Repository: {root}")
-                print(f"Conversation: {conversation_id}")
-                print("Conversation history: persisted raw turns")
-                print("Durable task associations/artifacts: enabled")
-                if recovered:
-                    print(f"Recovered {len(recovered)} unfinished task(s) as unknown / NO_VERDICT.")
-                print("Task execution: durable admission enabled before controller effects")
-                print("Tool activity: durable start/finish boundary enabled")
-                print("Routing: deterministic rules before model fallback")
-                print("Commands: /check, /quit")
-                print()
-
-                while True:
-                    try:
-                        line = input("you> ").strip()
-                    except (EOFError, KeyboardInterrupt):
-                        print()
-                        return 0
-                    if line in {"/quit", "/exit"}:
-                        return 0
-                    if not line:
-                        continue
-                    try:
-                        print(gateway.turn(line))
-                    except ContextRefusal as exc:
-                        print(f"Conversation refused: {exc}")
-                    except RuntimeError as exc:
-                        print(f"Session error: {exc}")
+                with build_textual_session_runtime(service, opened, gateway) as textual:
+                    textual.app.run()
+                return 0
             finally:
                 service.close()
     except ContextRefusal as exc:
