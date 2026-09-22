@@ -202,22 +202,14 @@ def test_only_work_decision_can_become_task_intent():
         task_intent_from_decision(decide_route("hello"), _turn_ref())
 
 
-def test_one_word_work_acceptance_preserves_pending_route_revision():
+@pytest.mark.parametrize("mode", ["work", "chat"])
+def test_one_word_route_decision_targets_current_pending_revision(mode):
     pending = (PendingRouteRef("route-1", 4),)
-    correction = correct_pending_route(" work ", pending)
+    correction = correct_pending_route(f" {mode} ", pending)
     assert correction.status == CorrectionStatus.APPLIED
     assert correction.route_id == "route-1"
     assert correction.revision == 4
-    assert correction.mode == ExplicitMode.WORK
-
-
-def test_one_word_chat_correction_increments_pending_route_revision():
-    pending = (PendingRouteRef("route-1", 4),)
-    correction = correct_pending_route(" chat ", pending)
-    assert correction.status == CorrectionStatus.APPLIED
-    assert correction.route_id == "route-1"
-    assert correction.revision == 5
-    assert correction.mode == ExplicitMode.CHAT
+    assert correction.mode == ExplicitMode(mode)
 
 
 def test_route_correction_never_guesses_across_multiple_pending_routes():
