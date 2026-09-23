@@ -19,6 +19,7 @@ def test_field_order_is_pinned_because_callers_still_pass_positionally():
         "evidence_ids",
         "metrics",
         "verification_ran",
+        "reason_code",
     ]
 
 
@@ -58,4 +59,5 @@ def test_agent_state_already_tracks_attempted_separately():
     assert {"verified", "verification_attempted"} <= fields
     state = AgentState(task="t", repo_root=Path("."))
     state.verification_attempted = True
+    assert state.verification_attempted is True
     assert state.verified is False
