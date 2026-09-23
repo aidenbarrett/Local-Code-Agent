@@ -42,6 +42,7 @@ _REQUIRED_ROLES = frozenset(
 )
 _LAYOUTS = ("wide", "medium", "compact")
 _RECENT_TASK_LIMIT = 3
+_RECENT_RESULT_PREVIEW_CHARS = 240
 
 
 class PaletteError(RuntimeError):
@@ -175,6 +176,13 @@ def _recent_terminal_tasks(
     return tuple(prior[:limit])
 
 
+def _result_preview(answer: str) -> str:
+    compact = " ".join(answer.split())
+    if len(compact) <= _RECENT_RESULT_PREVIEW_CHARS:
+        return compact
+    return compact[: _RECENT_RESULT_PREVIEW_CHARS - 1].rstrip() + "…"
+
+
 def render_activity(state: HubViewState) -> str:
     task = _active_task(state.tasks)
     lines: list[str] = []
@@ -215,6 +223,15 @@ def render_activity(state: HubViewState) -> str:
         # These lines are deterministic controller output.  Do not rewrite them.
         lines.extend(task.verdict_lines)
 
+    if task.result_answer is not None:
+        lines.extend(("", "Retained result:", task.result_answer))
+        if task.result_verified_at_completion is True:
+            lines.append("Result verification: passed at task completion")
+        elif task.result_verification_ran:
+            lines.append("Result verification: ran but did not establish success")
+        else:
+            lines.append("Result verification: not established")
+
     if task.faults:
         reason, message = task.faults[-1]
         lines.append(f"Fault: {reason} · {message}")
@@ -225,6 +242,8 @@ def render_activity(state: HubViewState) -> str:
         for prior in recent:
             verdict = prior.verdict or "NO_VERDICT"
             lines.append(f"{prior.task_id} · {prior.state} · {verdict}")
+            if prior.result_answer is not None:
+                lines.append(f"  Result: {_result_preview(prior.result_answer)}")
     return "\n".join(lines)
 
 
