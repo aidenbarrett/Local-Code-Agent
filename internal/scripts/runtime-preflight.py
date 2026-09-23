@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Fail-closed runtime integrity check for public Local Code Agent entrypoints.
 
-This script intentionally uses only the Python standard library.  It must be able to
+This script intentionally uses only the Python standard library. It must be able to
 explain a broken checkout environment before importing product code, starting OVMS, or
 preparing a model.
 """
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from importlib import import_module, metadata
 from pathlib import Path
 import re
@@ -16,8 +17,6 @@ import tomllib
 
 
 MIN_PYTHON = (3, 11)
-# These imports exercise the exact high-value surfaces that have previously failed only
-# after the public launcher had already begun useful-looking work.
 CRITICAL_IMPORTS = (
     "local_agent.session.event_contract",
     "local_agent.tools.tool_primitives",
@@ -25,26 +24,92 @@ CRITICAL_IMPORTS = (
     "openai",
     "psutil",
 )
-_REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+_REQUIREMENT = re.compile(
+    r"^\s*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?P<spec>(?:[<>=!~]=?[^;\s,]+(?:\s*,\s*[<>=!~]=?[^;\s,]+)*)?)"
+)
+_SPECIFIER = re.compile(r"^(~=|==|!=|<=|>=|<|>)(.+)$")
 
 
-def declared_runtime_distributions(pyproject: Path) -> tuple[str, ...]:
-    """Return direct runtime distribution names declared by this checkout."""
+@dataclass(frozen=True)
+class RuntimeRequirement:
+    name: str
+    specifiers: tuple[tuple[str, str], ...]
+
+
+def _release(value: str) -> tuple[int, ...]:
+    match = re.match(r"^\s*(\d+(?:\.\d+)*)", value)
+    if match is None:
+        raise ValueError(f"unsupported installed version format: {value!r}")
+    return tuple(int(piece) for piece in match.group(1).split("."))
+
+
+def _cmp(left: tuple[int, ...], right: tuple[int, ...]) -> int:
+    width = max(len(left), len(right))
+    lhs = left + (0,) * (width - len(left))
+    rhs = right + (0,) * (width - len(right))
+    return (lhs > rhs) - (lhs < rhs)
+
+
+def _satisfies(installed: str, specifiers: tuple[tuple[str, str], ...]) -> bool:
+    current = _release(installed)
+    for operator, raw_target in specifiers:
+        target = _release(raw_target)
+        comparison = _cmp(current, target)
+        if operator == ">=" and comparison < 0:
+            return False
+        if operator == ">" and comparison <= 0:
+            return False
+        if operator == "<=" and comparison > 0:
+            return False
+        if operator == "<" and comparison >= 0:
+            return False
+        if operator == "==" and comparison != 0:
+            return False
+        if operator == "!=" and comparison == 0:
+            return False
+        if operator == "~=":
+            if comparison < 0:
+                return False
+            if len(target) <= 1:
+                upper = (target[0] + 1,)
+            else:
+                upper = target[:-1] + (target[-2] + 1,) if len(target) > 2 else (target[0] + 1,)
+            if _cmp(current, upper) >= 0:
+                return False
+    return True
+
+
+def declared_runtime_requirements(pyproject: Path) -> tuple[RuntimeRequirement, ...]:
+    """Return direct runtime distributions and their declared version constraints."""
     with pyproject.open("rb") as handle:
         data = tomllib.load(handle)
     dependencies = data.get("project", {}).get("dependencies")
     if not isinstance(dependencies, list):
         raise ValueError("pyproject.toml does not declare project.dependencies")
 
-    names: list[str] = []
+    requirements: list[RuntimeRequirement] = []
     for requirement in dependencies:
         if not isinstance(requirement, str):
             raise ValueError("project.dependencies contains a non-string requirement")
-        match = _REQUIREMENT_NAME.match(requirement)
+        match = _REQUIREMENT.match(requirement)
         if match is None:
             raise ValueError(f"cannot parse runtime requirement: {requirement!r}")
-        names.append(match.group(1))
-    return tuple(names)
+        parsed: list[tuple[str, str]] = []
+        spec = match.group("spec").strip()
+        if spec:
+            for item in spec.split(","):
+                token = item.strip()
+                spec_match = _SPECIFIER.fullmatch(token)
+                if spec_match is None:
+                    raise ValueError(f"unsupported runtime version specifier: {token!r}")
+                parsed.append((spec_match.group(1), spec_match.group(2)))
+        requirements.append(RuntimeRequirement(match.group("name"), tuple(parsed)))
+    return tuple(requirements)
+
+
+def declared_runtime_distributions(pyproject: Path) -> tuple[str, ...]:
+    """Compatibility view of the declared direct runtime distribution names."""
+    return tuple(requirement.name for requirement in declared_runtime_requirements(pyproject))
 
 
 def runtime_errors(
@@ -61,15 +126,27 @@ def runtime_errors(
         )
 
     try:
-        distributions = declared_runtime_distributions(pyproject)
+        requirements = declared_runtime_requirements(pyproject)
     except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
         return [f"cannot read runtime contract {pyproject}: {exc}"]
 
-    for name in distributions:
+    for requirement in requirements:
         try:
-            metadata.version(name)
+            installed = metadata.version(requirement.name)
         except metadata.PackageNotFoundError:
-            errors.append(f"declared runtime dependency is not installed: {name}")
+            errors.append(f"declared runtime dependency is not installed: {requirement.name}")
+            continue
+        try:
+            compatible = _satisfies(installed, requirement.specifiers)
+        except ValueError as exc:
+            errors.append(f"cannot validate {requirement.name} {installed}: {exc}")
+            continue
+        if not compatible:
+            rendered = ",".join(op + version for op, version in requirement.specifiers) or "any"
+            errors.append(
+                f"declared runtime dependency has incompatible version: "
+                f"{requirement.name} {installed}; required {rendered}"
+            )
 
     for module_name in critical_imports:
         try:
