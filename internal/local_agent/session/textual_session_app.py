@@ -10,7 +10,7 @@ from __future__ import annotations
 from concurrent.futures import Future
 from dataclasses import replace
 
-from textual.widgets import Input
+from textual.widgets import Input, Static
 
 from .textual_dispatch import HubTurnBusy, HubTurnDispatcher, HubTurnDispatcherClosed
 from .textual_feed import DurableHubFeed, HubFeedError
@@ -36,6 +36,7 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
         palette_name: str = "neon",
         poll_interval: float = 0.10,
         completion_poll_interval: float = 0.05,
+        runtime_summary: str | None = None,
     ) -> None:
         if not isinstance(dispatcher, HubTurnDispatcher):
             raise TypeError("live dispatching Textual app requires HubTurnDispatcher")
@@ -46,14 +47,21 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
             raise TypeError("turn completion poll interval must be numeric")
         if completion_poll_interval <= 0:
             raise ValueError("turn completion poll interval must be positive")
+        if runtime_summary is not None and (not isinstance(runtime_summary, str) or not runtime_summary.strip()):
+            raise ValueError("runtime_summary must be nonempty text when supplied")
         self.turn_dispatcher = dispatcher
         self.completion_poll_interval = float(completion_poll_interval)
+        self.runtime_summary = runtime_summary
         self._turn_future: Future[str] | None = None
         self._turn_status: str | None = None
         super().__init__(feed, palette_name=palette_name, poll_interval=poll_interval)
 
     def on_mount(self) -> None:
         super().on_mount()
+        if self.runtime_summary:
+            self.query_one("#title", Static).update(
+                "LOCAL CODE AGENT · SESSION HUB  ·  " + self.runtime_summary
+            )
         self.set_interval(self.completion_poll_interval, self._poll_turn_completion)
 
     def _fail_feed(self, exc: HubFeedError) -> None:
@@ -104,10 +112,6 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
             self.exit()
             return
 
-        # Once the durable truth feed fails, the presentation no longer knows enough
-        # to authorize another conversation turn. Refuse new work until a fresh app/feed
-        # establishes an authoritative replay boundary. The base shell clears the Input
-        # before posting this message, so every refusal restores the exact submitted text.
         if self._feed_failed:
             self._restore_draft(message.text)
             self._status("Turn refused · durable feed is unavailable; restart to resnapshot")
