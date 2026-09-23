@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+import local_agent.session.task_controller as task_controller_module
 from local_agent.session.contracts import TaskOutcome, TaskResult
 from local_agent.session.durable_task_controller import AdmittedDurableTaskController
 from local_agent.session.event_buffer import EventBuffer
@@ -141,7 +142,6 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
     durable_activity = object()
     wrapped_registry = object()
     observed = {}
-    globals_ = TaskController.run.__globals__
 
     def build_registry_spy(_repo):
         observed["registry_built_for"] = _repo
@@ -160,9 +160,9 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
             observed["skill_name"] = skill_name
             raise RuntimeError("stop after registry composition")
 
-    monkeypatch.setitem(globals_, "build_registry", build_registry_spy)
-    monkeypatch.setitem(globals_, "wrap_registry_with_durable_activity", wrap)
-    monkeypatch.setitem(globals_, "Orchestrator", FakeOrchestrator)
+    monkeypatch.setattr(task_controller_module, "build_registry", build_registry_spy)
+    monkeypatch.setattr(task_controller_module, "wrap_registry_with_durable_activity", wrap)
+    monkeypatch.setattr(task_controller_module, "Orchestrator", FakeOrchestrator)
 
     controller = TaskController(repo, lambda: object(), EventBuffer("s"))
     result = controller.run("inspect", durable_activity=durable_activity)
