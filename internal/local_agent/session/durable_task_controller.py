@@ -45,6 +45,12 @@ class AdmittedDurableTaskController:
     def resolve_skill(self, skill_name: str) -> str:
         return self.controller.resolve_skill(skill_name)
 
+    def effective_skill_sha256(self, skill_name: str) -> str:
+        fingerprint = getattr(self.controller, "effective_skill_sha256", None)
+        if not callable(fingerprint):
+            raise TypeError("admitted durable controller cannot fingerprint admitted skills")
+        return fingerprint(skill_name)
+
     def run(
         self,
         task: str,

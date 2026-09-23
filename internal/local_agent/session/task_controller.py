@@ -1,6 +1,8 @@
 """Product adapter onto the existing hardened orchestrator, not a second agent loop."""
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import replace
 from uuid import UUID, uuid4
 
@@ -33,13 +35,7 @@ class TaskController:
             default_search_path(self.repo.root, self.repo.skills_dir)
         )
 
-    def resolve_skill(self, skill_name: str) -> str:
-        """Resolve one controller-selected skill before durable admission/effects.
-
-        Routing authority belongs to the controller. A recorded deterministic skill must
-        therefore exist in the effective skill search path before work is admitted; the
-        worker is never allowed to silently broaden to heuristic/default routing.
-        """
+    def _resolved_skill(self, skill_name: str):
         if not isinstance(skill_name, str) or not skill_name.strip():
             raise ValueError("selected skill must be a nonempty string")
         skill = self._skill_library().get(skill_name)
@@ -47,7 +43,53 @@ class TaskController:
             raise ValueError(f"selected skill is not installed: {skill_name}")
         if not skill.tools:
             raise ValueError(f"selected skill has an empty tool allowlist: {skill_name}")
-        return skill.name
+        return skill
+
+    def resolve_skill(self, skill_name: str) -> str:
+        """Resolve one controller-selected skill before durable admission/effects.
+
+        Routing authority belongs to the controller. A recorded deterministic skill must
+        therefore exist in the effective skill search path before work is admitted; the
+        worker is never allowed to silently broaden to heuristic/default routing.
+        """
+        return self._resolved_skill(skill_name).name
+
+    def effective_skill_sha256(self, skill_name: str) -> str:
+        """Fingerprint every effective byte beneath the selected skill directory.
+
+        External/repository-local skills can override packaged procedures. Durable
+        admission therefore binds the actual selected directory contents, not merely its
+        configured search path or skill name. Paths are relative so identical procedure
+        bytes have the same identity when installed at a different absolute location.
+        Symlinks escaping the skill directory are refused rather than leaving provenance
+        dependent on unbound external bytes.
+        """
+        skill = self._resolved_skill(skill_name)
+        root = skill.path.resolve()
+        manifest: list[dict[str, object]] = []
+        for path in sorted(skill.path.rglob("*"), key=lambda item: item.as_posix()):
+            if path.is_symlink():
+                resolved = path.resolve()
+                if resolved != root and root not in resolved.parents:
+                    raise ValueError(f"selected skill contains escaping symlink: {path.name}")
+            if not path.is_file():
+                continue
+            data = path.read_bytes()
+            manifest.append({
+                "path": path.relative_to(skill.path).as_posix(),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "size_bytes": len(data),
+            })
+        if not manifest:
+            raise ValueError(f"selected skill has no fingerprintable files: {skill_name}")
+        encoded = json.dumps(
+            manifest,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     def run(
         self,
