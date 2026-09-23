@@ -59,6 +59,42 @@ _CURRENT_REASON_BY_VERDICT: dict[TaskVerdict, VerdictReason] = {
     TaskVerdict.NO_VERDICT: VerdictReason.CLEANUP_UNKNOWN,
 }
 
+_ALLOWED_REASONS_BY_VERDICT: dict[TaskVerdict, frozenset[VerdictReason]] = {
+    TaskVerdict.VERIFIED: frozenset({VerdictReason.VERIFICATION_PASSED}),
+    TaskVerdict.FAILED: frozenset({
+        VerdictReason.VERIFICATION_FAILED,
+        VerdictReason.MISSING_EVIDENCE,
+        VerdictReason.STALE_EVIDENCE,
+        VerdictReason.PROTOCOL_MISMATCH,
+        VerdictReason.SCOPE_CHANGED,
+    }),
+    TaskVerdict.REFUSED: frozenset({
+        VerdictReason.POLICY_DENIED,
+        VerdictReason.USER_DENIED,
+        VerdictReason.MISSING_DEPENDENCY,
+        VerdictReason.INVALID_INPUT,
+        VerdictReason.UNAVAILABLE_CAPABILITY,
+        VerdictReason.ROUTING_UNCERTAIN,
+        VerdictReason.TOOL_TIMEOUT,
+        VerdictReason.TASK_TIMEOUT,
+        VerdictReason.CANCELLED,
+        VerdictReason.QUEUE_FULL,
+    }),
+    TaskVerdict.NO_VERDICT: frozenset({
+        VerdictReason.CLEANUP_UNKNOWN,
+        VerdictReason.CONTROLLER_CRASH,
+        VerdictReason.ENDPOINT_UNAVAILABLE,
+        VerdictReason.INFERENCE_TIMEOUT,
+        VerdictReason.TOOL_TIMEOUT,
+        VerdictReason.TASK_TIMEOUT,
+        VerdictReason.MISSING_EVIDENCE,
+        VerdictReason.PROTOCOL_MISMATCH,
+        VerdictReason.STORAGE_ERROR,
+        VerdictReason.CONTRACT_CHANGED,
+    }),
+    TaskVerdict.NOT_REQUIRED: frozenset({VerdictReason.VERIFICATION_NOT_REQUIRED}),
+}
+
 
 def _tree_sha256(value: object) -> str | None:
     if value is None:
@@ -159,17 +195,24 @@ def verdict_block_from_task_result(
     *,
     scope: str = "controller task result at durable completion",
 ) -> VerdictBlock:
-    """Render the current TaskResult vocabulary into one deterministic v1 block."""
+    """Render one typed controller result without erasing its stop reason."""
     if not isinstance(result, TaskResult):
         raise TypeError("verdict rendering requires TaskResult")
     verdict = result.projection.verdict
-    try:
-        reason = _CURRENT_REASON_BY_VERDICT[verdict]
-    except KeyError as exc:
-        # NOT_REQUIRED is schema-declared for observation tasks, but the current
-        # TaskResult vocabulary does not yet have such an outcome. Do not invent
-        # that mapping here.
-        raise ValueError(f"TaskResult verdict is not renderable yet: {verdict.value}") from exc
+    if result.reason_code is None:
+        try:
+            reason = _CURRENT_REASON_BY_VERDICT[verdict]
+        except KeyError as exc:
+            raise ValueError(f"TaskResult verdict is not renderable yet: {verdict.value}") from exc
+    else:
+        try:
+            reason = VerdictReason(result.reason_code)
+        except ValueError as exc:
+            raise ValueError(f"unknown TaskResult reason_code: {result.reason_code!r}") from exc
+        if reason not in _ALLOWED_REASONS_BY_VERDICT[verdict]:
+            raise ValueError(
+                f"reason {reason.value!r} is incompatible with verdict {verdict.value!r}"
+            )
 
     evidence_ids = _evidence_ids(result.evidence_ids)
     tree = _tree_sha256(result.metrics.get("tree_sha256"))

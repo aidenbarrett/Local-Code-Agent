@@ -143,6 +143,7 @@ class TaskResult:
     evidence_ids: tuple[str, ...] = ()
     metrics: dict[str, Any] = field(default_factory=dict)
     verification_ran: bool | None = None
+    reason_code: str | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -152,6 +153,10 @@ class TaskResult:
         object.__setattr__(self, "outcome", outcome)
         ran = bool(self.verified_at_completion) if self.verification_ran is None else bool(self.verification_ran)
         object.__setattr__(self, "verification_ran", ran)
+        if self.reason_code is not None:
+            if not isinstance(self.reason_code, str) or not self.reason_code.strip():
+                raise ValueError("task result reason_code must be a nonempty string or None")
+            object.__setattr__(self, "reason_code", self.reason_code.strip())
         if self.verified_at_completion and not ran:
             raise ValueError("verified_at_completion requires verification_ran")
         if outcome.succeeded != bool(self.verified_at_completion):
@@ -175,6 +180,7 @@ class TaskResult:
             proof = "ran, did not establish success"
         else:
             proof = "not established"
-        return (f"{self.answer}\n\n[Controller: {self.outcome.value}; verification: {proof}; "
+        reason = f"; reason: {self.reason_code}" if self.reason_code else ""
+        return (f"{self.answer}\n\n[Controller: {self.outcome.value}; verification: {proof}{reason}; "
                 f"evidence: {len(self.evidence_ids)} item(s); task: {self.task_id}]\n"
                 f"Evidence IDs: {', '.join(self.evidence_ids) or 'none'}")
