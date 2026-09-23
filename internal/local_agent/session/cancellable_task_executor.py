@@ -37,10 +37,6 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
         super().__init__(service, controller)
         self.cancellation = cancellation_runtime or CancellationRuntime()
         self._ownership_lock = Lock()
-        # Serialises cancellation against dispatch and durable finalisation. The
-        # terminal path holds this lock through commit and ownership release so a
-        # cancellation can never revoke an epoch after terminal enqueue but before
-        # terminal persistence.
         self._authority_lock = Lock()
         self._registered_tasks: set[str] = set()
 
@@ -80,7 +76,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
         result: TaskResult,
         *,
         execution_epoch: int,
-        worker_artifact_ref: dict[str, Any] | None = None,
+        worker_artifact_is_result: bool = False,
     ) -> None:
         truth = self._terminal_truth(handle.task_id, execution_epoch)
         if result.projection.terminal_state.value == "completed" and truth.open_call_ids:
@@ -99,7 +95,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                         "task_id": handle.task_id,
                         "status": status,
                         "verdict_block": verdict_block.as_payload(),
-                        "worker_artifact_ref": worker_artifact_ref,
+                        "worker_artifact_ref": result_ref if worker_artifact_is_result else None,
                         "result_ref": result_ref,
                     }
                 },
@@ -130,15 +126,11 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
             False,
             reason_code="controller_fault",
         )
-        # The retained task-result artifact is also the fault detail artifact. This
-        # keeps traceback bytes inside the existing atomic terminal transaction rather
-        # than publishing a dangling artifact reference before finalisation succeeds.
-        result_ref, _result_bytes = self._result_artifact(result)
         self._finalize_result(
             handle,
             result,
             execution_epoch=execution_epoch,
-            worker_artifact_ref=result_ref,
+            worker_artifact_is_result=True,
         )
 
     def submit(
@@ -253,14 +245,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                     skill_name=skill_name,
                 )
             except Exception as exc:
-                # Programmer/controller faults become durable fault facts, but they are
-                # still raised to the synchronous caller rather than returned as a
-                # normal task result.
-                self._finalize_controller_fault(
-                    handle,
-                    exc,
-                    execution_epoch=execution_epoch,
-                )
+                self._finalize_controller_fault(handle, exc, execution_epoch=execution_epoch)
                 handle.error = exc
                 if owns_registration:
                     self._release_registration(handle.task_id, execution_epoch)
@@ -276,19 +261,11 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 )
                 self.cancellation.require_dispatch_authority(handle.task_id, execution_epoch)
                 try:
-                    self._finalize_result(
-                        handle,
-                        result,
-                        execution_epoch=execution_epoch,
-                    )
+                    self._finalize_result(handle, result, execution_epoch=execution_epoch)
                 except RuntimeError as exc:
                     if isinstance(exc, DurableWriteFailed):
                         raise
-                    self._finalize_controller_fault(
-                        handle,
-                        exc,
-                        execution_epoch=execution_epoch,
-                    )
+                    self._finalize_controller_fault(handle, exc, execution_epoch=execution_epoch)
                     handle.error = exc
                     if owns_registration:
                         self._release_registration(handle.task_id, execution_epoch)
