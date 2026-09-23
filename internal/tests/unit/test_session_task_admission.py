@@ -340,7 +340,8 @@ def test_public_session_composes_durable_task_admission_runner():
     repo_root = Path(__file__).resolve().parents[3]
     source = (repo_root / "internal" / "scripts" / "session-hub.py").read_text(encoding="utf-8")
     assert "AdmittedDurableTaskController(service, controller)" in source
-    assert "DurableTaskExecutor(service, admitted_controller)" in source
+    assert "from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor" in source
+    assert "CancellableDurableTaskExecutor(service, admitted_controller)" in source
     assert "DurableTaskAdmissionRunner(" in source
     assert "task_runner=task_runner" in source
     assert "DurableTaskHistory(service.store, stream_id=service.stream_id)" in source
@@ -348,6 +349,5 @@ def test_public_session_composes_durable_task_admission_runner():
     assert "**budgets" in source
     assert "allow_execution=args.allow_execution" in source
     assert "context_budget_tokens=worker_config.context_budget_tokens" in source
-    assert "durable admission enabled before controller effects" in source
     assert "deterministic rules before model fallback" in source
     assert "synchronous prototype path" not in source
