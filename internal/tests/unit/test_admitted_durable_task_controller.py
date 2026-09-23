@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
+import local_agent.session.task_controller as task_controller_module
 from local_agent.session.contracts import TaskOutcome, TaskResult
 from local_agent.session.durable_task_controller import AdmittedDurableTaskController
+from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
-
-
-REPO = Path(__file__).resolve().parents[3]
+from local_agent.session.task_controller import TaskController
 
 
 def _payload(*, execution_epoch: int = 0) -> dict:
@@ -135,16 +134,43 @@ def test_bridge_requires_admitted_task_identity_before_controller_effect(tmp_pat
         service.close()
 
 
-def test_public_session_composes_admitted_controller_before_durable_executor():
-    source = (REPO / "internal" / "scripts" / "session-hub.py").read_text(encoding="utf-8")
-    assert "AdmittedDurableTaskController(service, controller)" in source
-    assert "DurableTaskExecutor(service, admitted_controller)" in source
-    assert '"durable_tool_activity"' in source
+def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_supplied(
+    monkeypatch, loaded
+):
+    _sandbox, repo, registry, _store, _skills = loaded
 
+    durable_activity = object()
+    wrapped_registry = object()
+    observed = {}
 
-def test_task_controller_wraps_registry_only_when_durable_activity_is_supplied():
-    source = (REPO / "internal" / "local_agent" / "session" / "task_controller.py").read_text(
-        encoding="utf-8"
-    )
-    assert "if durable_activity is not None:" in source
-    assert "wrap_registry_with_durable_activity(registry, durable_activity)" in source
+    def build_registry_spy(_repo):
+        observed["registry_built_for"] = _repo
+        return registry, object(), object()
+
+    def wrap(actual_registry, activity):
+        observed["wrapped_from"] = actual_registry
+        observed["activity"] = activity
+        return wrapped_registry
+
+    class FakeOrchestrator:
+        def __init__(self, *, registry, **_kwargs):
+            observed["worker_registry"] = registry
+
+        def run(self, _task, skill_name=None):
+            observed["skill_name"] = skill_name
+            raise RuntimeError("stop after registry composition")
+
+    monkeypatch.setattr(task_controller_module, "build_registry", build_registry_spy)
+    monkeypatch.setattr(task_controller_module, "wrap_registry_with_durable_activity", wrap)
+    monkeypatch.setattr(task_controller_module, "Orchestrator", FakeOrchestrator)
+
+    controller = TaskController(repo, lambda: object(), EventBuffer("s"))
+    result = controller.run("inspect", durable_activity=durable_activity)
+
+    assert result.outcome is TaskOutcome.NO_VERDICT
+    assert result.reason_code == "controller_crash"
+    assert observed["registry_built_for"] is controller.repo
+    assert observed["wrapped_from"] is registry
+    assert observed["activity"] is durable_activity
+    assert observed["worker_registry"] is wrapped_registry
+    assert observed["skill_name"] is None
