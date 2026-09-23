@@ -11,10 +11,14 @@ from ..agent.policy import deny_all_approvals
 from ..agent.state import HaltCause
 from ..config import RepoConfig
 from ..tools import build_registry
+from ..tools.tool_primitives import Risk
 from .contracts import RouteSource, TaskOutcome, TaskResult
 from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
+
+
+_PROGRAMMER_ERRORS = (TypeError, AttributeError, NameError, AssertionError)
 
 
 class TaskController:
@@ -91,6 +95,14 @@ class TaskController:
             allow_nan=False,
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
+
+    def process_spawning_tools(self) -> frozenset[str]:
+        """Return the effective configured-command tools for cleanup reconciliation."""
+        registry, _ctx, _store = build_registry(self.repo)
+        return frozenset(
+            name for name in registry.names()
+            if registry.get(name).risk is Risk.EXECUTE
+        )
 
     @staticmethod
     def _product_outcome(run) -> TaskOutcome:
@@ -206,13 +218,24 @@ class TaskController:
                 "process_cleanup_confirmed": False,
             }, task_id)
             raise
+        except _PROGRAMMER_ERRORS:
+            # Programmer faults are never ordinary task outcomes. The durable executor
+            # retains the traceback and then re-raises the original exception to caller.
+            self.events.emit("task.interrupted", {
+                "outcome": TaskOutcome.NO_VERDICT.value,
+                "process_cleanup_confirmed": False,
+            }, task_id)
+            raise
         except Exception as exc:
+            # Operational/controller failures remain typed task failures rather than
+            # escaping as programmer faults. Durable execution still records truthful
+            # cleanup from tool activity when this result is terminalised.
             result = TaskResult(
                 task_id,
                 TaskOutcome.NO_VERDICT,
                 f"Task stopped: {type(exc).__name__}.",
                 False,
-                reason_code="controller_crash",
+                reason_code="controller_fault",
             )
             self.events.emit("task.interrupted", {
                 "outcome": result.outcome.value,

@@ -8,14 +8,20 @@ separate reconciliation before a cancelled terminal claim can be made.
 """
 from __future__ import annotations
 
+import traceback
 from threading import Lock, Thread
 from typing import Any
 
 from .cancellation import CancellationSite, CancellationSource, StaleExecutionEpoch
 from .cancellation_runtime import CancellationDecision, CancellationRuntime
-from .contracts import RouteSource, TaskResult
+from .contracts import RouteSource, TaskOutcome, TaskResult
 from .results import verdict_block_from_task_result
 from .session_event_service import DurableSessionService, DurableTaskExecutor, TaskHandle
+from .terminal_truth import (
+    CancelUnreconciled,
+    DurableWriteFailed,
+    derive_terminal_activity_truth,
+)
 
 
 class CancellableDurableTaskExecutor(DurableTaskExecutor):
@@ -31,10 +37,6 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
         super().__init__(service, controller)
         self.cancellation = cancellation_runtime or CancellationRuntime()
         self._ownership_lock = Lock()
-        # Serialises cancellation against dispatch and durable finalisation. The
-        # terminal path holds this lock through commit and ownership release so a
-        # cancellation can never revoke an epoch after terminal enqueue but before
-        # terminal persistence.
         self._authority_lock = Lock()
         self._registered_tasks: set[str] = set()
 
@@ -55,6 +57,81 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 expected_current_epoch=execution_epoch,
             )
             self._registered_tasks.remove(task_id)
+
+    def _process_spawning_tools(self) -> frozenset[str]:
+        resolver = getattr(self.controller, "process_spawning_tools", None)
+        return frozenset(resolver()) if callable(resolver) else frozenset()
+
+    def _terminal_truth(self, task_id: str, execution_epoch: int):
+        return derive_terminal_activity_truth(
+            self.service,
+            task_id=task_id,
+            execution_epoch=execution_epoch,
+            process_spawning_tools=self._process_spawning_tools(),
+        )
+
+    def _finalize_result(
+        self,
+        handle: TaskHandle,
+        result: TaskResult,
+        *,
+        execution_epoch: int,
+        worker_artifact_is_result: bool = False,
+    ) -> None:
+        truth = self._terminal_truth(handle.task_id, execution_epoch)
+        if result.projection.terminal_state.value == "completed" and truth.open_call_ids:
+            raise RuntimeError(
+                "controller returned completed while durable tool activity remained open: "
+                + ", ".join(truth.open_call_ids)
+            )
+        result_ref, result_bytes = self._result_artifact(result)
+        status = result.projection.terminal_state.value
+        verdict_block = verdict_block_from_task_result(result)
+        try:
+            terminal = self.service.finalize_task(
+                handle.task_id,
+                verdict_payload={
+                    "completion": {
+                        "task_id": handle.task_id,
+                        "status": status,
+                        "verdict_block": verdict_block.as_payload(),
+                        "worker_artifact_ref": result_ref if worker_artifact_is_result else None,
+                        "result_ref": result_ref,
+                    }
+                },
+                closed_payload={
+                    "status": status,
+                    "result_ref": result_ref,
+                    "cleanup": truth.cleanup,
+                },
+                result_bytes=result_bytes,
+            )
+            terminal.wait(30)
+        except Exception as exc:
+            raise DurableWriteFailed(f"durable terminal write failed: {exc}") from exc
+
+    def _finalize_controller_fault(
+        self,
+        handle: TaskHandle,
+        exc: Exception,
+        *,
+        execution_epoch: int,
+    ) -> None:
+        trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        bounded = trace[-7000:] if trace else f"{type(exc).__name__}: {exc}"
+        result = TaskResult(
+            handle.task_id,
+            TaskOutcome.NO_VERDICT,
+            "Controller fault. Retained traceback:\n" + bounded,
+            False,
+            reason_code="controller_fault",
+        )
+        self._finalize_result(
+            handle,
+            result,
+            execution_epoch=execution_epoch,
+            worker_artifact_is_result=True,
+        )
 
     def submit(
         self,
@@ -153,30 +230,28 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                     task_id=handle.task_id,
                 )
                 running.wait(30)
-                # Current controller execution can include inference and tools. Until
-                # those adapters expose finer cancellation sites, waiting_inference is
-                # the conservative live site: it requires reconciliation and never
-                # permits an immediate cancelled/clean claim.
                 self.cancellation.set_site(
                     handle.task_id,
                     execution_epoch,
                     CancellationSite.WAITING_INFERENCE,
                 )
 
-            result = self.controller.run(
-                task,
-                self_check=self_check,
-                route_source=route_source,
-                task_id=handle.task_id,
-                skill_name=skill_name,
-            )
+            try:
+                result = self.controller.run(
+                    task,
+                    self_check=self_check,
+                    route_source=route_source,
+                    task_id=handle.task_id,
+                    skill_name=skill_name,
+                )
+            except Exception as exc:
+                self._finalize_controller_fault(handle, exc, execution_epoch=execution_epoch)
+                handle.error = exc
+                if owns_registration:
+                    self._release_registration(handle.task_id, execution_epoch)
+                return
 
-            # A cancellation that arrived while the controller was executing revokes
-            # this epoch. Never expose that late worker result as authoritative.
             self.cancellation.require_dispatch_authority(handle.task_id, execution_epoch)
-            result_ref, result_bytes = self._result_artifact(result)
-            status = result.projection.terminal_state.value
-            verdict_block = verdict_block_from_task_result(result)
 
             with self._authority_lock:
                 self.cancellation.set_site(
@@ -185,40 +260,34 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                     CancellationSite.FINALISING,
                 )
                 self.cancellation.require_dispatch_authority(handle.task_id, execution_epoch)
-                terminal = self.service.finalize_task(
-                    handle.task_id,
-                    verdict_payload={
-                        "completion": {
-                            "task_id": handle.task_id,
-                            "status": status,
-                            "verdict_block": verdict_block.as_payload(),
-                            "worker_artifact_ref": None,
-                            "result_ref": result_ref,
-                        }
-                    },
-                    closed_payload={
-                        "status": status,
-                        "result_ref": result_ref,
-                        "cleanup": "unknown" if status == "unknown" else "not_needed",
-                    },
-                    result_bytes=result_bytes,
-                )
-                terminal.wait(30)
+                try:
+                    self._finalize_result(handle, result, execution_epoch=execution_epoch)
+                except RuntimeError as exc:
+                    if isinstance(exc, DurableWriteFailed):
+                        raise
+                    self._finalize_controller_fault(handle, exc, execution_epoch=execution_epoch)
+                    handle.error = exc
+                    if owns_registration:
+                        self._release_registration(handle.task_id, execution_epoch)
+                    return
                 handle.result = result
                 if owns_registration:
                     self._release_registration(handle.task_id, execution_epoch)
         except StaleExecutionEpoch as exc:
-            # Cancellation is intent, not proof of cleanup. Leave the durable task
-            # unterminated for explicit reconciliation; never convert this into a fake
-            # CANCELLED or late worker result.
+            handle.error = CancelUnreconciled(str(exc))
+        except DurableWriteFailed as exc:
             handle.error = exc
+            if owns_registration:
+                try:
+                    self._release_registration(handle.task_id, execution_epoch)
+                except StaleExecutionEpoch:
+                    pass
         except BaseException as exc:
             handle.error = exc
             if owns_registration:
                 try:
                     self._release_registration(handle.task_id, execution_epoch)
                 except StaleExecutionEpoch:
-                    # Revoked execution remains owned by cancellation reconciliation.
                     pass
         finally:
             handle.done.set()

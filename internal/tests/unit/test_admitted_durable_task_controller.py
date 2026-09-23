@@ -168,7 +168,7 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
     result = controller.run("inspect", durable_activity=durable_activity)
 
     assert result.outcome is TaskOutcome.NO_VERDICT
-    assert result.reason_code == "controller_crash"
+    assert result.reason_code == "controller_fault"
     assert observed["registry_built_for"] is controller.repo
     assert observed["wrapped_from"] is registry
     assert observed["activity"] is durable_activity

@@ -140,12 +140,12 @@ def test_terminal_bundle_rejects_rendered_verdict_contradiction(tmp_path):
         service.close()
 
 
-def test_terminal_bundle_rejects_cleanup_and_result_reference_lies(tmp_path):
+def test_terminal_bundle_rejects_unknown_cleanup_vocab_and_result_reference_lies(tmp_path):
     service = _service(tmp_path)
     try:
         task_id = _admit(service)
         result_bytes, verdict_payload, closed_payload = _bundle(task_id)
-        closed_payload["cleanup"] = "unknown"
+        closed_payload["cleanup"] = "magically_cleaned"
         with pytest.raises(ValueError, match="cleanup"):
             service.finalize_task(
                 task_id,
@@ -163,6 +163,25 @@ def test_terminal_bundle_rejects_cleanup_and_result_reference_lies(tmp_path):
                 closed_payload=closed_payload,
                 result_bytes=result_bytes,
             )
+    finally:
+        service.close()
+
+
+def test_failed_terminal_bundle_may_truthfully_leave_cleanup_unknown(tmp_path):
+    service = _service(tmp_path)
+    try:
+        task_id = _admit(service)
+        result_bytes, verdict_payload, closed_payload = _bundle(task_id)
+        closed_payload["cleanup"] = "unknown"
+        receipt = service.finalize_task(
+            task_id,
+            verdict_payload=verdict_payload,
+            closed_payload=closed_payload,
+            result_bytes=result_bytes,
+        )
+        receipt.wait(5)
+        closed = next(event for event in service.replay() if event["kind"] == "task.closed")
+        assert closed["payload"]["cleanup"] == "unknown"
     finally:
         service.close()
 

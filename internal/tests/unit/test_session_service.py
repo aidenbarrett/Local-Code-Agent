@@ -220,7 +220,7 @@ def test_crash_recovery_atomically_closes_unknown_task_without_reexecution(tmp_p
         completion = events[1]["payload"]["completion"]
         assert completion["status"] == "unknown"
         assert completion["verdict_block"]["verdict"] == "NO_VERDICT"
-        assert completion["verdict_block"]["reason_code"] == "controller_crash"
+        assert completion["verdict_block"]["reason_code"] == "controller_restarted"
         assert events[2]["payload"]["status"] == "unknown"
         assert events[2]["payload"]["cleanup"] == "unknown"
         assert service.store.unterminated_tasks(service.stream_id) == []
