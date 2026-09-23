@@ -57,6 +57,12 @@ class AdmittedDurableTaskController:
             raise TypeError("admitted durable controller cannot fingerprint admitted skills")
         return fingerprint(skill_name)
 
+    def process_spawning_tools(self) -> frozenset[str]:
+        resolver = getattr(self.controller, "process_spawning_tools", None)
+        if not callable(resolver):
+            return frozenset()
+        return frozenset(resolver())
+
     def run(
         self,
         task: str,
