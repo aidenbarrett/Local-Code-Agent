@@ -299,6 +299,10 @@ def test_resolved_rule_route_persists_and_executes_exact_skill(tmp_path, loaded)
             assert skill_name == "build-and-test"
             return skill_name
 
+        def effective_skill_sha256(self, skill_name):
+            assert skill_name == "build-and-test"
+            return "e" * 64
+
         def run(self, task, *, self_check=False, route_source=None, task_id=None, skill_name=None):
             assert route_source == RouteSource.RULE
             seen.append(skill_name)
