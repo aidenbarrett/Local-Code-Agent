@@ -16,16 +16,16 @@ The first release should let a new user inspect a repository, find code, underst
 
 ## The user contract
 
-| ID | User says or does | Required visible behaviour | Current public status at 2026-09-23 main `85dedfa` |
-|---|---|---|---|
-| J1 | "Help" / "What can you do?" | Deterministic, in-session list of actions available **here**, with disabled actions explained. No model call or endpoint dependency. Root `help` also works. | Partial: root help exists; in-session request takes model fallback. |
-| J2 | "What are you running on?" | Active repo, configured chat/worker model and endpoint; endpoint health and observed device with provenance and a distinct unknown state. No model call. | Missing in the public Hub. Configured profiles exist. |
-| J3 | "Inspect this repo" / "Where is X defined?" | Read-only work starts directly; result includes navigable paths/lines, scope and missing coverage. A vanished endpoint or invalid result says so and retains the request. | Partial: worker tools exist, but ordinary requests fall through model proposal and `work` acceptance; retained answers are now visible. |
-| J4 | "What changed on my branch?" | Compare against an explicit or documented base, distinguish staged, unstaged and committed changes, cite actual paths/commits; say when base cannot be established. | Partial: anchored phrase routes to `git-review`; full public-result and base semantics need acceptance. |
-| J5 | "Build it" / "Run the tests" | Use only configured commands when enabled; give separate build/test facts, exit state, command/profile, evidence and exact tree/scope. Build-only success must never imply tests passed. | Partial: anchored build phrase routes to `build-and-test`; generic proof classification exists, but task-specific public verdict and tree binding require acceptance. Test phrasing needs a direct route. |
-| J6 | "Why did that fail?" | Select the most recent eligible failed task in this conversation with verified retained data; show the failure evidence and analysis. If none or ambiguous across scopes, explain and offer visible task IDs. | Partial: deterministic form works only with a unique eligible failure; multiple failures require a UUID. |
-| J7 | "Stop" / visible Stop action | Request stop immediately, fence further dispatch, reconcile owned inference/process effects, and show `stopped` only after cleanup proof; otherwise `stop requested; cleanup unknown` and block unsafe continuation. | Missing publicly: executor has cancellation intent/epoch fencing, but no Hub action and no complete effect cleanup. |
-| J8 | Close/reopen Hub; endpoint unavailable | Retain conversation, task/result references and unresolved work without replaying effects. Outage or invalid model response gives a concrete connection/protocol failure and next action, never "please rephrase" for transport failure. | Partial: persistence/recovery exist; model fallback conflates transport/protocol errors with rephrasing. |
+| ID | User says or does | Required visible behaviour |
+|---|---|---|
+| J1 | "Help" / "What can you do?" | Deterministic, in-session list of actions available **here**, with disabled actions explained. No model call or endpoint dependency. Root `help` also works. |
+| J2 | "What are you running on?" | Active repo, configured chat/worker model and endpoint; endpoint health and observed device with provenance and a distinct unknown state. No model call. |
+| J3 | "Inspect this repo" / "Where is X defined?" | Read-only work starts directly; result includes navigable paths/lines, scope and missing coverage. A vanished endpoint or invalid result says so and retains the request. |
+| J4 | "What changed on my branch?" | Compare against an explicit or documented base, distinguish staged, unstaged and committed changes, cite actual paths/commits; say when base cannot be established. |
+| J5 | "Build it" / "Run the tests" | Use only configured commands when enabled; give separate build/test facts, exit state, command/profile, evidence and exact tree/scope. Build-only success must never imply tests passed. |
+| J6 | "Why did that fail?" | Select the most recent eligible failed task in this conversation with verified retained data; show the failure evidence and analysis. If none or ambiguous across scopes, explain and offer visible task IDs. |
+| J7 | "Stop" / visible Stop action | Request stop immediately, fence further dispatch, reconcile owned inference/process effects, and show `stopped` only after cleanup proof; otherwise `stop requested; cleanup unknown` and block unsafe continuation. |
+| J8 | Close/reopen Hub; endpoint unavailable | Retain conversation, task/result references and unresolved work without replaying effects. Outage or invalid model response gives a concrete connection/protocol failure and next action, never "please rephrase" for transport failure. |
 
 These are acceptance targets, not claims of model competence. Qualify exact combinations of model, runtime, device and host only for the journeys actually exercised. Record read-only and build/test latency from submission to first useful output and final result, with cold versus warm endpoint state distinguished. The weekly laptop run is useful evidence, not a substitute for behavioral CI or proof of general reliability.
 
