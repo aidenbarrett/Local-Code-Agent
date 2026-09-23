@@ -52,7 +52,7 @@ def test_mounted_hub_header_reflects_observed_model_and_declared_device(tmp_path
         try:
             async with app.run_test(size=(140, 30)) as pilot:
                 await pilot.pause()
-                title = str(app.query_one("#title", Static).renderable)
+                title = str(app.query_one("#title", Static).render())
                 assert "served-from-models (observed)" in title
                 assert "device NPU (declared)" in title
                 assert "endpoint http://127.0.0.1:9999/v3" in title
