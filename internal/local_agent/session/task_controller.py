@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from ..agent import Orchestrator, SkillLibrary, default_search_path
 from ..agent.policy import deny_all_approvals
+from ..agent.state import HaltCause
 from ..config import RepoConfig
 from ..tools import build_registry
 from .contracts import RouteSource, TaskOutcome, TaskResult
@@ -91,6 +92,46 @@ class TaskController:
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
+    @staticmethod
+    def _product_outcome(run) -> TaskOutcome:
+        """Project worker outcome into product lifecycle without calling outages refusals."""
+        outcome = TaskOutcome(run.outcome.value)
+        if run.state.halt_cause in (HaltCause.SERVER_UNAVAILABLE, HaltCause.INFERENCE_STALLED):
+            return TaskOutcome.NO_VERDICT
+        if outcome.succeeded and not run.state.verified:
+            return TaskOutcome.NO_VERDICT
+        return outcome
+
+    @staticmethod
+    def _reason_code(run, outcome: TaskOutcome) -> str:
+        """Project typed worker facts into the product reason vocabulary."""
+        if run.state.halt_cause is HaltCause.SERVER_UNAVAILABLE:
+            return "endpoint_unavailable"
+        if run.state.halt_cause is HaltCause.INFERENCE_STALLED:
+            return "inference_timeout"
+        if run.state.halt_cause is HaltCause.CONTEXT_BUDGET_EXHAUSTED:
+            return "unavailable_capability"
+        if outcome.succeeded:
+            return "verification_passed"
+        if outcome in (TaskOutcome.FAIL, TaskOutcome.ESCALATED_FAIL):
+            return "verification_failed" if run.state.verification_attempted else "missing_evidence"
+        if outcome is TaskOutcome.BLOCKED:
+            blocked = next((item for item in run.state.history if item.blocked), None)
+            reason = getattr(blocked, "reason", None)
+            return {
+                "policy_denied": "policy_denied",
+                "approval_declined": "user_denied",
+                "missing_executable": "missing_dependency",
+                "orchestrator_timeout": "tool_timeout",
+                "bad_arguments": "invalid_input",
+                "invalid_model_response": "invalid_input",
+                "unknown_tool": "unavailable_capability",
+                "tool_not_allowed": "unavailable_capability",
+            }.get(reason, "unavailable_capability")
+        if outcome is TaskOutcome.NO_VERDICT:
+            return "missing_evidence" if not run.state.verification_attempted else "cleanup_unknown"
+        return "cleanup_unknown"
+
     def run(
         self,
         task: str,
@@ -149,16 +190,15 @@ class TaskController:
                     allow_escalation=False,
                 )
                 run = worker.run(task, skill_name=resolved_skill)
-                verified = bool(run.outcome.succeeded and run.state.verified)
-                task_outcome = TaskOutcome(run.outcome.value)
-                if task_outcome.succeeded and not verified:
-                    task_outcome = TaskOutcome.NO_VERDICT
+                task_outcome = self._product_outcome(run)
+                verified = bool(task_outcome.succeeded and run.state.verified)
                 result = TaskResult(
                     task_id, task_outcome, run.answer,
                     verified,
                     tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
                     run.state.metrics.as_dict(),
                     verification_ran=bool(run.state.verification_attempted),
+                    reason_code=self._reason_code(run, task_outcome),
                 )
         except KeyboardInterrupt:
             self.events.emit("task.interrupted", {
@@ -172,6 +212,7 @@ class TaskController:
                 TaskOutcome.NO_VERDICT,
                 f"Task stopped: {type(exc).__name__}.",
                 False,
+                reason_code="controller_crash",
             )
             self.events.emit("task.interrupted", {
                 "outcome": result.outcome.value,
@@ -182,6 +223,7 @@ class TaskController:
             "outcome": result.outcome.value,
             "terminal_state": result.projection.terminal_state.value,
             "verdict": result.projection.verdict.value,
+            "reason_code": result.reason_code,
             "verification_ran": result.verification_ran,
             "verified_at_completion": result.verified_at_completion,
             "evidence_count": len(result.evidence_ids),
