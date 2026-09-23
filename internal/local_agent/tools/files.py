@@ -3,22 +3,95 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 from pathlib import Path
-from typing import Any
+from typing import Iterator
 
 from .tool_primitives import NotFoundError, Risk, ToolError, ToolRegistry, ToolResult, relpath, resolve_in_repo
 from .tool_context import ToolContext
 
 _SKIP_DIRS = {
     ".git", "build", "out", "node_modules", "__pycache__", ".venv",
-    ".local-agent", ".cache", "cmake-build-debug", "cmake-build-release",
+    ".venv-workstation", ".local-agent", ".cache", ".pytest_cache", "dist",
+    "cmake-build-debug", "cmake-build-release",
 }
+_MAX_RANGE_LINES = 400
+_MAX_LIST_LIMIT = 10_000
 
 _TEXT_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".ipp", ".inl",
     ".txt", ".md", ".cmake", ".toml", ".yaml", ".yml", ".json", ".py", ".sh",
     ".ps1", ".ini", ".cfg", ".in", ".s", ".asm",
 }
+
+
+def _iter_files(base: Path, *, recursive: bool) -> Iterator[Path]:
+    """Yield files deterministically while pruning excluded trees before descent."""
+    if not recursive:
+        for item in sorted(base.iterdir(), key=lambda value: value.name):
+            if item.is_file():
+                yield item
+        return
+
+    for root, dirnames, filenames in os.walk(base, topdown=True, followlinks=False):
+        # Mutating dirnames is the os.walk contract for preventing descent. Do this
+        # before sorting/yielding any child so excluded trees never become traversal cost.
+        dirnames[:] = sorted(name for name in dirnames if name not in _SKIP_DIRS)
+        root_path = Path(root)
+        for name in sorted(filenames):
+            yield root_path / name
+
+
+def _read_text_window(
+    target: Path,
+    *,
+    start_line: int,
+    end_line: int | None,
+    max_read_bytes: int,
+) -> tuple[list[str], int, int | None]:
+    """Read a bounded line window without materialising a large file.
+
+    Returns ``(window, effective_start, total_lines)``. ``total_lines`` is ``None``
+    when an explicit range stopped before EOF; callers must not scan the remainder merely
+    to compute presentation metadata.
+    """
+    if start_line < 1:
+        raise ToolError("start_line must be at least 1")
+    if end_line is not None:
+        if end_line < start_line:
+            raise ToolError("end_line must be greater than or equal to start_line")
+        if end_line - start_line + 1 > _MAX_RANGE_LINES:
+            raise ToolError(f"read range may contain at most {_MAX_RANGE_LINES} lines")
+
+    size = target.stat().st_size
+    if end_line is None and size > max_read_bytes:
+        raise ToolError(
+            f"{target.name!r} is {size} bytes, over the {max_read_bytes} byte whole-file "
+            "read limit. Request an explicit line range."
+        )
+
+    window: list[str] = []
+    encoded_bytes = 0
+    last_seen = 0
+    stopped_before_eof = False
+    with target.open("r", encoding="utf-8", errors="replace") as handle:
+        for line_number, raw in enumerate(handle, start=1):
+            last_seen = line_number
+            if end_line is not None and line_number > end_line:
+                stopped_before_eof = True
+                break
+            if line_number < start_line:
+                continue
+            line = raw.rstrip("\r\n")
+            encoded_bytes += len(line.encode("utf-8"))
+            if encoded_bytes > max_read_bytes:
+                raise ToolError(
+                    f"requested line range exceeds the {max_read_bytes} byte read limit"
+                )
+            window.append(line)
+
+    total_lines = None if stopped_before_eof else last_seen
+    return window, start_line, total_lines
 
 
 def register(reg: ToolRegistry, ctx: ToolContext) -> None:
@@ -62,7 +135,8 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     @reg.add(
         "list_files",
         "List files under a directory in the repository. Supports a glob pattern. "
-        "Build output, .git and vendored directories are excluded.",
+        "Build output, managed environments, .git and vendored directories are pruned "
+        "before recursive traversal.",
         {
             "type": "object",
             "properties": {
@@ -81,18 +155,15 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         recursive: bool = True,
         limit: int = 200,
     ) -> ToolResult:
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= _MAX_LIST_LIMIT:
+            raise ToolError(f"limit must be between 1 and {_MAX_LIST_LIMIT}")
         base = resolve_in_repo(ctx.root, path)
         if not base.is_dir():
             raise NotFoundError(f"{path!r} is not a directory")
 
         found: list[str] = []
         truncated = False
-        walker: Any = base.rglob("*") if recursive else base.glob("*")
-        for item in sorted(walker):
-            if any(part in _SKIP_DIRS for part in item.relative_to(base).parts):
-                continue
-            if not item.is_file():
-                continue
+        for item in _iter_files(base, recursive=recursive):
             if not fnmatch.fnmatch(item.name, pattern):
                 continue
             if len(found) >= limit:
@@ -109,8 +180,8 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
 
     @reg.add(
         "read_file",
-        "Read a text file from the repository, optionally a line range. Always "
-        "prefer a range over reading a whole large source file.",
+        "Read a text file from the repository. Whole-file reads are byte-bounded; "
+        "explicit line ranges stream at most 400 lines without materialising the rest.",
         {
             "type": "object",
             "properties": {
@@ -128,28 +199,29 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         if not target.is_file():
             raise NotFoundError(f"{path!r} is not a file")
 
-        size = target.stat().st_size
-        if size > ctx.repo.policy.max_read_bytes:
-            raise ToolError(
-                f"{path!r} is {size} bytes, over the {ctx.repo.policy.max_read_bytes} "
-                "byte read limit. Request a line range."
-            )
         if target.suffix and target.suffix.lower() not in _TEXT_SUFFIXES:
             head = target.read_bytes()[:1024]
             if b"\x00" in head:
                 raise ToolError(f"{path!r} looks like a binary file")
 
-        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
-        start = max(1, start_line)
-        end = len(lines) if end_line is None else min(len(lines), end_line)
-        window = lines[start - 1 : end]
+        window, start, total_lines = _read_text_window(
+            target,
+            start_line=start_line,
+            end_line=end_line,
+            max_read_bytes=ctx.repo.policy.max_read_bytes,
+        )
+        shown_end = start + len(window) - 1
+        if total_lines is None:
+            summary = f"{path} lines {start}-{shown_end} (bounded range)"
+        else:
+            summary = f"{path} lines {start}-{shown_end} of {total_lines}"
 
         return ToolResult(
             ok=True,
-            summary=f"{path} lines {start}-{start + len(window) - 1} of {len(lines)}",
+            summary=summary,
             data={
                 "path": relpath(ctx.root, target),
-                "total_lines": len(lines),
+                "total_lines": total_lines,
                 "start_line": start,
                 "content": "\n".join(
                     f"{start + i}: {ln}" for i, ln in enumerate(window)
