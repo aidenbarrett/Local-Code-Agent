@@ -1,0 +1,100 @@
+name: product acceptance
+
+# Exercise the public Windows composition from a fresh managed checkout environment.
+# This is product acceptance, not a replacement for authoritative pytest or frozen
+# experiment guards. It deliberately uses no live model, NPU, network repair or
+# machine-level installer mutation.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: product-acceptance-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  windows-public-surface:
+    name: windows public surface
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Capture checkout identity
+        shell: pwsh
+        env:
+          LCA_ARTIFACT_NAME: ci-job-product-acceptance-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_COMMAND_SCOPE: installed-public-product-acceptance
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+
+      - name: Upload checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-job-product-acceptance-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          path: ci-job-evidence.json
+          if-no-files-found: error
+
+      - name: Copy checkout to a user-like path containing spaces
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'Local Code Agent Product Acceptance'
+          if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          robocopy . $target /E /XD .git .venv .venv-workstation .pytest_cache __pycache__ | Out-Null
+          $copyRc = $LASTEXITCODE
+          if ($copyRc -ge 8) { throw "robocopy failed with exit code $copyRc" }
+          # Robocopy uses 1..7 for successful copy/difference states. PowerShell leaves
+          # that value in $LASTEXITCODE and GitHub would otherwise fail this step despite
+          # our explicit success-range check above.
+          $global:LASTEXITCODE = 0
+          "LCA_ACCEPTANCE_ROOT=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Create the managed checkout environment
+        shell: pwsh
+        run: |
+          Set-Location $env:LCA_ACCEPTANCE_ROOT
+          python -m venv .venv-workstation
+          .\.venv-workstation\Scripts\python.exe -m pip install --disable-pip-version-check -e ".[dev]"
+
+      - name: Public launcher accepts the installed runtime
+        shell: pwsh
+        run: |
+          Set-Location $env:LCA_ACCEPTANCE_ROOT
+          & .\local-code-agent.ps1 help
+          if ($LASTEXITCODE -ne 0) { throw "public help failed with exit code $LASTEXITCODE" }
+          & .\local-code-agent.ps1 capabilities
+          if ($LASTEXITCODE -ne 0) { throw "public capabilities failed with exit code $LASTEXITCODE" }
+
+      - name: Public launcher fails before product startup when a declared dependency disappears
+        shell: pwsh
+        run: |
+          Set-Location $env:LCA_ACCEPTANCE_ROOT
+          .\.venv-workstation\Scripts\python.exe -m pip uninstall -y jsonschema
+          $output = (& .\local-code-agent.ps1 help 2>&1 | Out-String)
+          $rc = $LASTEXITCODE
+          Write-Host $output
+          if ($rc -eq 0) { throw 'launcher accepted a managed environment missing jsonschema' }
+          if ($output -notmatch 'runtime preflight failed') { throw 'missing dependency did not fail at runtime preflight' }
+          if ($output -notmatch 'jsonschema') { throw 'runtime preflight did not identify the missing dependency' }
+          # The non-zero launcher status is the expected evidence for this negative
+          # acceptance case. Clear it only after every assertion above has passed so
+          # PowerShell does not turn a successful refusal test into a failed CI step.
+          $global:LASTEXITCODE = 0
+
+      - name: Explicit reinstall repairs the managed checkout environment
+        shell: pwsh
+        run: |
+          Set-Location $env:LCA_ACCEPTANCE_ROOT
+          .\.venv-workstation\Scripts\python.exe -m pip install --disable-pip-version-check -e ".[dev]"
+          & .\local-code-agent.ps1 help
+          if ($LASTEXITCODE -ne 0) { throw "public launcher did not recover after explicit reinstall" }
