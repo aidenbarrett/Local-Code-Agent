@@ -29,12 +29,11 @@ class HubLiveBinding:
 
     def poll(self) -> HubViewState | None:
         """Return a replacement state only when durable/conversation state changed."""
-        durable_changed = self.feed.poll()
+        if not self.feed.poll():
+            return None
         projected = self.feed.state()
-        if durable_changed or projected != self._state:
-            self._state = projected
-            return projected
-        return None
+        self._state = projected
+        return projected
 
 
 class LiveSessionHubApp(SessionHubApp):
