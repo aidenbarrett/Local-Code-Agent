@@ -21,6 +21,7 @@ if str(SOURCE_ROOT) not in sys.path:
 from local_agent.config import MODEL_PRESETS, find_repo_root, load_repo_config  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
+from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor  # noqa: E402
 from local_agent.session.conversation_gateway import ConversationGateway  # noqa: E402
 from local_agent.session.conversation_store import (  # noqa: E402
     ContextRefusal,
@@ -32,10 +33,7 @@ from local_agent.session.conversation_store import (  # noqa: E402
 from local_agent.session.durable_routes import DurableRouteEvents  # noqa: E402
 from local_agent.session.durable_task_controller import AdmittedDurableTaskController  # noqa: E402
 from local_agent.session.event_buffer import EventBuffer  # noqa: E402
-from local_agent.session.session_event_service import (  # noqa: E402
-    DurableSessionService,
-    DurableTaskExecutor,
-)
+from local_agent.session.session_event_service import DurableSessionService  # noqa: E402
 from local_agent.session.session_store import SQLiteSessionStore  # noqa: E402
 from local_agent.session.task_admission import (  # noqa: E402
     DurableTaskAdmissionRunner,
@@ -98,6 +96,7 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
                 "textual_session_hub",
                 "non_blocking_turn_dispatch",
                 "explicit_model_route_acceptance",
+                "task_execution_epoch_fencing",
             ],
             "recovered": recovered,
         },
@@ -164,10 +163,12 @@ def main(argv: list[str] | None = None) -> int:
                     allow_execution=args.allow_execution,
                     context_budget_tokens=worker_config.context_budget_tokens,
                 )
-                # Composition contract: durable admission enabled before controller effects.
+                # Composition contract: durable admission and execution-epoch fencing
+                # are active before controller effects. Cancellation remains an intent
+                # until endpoint/process/mutation cleanup is explicitly reconciled.
                 admitted_controller = AdmittedDurableTaskController(service, controller)
                 task_runner = DurableTaskAdmissionRunner(
-                    DurableTaskExecutor(service, admitted_controller)
+                    CancellableDurableTaskExecutor(service, admitted_controller)
                 )
                 # Routing contract remains gateway-owned: deterministic rules before model fallback.
                 gateway = ConversationGateway(
