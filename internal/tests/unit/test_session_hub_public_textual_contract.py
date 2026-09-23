@@ -39,6 +39,12 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
         ok = True
         message = "ready"
 
+    def ensure_runtime(profile, config, runtime_root):
+        observed["ensure_profile"] = profile
+        observed["ensure_config"] = config
+        observed["ensure_root"] = runtime_root
+        return Ensured()
+
     def observe_runtime(cls, preset, config, *, execution_enabled, fetch=None):
         observed["facts_preset"] = preset
         observed["facts_execution"] = execution_enabled
@@ -57,7 +63,7 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
         yield type("TextualRuntime", (), {"app": FakeApp()})()
 
     monkeypatch.setattr(hub, "_runtime_root", lambda: tmp_path)
-    monkeypatch.setattr(hub, "ensure_managed_runtime", lambda *_args, **_kwargs: Ensured())
+    monkeypatch.setattr(hub, "ensure_managed_runtime", ensure_runtime)
     monkeypatch.setattr(hub.RuntimeFacts, "observe", classmethod(observe_runtime))
     monkeypatch.setattr(hub, "build_textual_session_runtime", fake_textual)
 
@@ -65,6 +71,8 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
 
     assert result == 0
     assert observed["app_ran"] is True
+    assert observed["ensure_profile"] == "ptl-npu-8b"
+    assert observed["ensure_root"] == tmp_path
     assert observed["facts_preset"] == "ptl-npu-8b"
     assert observed["facts_execution"] is False
     assert observed["runtime_summary"] == facts.header()
