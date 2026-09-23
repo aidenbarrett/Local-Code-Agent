@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 r"""Talk directly to a local model. No agent, tools, or repository access.
 
-Use the root PowerShell entrypoint on Windows:
+Use the canonical root PowerShell entrypoint on Windows:
 
-    .\chat.ps1
-    .\chat.ps1 qwen3-8b-npu
-    .\chat.ps1 qwen3-8b-npu --persona neutral
+    .\local-code-agent.ps1 chat
+    .\local-code-agent.ps1 chat qwen3-8b-npu
+    .\local-code-agent.ps1 chat qwen3-8b-npu --persona neutral
 
-This is the simplest user-facing path through the project: choose a configured
-model/device profile and have a normal terminal conversation. Local Code Agent
-is separate; it adds controlled repository access, restricted tools, skills and
-independent verification.
+This is Local Code Agent's raw-model mode: choose a configured model/device
+profile and have a normal terminal conversation without repository authority.
+The default Local Code Agent surface is the Session Hub, which adds controlled
+repository access, restricted tools, skills and independent verification.
 
 The chat path uses the same client, model profiles and serving controller as the
 rest of the project. There is no demo-only model path. Optional persona support
@@ -95,9 +95,9 @@ def list_profiles() -> int:
         term.field(friendly, f"{_model_label(config)} · {device_label(device)}")
     term.line()
     term.section("START CHAT")
-    term.line(r"  .\chat.ps1 qwen3-8b-npu")
-    term.line(r"  .\chat.ps1 qwen3-8b-npu --persona neutral")
-    term.footer_note("Chat is direct model conversation. Repository access is not enabled here.")
+    term.line(r"  .\local-code-agent.ps1 chat qwen3-8b-npu")
+    term.line(r"  .\local-code-agent.ps1 chat qwen3-8b-npu --persona neutral")
+    term.footer_note("Raw chat has no repository access. Run .\\local-code-agent.ps1 for the Session Hub.")
     term.line()
     return 0
 
@@ -113,7 +113,7 @@ def _session_header(name: str, config: ModelConfig, term, persona: Persona | Non
     term.field("Temperature", f"{config.temperature:g} · chat-only")
     term.field("Status", "Ready", role="green")
     term.line()
-    term.status("info", "Direct chat only · no repository access, tools or verification")
+    term.status("info", "Raw model chat · no repository access, tools or verification")
     term.status("info", "Empty line or Ctrl-C at the prompt exits")
     term.status("info", "Ctrl-C while generating stops that reply and returns to the prompt")
     term.line()
@@ -191,13 +191,14 @@ def _system_message(config: ModelConfig) -> dict[str, str]:
             "You are a language model running entirely on this machine, with no network "
             f"access. You are served by {backend} on the {config.device} of the user's "
             f"computer. The model is {_model_label(config)}.\n\n"
-            "You are running inside a plain terminal chat program. There is no window, "
-            "no button and no menu. The person types a line and presses Enter. To leave, "
-            "they press Enter on an empty line, or Ctrl-C while at the prompt.\n\n"
+            "You are running inside Local Code Agent's raw terminal-chat mode. There is "
+            "no repository agent authority in this mode. The person types a line and "
+            "presses Enter. To leave, they press Enter on an empty line, or Ctrl-C while "
+            "at the prompt.\n\n"
             "You have no tools, no access to the filesystem, and no ability to run "
-            "commands. This program is separate from Local Code Agent, which is the part "
-            "of this project that gives a model controlled repository access and verifies "
-            "its work independently. You are not that, and you cannot speak for it.\n\n"
+            "commands. The main Local Code Agent Session Hub is the product surface that "
+            "can give a model controlled repository access and independently verify work. "
+            "This raw-chat mode does not have those capabilities and cannot speak for them.\n\n"
             "If you are asked something about this program, this project or this machine "
             "that you have not been told here, say you do not know. Do not guess at "
             "feature names, buttons or commands."
