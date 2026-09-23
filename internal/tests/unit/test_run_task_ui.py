@@ -31,13 +31,16 @@ def test_public_presenter_keeps_the_provisioned_npu_profile_contract():
     assert command[-3:] == ["Inspect this repository", "--skill", "repo-navigation"]
 
 
-def test_public_presenter_still_delegates_server_ownership_to_chat_entrypoint():
+def test_public_presenter_delegates_server_ownership_to_canonical_launcher():
     presenter = _presenter()
     command = presenter._server_command("powershell.exe")
 
+    launcher = REPO / "local-code-agent.ps1"
+    assert launcher.exists()
     assert command[0] == "powershell.exe"
-    assert str(REPO / "chat.ps1") in command
-    assert command[-2:] == ["qwen3-8b-npu", "--ensure-only"]
+    assert str(launcher) in command
+    assert str(REPO / "chat.ps1") not in command
+    assert command[-3:] == ["chat", "qwen3-8b-npu", "--ensure-only"]
 
 
 def test_report_split_keeps_answer_separate_from_operator_telemetry():

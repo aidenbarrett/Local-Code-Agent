@@ -56,13 +56,15 @@ def _powershell() -> str | None:
 
 
 def _server_command(shell: str) -> list[str]:
+    """Prepare the managed server through the one public product launcher."""
     return [
         shell,
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        str(ROOT / "chat.ps1"),
+        str(ROOT / "local-code-agent.ps1"),
+        "chat",
         "qwen3-8b-npu",
         "--ensure-only",
     ]
