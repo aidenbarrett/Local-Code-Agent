@@ -3,10 +3,12 @@
 Direction agreed: 2026-09-20. This is the product destination, delivery order and
 acceptance plan. It is not a claim that the planned capabilities are implemented.
 Root [CURRENT_STATE.md](../../CURRENT_STATE.md) owns current reachability and gaps;
-live GitHub `main` owns current code. The existing
-[Session Hub implementation sequence](session-hub-implementation-plan.md) remains
-the immediate work. The [quality backlog](quality-hardening-roadmap.md) supplies
-supporting fixes, not a competing product programme.
+live GitHub `main` owns current code. Root [TRICKS.md](../../TRICKS.md) defines
+the first-release public journeys and evidence gates. The existing
+[Session Hub implementation sequence](session-hub-implementation-plan.md) is
+historical working design; sequence the next changes by those public journeys.
+The [quality backlog](quality-hardening-roadmap.md) supplies supporting fixes,
+not a competing product programme.
 
 ## Final ambition
 
