@@ -292,7 +292,7 @@ class DurableSessionService:
                         "status": "unknown",
                         "verdict_block": {
                             "verdict": "NO_VERDICT",
-                            "reason_code": "controller_crash",
+                            "reason_code": "controller_restarted",
                             "scope": "effects and cleanup after controller restart",
                             "evidence_ids": [],
                             "tree_sha256": None,
