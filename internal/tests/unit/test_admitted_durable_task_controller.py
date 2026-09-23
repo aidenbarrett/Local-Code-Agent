@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
-from local_agent.agent.outcome import Outcome
-from local_agent.agent.state import AgentState
 from local_agent.session.contracts import TaskOutcome, TaskResult
 from local_agent.session.durable_task_controller import AdmittedDurableTaskController
 from local_agent.session.event_buffer import EventBuffer
@@ -161,20 +158,17 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
 
         def run(self, _task, skill_name=None):
             observed["skill_name"] = skill_name
-            state = AgentState(task=_task, repo_root=repo.root)
-            state.verification_attempted = True
-            return SimpleNamespace(
-                outcome=Outcome.FAIL,
-                answer="verification failed",
-                state=state,
-            )
+            # This test owns only the composition seam. Stop after construction so a
+            # fabricated worker result cannot accidentally test unrelated result semantics.
+            raise RuntimeError("stop after registry composition")
 
     monkeypatch.setattr(module, "Orchestrator", FakeOrchestrator)
 
     controller = TaskController(repo, lambda: object(), EventBuffer("s"))
     result = controller.run("inspect", durable_activity=durable_activity)
 
-    assert result.outcome is TaskOutcome.FAIL
+    assert result.outcome is TaskOutcome.NO_VERDICT
+    assert result.reason_code == "controller_crash"
     assert observed["wrapped_from"] is registry
     assert observed["activity"] is durable_activity
     assert observed["worker_registry"] is wrapped_registry
