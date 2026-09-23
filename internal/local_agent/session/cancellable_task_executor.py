@@ -8,13 +8,12 @@ separate reconciliation before a cancelled terminal claim can be made.
 """
 from __future__ import annotations
 
-import json
 from threading import Lock, Thread
 from typing import Any
 
 from .cancellation import CancellationSite, CancellationSource, StaleExecutionEpoch
 from .cancellation_runtime import CancellationDecision, CancellationRuntime
-from .contracts import MAX_MESSAGE_CHARS, RouteSource, TaskResult
+from .contracts import RouteSource, TaskResult
 from .results import verdict_block_from_task_result
 from .session_event_service import DurableSessionService, DurableTaskExecutor, TaskHandle
 
@@ -32,9 +31,10 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
         super().__init__(service, controller)
         self.cancellation = cancellation_runtime or CancellationRuntime()
         self._ownership_lock = Lock()
-        # Serialises cancellation against the finalisation enqueue point. Whichever
-        # operation acquires this lock first owns that race; there is no unchecked
-        # gap between a final authority check and terminal enqueue.
+        # Serialises cancellation against dispatch and durable finalisation. The
+        # terminal path holds this lock through commit and ownership release so a
+        # cancellation can never revoke an epoch after terminal enqueue but before
+        # terminal persistence.
         self._authority_lock = Lock()
         self._registered_tasks: set[str] = set()
 
@@ -203,10 +203,10 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                     },
                     result_bytes=result_bytes,
                 )
-            terminal.wait(30)
-            handle.result = result
-            if owns_registration:
-                self._release_registration(handle.task_id, execution_epoch)
+                terminal.wait(30)
+                handle.result = result
+                if owns_registration:
+                    self._release_registration(handle.task_id, execution_epoch)
         except StaleExecutionEpoch as exc:
             # Cancellation is intent, not proof of cleanup. Leave the durable task
             # unterminated for explicit reconciliation; never convert this into a fake
