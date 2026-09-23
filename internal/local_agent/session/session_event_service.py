@@ -19,6 +19,7 @@ from .contracts import MAX_MESSAGE_CHARS, RouteSource, TaskOutcome, TaskResult, 
 from .event_contract import build_event
 from .results import verdict_block_from_task_result
 from .session_store import SQLiteSessionStore
+from .terminal_completion import validate_terminal_completion
 
 
 _RESULT_SCHEMA = "lca.task-result/1"
@@ -226,6 +227,12 @@ class DurableSessionService:
         result_bytes: bytes | None = None,
     ) -> WriteReceipt:
         UUID(task_id)
+        validate_terminal_completion(
+            task_id,
+            verdict_payload=verdict_payload,
+            closed_payload=closed_payload,
+            result_bytes=result_bytes,
+        )
         receipt = WriteReceipt(task_id=task_id)
         return self._enqueue(_Command("finalize", receipt, {
             "task_id": task_id,
