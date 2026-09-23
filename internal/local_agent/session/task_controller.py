@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from ..agent import Orchestrator, SkillLibrary, default_search_path
 from ..agent.policy import deny_all_approvals
+from ..agent.state import HaltCause
 from ..config import RepoConfig
 from ..tools import build_registry
 from .contracts import RouteSource, TaskOutcome, TaskResult
@@ -48,6 +49,39 @@ class TaskController:
         if not skill.tools:
             raise ValueError(f"selected skill has an empty tool allowlist: {skill_name}")
         return skill.name
+
+    @staticmethod
+    def _reason_code(run, outcome: TaskOutcome) -> str:
+        """Project typed worker facts into the product reason vocabulary.
+
+        Outcome answers whether the task succeeded.  Reason answers *why* it did not.
+        Keeping those axes separate prevents an inference outage from being rendered as
+        a verification failure or a policy refusal.
+        """
+        if outcome.succeeded:
+            return "verification_passed"
+        if outcome in (TaskOutcome.FAIL, TaskOutcome.ESCALATED_FAIL):
+            return "verification_failed" if run.state.verification_attempted else "missing_evidence"
+        if outcome is TaskOutcome.BLOCKED:
+            if run.state.halt_cause is HaltCause.SERVER_UNAVAILABLE:
+                return "endpoint_unavailable"
+            if run.state.halt_cause is HaltCause.INFERENCE_STALLED:
+                return "inference_timeout"
+            if run.state.halt_cause is HaltCause.CONTEXT_BUDGET_EXHAUSTED:
+                return "unavailable_capability"
+            blocked = next((item for item in run.state.history if item.blocked), None)
+            reason = getattr(blocked, "reason", None)
+            return {
+                "policy_denied": "policy_denied",
+                "approval_declined": "user_denied",
+                "missing_executable": "missing_dependency",
+                "orchestrator_timeout": "tool_timeout",
+                "bad_arguments": "invalid_input",
+                "invalid_model_response": "invalid_input",
+                "unknown_tool": "unavailable_capability",
+                "tool_not_allowed": "unavailable_capability",
+            }.get(reason, "unavailable_capability")
+        return "cleanup_unknown"
 
     def run(
         self,
@@ -117,6 +151,7 @@ class TaskController:
                     tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
                     run.state.metrics.as_dict(),
                     verification_ran=bool(run.state.verification_attempted),
+                    reason_code=self._reason_code(run, task_outcome),
                 )
         except KeyboardInterrupt:
             self.events.emit("task.interrupted", {
@@ -130,6 +165,7 @@ class TaskController:
                 TaskOutcome.NO_VERDICT,
                 f"Task stopped: {type(exc).__name__}.",
                 False,
+                reason_code="controller_crash",
             )
             self.events.emit("task.interrupted", {
                 "outcome": result.outcome.value,
@@ -140,6 +176,7 @@ class TaskController:
             "outcome": result.outcome.value,
             "terminal_state": result.projection.terminal_state.value,
             "verdict": result.projection.verdict.value,
+            "reason_code": result.reason_code,
             "verification_ran": result.verification_ran,
             "verified_at_completion": result.verified_at_completion,
             "evidence_count": len(result.evidence_ids),
