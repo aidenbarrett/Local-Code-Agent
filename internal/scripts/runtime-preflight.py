@@ -70,10 +70,10 @@ def _satisfies(installed: str, specifiers: tuple[tuple[str, str], ...]) -> bool:
         if operator == "~=":
             if comparison < 0:
                 return False
-            if len(target) <= 1:
+            if len(target) <= 2:
                 upper = (target[0] + 1,)
             else:
-                upper = target[:-1] + (target[-2] + 1,) if len(target) > 2 else (target[0] + 1,)
+                upper = target[:-2] + (target[-2] + 1,)
             if _cmp(current, upper) >= 0:
                 return False
     return True
