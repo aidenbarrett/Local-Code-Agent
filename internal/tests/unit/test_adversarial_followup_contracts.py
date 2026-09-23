@@ -30,12 +30,14 @@ def test_stale_evidence_demo_does_not_forward_a_null_argument():
     assert "else { & $entry verification-demo }" in text
 
 
-def test_windows_wrappers_handle_runtime_location_and_noninteractive_setup_explicitly():
-    chat = (REPO / "chat.ps1").read_text(encoding="utf-8")
+def test_windows_launcher_handles_runtime_location_and_noninteractive_setup_explicitly():
+    launcher = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
     install = (REPO / "install.ps1").read_text(encoding="utf-8")
-    assert "$env:LOCALAPPDATA" in chat
-    assert "GetFolderPath" in chat
-    assert "Join-Path $HOME '.local'" in chat
+    assert not (REPO / "chat.ps1").exists()
+    assert "$env:LOCALAPPDATA" in launcher
+    assert "GetFolderPath" in launcher
+    assert "Join-Path $HOME '.local'" in launcher
+    assert "Set-ManagedOvmsEnvironment" in launcher
     assert "[Console]::IsInputRedirected" in install
     assert "-InstallMissing for non-interactive setup" in install
 
