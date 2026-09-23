@@ -104,13 +104,35 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
     receipt.wait(5)
 
 
+def _resolve_model_configs(args: argparse.Namespace):
+    """Resolve chat/worker profiles without silently splitting one endpoint override.
+
+    ``--base-url`` is the normal single-endpoint override and therefore applies to
+    both roles. ``--worker-base-url`` is the explicit opt-in to split them.  The
+    worker may still use a different model profile while sharing the endpoint.
+    """
+    chat_config = MODEL_PRESETS[args.profile]
+    if args.base_url:
+        chat_config = replace(chat_config, base_url=args.base_url)
+
+    worker_profile = args.worker_profile or args.profile
+    worker_config = MODEL_PRESETS[worker_profile]
+    worker_base_url = args.worker_base_url or args.base_url
+    if worker_base_url:
+        worker_config = replace(worker_config, base_url=worker_base_url)
+    return chat_config, worker_profile, worker_config
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="local-code-agent session")
     parser.add_argument("--repo", default=".", help="repository root or a path inside it")
     parser.add_argument("--profile", default="ptl-npu-8b", choices=sorted(MODEL_PRESETS))
     parser.add_argument("--worker-profile", default=None, choices=sorted(MODEL_PRESETS))
-    parser.add_argument("--base-url", help="override conversation endpoint")
-    parser.add_argument("--worker-base-url", help="override worker endpoint")
+    parser.add_argument(
+        "--base-url",
+        help="override the endpoint for conversation and worker roles unless --worker-base-url is set",
+    )
+    parser.add_argument("--worker-base-url", help="explicitly split the worker onto a different endpoint")
     parser.add_argument("--allow-execution", action="store_true", help="allow configured build/test execution")
     parser.add_argument("--conversation", metavar="ID", help="resume a persisted Session Hub conversation")
     parser.add_argument("--check", action="store_true", help="run deterministic self-check once and exit")
@@ -119,13 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     root = find_repo_root(Path(args.repo))
     repo = load_repo_config(root)
 
-    chat_config = MODEL_PRESETS[args.profile]
-    if args.base_url:
-        chat_config = replace(chat_config, base_url=args.base_url)
-    worker_profile = args.worker_profile or args.profile
-    worker_config = MODEL_PRESETS[worker_profile]
-    if args.worker_base_url:
-        worker_config = replace(worker_config, base_url=args.worker_base_url)
+    chat_config, worker_profile, worker_config = _resolve_model_configs(args)
 
     budgets = conversation_budgets(chat_config.context_budget_tokens)
     runtime_root = _runtime_root()
