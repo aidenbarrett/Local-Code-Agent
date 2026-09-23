@@ -26,7 +26,13 @@ def _git(ctx: ToolContext, args: list[str]) -> tuple[int, str, str]:
     if not args or args[0] not in _ALLOWED_SUBCOMMANDS:
         raise ToolError(f"git subcommand {args[:1]} is not permitted by this agent")
     proc = subprocess.run(
-        ["git", "--no-pager", *args],
+        [
+            "git",
+            "-c", "core.fsmonitor=false",
+            "-c", "diff.external=",
+            "--no-pager",
+            *args,
+        ],
         cwd=str(ctx.root),
         capture_output=True,
         text=True,
@@ -34,6 +40,30 @@ def _git(ctx: ToolContext, args: list[str]) -> tuple[int, str, str]:
         timeout=_GIT_TIMEOUT,
     )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _resolve_commit(ctx: ToolContext, value: str, *, label: str) -> str | None:
+    """Resolve untrusted revision text before passing it to another git command.
+
+    A READ-risk tool must stay read-only even when git itself accepts effectful
+    options such as ``--output=<path>`` or ``--ext-diff``.  Shell metacharacter
+    filtering does not help because git receives an argv vector directly.  Refuse
+    option-shaped input, resolve only through ``rev-parse --end-of-options``, then
+    hand downstream commands the resulting hexadecimal object id rather than the
+    original model-controlled string.
+    """
+    if not value or value.startswith("-") or "\x00" in value or "\n" in value or "\r" in value:
+        raise ToolError(f"suspicious {label}: revision-like values may not be options")
+    code, out, _ = _git(
+        ctx,
+        ["rev-parse", "--verify", "--end-of-options", f"{value}^{{commit}}"],
+    )
+    if code != 0:
+        return None
+    resolved = out.strip()
+    if not resolved or any(ch not in "0123456789abcdefABCDEF" for ch in resolved):
+        raise ToolError(f"git returned an invalid object id while resolving {label}")
+    return resolved
 
 
 def _parse_porcelain_v2(stdout: str) -> dict[str, Any]:
@@ -106,7 +136,12 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         context_lines: int = 3,
         stat_only: bool = False,
     ) -> ToolResult:
-        args = ["diff", "--no-ext-diff", f"--unified={max(0, min(context_lines, 12))}"]
+        args = [
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            f"--unified={max(0, min(context_lines, 12))}",
+        ]
         if staged:
             args.append("--cached")
         if stat_only:
@@ -172,11 +207,13 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         Risk.READ,
     )
     def git_show(rev: str = "HEAD", stat_only: bool = True) -> ToolResult:
-        if any(ch in rev for ch in " ;|&$`\n"):
-            raise ToolError("suspicious revision string")
-        args = ["show", "--no-ext-diff", rev]
+        resolved = _resolve_commit(ctx, rev, label="revision")
+        if resolved is None:
+            raise ToolError(f"revision {rev!r} is not resolvable in this repository")
+        args = ["show", "--no-ext-diff", "--no-textconv"]
         if stat_only:
             args.append("--stat")
+        args.append(resolved)
         code, out, err = _git(ctx, args)
         if code != 0:
             raise ToolError(f"git show failed: {err.strip()}")
@@ -198,11 +235,16 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         if code != 0:
             raise ToolError("not a git repository")
         data: dict[str, Any] = {"head": head.strip()}
-        mb_code, mb, _ = _git(ctx, ["merge-base", base, "HEAD"])
+        resolved_base = _resolve_commit(ctx, base, label="base revision")
         data["base"] = base
+        if resolved_base is None:
+            data["merge_base"] = None
+            data["note"] = f"{base!r} is not resolvable in this repository"
+            return ToolResult(ok=True, summary=f"on {data['head']}", data=data)
+        mb_code, mb, _ = _git(ctx, ["merge-base", resolved_base, "HEAD"])
         data["merge_base"] = mb.strip() if mb_code == 0 else None
         if mb_code != 0:
-            data["note"] = f"{base!r} is not resolvable in this repository"
+            data["note"] = f"{base!r} has no merge base with HEAD"
         return ToolResult(ok=True, summary=f"on {data['head']}", data=data)
 
     # ---------------------------------------------------------------- writes
