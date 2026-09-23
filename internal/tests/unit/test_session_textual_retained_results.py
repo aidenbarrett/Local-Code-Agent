@@ -66,7 +66,7 @@ def _finish(
         {
             "schema": "lca.task-result/1",
             "task_id": task_id,
-            "outcome": "FAIL",
+            "outcome": "fail",
             "terminal_state": "failed",
             "verdict": "FAILED",
             "verification_ran": True,
