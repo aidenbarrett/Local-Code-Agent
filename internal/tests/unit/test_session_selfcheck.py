@@ -34,6 +34,10 @@ def test_selfcheck_requires_exit_counts_and_same_tree(tmp_path, monkeypatch, exi
     (tmp_path / "internal/tests").mkdir(parents=True)
     repo = RepoConfig(tmp_path, "local-code-agent", "build", ".local-agent/runs",
                       {"python": BuildProfile("python")}, "python", Policy())
+    # This test exercises the verification algorithm against a synthetic checkout.
+    # Bind that checkout explicitly as the trusted running source rather than
+    # weakening the public identity gate for tests.
+    monkeypatch.setattr(selfcheck, "_LCA_SOURCE_ROOT", tmp_path.resolve())
     digests = iter(["before", "changed" if changed else "before"])
     monkeypatch.setattr(selfcheck, "tree_digest", lambda root: next(digests))
     calls = []
