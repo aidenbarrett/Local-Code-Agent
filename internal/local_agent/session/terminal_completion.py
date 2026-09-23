@@ -14,6 +14,7 @@ from .contracts import TaskOutcome, TaskResult
 
 _RESULT_SCHEMA = "lca.task-result/1"
 _RESULT_MEDIA_TYPE = "application/vnd.lca.task-result+json"
+_ALLOWED_CLEANUP = frozenset({"confirmed", "not_needed", "attempted", "unknown"})
 
 
 def _mapping(value: object, name: str) -> dict[str, Any]:
@@ -127,9 +128,10 @@ def validate_terminal_completion(
         raise ValueError("task.verdict and task.closed must reference the same retained result")
 
     cleanup = closed.get("cleanup")
-    expected_cleanup = "unknown" if status == "unknown" else "not_needed"
-    if cleanup != expected_cleanup:
-        raise ValueError("task.closed cleanup contradicts terminal status")
+    if cleanup not in _ALLOWED_CLEANUP:
+        raise ValueError("task.closed cleanup is not a reviewed cleanup state")
+    if status == "completed" and cleanup not in {"not_needed", "confirmed"}:
+        raise ValueError("completed task cannot carry unreconciled cleanup")
 
     lines = verdict_block.get("rendered_lines")
     if not isinstance(lines, list) or not lines or any(not isinstance(line, str) for line in lines):
