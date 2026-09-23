@@ -8,6 +8,7 @@ part of the already-authorised execution path.
 """
 from __future__ import annotations
 
+from ..provenance import source_sha256
 from .durable_activity import DurableToolActivity
 
 
@@ -29,6 +30,11 @@ class AdmittedDurableTaskController:
                 raise TypeError(f"admitted durable controller requires controller.{name}")
         self.service = service
         self.controller = controller
+        # Bind the code this long-lived controller was actually composed from. A later
+        # checkout update changes bytes on disk but cannot change already-imported Python
+        # objects; admission must refuse that drift instead of claiming the new tree as
+        # the identity of the old running process.
+        self.source_sha256_at_start = source_sha256()
 
     @property
     def repo(self):

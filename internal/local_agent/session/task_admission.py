@@ -35,6 +35,29 @@ def repository_id(repo) -> str:
     return f"{repo.name}:{root_digest}"
 
 
+def _running_source_sha256(controller) -> str:
+    """Return the controller's startup source identity, refusing checkout drift.
+
+    A long-lived Python process cannot start executing newly-pulled module bytes merely
+    because those files changed on disk.  Public composition therefore captures source
+    identity once.  If the checkout later drifts, fail before admission rather than bind
+    the new on-disk hash to old imported code.  Controllers without a startup binding
+    retain the existing one-shot/test behaviour.
+    """
+    current = source_sha256()
+    bound = getattr(controller, "source_sha256_at_start", None)
+    if bound is None:
+        return current
+    if not isinstance(bound, str) or len(bound) != 64:
+        raise ValueError("controller startup source identity is not a SHA-256 digest")
+    if current != bound:
+        raise RuntimeError(
+            "Local Code Agent source changed after this controller started; "
+            "restart the Session Hub before admitting more work"
+        )
+    return bound
+
+
 def execution_contract_sha256(controller, *, skill_name: str | None = None) -> str:
     """Hash source plus effective controller/procedure configuration that can affect effects."""
     repo = controller.repo
@@ -65,7 +88,7 @@ def execution_contract_sha256(controller, *, skill_name: str | None = None) -> s
         skill_contract["sha256"] = skill_sha256.lower()
 
     contract = {
-        "source_sha256": source_sha256(),
+        "source_sha256": _running_source_sha256(controller),
         "repository_id": repository_id(repo),
         "build_dir": repo.build_dir,
         "run_dir": repo.run_dir,
