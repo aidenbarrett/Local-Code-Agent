@@ -45,7 +45,7 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
         observed["ensure_root"] = runtime_root
         return Ensured()
 
-    def observe_runtime(cls, preset, config, *, execution_enabled, fetch=None):
+    def observe_runtime(preset, config, *, execution_enabled, fetch=None):
         observed["facts_preset"] = preset
         observed["facts_execution"] = execution_enabled
         return facts
@@ -64,7 +64,7 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
 
     monkeypatch.setattr(hub, "_runtime_root", lambda: tmp_path)
     monkeypatch.setattr(hub, "ensure_managed_runtime", ensure_runtime)
-    monkeypatch.setattr(hub.RuntimeFacts, "observe", classmethod(observe_runtime))
+    monkeypatch.setattr(hub.RuntimeFacts, "observe", staticmethod(observe_runtime))
     monkeypatch.setattr(hub, "build_textual_session_runtime", fake_textual)
 
     result = hub.main(["--repo", str(REPO), "--profile", "ptl-npu-8b"])
