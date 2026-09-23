@@ -11,6 +11,10 @@ from ..tools.tool_primitives import resolve_in_repo
 from ..tools.process_runner import run_command
 from .contracts import TaskResult
 
+# Self-check is authority over the Local Code Agent checkout that supplied this running
+# code, not over any repository that happens to call itself "local-code-agent".
+_LCA_SOURCE_ROOT = Path(__file__).resolve().parents[3]
+
 
 def tree_digest(root: Path) -> str:
     """Hash HEAD, index entries and nonignored file bytes, including untracked edits.
@@ -61,8 +65,14 @@ def junit_counts(path: Path) -> dict[str, int]:
 def run_self_check(repo, task_id, events) -> TaskResult:
     if not (repo.policy.allow_build and repo.policy.allow_test):
         return TaskResult(task_id, "blocked", "Self-check requires execution enabled and repository build/test permission.")
-    if repo.name != "local-code-agent" or not (repo.root / "internal/tests").is_dir():
-        return TaskResult(task_id, "blocked", "Self-check only supports the Local Code Agent checkout.")
+    if repo.root.resolve() != _LCA_SOURCE_ROOT:
+        return TaskResult(
+            task_id,
+            "blocked",
+            "Self-check only supports the Local Code Agent checkout that supplied this running controller.",
+        )
+    if not (repo.root / "internal/tests").is_dir():
+        return TaskResult(task_id, "blocked", "Local Code Agent self-check files are unavailable.")
     before = tree_digest(repo.root)
     artifacts = resolve_in_repo(repo.root, f".local-agent/session-checks/{task_id}")
     artifacts.mkdir(parents=True, exist_ok=False)
