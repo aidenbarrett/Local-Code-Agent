@@ -137,20 +137,20 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
     monkeypatch, loaded
 ):
     _sandbox, repo, registry, _store, _skills = loaded
-    import local_agent.session.task_controller as module
 
     durable_activity = object()
     wrapped_registry = object()
     observed = {}
+    globals_ = TaskController.run.__globals__
 
-    monkeypatch.setattr(module, "build_registry", lambda _repo: (registry, object(), object()))
+    def build_registry_spy(_repo):
+        observed["registry_built_for"] = _repo
+        return registry, object(), object()
 
     def wrap(actual_registry, activity):
         observed["wrapped_from"] = actual_registry
         observed["activity"] = activity
         return wrapped_registry
-
-    monkeypatch.setattr(module, "wrap_registry_with_durable_activity", wrap)
 
     class FakeOrchestrator:
         def __init__(self, *, registry, **_kwargs):
@@ -158,17 +158,18 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
 
         def run(self, _task, skill_name=None):
             observed["skill_name"] = skill_name
-            # This test owns only the composition seam. Stop after construction so a
-            # fabricated worker result cannot accidentally test unrelated result semantics.
             raise RuntimeError("stop after registry composition")
 
-    monkeypatch.setattr(module, "Orchestrator", FakeOrchestrator)
+    monkeypatch.setitem(globals_, "build_registry", build_registry_spy)
+    monkeypatch.setitem(globals_, "wrap_registry_with_durable_activity", wrap)
+    monkeypatch.setitem(globals_, "Orchestrator", FakeOrchestrator)
 
     controller = TaskController(repo, lambda: object(), EventBuffer("s"))
     result = controller.run("inspect", durable_activity=durable_activity)
 
     assert result.outcome is TaskOutcome.NO_VERDICT
     assert result.reason_code == "controller_crash"
+    assert observed["registry_built_for"] is controller.repo
     assert observed["wrapped_from"] is registry
     assert observed["activity"] is durable_activity
     assert observed["worker_registry"] is wrapped_registry
