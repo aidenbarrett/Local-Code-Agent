@@ -65,6 +65,9 @@ class TaskSnapshot:
     cleanup: str | None = None
     closed_sequence: int | None = None
     result_ref: dict | None = None
+    result_answer: str | None = None
+    result_verification_ran: bool | None = None
+    result_verified_at_completion: bool | None = None
     open_tools: dict[str, ToolActivity] = field(default_factory=dict)
     last_tool: ToolActivity | None = None
     endpoint: EndpointActivity | None = None
