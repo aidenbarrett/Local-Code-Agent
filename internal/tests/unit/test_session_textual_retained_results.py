@@ -8,7 +8,7 @@ import pytest
 
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
-from local_agent.session.textual_feed import DurableHubFeed, HubFeedError
+from local_agent.session.textual_feed import DurableHubFeed
 from local_agent.session.textual_hub import render_activity
 
 
@@ -131,19 +131,22 @@ def test_live_hub_exposes_integrity_checked_retained_answer(tmp_path):
         service.close()
 
 
-def test_live_hub_refuses_result_that_disagrees_with_durable_verdict(tmp_path):
+def test_contradictory_retained_result_is_rejected_before_durable_commit(tmp_path):
     service = _service(tmp_path)
     try:
         task_id = _admit(service)
-        _finish(
-            service,
-            task_id,
-            answer="historical answer",
-            result_evidence=["result:0"],
-            verdict_evidence=["different:0"],
-        )
+        with pytest.raises(ValueError, match="verdict evidence_ids disagree"):
+            _finish(
+                service,
+                task_id,
+                answer="historical answer",
+                result_evidence=["result:0"],
+                verdict_evidence=["different:0"],
+            )
 
-        with pytest.raises(HubFeedError, match="cannot be projected truthfully"):
-            DurableHubFeed(service).start()
+        record = service.store.task_record(task_id)
+        assert record is not None
+        assert record["terminal"] is False
+        assert [event["kind"] for event in service.replay()] == ["task.admitted"]
     finally:
         service.close()
