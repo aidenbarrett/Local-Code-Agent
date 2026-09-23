@@ -25,6 +25,19 @@ class TaskCandidate:
 
 
 @dataclass(frozen=True)
+class RetainedTaskResult:
+    """Integrity-checked historical terminal result; never current verification authority."""
+
+    task_id: str
+    status: str
+    verdict: str
+    answer: str
+    evidence_ids: tuple[str, ...]
+    verification_ran: bool
+    verified_at_completion: bool
+
+
+@dataclass(frozen=True)
 class TaskObservation:
     task_id: str
     turn_ref: dict[str, object]
@@ -82,12 +95,7 @@ class DurableTaskHistory:
             raise ArtifactIntegrityError("retained task result evidence ids are invalid")
         return value
 
-    def _observation_from_record(
-        self,
-        record: dict[str, Any],
-        *,
-        turn_ref: dict[str, object],
-    ) -> TaskObservation | None:
+    def _result_from_record(self, record: dict[str, Any]) -> RetainedTaskResult | None:
         ref = record.get("result_ref")
         if not isinstance(ref, dict) or ref.get("availability") != "retained":
             return None
@@ -98,13 +106,39 @@ class DurableTaskHistory:
         value = self._parse_result(raw, task_id=task_id)
         if value["terminal_state"] != str(record["state"]):
             raise ArtifactIntegrityError("retained task result state disagrees with task index")
-        return TaskObservation(
+        return RetainedTaskResult(
             task_id=task_id,
-            turn_ref=dict(turn_ref),
             status=str(value["terminal_state"]),
             verdict=str(value["verdict"]),
             answer=str(value["answer"]),
             evidence_ids=tuple(value["evidence_ids"]),
+            verification_ran=bool(value["verification_ran"]),
+            verified_at_completion=bool(value["verified_at_completion"]),
+        )
+
+    def result_for_task(self, task_id: str) -> RetainedTaskResult | None:
+        """Return one retained terminal result only after artifact/index integrity checks."""
+        record = self.store.task_record(task_id)
+        if record is None or not bool(record.get("terminal")):
+            return None
+        return self._result_from_record(record)
+
+    def _observation_from_record(
+        self,
+        record: dict[str, Any],
+        *,
+        turn_ref: dict[str, object],
+    ) -> TaskObservation | None:
+        result = self._result_from_record(record)
+        if result is None:
+            return None
+        return TaskObservation(
+            task_id=result.task_id,
+            turn_ref=dict(turn_ref),
+            status=result.status,
+            verdict=result.verdict,
+            answer=result.answer,
+            evidence_ids=result.evidence_ids,
         )
 
     def latest(self, conversation_id: str) -> TaskObservation | None:
