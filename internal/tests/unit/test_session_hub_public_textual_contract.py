@@ -4,12 +4,6 @@ from contextlib import contextmanager
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
-from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor
-from local_agent.session.durable_task_controller import AdmittedDurableTaskController
-from local_agent.session.runtime_facts import RuntimeFacts
-from local_agent.session.runtime_facts_gateway import RuntimeFactsGateway
-from local_agent.session.task_admission import DurableTaskAdmissionRunner
-
 
 REPO = Path(__file__).resolve().parents[3]
 SCRIPT = REPO / "internal" / "scripts" / "session-hub.py"
@@ -26,7 +20,10 @@ def _load_hub():
 def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path, monkeypatch):
     hub = _load_hub()
     observed: dict[str, object] = {}
-    facts = RuntimeFacts(
+    # Construct through the composition root's imported class. This journey exercises
+    # a dynamically loaded product root, so importing a second test-side class identity
+    # would test Python module-loading trivia rather than the Session Hub contract.
+    facts = hub.RuntimeFacts(
         preset="ptl-npu-8b",
         endpoint="http://127.0.0.1:9999/v1",
         declared_model="configured-model",
@@ -78,10 +75,10 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
     assert observed["runtime_summary"] == facts.header()
 
     gateway = observed["gateway"]
-    assert isinstance(gateway, RuntimeFactsGateway)
-    assert isinstance(gateway.task_runner, DurableTaskAdmissionRunner)
+    assert isinstance(gateway, hub.RuntimeFactsGateway)
+    assert isinstance(gateway.task_runner, hub.DurableTaskAdmissionRunner)
     executor = gateway.task_runner.executor
-    assert isinstance(executor, CancellableDurableTaskExecutor)
-    assert isinstance(executor.controller, AdmittedDurableTaskController)
+    assert isinstance(executor, hub.CancellableDurableTaskExecutor)
+    assert isinstance(executor.controller, hub.AdmittedDurableTaskController)
     assert executor.controller.service is observed["service"]
     assert gateway.runtime_facts is facts
