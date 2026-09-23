@@ -35,8 +35,8 @@ def repository_id(repo) -> str:
     return f"{repo.name}:{root_digest}"
 
 
-def execution_contract_sha256(controller) -> str:
-    """Hash the source plus effective controller configuration that can affect effects."""
+def execution_contract_sha256(controller, *, skill_name: str | None = None) -> str:
+    """Hash source plus effective controller/procedure configuration that can affect effects."""
     repo = controller.repo
     profiles: dict[str, Any] = {}
     for name, profile in sorted(repo.profiles.items()):
@@ -49,6 +49,21 @@ def execution_contract_sha256(controller) -> str:
                 for key, value in sorted(profile.env.items())
             },
         }
+
+    skill_contract: dict[str, str | None] = {"name": skill_name, "sha256": None}
+    if skill_name is not None:
+        fingerprint = getattr(controller, "effective_skill_sha256", None)
+        if not callable(fingerprint):
+            raise TypeError("durable task controller cannot fingerprint admitted skills")
+        skill_sha256 = fingerprint(skill_name)
+        if not isinstance(skill_sha256, str) or len(skill_sha256) != 64:
+            raise ValueError("effective skill fingerprint must be a SHA-256 hex digest")
+        try:
+            int(skill_sha256, 16)
+        except ValueError as exc:
+            raise ValueError("effective skill fingerprint must be a SHA-256 hex digest") from exc
+        skill_contract["sha256"] = skill_sha256.lower()
+
     contract = {
         "source_sha256": source_sha256(),
         "repository_id": repository_id(repo),
@@ -60,6 +75,7 @@ def execution_contract_sha256(controller) -> str:
         "policy": asdict(repo.policy),
         "allow_execution": bool(controller.allow_execution),
         "context_budget_tokens": int(controller.context_budget_tokens),
+        "effective_skill": skill_contract,
     }
     return hashlib.sha256(_canonical_bytes(contract)).hexdigest()
 
@@ -198,7 +214,10 @@ class DurableTaskAdmissionRunner:
                 "size_bytes": len(request_bytes),
                 "availability": "retained",
             },
-            "contract_sha256": execution_contract_sha256(self.executor.controller),
+            "contract_sha256": execution_contract_sha256(
+                self.executor.controller,
+                skill_name=None if self_check else skill,
+            ),
             "repository_id": repository_id(self.executor.controller.repo),
             "skill": skill,
             "execution_epoch": 0,
