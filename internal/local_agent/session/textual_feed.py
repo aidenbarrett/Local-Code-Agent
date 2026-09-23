@@ -3,13 +3,15 @@
 The Textual app must never treat an in-memory notification queue as authority. This
 adapter owns a durable replay cursor, crosses the replay-to-live handoff explicitly,
 and rebuilds presentation state from committed events. Live overflow is recovered by
-re-subscribing from the last accepted durable sequence; it is never smoothed over.
+re-subscribing from the last accepted sequence; it is never smoothed over.
 """
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
 from .session_event_service import DurableSessionService, ReplaySubscription, SubscriptionGap
+from .session_store import ArtifactIntegrityError
+from .task_history import DurableTaskHistory
 from .textual_hub import ConversationEntry, HubViewState, build_view_state
 from .textual_route_read_model import RouteReadModelError, latest_route_snapshot
 
@@ -142,6 +144,32 @@ class DurableHubFeed:
             changed = True
         return changed
 
+    def _hydrate_retained_results(self, state: HubViewState) -> HubViewState:
+        history = DurableTaskHistory(self.service.store, stream_id=self.service.stream_id)
+        try:
+            for task in state.tasks:
+                if not task.terminal:
+                    continue
+                result = history.result_for_task(task.task_id)
+                if result is None:
+                    continue
+                if result.status != task.state or result.verdict != task.verdict:
+                    raise ArtifactIntegrityError(
+                        "retained task result disagrees with durable task projection"
+                    )
+                if result.evidence_ids != task.evidence_ids:
+                    raise ArtifactIntegrityError(
+                        "retained task result evidence disagrees with durable verdict"
+                    )
+                task.result_answer = result.answer
+                task.result_verification_ran = result.verification_ran
+                task.result_verified_at_completion = result.verified_at_completion
+        except ArtifactIntegrityError as exc:
+            raise HubFeedError(
+                "retained task result cannot be projected truthfully"
+            ) from exc
+        return state
+
     def state(self, *, status: str | None = None) -> HubViewState:
         if not self._started:
             raise HubFeedError("durable UI feed must be started before projection")
@@ -166,12 +194,13 @@ class DurableHubFeed:
                 status = f"Live · durable seq {self._cursor}"
                 if self._recovered_gap:
                     status += " · replay recovered"
-        return build_view_state(
+        state = build_view_state(
             conversation,
             self._events,
             route_summary=route_summary,
             status=status,
         )
+        return self._hydrate_retained_results(state)
 
 
 __all__ = ["DurableHubFeed", "HubFeedError"]
