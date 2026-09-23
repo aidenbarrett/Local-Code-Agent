@@ -25,14 +25,14 @@ def _models_url(base_url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}/v1/models"
 
 
-def fetch_models_document(base_url: str) -> bytes:
-    with urlopen(_models_url(base_url), timeout=3) as response:  # noqa: S310 - configured local endpoint
+def fetch_models_document(models_url: str) -> bytes:
+    with urlopen(models_url, timeout=3) as response:  # noqa: S310 - configured local endpoint
         return response.read(256_000)
 
 
 def observed_model_id(base_url: str, *, fetch: ModelsFetcher = fetch_models_document) -> str | None:
     """Return one served model id from the endpoint's OpenAI-compatible model list."""
-    raw = fetch(base_url)
+    raw = fetch(_models_url(base_url))
     document = json.loads(raw.decode("utf-8"))
     entries = document.get("data") if isinstance(document, dict) else None
     if not isinstance(entries, list):
