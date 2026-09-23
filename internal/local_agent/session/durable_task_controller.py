@@ -24,6 +24,10 @@ class AdmittedDurableTaskController:
             raise TypeError("admitted durable controller requires a run-capable controller")
         if not callable(getattr(controller, "resolve_skill", None)):
             raise TypeError("admitted durable controller requires controller.resolve_skill")
+        if not callable(getattr(controller, "effective_skill_sha256", None)):
+            raise TypeError(
+                "admitted durable controller requires controller.effective_skill_sha256"
+            )
         for name in ("repo", "allow_execution", "context_budget_tokens"):
             if not hasattr(controller, name):
                 raise TypeError(f"admitted durable controller requires controller.{name}")
@@ -44,6 +48,9 @@ class AdmittedDurableTaskController:
 
     def resolve_skill(self, skill_name: str) -> str:
         return self.controller.resolve_skill(skill_name)
+
+    def effective_skill_sha256(self, skill_name: str) -> str:
+        return self.controller.effective_skill_sha256(skill_name)
 
     def run(
         self,
