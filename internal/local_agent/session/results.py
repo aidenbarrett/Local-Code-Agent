@@ -36,7 +36,11 @@ class VerdictReason(str, Enum):
     TASK_TIMEOUT = "task_timeout"
     CANCELLED = "cancelled"
     CLEANUP_UNKNOWN = "cleanup_unknown"
-    CONTROLLER_CRASH = "controller_crash"
+    CONTROLLER_RESTARTED = "controller_restarted"
+    CONTROLLER_FAULT = "controller_fault"
+    DURABLE_WRITE_FAILED = "durable_write_failed"
+    CANCEL_UNRECONCILED = "cancel_unreconciled"
+    CONTROLLER_CRASH = "controller_crash"  # legacy v1 replay only; no current producer
     VERIFICATION_FAILED = "verification_failed"
     VERIFICATION_PASSED = "verification_passed"
     VERIFICATION_NOT_REQUIRED = "verification_not_required"
@@ -82,6 +86,10 @@ _ALLOWED_REASONS_BY_VERDICT: dict[TaskVerdict, frozenset[VerdictReason]] = {
     }),
     TaskVerdict.NO_VERDICT: frozenset({
         VerdictReason.CLEANUP_UNKNOWN,
+        VerdictReason.CONTROLLER_RESTARTED,
+        VerdictReason.CONTROLLER_FAULT,
+        VerdictReason.DURABLE_WRITE_FAILED,
+        VerdictReason.CANCEL_UNRECONCILED,
         VerdictReason.CONTROLLER_CRASH,
         VerdictReason.ENDPOINT_UNAVAILABLE,
         VerdictReason.INFERENCE_TIMEOUT,
