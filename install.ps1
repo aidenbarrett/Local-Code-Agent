@@ -161,9 +161,9 @@ if ($runtimeRc -ne 0) {
 if (-not $CheckOnly) {
     Write-Host ''
     Write-Host 'Next:'
-    Write-Host '  .\chat.ps1 qwen3-8b-npu'
+    Write-Host '  .\local-code-agent.ps1'
+    Write-Host '  .\local-code-agent.ps1 chat qwen3-8b-npu'
     Write-Host '  .\local-code-agent.ps1 capabilities'
-    Write-Host '  .\demo\run-qwen-on-npu.ps1'
     Write-Host ''
 }
 exit 0
