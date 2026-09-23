@@ -18,6 +18,9 @@ from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
 
 
+_PROGRAMMER_ERRORS = (TypeError, AttributeError, NameError, AssertionError)
+
+
 class TaskController:
     def __init__(self, repo: RepoConfig, worker_factory, events: EventBuffer,
                  *, allow_execution: bool = False, context_budget_tokens: int = 12_000):
@@ -215,15 +218,30 @@ class TaskController:
                 "process_cleanup_confirmed": False,
             }, task_id)
             raise
-        except Exception:
-            # Unexpected implementation faults are not ordinary task outcomes. The
-            # durable executor records the fault and traceback, then re-raises to the
-            # caller so programmer errors cannot masquerade as NO_VERDICT results.
+        except _PROGRAMMER_ERRORS:
+            # Programmer faults are never ordinary task outcomes. The durable executor
+            # retains the traceback and then re-raises the original exception to caller.
             self.events.emit("task.interrupted", {
                 "outcome": TaskOutcome.NO_VERDICT.value,
                 "process_cleanup_confirmed": False,
             }, task_id)
             raise
+        except Exception as exc:
+            # Operational/controller failures remain typed task failures rather than
+            # escaping as programmer faults. Durable execution still records truthful
+            # cleanup from tool activity when this result is terminalised.
+            result = TaskResult(
+                task_id,
+                TaskOutcome.NO_VERDICT,
+                f"Task stopped: {type(exc).__name__}.",
+                False,
+                reason_code="controller_fault",
+            )
+            self.events.emit("task.interrupted", {
+                "outcome": result.outcome.value,
+                "process_cleanup_confirmed": False,
+            }, task_id)
+            return result
         self.events.emit("task.finished", {
             "outcome": result.outcome.value,
             "terminal_state": result.projection.terminal_state.value,
