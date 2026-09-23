@@ -10,6 +10,7 @@ from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
 from local_agent.session.textual_feed import DurableHubFeed
 from local_agent.session.textual_hub import render_activity
+from local_agent.session.textual_live_app import HubLiveBinding
 
 
 def _service(tmp_path) -> DurableSessionService:
@@ -20,16 +21,21 @@ def _service(tmp_path) -> DurableSessionService:
     )
 
 
-def _admit(service: DurableSessionService) -> str:
+def _admit(
+    service: DurableSessionService,
+    *,
+    request_id: str = "retained-result-fixture",
+    turn_index: int = 0,
+) -> str:
     receipt = service.submit_task(
-        request_id="retained-result-fixture",
+        request_id=request_id,
         payload_sha256="a" * 64,
         admission_payload={
             "origin": {
                 "kind": "user_direct",
                 "turn_ref": {
                     "conversation_id": "conv-1",
-                    "turn_index": 0,
+                    "turn_index": turn_index,
                     "turn_sha256": "b" * 64,
                 },
             },
@@ -127,6 +133,48 @@ def test_live_hub_exposes_integrity_checked_retained_answer(tmp_path):
         assert "Retained result:" in rendered
         assert answer in rendered
         assert "Result verification: ran but did not establish success" in rendered
+    finally:
+        service.close()
+
+
+def test_idle_hub_poll_does_not_reread_500_retained_results(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+    try:
+        for index in range(500):
+            task_id = _admit(
+                service,
+                request_id=f"retained-result-{index}",
+                turn_index=index,
+            )
+            _finish(service, task_id, answer=f"historical result {index}")
+
+        binding = HubLiveBinding(DurableHubFeed(service))
+        original_artifact_bytes = service.store.artifact_bytes
+        reads = {"count": 0}
+
+        def counted_artifact_bytes(ref):
+            reads["count"] += 1
+            return original_artifact_bytes(ref)
+
+        monkeypatch.setattr(service.store, "artifact_bytes", counted_artifact_bytes)
+
+        for _ in range(50):
+            assert binding.poll() is None
+        assert reads["count"] == 0
+
+        receipt = service.append(
+            "session.opened",
+            {
+                "conversation_id": "conv-1",
+                "repository_id": "repo-1",
+                "controller_commit": "fixture",
+                "capabilities": [],
+                "recovered": False,
+            },
+        )
+        receipt.wait(5)
+        assert binding.poll() is not None
+        assert reads["count"] == 0
     finally:
         service.close()
 
