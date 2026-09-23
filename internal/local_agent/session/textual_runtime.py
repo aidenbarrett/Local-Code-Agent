@@ -41,6 +41,7 @@ def build_textual_session_runtime(
     palette_name: str = "neon",
     poll_interval: float = 0.10,
     completion_poll_interval: float = 0.05,
+    runtime_summary: str | None = None,
 ) -> TextualSessionRuntime:
     """Compose one UI from the canonical conversation, durable stream and gateway."""
     if not isinstance(service, DurableSessionService):
@@ -58,6 +59,7 @@ def build_textual_session_runtime(
             palette_name=palette_name,
             poll_interval=poll_interval,
             completion_poll_interval=completion_poll_interval,
+            runtime_summary=runtime_summary,
         )
     except BaseException:
         dispatcher.close(wait=True)
