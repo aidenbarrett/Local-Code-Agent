@@ -7,7 +7,8 @@ Historical evidence and measurement contracts remain protected. Operational regr
 tests and honest verification are still required.
 
 Read root `PROJECT_OVERVIEW.md` and `CURRENT_STATE.md` before substantial work.
-For product priorities and acceptance goals, read `internal/docs/product-roadmap.md`.
+For the first public release, read `TRICKS.md` for user journeys and acceptance gates;
+for the longer product direction, read `internal/docs/product-roadmap.md`.
 The destination is a dependable offline worker for finding, moving, Git and coding
 work; deep-reasoning competition is not a goal. Roadmap items are not implemented
 features and do not replace current source-derived product status.
@@ -46,6 +47,7 @@ A second implementation beside an uncomposed first one is not progress.
 | Working on | Read |
 |---|---|
 | Current product status and open P1 gaps | `CURRENT_STATE.md`, then current GitHub source/PRs |
+| First-release user journeys and public acceptance | `TRICKS.md`, then the actual launcher/composition tests |
 | Session Hub routing/admission/results | `internal/local_agent/session/`, `internal/docs/session-hub-design.md` |
 | Endpoint ownership | `internal/local_agent/session/endpoint_lease.py`, `endpoint_runtime.py`, `endpoint_call.py`, `internal/docs/endpoint-scheduler-design.md` |
 | What counts as a correct experimental outcome, endpoints E1-E4, repeat rule | `internal/evaluation/endpoints.py`, then `internal/docs/next-experiment-preregistration.md` |
@@ -184,8 +186,8 @@ Normal demo/user instructions stay on these surfaces:
 
 ```text
 .\install.ps1
-.\chat.ps1
 .\local-code-agent.ps1
+.\local-code-agent.ps1 chat
 .\demo\...
 ```
 

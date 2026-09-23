@@ -7,6 +7,9 @@ test this project through its deterministic controller. Measurement collection i
 paused. [Project overview](PROJECT_OVERVIEW.md) and [current state](CURRENT_STATE.md)
 describe the implemented limits and the active Session Hub work.
 
+The [first-release user journeys](TRICKS.md) define the public behaviour and
+evidence required before calling a workflow delivered.
+
 The [product roadmap](internal/docs/product-roadmap.md) targets a dependable local
 worker for finding, moving, Git and coding tasks, with replaceable models and no
 required cloud AI dependency. **The model is a replaceable dependency. The agent

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from uuid import uuid4
+
+import pytest
 
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
 from local_agent.session.textual_feed import DurableHubFeed
-from local_agent.session.textual_hub import ConversationEntry, SessionHubApp
-from local_agent.session.textual_live_app import HubLiveBinding, LiveSessionHubApp
+from local_agent.session.textual_hub import render_activity
+from local_agent.session.textual_live_app import HubLiveBinding
 
 
 def _service(tmp_path) -> DurableSessionService:
@@ -17,61 +21,180 @@ def _service(tmp_path) -> DurableSessionService:
     )
 
 
-def _opened(service: DurableSessionService, label: str) -> None:
-    receipt = service.append(
-        "session.opened",
-        {
-            "conversation_id": label,
+def _admit(
+    service: DurableSessionService,
+    *,
+    request_id: str = "retained-result-fixture",
+    turn_index: int = 0,
+) -> str:
+    receipt = service.submit_task(
+        request_id=request_id,
+        payload_sha256="a" * 64,
+        admission_payload={
+            "origin": {
+                "kind": "user_direct",
+                "turn_ref": {
+                    "conversation_id": "conv-1",
+                    "turn_index": turn_index,
+                    "turn_sha256": "b" * 64,
+                },
+            },
+            "request_ref": {
+                "artifact_id": str(uuid4()),
+                "sha256": "c" * 64,
+                "media_type": "application/json",
+                "size_bytes": 1,
+                "availability": "unavailable",
+            },
+            "contract_sha256": "d" * 64,
             "repository_id": "repo-1",
-            "controller_commit": "fixture",
-            "capabilities": [],
-            "recovered": False,
+            "skill": "inspect",
+            "execution_epoch": 0,
+            "deadline_utc": "2030-01-01T00:00:00Z",
         },
+    )
+    receipt.wait(5)
+    assert receipt.task_id is not None
+    return receipt.task_id
+
+
+def _finish(
+    service: DurableSessionService,
+    task_id: str,
+    *,
+    answer: str,
+    result_evidence: list[str] | None = None,
+    verdict_evidence: list[str] | None = None,
+) -> None:
+    result_evidence = ["tool:0"] if result_evidence is None else result_evidence
+    verdict_evidence = result_evidence if verdict_evidence is None else verdict_evidence
+    payload = json.dumps(
+        {
+            "schema": "lca.task-result/1",
+            "task_id": task_id,
+            "outcome": "fail",
+            "terminal_state": "failed",
+            "verdict": "FAILED",
+            "verification_ran": True,
+            "verified_at_completion": False,
+            "evidence_ids": result_evidence,
+            "answer": answer,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    ref = {
+        "artifact_id": str(uuid4()),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "media_type": "application/vnd.lca.task-result+json",
+        "size_bytes": len(payload),
+        "availability": "retained",
+    }
+    receipt = service.finalize_task(
+        task_id,
+        verdict_payload={
+            "completion": {
+                "task_id": task_id,
+                "status": "failed",
+                "verdict_block": {
+                    "verdict": "FAILED",
+                    "reason_code": "verification_failed",
+                    "scope": "fixture",
+                    "evidence_ids": verdict_evidence,
+                    "tree_sha256": None,
+                    "rendered_lines": [
+                        "FAILED: verification did not establish success.",
+                        "Verification: ran but did not establish success.",
+                    ],
+                },
+                "worker_artifact_ref": None,
+                "result_ref": ref,
+            }
+        },
+        closed_payload={"status": "failed", "result_ref": ref, "cleanup": "not_needed"},
+        result_bytes=payload,
     )
     receipt.wait(5)
 
 
-def test_live_binding_starts_from_durable_replay_and_advances_on_commit(tmp_path):
+def test_live_hub_exposes_integrity_checked_retained_answer(tmp_path):
     service = _service(tmp_path)
     try:
-        _opened(service, "initial")
+        task_id = _admit(service)
+        answer = "Compiler failed in src/widget.cpp:42 after the requested build."
+        _finish(service, task_id, answer=answer)
+
+        state = DurableHubFeed(service).start()
+
+        assert state.tasks[0].result_answer == answer
+        assert state.tasks[0].result_verification_ran is True
+        assert state.tasks[0].result_verified_at_completion is False
+        rendered = render_activity(state)
+        assert "Retained result:" in rendered
+        assert answer in rendered
+        assert "Result verification: ran but did not establish success" in rendered
+    finally:
+        service.close()
+
+
+def test_idle_hub_poll_does_not_reread_500_retained_results(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+    try:
+        for index in range(500):
+            task_id = _admit(
+                service,
+                request_id=f"retained-result-{index}",
+                turn_index=index,
+            )
+            _finish(service, task_id, answer=f"historical result {index}")
+
         binding = HubLiveBinding(DurableHubFeed(service))
-        assert binding.state.status == "Live · durable seq 1"
+        original_artifact_bytes = service.store.artifact_bytes
+        reads = {"count": 0}
 
-        _opened(service, "second")
-        state = binding.poll()
-        assert state is not None
-        assert state.status == "Live · durable seq 2"
-        assert binding.state == state
-        assert binding.poll() is None
-    finally:
-        service.close()
+        def counted_artifact_bytes(ref):
+            reads["count"] += 1
+            return original_artifact_bytes(ref)
 
+        monkeypatch.setattr(service.store, "artifact_bytes", counted_artifact_bytes)
 
-def test_live_binding_refreshes_canonical_conversation_without_fake_durable_event(tmp_path):
-    service = _service(tmp_path)
-    conversation = [ConversationEntry("user", "one")]
-    try:
-        binding = HubLiveBinding(
-            DurableHubFeed(service, conversation_provider=lambda: tuple(conversation))
+        for _ in range(50):
+            assert binding.poll() is None
+        assert reads["count"] == 0
+
+        receipt = service.append(
+            "session.opened",
+            {
+                "conversation_id": "conv-1",
+                "repository_id": "repo-1",
+                "controller_commit": "fixture",
+                "capabilities": [],
+                "recovered": False,
+            },
         )
-        assert [entry.text for entry in binding.state.conversation] == ["one"]
-
-        conversation.append(ConversationEntry("assistant", "two"))
-        state = binding.poll()
-        assert state is not None
-        assert [entry.text for entry in state.conversation] == ["one", "two"]
+        receipt.wait(5)
+        assert binding.poll() is not None
+        assert reads["count"] == 0
     finally:
         service.close()
 
 
-def test_live_app_remains_a_presentation_subclass_and_validates_poll_interval(tmp_path):
+def test_contradictory_retained_result_is_rejected_before_durable_commit(tmp_path):
     service = _service(tmp_path)
     try:
-        feed = DurableHubFeed(service)
-        app = LiveSessionHubApp(feed, poll_interval=0.25)
-        assert isinstance(app, SessionHubApp)
-        assert app.view_state.status == "Live · durable seq 0"
-        assert app.poll_interval == 0.25
+        task_id = _admit(service)
+        with pytest.raises(ValueError, match="verdict evidence_ids disagree"):
+            _finish(
+                service,
+                task_id,
+                answer="historical answer",
+                result_evidence=["result:0"],
+                verdict_evidence=["different:0"],
+            )
+
+        record = service.store.task_record(task_id)
+        assert record is not None
+        assert record["terminal"] is False
+        assert [event["kind"] for event in service.replay()] == ["task.admitted"]
     finally:
         service.close()

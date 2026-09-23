@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 
 from .session_event_service import DurableSessionService, ReplaySubscription, SubscriptionGap
 from .session_store import ArtifactIntegrityError
-from .task_history import DurableTaskHistory
+from .task_history import DurableTaskHistory, RetainedTaskResult
 from .textual_hub import ConversationEntry, HubViewState, build_view_state
 from .textual_route_read_model import RouteReadModelError, latest_route_snapshot
 
@@ -61,6 +61,8 @@ class DurableHubFeed:
         self._handoff: ReplaySubscription | None = None
         self._started = False
         self._recovered_gap = False
+        self._conversation: tuple[ConversationEntry, ...] = ()
+        self._result_cache: dict[str, RetainedTaskResult] = {}
 
     @property
     def cursor(self) -> int:
@@ -73,6 +75,12 @@ class DurableHubFeed:
     @property
     def recovered_gap(self) -> bool:
         return self._recovered_gap
+
+    def _read_conversation(self) -> tuple[ConversationEntry, ...]:
+        conversation = tuple(self.conversation_provider())
+        if any(not isinstance(entry, ConversationEntry) for entry in conversation):
+            raise TypeError("conversation provider must return ConversationEntry values")
+        return conversation
 
     def _accept(self, events: Sequence[dict]) -> int:
         accepted = 0
@@ -117,6 +125,7 @@ class DurableHubFeed:
         handoff = self.service.subscribe_from(after=0, capacity=self.capacity)
         self._handoff = handoff
         self._catch_up(handoff)
+        self._conversation = self._read_conversation()
         self._started = True
         return self.state()
 
@@ -142,6 +151,11 @@ class DurableHubFeed:
         if batch:
             self._accept(batch)
             changed = True
+
+        conversation = self._read_conversation()
+        if conversation != self._conversation:
+            self._conversation = conversation
+            changed = True
         return changed
 
     def _hydrate_retained_results(self, state: HubViewState) -> HubViewState:
@@ -150,9 +164,19 @@ class DurableHubFeed:
             for task in state.tasks:
                 if not task.terminal:
                     continue
-                result = history.result_for_task(task.task_id)
+                ref = task.result_ref
+                digest = ref.get("sha256") if isinstance(ref, dict) else None
+                result = self._result_cache.get(digest) if isinstance(digest, str) else None
                 if result is None:
-                    continue
+                    result = history.result_for_task(task.task_id)
+                    if result is None:
+                        continue
+                    if isinstance(digest, str):
+                        self._result_cache[digest] = result
+                if result.task_id != task.task_id:
+                    raise ArtifactIntegrityError(
+                        "retained task result cache identity disagrees with durable task projection"
+                    )
                 if result.status != task.state or result.verdict != task.verdict:
                     raise ArtifactIntegrityError(
                         "retained task result disagrees with durable task projection"
@@ -173,9 +197,6 @@ class DurableHubFeed:
     def state(self, *, status: str | None = None) -> HubViewState:
         if not self._started:
             raise HubFeedError("durable UI feed must be started before projection")
-        conversation = tuple(self.conversation_provider())
-        if any(not isinstance(entry, ConversationEntry) for entry in conversation):
-            raise TypeError("conversation provider must return ConversationEntry values")
         try:
             latest_route = latest_route_snapshot(self._events)
             route_summary = (
@@ -195,7 +216,7 @@ class DurableHubFeed:
                 if self._recovered_gap:
                     status += " · replay recovered"
         state = build_view_state(
-            conversation,
+            self._conversation,
             self._events,
             route_summary=route_summary,
             status=status,
