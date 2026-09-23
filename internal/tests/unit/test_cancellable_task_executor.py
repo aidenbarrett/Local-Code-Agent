@@ -6,12 +6,12 @@ from uuid import uuid4
 
 import pytest
 
-from local_agent.session.cancellation import StaleExecutionEpoch
 from local_agent.session.cancellation_runtime import CancellationRuntimeError
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor
 from local_agent.session.contracts import TaskOutcome, TaskResult
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
+from local_agent.session.terminal_truth import CancelUnreconciled
 
 
 def _artifact_ref(data: bytes = b"request") -> dict:
@@ -86,7 +86,7 @@ def test_cancelled_epoch_cannot_commit_a_late_controller_result(tmp_path):
         assert executor.cancellation.current_epoch(handle.task_id) == 1
 
         release.set()
-        with pytest.raises(StaleExecutionEpoch):
+        with pytest.raises(CancelUnreconciled):
             handle.wait(5)
 
         events = service.replay()
