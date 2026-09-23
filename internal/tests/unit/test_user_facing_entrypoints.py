@@ -245,7 +245,7 @@ def test_root_commands_work_from_a_checkout_path_with_spaces(tmp_path):
 
     cases = (
         (("chat",), "Available local model choices"),
-        (("help",), "Local Code Agent"),
+        (("help",), "Session Hub"),
     )
     for args, expected in cases:
         result = subprocess.run(
