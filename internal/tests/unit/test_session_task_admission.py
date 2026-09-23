@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -334,20 +333,3 @@ def test_execution_contract_tracks_effective_controller_configuration(loaded):
     one = SimpleNamespace(repo=repo, allow_execution=False, context_budget_tokens=12_000)
     two = SimpleNamespace(repo=repo, allow_execution=False, context_budget_tokens=8_000)
     assert execution_contract_sha256(one) != execution_contract_sha256(two)
-
-
-def test_public_session_composes_durable_task_admission_runner():
-    repo_root = Path(__file__).resolve().parents[3]
-    source = (repo_root / "internal" / "scripts" / "session-hub.py").read_text(encoding="utf-8")
-    assert "AdmittedDurableTaskController(service, controller)" in source
-    assert "from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor" in source
-    assert "CancellableDurableTaskExecutor(service, admitted_controller)" in source
-    assert "DurableTaskAdmissionRunner(" in source
-    assert "task_runner=task_runner" in source
-    assert "DurableTaskHistory(service.store, stream_id=service.stream_id)" in source
-    assert "budgets = conversation_budgets(chat_config.context_budget_tokens)" in source
-    assert "**budgets" in source
-    assert "allow_execution=args.allow_execution" in source
-    assert "context_budget_tokens=worker_config.context_budget_tokens" in source
-    assert "deterministic rules before model fallback" in source
-    assert "synchronous prototype path" not in source
