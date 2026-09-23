@@ -6,6 +6,8 @@ from uuid import uuid4
 
 import pytest
 
+from local_agent.agent.outcome import Outcome
+from local_agent.agent.state import AgentState
 from local_agent.session.contracts import TaskOutcome, TaskResult
 from local_agent.session.durable_task_controller import AdmittedDurableTaskController
 from local_agent.session.event_buffer import EventBuffer
@@ -159,16 +161,12 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
 
         def run(self, _task, skill_name=None):
             observed["skill_name"] = skill_name
+            state = AgentState(task=_task, repo_root=repo.root)
+            state.verification_attempted = True
             return SimpleNamespace(
-                outcome=SimpleNamespace(value="fail"),
+                outcome=Outcome.FAIL,
                 answer="verification failed",
-                state=SimpleNamespace(
-                    halt_cause=None,
-                    verified=False,
-                    verification_attempted=True,
-                    history=[],
-                    metrics=SimpleNamespace(as_dict=lambda: {}),
-                ),
+                state=state,
             )
 
     monkeypatch.setattr(module, "Orchestrator", FakeOrchestrator)
