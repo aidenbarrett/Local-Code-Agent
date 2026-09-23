@@ -26,7 +26,6 @@ def _load_chat_module():
 def test_product_root_is_small_and_implementation_is_hidden():
     for name in (
         "install.ps1",
-        "chat.ps1",
         "local-code-agent.ps1",
         "README.md",
         "QUICKSTART.md",
@@ -34,6 +33,7 @@ def test_product_root_is_small_and_implementation_is_hidden():
         "internal",
     ):
         assert (REPO / name).exists(), name
+    assert not (REPO / "chat.ps1").exists()
 
     for old_root in (
         "local_agent",
@@ -49,9 +49,12 @@ def test_product_root_is_small_and_implementation_is_hidden():
         assert not (REPO / old_root).exists(), old_root
 
 
-def test_root_chat_entrypoint_and_friendly_models_are_present():
-    wrapper = (REPO / "chat.ps1").read_text(encoding="utf-8")
-    assert "$internal = Join-Path $root 'internal'" in wrapper
+def test_raw_chat_is_subordinate_to_the_canonical_launcher():
+    wrapper = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
+    assert "[string]$Command = 'session'" in wrapper
+    assert "'chat' {" in wrapper
+    assert "Set-ManagedOvmsEnvironment" in wrapper
+    assert "LCA_OVMS_EXECUTABLE" in wrapper
     assert "(Join-Path $internal 'scripts\\chat.py')" in wrapper
     assert "@Rest" in wrapper
     assert "@Args" not in wrapper
@@ -65,9 +68,10 @@ def test_root_chat_entrypoint_and_friendly_models_are_present():
     assert "qwen3-coder-30b" not in chat.FRIENDLY
 
 
-def test_chat_is_one_command_and_never_teaches_internal_plumbing():
+def test_chat_is_one_product_subcommand_and_never_teaches_old_plumbing():
     source = (INTERNAL / "scripts" / "chat.py").read_text(encoding="utf-8")
-    assert ".\\chat.ps1 qwen3-8b-npu" in source
+    assert ".\\local-code-agent.ps1 chat qwen3-8b-npu" in source
+    assert ".\\chat.ps1" not in source
     assert "serve.start(plan, config" in source
     assert "serve.read_record(plan)" in source
     assert "serve.status(plan)" in source
@@ -82,12 +86,12 @@ def test_direct_chat_system_message_describes_the_real_terminal_boundary():
     chat = _load_chat_module()
     _, _, config = chat._resolve("qwen3-8b-npu")
     message = chat._system_message(config)["content"]
-    assert "plain terminal chat program" in message
-    assert "Ctrl-C while at the prompt" in message
+    assert "raw terminal-chat mode" in message
     assert "no network access" in message
     assert "no tools" in message
     assert "no access to the filesystem" in message
-    assert "separate from Local Code Agent" in message
+    assert "Session Hub" in message
+    assert "does not have those capabilities" in message
     assert "Do not guess at feature names, buttons or commands" in message
     assert "OpenVINO Model Server" in message
     assert "NPU" in message
@@ -144,20 +148,22 @@ def test_readme_answers_first_time_user_questions_before_deep_internals():
     assert "Windows 11 on Intel Panther Lake" in text
     assert "not a claim that arbitrary Windows, Linux or macOS machines" in plain
     assert ".\\install.ps1 -CheckOnly" in text
-    assert ".\\chat.ps1 qwen3-8b-npu" in text
+    assert ".\\local-code-agent.ps1 chat qwen3-8b-npu" in text
     assert ".\\local-code-agent.ps1 capabilities" in text
     assert "Examples of intended workloads include" in text
     assert "not claims that every task is solved successfully" in text
     assert "See [`QUICKSTART.md`](QUICKSTART.md) for the full walkthrough" in text
 
 
-def test_local_code_agent_root_facade_explains_why_it_exists():
+def test_local_code_agent_root_facade_is_the_default_product_surface():
     wrapper = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
-    assert "controlled repository access" in wrapper
+    assert "Canonical user-facing entrypoint" in wrapper
+    assert "[string]$Command = 'session'" in wrapper
     assert "capabilities" in wrapper
     assert "run-task" in wrapper
     assert "verification-demo" in wrapper
     assert "$internal = Join-Path $root 'internal'" in wrapper
+    assert "(Join-Path $internal 'scripts\\session-hub.py')" in wrapper
     assert "(Join-Path $internal 'scripts\\capabilities.py')" in wrapper
 
 
@@ -195,12 +201,13 @@ def test_quickstart_teaches_the_detailed_user_journey_in_order():
     clone = text.index("git clone https://github.com/aidenbarrett/Local-Code-Agent.git")
     preflight = text.index(".\\install.ps1 -CheckOnly")
     setup = text.index(".\\install.ps1\n", preflight)
-    chat = text.index(".\\chat.ps1 qwen3-8b-npu")
+    hub = text.index(".\\local-code-agent.ps1\n")
+    chat = text.index(".\\local-code-agent.ps1 chat qwen3-8b-npu")
     capabilities = text.index(".\\local-code-agent.ps1 capabilities")
     task = text.index(".\\local-code-agent.ps1 run-task")
     accelerator = text.index(".\\demo\\run-qwen-on-npu.ps1")
     verification = text.index(".\\demo\\show-stale-test-rejection.ps1")
-    assert clone < preflight < setup < chat < capabilities < task < accelerator < verification
+    assert clone < preflight < setup < hub < chat < capabilities < task < accelerator < verification
     assert "The model can propose actions. It cannot mark its own homework." in text
     assert "Windows 11 on Intel Panther Lake" in text
     assert "What are you?" in text
@@ -237,10 +244,10 @@ def test_root_commands_work_from_a_checkout_path_with_spaces(tmp_path):
     assert powershell, "a Windows CI runner must provide PowerShell"
 
     cases = (
-        ("chat.ps1", (), "Available local model choices"),
-        ("local-code-agent.ps1", ("help",), "Local Code Agent"),
+        (("chat",), "Available local model choices"),
+        (("help",), "Session Hub"),
     )
-    for script, args, expected in cases:
+    for args, expected in cases:
         result = subprocess.run(
             [
                 powershell,
@@ -248,7 +255,7 @@ def test_root_commands_work_from_a_checkout_path_with_spaces(tmp_path):
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                str(checkout / script),
+                str(checkout / "local-code-agent.ps1"),
                 *args,
             ],
             cwd=checkout,

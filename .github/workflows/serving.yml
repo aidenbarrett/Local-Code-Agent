@@ -49,7 +49,6 @@ jobs:
         run: |
           $files = @(
             'install.ps1',
-            'chat.ps1',
             'local-code-agent.ps1',
             'internal/work-laptop-one-shot.ps1',
             'internal/bootstrap-work-laptop.ps1',

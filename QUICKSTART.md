@@ -11,8 +11,7 @@ The architecture is intended to support other runtimes and devices, but this gui
 The public surface is deliberately small:
 
 - **`install.ps1`** prepares and validates the local runtime.
-- **`chat.ps1`** talks directly to a local model.
-- **`local-code-agent.ps1`** gives a model controlled repository access, approved tools, task procedures / skills, and independent verification.
+- **`local-code-agent.ps1`** is the product entrypoint. With no arguments it opens the Session Hub; explicit subcommands provide raw chat, capability inspection and headless task/debug paths.
 - **`demo/`** contains demonstration entrypoints.
 
 Everything else lives under `internal/` and is not required for normal first use.
@@ -58,37 +57,49 @@ The setup path prepares the managed runtime, model serving environment and local
 
 If company policy blocks an approved WinGet package, setup stops with the package name so you can ask IT for that specific prerequisite rather than debugging an unexplained exit code.
 
-## 2. Chat directly with the local model
+## 2. Open Local Code Agent
 
-List the friendly demo choices:
+The normal human entrypoint is now one command:
 
 ```powershell
-.\chat.ps1
+.\local-code-agent.ps1
+```
+
+That opens the Textual Session Hub. The Hub is the primary product interface for conversation plus controller-owned repository work; lower-level modes remain available as explicit subcommands for diagnostics and automation.
+
+## 3. Optional: talk directly to the local model
+
+Raw chat is a mode inside the same product entrypoint. It deliberately has no repository tools, filesystem access, command execution or independent verification.
+
+List the friendly model/device choices:
+
+```powershell
+.\local-code-agent.ps1 chat
 ```
 
 Start Qwen3-8B on the NPU:
 
 ```powershell
-.\chat.ps1 qwen3-8b-npu
+.\local-code-agent.ps1 chat qwen3-8b-npu
 ```
 
-Other configured demo choices:
+Other configured choices:
 
 ```powershell
-.\chat.ps1 qwen3-8b-gpu
-.\chat.ps1 qwen3-8b-cpu
+.\local-code-agent.ps1 chat qwen3-8b-gpu
+.\local-code-agent.ps1 chat qwen3-8b-cpu
 ```
 
-The three choices use the same Qwen3-8B model artifact and change only the requested execution device. Unrehearsed model profiles are deliberately not advertised on the friendly demo surface.
+The three choices use the same Qwen3-8B model artifact and change only the requested execution device. Unrehearsed model profiles are deliberately not advertised on the friendly surface.
 
-You do **not** need to start an internal model-server command first. Chat reuses a compatible server owned by Local Code Agent or starts the requested model/device through the deterministic serving controller, waits for readiness, and then presents the chat prompt.
+You do **not** need to start an internal model-server command first. Raw chat reuses a compatible server owned by Local Code Agent or starts the requested model/device through the deterministic serving controller, waits for readiness, and then presents the chat prompt.
 
-Direct chat has no repository tools, filesystem access or command execution. Use an empty line or Ctrl-C at the prompt to exit. Ctrl-C during generation stops the current reply cleanly and returns to the prompt.
+Use an empty line or Ctrl-C at the prompt to exit. Ctrl-C during generation stops the current reply cleanly and returns to the prompt.
 
-Each direct-chat run creates a persisted conversation and prints its conversation ID. Resume that exact raw user/assistant history later with:
+Each raw-chat run creates a persisted conversation and prints its conversation ID. Resume that exact raw user/assistant history later with:
 
 ```powershell
-.\chat.ps1 qwen3-8b-npu --persona aiden --conversation <ID>
+.\local-code-agent.ps1 chat qwen3-8b-npu --persona aiden --conversation <ID>
 ```
 
 Resume with the same persona used to create the conversation. The system contract and persona message are derived again on every request rather than stored in conversation history. A failed or interrupted generation is not appended as a half-completed exchange. Old complete exchanges may be omitted from the model prompt when the deterministic context budget is reached, while the raw persisted conversation remains intact.
@@ -102,12 +113,11 @@ What can you do?
 Can you inspect this repository for me?
 ```
 
-The direct chat should describe itself as a local model with no network, filesystem or tool access, and should not claim to be the controlled coding agent.
+Raw chat should describe itself as a local model with no network, filesystem or tool access, and should not claim the Session Hub's controlled repository capabilities.
 
-## 3. See the controlled coding-agent surface
+## 4. Inspect the controlled capability surface
 
 ```powershell
-.\local-code-agent.ps1
 .\local-code-agent.ps1 capabilities
 ```
 
@@ -115,12 +125,13 @@ This prints the live approved tools, installed task procedures / skills, and the
 
 No model is required just to inspect the capability surface.
 
-The important distinction is:
+The important distinction is now between modes of one product:
 
-- `chat.ps1` = direct model conversation
-- `local-code-agent.ps1` = model + controlled repository access + approved tools + skills + deterministic verification
+- `local-code-agent.ps1` = Session Hub, the default human interface
+- `local-code-agent.ps1 chat ...` = raw model conversation only
+- `local-code-agent.ps1 run-task ...` = explicit headless controlled task path
 
-## 4. Run a controlled repository task
+## 5. Run a controlled repository task
 
 A simple first task is:
 
@@ -132,7 +143,7 @@ Examples of intended workloads include repository navigation, build/test diagnos
 
 The model never receives arbitrary shell access and never decides for itself that its work passed verification.
 
-## 5. See the same local model run on the NPU, GPU or CPU
+## 6. See the same local model run on the NPU, GPU or CPU
 
 This demo keeps the model fixed and changes only the hardware that runs it. On this laptop:
 
@@ -164,7 +175,7 @@ The report shows the requested hardware target and the device OpenVINO actually 
 
 Timing values are live demo observations on an uncontrolled machine, not benchmark results.
 
-## 6. See independent verification reject stale test results
+## 7. See independent verification reject stale test results
 
 ```powershell
 .\demo\show-stale-test-rejection.ps1
@@ -183,7 +194,7 @@ The freshness gate is deliberately **not** a file-age comparison. A successful f
 
 > **The model can propose actions. It cannot mark its own homework.**
 
-## 7. Optional guided demo
+## 8. Optional guided demo
 
 ```powershell
 .\demo\run-complete-local-code-agent-demo.ps1
@@ -211,20 +222,10 @@ This walks through local NPU inference, the controlled capability surface and th
 .\install.ps1 -CheckOnly
 ```
 
-**Chat cannot start the selected model.** Run:
+**Raw chat cannot start the selected model.** Run:
 
 ```powershell
 .\install.ps1
 ```
 
-then retry the same chat command. Normal user guidance should never require an `internal/` command.
-
-**The CPU/GPU/NPU hardware demo cannot start.** Run:
-
-```powershell
-.\install.ps1 -CheckOnly
-```
-
-and follow the reported setup requirement.
-
-**A source-identity test fails while developing the project.** Do not casually regenerate experiment identities. `internal/INSTRUMENT.json` declares the current measured source surface; model-facing and outcome-facing contract changes must remain explicit and historical generations must remain reproducible.
+then retry the same `local-code-agent.ps1 chat ...` command. Normal user guidance should never require an `internal/` command.

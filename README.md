@@ -12,16 +12,11 @@ worker for finding, moving, Git and coding tasks, with replaceable models and no
 required cloud AI dependency. **The model is a replaceable dependency. The agent
 is the product.** Its milestones are future goals, not current feature claims.
 
-The current target is a Textual terminal hub with mandatory activity and watch
-panes. [Design, event contract and implementation PR layout](internal/docs/session-hub-design.md)
-specify deterministic-first routing, fixed watch jobs and task artifacts separate
-from conversation turns. The durable event service and public task admission are
-implemented; durable follow-ups and the remaining Session Hub integration are next.
-
-The terminal prototype is `.\local-code-agent.ps1 session`. It needs an
-already-running endpoint. `/check` runs LCA's real Python checks with execution
-enabled. Source edits, commits, background steering and the Textual UI are not yet
-enabled product features.
+The active product surface is the Textual Session Hub with conversation, activity
+and watch panes backed by controller-owned durable state. The public product has
+one root entrypoint: `.\local-code-agent.ps1` opens the Hub by default. Raw model
+chat and lower-level automation/debug paths remain explicit subcommands of that
+same entrypoint rather than competing top-level products.
 
 **Chat locally. Give models controlled access to code. Verify their work independently.**
 
@@ -31,7 +26,7 @@ Local Code Agent lets a local AI model work on a code repository using controlle
 
 ## Current setup target
 
-The current first-run path targets **Windows 11 on Intel Panther Lake**. The friendly demo path serves **Qwen3-8B (INT4)** through OpenVINO Model Server and can request the NPU, GPU or CPU on that machine.
+The current first-run path targets **Windows 11 on Intel Panther Lake**. The friendly local-model path serves **Qwen3-8B (INT4)** through OpenVINO Model Server and can request the NPU, GPU or CPU on that machine.
 
 The controller architecture is designed to remain model/runtime/device independent, but this setup path is **not** a claim that arbitrary Windows, Linux or macOS machines and backends have been qualified.
 
@@ -44,19 +39,23 @@ From PowerShell after cloning the repository:
 ```powershell
 .\install.ps1 -CheckOnly
 .\install.ps1
-.\chat.ps1 qwen3-8b-npu
-.\local-code-agent.ps1 capabilities
+.\local-code-agent.ps1
 ```
 
-That sequence checks the machine, prepares the local runtime, starts a direct chat with the local model, then shows the controlled coding-agent capability surface.
-
-A controlled repository task looks like:
+The bare product command opens the Session Hub. Raw local-model chat is still available when you explicitly want a model with no repository authority:
 
 ```powershell
+.\local-code-agent.ps1 chat qwen3-8b-npu
+```
+
+The controlled capability and headless task surfaces remain available under the same launcher:
+
+```powershell
+.\local-code-agent.ps1 capabilities
 .\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation
 ```
 
-The public `run-task` path prepares/reuses the same Qwen3-8B NPU server used by chat and selects the matching `ptl-npu-8b` agent profile explicitly.
+The public `chat` and `run-task` paths use the managed local serving stack. They remain distinct execution modes: raw chat has no repository tools or verification, while controlled tasks pass through the deterministic agent boundaries.
 
 Examples of intended workloads include:
 
@@ -66,11 +65,11 @@ Examples of intended workloads include:
 
 Those are intended use cases, not claims that every task is solved successfully by every local model.
 
-## Why this is different from local chat
+## Why this is different from raw local chat
 
-Direct chat is intentionally simple: model in, text out.
+Raw chat is intentionally simple: model in, text out. It is available as `local-code-agent.ps1 chat ...`, but it is not a second product.
 
-Local Code Agent adds:
+The Session Hub and controlled task paths add:
 
 - controlled repository access
 - approved repository, Git, build and test tools
@@ -87,9 +86,10 @@ The model never receives arbitrary shell access and never decides for itself tha
 
 Current implemented surfaces include:
 
+- one root Local Code Agent launcher with the Textual Session Hub as the default human interface
 - Qwen3-8B local serving paths for the Panther Lake NPU, GPU and CPU
-- direct terminal chat through friendly model/device names
-- persisted direct-chat conversations with lock-scoped ownership
+- explicit raw-model chat through friendly model/device names
+- persisted raw-chat conversations with lock-scoped ownership
 - a synchronous conversation gateway and controlled coding-worker adapter
 - closed product-side outcome semantics including explicit `NO_VERDICT`
 - route-source provenance for current model-selected and user-direct work
@@ -99,7 +99,7 @@ Current implemented surfaces include:
 - explicit model-serving and CPU/GPU/NPU hardware validation paths
 - preserved experiment provenance and source identity
 
-This describes implemented behaviour. It does not imply production readiness or general coding-model capability. Durable Session Hub replay/recovery exists; durable conversation follow-ups and the Textual UI remain follow-up work.
+This describes implemented behaviour. It does not imply production readiness or general coding-model capability. The Session Hub still has active P1 correctness, scaling and cancellation work tracked in the project backlog.
 
 ## Measured evidence so far
 

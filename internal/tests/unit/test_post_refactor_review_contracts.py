@@ -35,10 +35,12 @@ def test_bare_install_refuses_noninteractive_prompting():
     assert ".\\install.ps1 -CheckOnly" in source
 
 
-def test_chat_runtime_root_does_not_require_localappdata():
-    source = (REPO / "chat.ps1").read_text(encoding="utf-8")
+def test_canonical_launcher_resolves_managed_runtime_without_requiring_localappdata():
+    source = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
+    assert not (REPO / "chat.ps1").exists()
     assert "$localAppData = $env:LOCALAPPDATA" in source
     assert "[Environment+SpecialFolder]::LocalApplicationData" in source
+    assert "Join-Path $HOME '.local'" in source
     assert "$runtimeRoot = Join-Path $localAppData 'LocalCodeAgent'" in source
 
 

@@ -1,14 +1,14 @@
 <#
 .SYNOPSIS
-  User-facing entrypoint for the controlled repository agent.
+  Canonical user-facing entrypoint for Local Code Agent.
 
 .DESCRIPTION
-  Direct model chat lives in chat.ps1.
-  Local Code Agent adds controlled repository access, approved tools, skills,
-  policy and independent verification.
+  Running this script with no command opens the Textual Session Hub.
+  Raw model chat and lower-level automation/debug surfaces remain available as
+  explicit subcommands behind the same product entrypoint.
 #>
 param(
-    [string]$Command = 'help',
+    [string]$Command = 'session',
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
 )
 
@@ -37,7 +37,7 @@ $existingPythonPath = if (Test-Path Env:PYTHONPATH) { $env:PYTHONPATH } else { $
 $env:PYTHONPATH = if ($existingPythonPath) { "$internal;$existingPythonPath" } else { $internal }
 
 # Validate the exact interpreter selected above before any public command can import
-# product code, start OVMS, or prepare a model.  This is diagnostic-only: startup never
+# product code, start OVMS, or prepare a model. Startup is diagnostic-only: it never
 # runs pip or reaches the network to repair a stale checkout environment.
 $preflight = Join-Path $internal 'scripts\runtime-preflight.py'
 $pyproject = Join-Path $root 'pyproject.toml'
@@ -63,9 +63,50 @@ function Show-Help {
     & $python (Join-Path $internal 'scripts\product-help.py')
 }
 
+function Set-ManagedOvmsEnvironment {
+    # Preserve the old direct-chat wrapper's managed OVMS setup while keeping one
+    # product launcher. setupvars.ps1 may set PYTHONHOME/PYTHONPATH for OVMS; capture
+    # those for the child server and restore the controller Python environment.
+    $localAppData = $env:LOCALAPPDATA
+    if (-not $localAppData) {
+        $localAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+    }
+    if (-not $localAppData) {
+        $localAppData = Join-Path $HOME '.local'
+    }
+    $runtimeRoot = Join-Path $localAppData 'LocalCodeAgent'
+    $env:LCA_RUNTIME_ROOT = $runtimeRoot
+
+    $ovmsDir = Join-Path $runtimeRoot 'tools\ovms-2026.3.0'
+    $ovmsExe = Get-ChildItem $ovmsDir -Recurse -Filter ovms.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    $setupVars = Get-ChildItem $ovmsDir -Recurse -Filter setupvars.ps1 -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $ovmsExe -or -not $setupVars) { return }
+
+    $hadPythonHome = Test-Path Env:PYTHONHOME
+    $pythonHomeBefore = if ($hadPythonHome) { $env:PYTHONHOME } else { $null }
+    $pythonPathBeforeSetup = $env:PYTHONPATH
+
+    . $setupVars.FullName
+    if (Test-Path Env:PYTHONHOME) { $env:LCA_OVMS_PYTHONHOME = $env:PYTHONHOME }
+    else { Remove-Item Env:LCA_OVMS_PYTHONHOME -ErrorAction SilentlyContinue }
+    if (Test-Path Env:PYTHONPATH) { $env:LCA_OVMS_PYTHONPATH = $env:PYTHONPATH }
+    else { Remove-Item Env:LCA_OVMS_PYTHONPATH -ErrorAction SilentlyContinue }
+
+    if ($hadPythonHome) { $env:PYTHONHOME = $pythonHomeBefore }
+    else { Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue }
+    $env:PYTHONPATH = $pythonPathBeforeSetup
+    $env:LCA_OVMS_EXECUTABLE = $ovmsExe.FullName
+}
+
 switch ($Command.ToLowerInvariant()) {
     'session' {
         & $python (Join-Path $internal 'scripts\session-hub.py') @Rest
+        exit $LASTEXITCODE
+    }
+    'chat' {
+        if (-not $Rest -or $Rest.Count -eq 0) { $Rest = @('list') }
+        if ($Rest[0] -ne 'list') { Set-ManagedOvmsEnvironment }
+        & $python (Join-Path $internal 'scripts\chat.py') @Rest
         exit $LASTEXITCODE
     }
     'help' {
@@ -86,9 +127,6 @@ switch ($Command.ToLowerInvariant()) {
             exit 2
         }
 
-        # Product presentation lives outside the measured agent source. The
-        # presenter still delegates server ownership to chat.ps1 and execution
-        # through the controlled developer path using the provisioned ptl-npu-8b profile.
         & $python (Join-Path $internal 'scripts\run-task-ui.py') @Rest
         exit $LASTEXITCODE
     }
