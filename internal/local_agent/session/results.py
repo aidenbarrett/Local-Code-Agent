@@ -87,6 +87,7 @@ _ALLOWED_REASONS_BY_VERDICT: dict[TaskVerdict, frozenset[VerdictReason]] = {
         VerdictReason.INFERENCE_TIMEOUT,
         VerdictReason.TOOL_TIMEOUT,
         VerdictReason.TASK_TIMEOUT,
+        VerdictReason.MISSING_EVIDENCE,
         VerdictReason.PROTOCOL_MISMATCH,
         VerdictReason.STORAGE_ERROR,
         VerdictReason.CONTRACT_CHANGED,
