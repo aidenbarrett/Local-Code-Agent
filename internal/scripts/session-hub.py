@@ -20,7 +20,6 @@ if str(SOURCE_ROOT) not in sys.path:
 
 from local_agent.config import MODEL_PRESETS, find_repo_root, load_repo_config  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
-from local_agent.managed_runtime import ensure_managed_runtime  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor  # noqa: E402
 from local_agent.session.conversation_store import (  # noqa: E402
@@ -45,6 +44,7 @@ from local_agent.session.task_controller import TaskController  # noqa: E402
 from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
 from local_agent.session.cli import conversation_budgets, safe_terminal  # noqa: E402
 from local_agent.session.textual_runtime import build_textual_session_runtime  # noqa: E402
+from measurement.managed_runtime import ensure_managed_runtime  # noqa: E402
 
 
 def _runtime_root() -> Path:
