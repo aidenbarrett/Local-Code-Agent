@@ -100,6 +100,7 @@ function Set-ManagedOvmsEnvironment {
 
 switch ($Command.ToLowerInvariant()) {
     'session' {
+        Set-ManagedOvmsEnvironment
         & $python (Join-Path $internal 'scripts\session-hub.py') @Rest
         exit $LASTEXITCODE
     }
