@@ -15,27 +15,29 @@ from terminal_ui import ui  # noqa: E402
 def main() -> int:
     term = ui()
     term.banner(
-        "CONTROLLED CODING AGENT",
-        "Local Code Agent gives a model controlled repository access and independent verification.",
+        "LOCAL CODE AGENT",
+        "One local product surface for conversation, controlled repository work and verification.",
     )
 
-    term.section("DIRECT MODEL CHAT")
-    term.line("  Chat gives direct access to the local model without repository tools.")
-    term.line(r"    .\chat.ps1 qwen3-8b-npu")
-
+    term.section("START")
+    term.field(r".\local-code-agent.ps1", "Open the Session Hub (default human interface)")
     term.line()
+
     term.section("COMMANDS")
-    term.field("session", "Continuous conversation and controlled tasks (prototype; server must be running)")
-    term.field("capabilities", "Show what the agent can and cannot do")
-    term.field("run-task", "Run a controlled engineering task against this repository")
+    term.field("chat", "Raw local-model chat only; no repository tools or verification")
+    term.field("capabilities", "Show what controlled repository work is available")
+    term.field("run-task", "Run one controlled engineering task headlessly")
     term.field("verification-demo", "Show stale passing tests being rejected as invalid evidence")
     term.field("advanced", "Pass arguments directly to the underlying developer CLI")
 
     term.line()
     term.section("EXAMPLES")
+    term.line(r"  .\local-code-agent.ps1")
+    term.line(r"  .\local-code-agent.ps1 chat qwen3-8b-npu")
     term.line(r"  .\local-code-agent.ps1 capabilities")
     term.line(r'  .\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation')
-    term.line(r"  .\local-code-agent.ps1 verification-demo")
+    term.line()
+    term.footer_note("The Session Hub is the product surface. Lower-level commands remain available for automation and diagnostics.")
     term.line()
     return 0
 
