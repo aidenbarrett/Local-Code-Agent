@@ -26,6 +26,18 @@ managed runtimes, qualification, session/context continuity, repository intellig
 permissions/isolation, remote topology, VS Code, offline packaging and local model
 routing. These are planned capabilities, not additions to the implemented list below.
 
+[Product execution priorities](internal/docs/product-execution-priorities.md) owns the
+adopted lessons from comparative agent-project research, the anti-tangent gate and the
+priority ladder around/after the immediate `CURRENT_STATE.md` queue. External patterns
+are inspiration, not proof that a design is better for LCA; they become product claims
+only after LCA-specific behavioural or user acceptance evidence.
+
+Two product laws follow from that review without changing the architecture: the Session
+Hub must be a projection of authoritative facts rather than invented status, and users
+should ask for outcomes rather than needing route/skill/controller vocabulary. Important
+engineering results are durable task artifacts with discoverable evidence; chat is the
+request/discussion surface, not the authority for success.
+
 Make LCA useful for building and testing LCA, then for recurring engineering work on the Windows-to-Linux development setup. One continuous conversation is the user surface, but conversation prose is not the authority for repository state or task success.
 
 Measurement collection is paused while the product loop is built. Historical experiments remain frozen and reproducible from their recorded tags and artifacts. Product hardening may move `source_sha256`; model-facing or outcome-facing experimental contract changes require deliberate generation handling.
@@ -178,6 +190,9 @@ Target routing remains deterministic-first: control commands, explicit Work/Chat
 - Retained artifact bytes must match their durable reference; unavailable historical bytes are never fabricated.
 - Historical task observations are context, not current verification and not authority to choose an ambiguous referent.
 - Proof belongs to the repository state and verification scope that produced it.
+- The UI may project only evidence-backed task/runtime facts. Configured, declared, observed and verified states are not interchangeable; unknown stays unknown.
+- Users ask for outcomes, not internal route/skill vocabulary. Internal composition should disappear behind supported natural requests except where intent/authority genuinely requires clarification.
+- Conversation stays readable; engineering truth belongs in durable task/result/evidence artifacts with discoverable detail.
 - Cancellation is an execution property, not a UI label; unknown process cleanup means `NO_VERDICT`.
 - Do not overwrite user edits, staging or history. Never silently reset worktrees.
 - No arbitrary model-generated shell, automatic push, autonomous self-upgrade or hidden cloud fallback.

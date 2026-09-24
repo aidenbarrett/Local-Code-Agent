@@ -24,6 +24,7 @@ If the code disagrees with one of these, the code is wrong.
 | File | Current interpretation |
 |---|---|
 | `product-roadmap.md` | agreed product destination and workflow acceptance gates; future scope is not an implementation claim |
+| `product-execution-priorities.md` | adopted cross-project learnings, anti-tangent rules and priority ladder; `CURRENT_STATE.md` still owns the immediate ordered work and live source owns implementation truth |
 | `session-contract/README.md` | design rationale and semantic notes for the v1 event contract; JSON schema is normative |
 | `session-hub-design.md` | Session Hub architecture. Current source and `CURRENT_STATE.md` decide which slices are actually composed |
 | `session-hub-file-layout.md` | intended ownership/layout; verify names against current source before adding another component |
@@ -65,8 +66,9 @@ For current implementation claims use this order:
 1. current GitHub `main` source/tests/CI;
 2. root `CURRENT_STATE.md` for the latest reconciled operational snapshot;
 3. root `PROJECT_OVERVIEW.md` for durable architecture, decisions and experiment history;
-4. design documents for intended future composition;
-5. chats only as disposable working discussion.
+4. `product-execution-priorities.md` for adopted product learnings and anti-tangent ordering beyond the immediate current-state queue;
+5. other design documents for intended future composition;
+6. chats only as disposable working discussion.
 
 A merged primitive is not a delivered feature until the public composition uses it and a
 behavioural acceptance path proves it. A document that claims a capability the tree does

@@ -8,7 +8,11 @@ tests and honest verification are still required.
 
 Read root `PROJECT_OVERVIEW.md` and `CURRENT_STATE.md` before substantial work.
 For the first public release, read `TRICKS.md` for user journeys and acceptance gates;
-for the longer product direction, read `internal/docs/product-roadmap.md`.
+for the longer product direction, read `internal/docs/product-roadmap.md`; before
+proposing new feature work, read `internal/docs/product-execution-priorities.md`.
+That file owns the adopted cross-project learnings, anti-tangent rules and priority
+ladder. Work that does not map to the current ordered gaps or that ladder is parked as
+research/watch material until a project-level decision promotes it.
 The destination is a dependable offline worker for finding, moving, Git and coding
 work; deep-reasoning competition is not a goal. Roadmap items are not implemented
 features and do not replace current source-derived product status.
@@ -42,11 +46,18 @@ One policy/state decision has one owner. Before adding a scheduler, controller, 
 app, queue, lease manager or verifier, search current source for the existing authority.
 A second implementation beside an uncomposed first one is not progress.
 
+The Session Hub is a projection of authoritative state, not a place to invent status.
+Configured, declared, observed and verified facts remain distinct; unknown stays
+unknown. Users ask for outcomes, not route/skill vocabulary. New product complexity must
+name the user journey, the existing authority it composes, the negative case that fails
+closed and the behavioural evidence that will prove the change useful.
+
 ## Where to look, by task
 
 | Working on | Read |
 |---|---|
 | Current product status and open P1 gaps | `CURRENT_STATE.md`, then current GitHub source/PRs |
+| Product priority / adopted external learnings / anti-tangent gate | `internal/docs/product-execution-priorities.md` |
 | First-release user journeys and public acceptance | `TRICKS.md`, then the actual launcher/composition tests |
 | Session Hub routing/admission/results | `internal/local_agent/session/`, `internal/docs/session-hub-design.md` |
 | Endpoint ownership | `internal/local_agent/session/endpoint_lease.py`, `endpoint_runtime.py`, `endpoint_call.py`, `internal/docs/endpoint-scheduler-design.md` |
