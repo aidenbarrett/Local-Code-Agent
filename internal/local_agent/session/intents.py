@@ -16,6 +16,7 @@ from .contracts import MAX_MESSAGE_CHARS, RouteSource
 
 
 RULE_GIT_REVIEW = "git-review/v1"
+RULE_REPO_NAVIGATION = "repo-navigation/v1"
 RULE_BUILD_AND_TEST = "build-and-test/v1"
 RULE_TASK_DIAGNOSTIC = "task-diagnostic/v1"
 RULE_MUTATION_UNAVAILABLE = "mutation-unavailable/v1"
@@ -164,6 +165,11 @@ class RouteCorrection:
 
 
 _GIT_REVIEW = re.compile(r"^what changed on my branch\??$", re.IGNORECASE)
+_REPO_INSPECT = re.compile(r"^inspect (?:this|the) (?:repo|repository)[.!]?$", re.IGNORECASE)
+_SYMBOL_LOOKUP = re.compile(
+    r"^where is (?P<symbol>[A-Za-z_~][A-Za-z0-9_:.<>~]*) defined\??$",
+    re.IGNORECASE,
+)
 _BUILD = re.compile(r"^build (?:it|this|the repo|the repository)[.!]?$", re.IGNORECASE)
 _DIAGNOSTIC = re.compile(r"^why did that fail\??$", re.IGNORECASE)
 _EXPLICIT_DIAGNOSTIC = re.compile(r"^why did task (?P<task_id>\S+) fail\??$", re.IGNORECASE)
@@ -273,6 +279,18 @@ def decide_route(
             source=RouteSource.RULE,
             rule_id=RULE_SELF_CHECK,
             skill="self-check",
+        )
+
+    if _REPO_INSPECT.fullmatch(stripped) or _SYMBOL_LOOKUP.fullmatch(stripped):
+        reason = _repository_target_reason(active_repo_count)
+        if reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_REPO_NAVIGATION,
+            skill="repo-navigation",
         )
 
     if _GIT_REVIEW.fullmatch(stripped):
