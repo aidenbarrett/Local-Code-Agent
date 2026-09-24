@@ -6,6 +6,8 @@ actual queue/lease/quarantine lifecycle to EndpointCallAdapter.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from threading import local
 from uuid import UUID, uuid4
 
 from ..llm.client import LLMClient
@@ -76,7 +78,7 @@ class ManagedLLMClient:
 
 
 class ManagedWorkerClientFactory:
-    """Create a worker client only after durable execution identity exists."""
+    """Bind worker calls to the durable task/epoch active on the calling thread."""
 
     def __init__(self, raw_factory, adapter: EndpointCallAdapter, *, session_id: str):
         if not callable(raw_factory):
@@ -86,11 +88,29 @@ class ManagedWorkerClientFactory:
         self._raw_factory = raw_factory
         self._adapter = adapter
         self._session_id = session_id
+        self._authority = local()
 
-    def __call__(self):
-        raise RuntimeError("managed worker client requires admitted task authority")
+    @contextmanager
+    def bind_task(self, task_id: str, execution_epoch: int):
+        UUID(task_id)
+        if (
+            not isinstance(execution_epoch, int)
+            or isinstance(execution_epoch, bool)
+            or execution_epoch < 0
+        ):
+            raise ValueError("worker endpoint authority requires a nonnegative execution epoch")
+        previous = getattr(self._authority, "value", None)
+        self._authority.value = (task_id, execution_epoch)
+        try:
+            yield
+        finally:
+            self._authority.value = previous
 
-    def for_task(self, task_id: str, execution_epoch: int) -> ManagedLLMClient:
+    def __call__(self) -> ManagedLLMClient:
+        authority = getattr(self._authority, "value", None)
+        if authority is None:
+            raise RuntimeError("managed worker client requires admitted task authority")
+        task_id, execution_epoch = authority
         return ManagedLLMClient(
             self._raw_factory(),
             self._adapter,
