@@ -8,17 +8,14 @@ part of the already-authorised execution path.
 """
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from ..provenance import source_sha256
 from .durable_activity import DurableToolActivity
 
 
 class AdmittedDurableTaskController:
-    """Controller adapter used only after durable task admission.
-
-    The admission runner hashes the controller's effective repo/policy/budget before it
-    admits work. Those trusted attributes are delegated unchanged so inserting this
-    activity adapter cannot alter the execution-contract identity.
-    """
+    """Controller adapter used only after durable task admission."""
 
     def __init__(self, service, controller) -> None:
         if not callable(getattr(controller, "run", None)):
@@ -30,10 +27,6 @@ class AdmittedDurableTaskController:
                 raise TypeError(f"admitted durable controller requires controller.{name}")
         self.service = service
         self.controller = controller
-        # Bind the code this long-lived controller was actually composed from. A later
-        # checkout update changes bytes on disk but cannot change already-imported Python
-        # objects; admission must refuse that drift instead of claiming the new tree as
-        # the identity of the old running process.
         self.source_sha256_at_start = source_sha256()
 
     @property
@@ -75,14 +68,22 @@ class AdmittedDurableTaskController:
         if task_id is None:
             raise ValueError("durable controller execution requires an admitted task id")
         activity = DurableToolActivity.from_task(self.service, task_id)
-        return self.controller.run(
-            task,
-            self_check=self_check,
-            route_source=route_source,
-            task_id=task_id,
-            durable_activity=activity,
-            skill_name=skill_name,
+        worker_factory = getattr(self.controller, "worker_factory", None)
+        binder = getattr(worker_factory, "bind_task", None)
+        authority = (
+            binder(task_id, activity.execution_epoch)
+            if callable(binder) and not self_check
+            else nullcontext()
         )
+        with authority:
+            return self.controller.run(
+                task,
+                self_check=self_check,
+                route_source=route_source,
+                task_id=task_id,
+                durable_activity=activity,
+                skill_name=skill_name,
+            )
 
 
 __all__ = ["AdmittedDurableTaskController"]

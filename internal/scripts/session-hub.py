@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """User-facing Session Hub composition root.
 
-This module owns product composition only. Conversation turns remain in the
-canonical conversation store. Durable Session Hub events and task artifacts remain
-in the SQLite session store. Task policy remains in hashed product source.
+Conversation turns remain in the canonical conversation store. Durable Session Hub
+events and task artifacts remain in SQLite. Model calls share the existing in-process
+endpoint queue/lease authority; this does not claim cross-process arbitration.
 """
 from __future__ import annotations
 
@@ -22,27 +22,24 @@ from local_agent.config import MODEL_PRESETS, find_repo_root, load_repo_config  
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor  # noqa: E402
+from local_agent.session.cli import conversation_budgets, safe_terminal  # noqa: E402
 from local_agent.session.conversation_store import (  # noqa: E402
-    ContextRefusal,
-    conversation,
-    create_session,
-    ensure_runtime,
-    new_session,
+    ContextRefusal, conversation, create_session, ensure_runtime, new_session,
 )
 from local_agent.session.durable_routes import DurableRouteEvents  # noqa: E402
 from local_agent.session.durable_task_controller import AdmittedDurableTaskController  # noqa: E402
+from local_agent.session.endpoint_call import EndpointCallAdapter  # noqa: E402
+from local_agent.session.endpoint_client import ManagedLLMClient, ManagedWorkerClientFactory  # noqa: E402
+from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRole  # noqa: E402
+from local_agent.session.endpoint_runtime import EndpointRuntime  # noqa: E402
 from local_agent.session.event_buffer import EventBuffer  # noqa: E402
 from local_agent.session.runtime_facts import RuntimeFacts  # noqa: E402
 from local_agent.session.runtime_facts_gateway import RuntimeFactsGateway  # noqa: E402
 from local_agent.session.session_event_service import DurableSessionService  # noqa: E402
 from local_agent.session.session_store import SQLiteSessionStore  # noqa: E402
-from local_agent.session.task_admission import (  # noqa: E402
-    DurableTaskAdmissionRunner,
-    repository_id,
-)
+from local_agent.session.task_admission import DurableTaskAdmissionRunner, repository_id  # noqa: E402
 from local_agent.session.task_controller import TaskController  # noqa: E402
 from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
-from local_agent.session.cli import conversation_budgets, safe_terminal  # noqa: E402
 from local_agent.session.textual_runtime import build_textual_session_runtime  # noqa: E402
 from measurement.managed_runtime import ensure_managed_runtime  # noqa: E402
 
@@ -88,17 +85,11 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
             "repository_id": repository_id(repo),
             "controller_commit": _controller_commit(),
             "capabilities": [
-                "conversation",
-                "repository_read",
-                "durable_session_events",
-                "durable_task_execution",
-                "durable_task_history",
-                "durable_tool_activity",
-                "deterministic_routing",
-                "textual_session_hub",
-                "non_blocking_turn_dispatch",
-                "explicit_model_route_acceptance",
-                "task_execution_epoch_fencing",
+                "conversation", "repository_read", "durable_session_events",
+                "durable_task_execution", "durable_task_history", "durable_tool_activity",
+                "deterministic_routing", "textual_session_hub", "non_blocking_turn_dispatch",
+                "explicit_model_route_acceptance", "task_execution_epoch_fencing",
+                "in_process_endpoint_arbitration",
             ],
             "recovered": recovered,
         },
@@ -107,16 +98,9 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
 
 
 def _resolve_model_configs(args: argparse.Namespace):
-    """Resolve chat/worker profiles without silently splitting one endpoint override.
-
-    ``--base-url`` is the normal single-endpoint override and therefore applies to
-    both roles. ``--worker-base-url`` is the explicit opt-in to split them. The
-    worker may still use a different model profile while sharing the endpoint.
-    """
     chat_config = MODEL_PRESETS[args.profile]
     if args.base_url:
         chat_config = replace(chat_config, base_url=args.base_url)
-
     worker_profile = args.worker_profile or args.profile
     worker_config = MODEL_PRESETS[worker_profile]
     worker_base_url = args.worker_base_url or args.base_url
@@ -125,15 +109,21 @@ def _resolve_model_configs(args: argparse.Namespace):
     return chat_config, worker_profile, worker_config
 
 
+def _endpoint_adapter(config, adapters: dict[str, EndpointCallAdapter]) -> EndpointCallAdapter:
+    endpoint_id = config.base_url.rstrip("/")
+    adapter = adapters.get(endpoint_id)
+    if adapter is None:
+        adapter = EndpointCallAdapter(EndpointRuntime(EndpointArbiter(endpoint_id)))
+        adapters[endpoint_id] = adapter
+    return adapter
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="local-code-agent session")
     parser.add_argument("--repo", default=".", help="repository root or a path inside it")
     parser.add_argument("--profile", default="ptl-npu-8b", choices=sorted(MODEL_PRESETS))
     parser.add_argument("--worker-profile", default=None, choices=sorted(MODEL_PRESETS))
-    parser.add_argument(
-        "--base-url",
-        help="override the endpoint for conversation and worker roles unless --worker-base-url is set",
-    )
+    parser.add_argument("--base-url", help="override conversation and worker endpoint unless --worker-base-url is set")
     parser.add_argument("--worker-base-url", help="explicitly split the worker onto a different endpoint")
     parser.add_argument("--allow-execution", action="store_true", help="allow configured build/test execution")
     parser.add_argument("--conversation", metavar="ID", help="resume a persisted Session Hub conversation")
@@ -153,18 +143,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise RuntimeError(ensured.message)
 
         runtime_facts = RuntimeFacts.observe(
-            args.profile,
-            chat_config,
-            execution_enabled=args.allow_execution,
+            args.profile, chat_config, execution_enabled=args.allow_execution,
         )
 
         if args.conversation:
             conversation_id = args.conversation
         else:
             session = new_session(
-                args.profile,
-                chat_config.model,
-                chat_config.device,
+                args.profile, chat_config.model, chat_config.device,
                 budget_chars=budgets["request_chars"],
             )
             create_session(runtime_root, session)
@@ -175,16 +161,17 @@ def main(argv: list[str] | None = None) -> int:
             service, recovered = _open_durable_service(runtime_root, conversation_id)
             try:
                 _emit_session_opened(service, conversation_id=conversation_id, repo=repo, recovered=bool(recovered))
-
                 events = EventBuffer(service.stream_id)
-
-                def worker_factory():
-                    return OpenAICompatibleClient(worker_config)
-
+                adapters: dict[str, EndpointCallAdapter] = {}
+                chat_adapter = _endpoint_adapter(chat_config, adapters)
+                worker_adapter = _endpoint_adapter(worker_config, adapters)
+                worker_factory = ManagedWorkerClientFactory(
+                    lambda: OpenAICompatibleClient(worker_config),
+                    worker_adapter,
+                    session_id=service.session_id,
+                )
                 controller = TaskController(
-                    repo,
-                    worker_factory,
-                    events,
+                    repo, worker_factory, events,
                     allow_execution=args.allow_execution,
                     context_budget_tokens=worker_config.context_budget_tokens,
                 )
@@ -192,10 +179,14 @@ def main(argv: list[str] | None = None) -> int:
                 task_runner = DurableTaskAdmissionRunner(
                     CancellableDurableTaskExecutor(service, admitted_controller)
                 )
-                gateway = RuntimeFactsGateway(
+                chat_client = ManagedLLMClient(
                     OpenAICompatibleClient(chat_config),
-                    controller,
-                    events,
+                    chat_adapter,
+                    role=EndpointRole.CONVERSATION,
+                    session_id=service.session_id,
+                )
+                gateway = RuntimeFactsGateway(
+                    chat_client, controller, events,
                     runtime_facts=runtime_facts,
                     conversation=opened,
                     runtime_index=runtime_index,
@@ -211,10 +202,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 0 if gateway.last_result and gateway.last_result.outcome.succeeded else 2
 
                 with build_textual_session_runtime(
-                    service,
-                    opened,
-                    gateway,
-                    runtime_summary=runtime_facts.header(),
+                    service, opened, gateway, runtime_summary=runtime_facts.header(),
                 ) as textual:
                     textual.app.run()
                 return 0
