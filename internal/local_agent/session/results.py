@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .contracts import TaskResult, TaskVerdict
+from .proof_binding import ProofBinding, ProofScope
 
 
 MAX_SCOPE_CHARS = 512
@@ -128,6 +129,33 @@ def _evidence_ids(values: Iterable[str]) -> tuple[str, ...]:
     return ids
 
 
+def _proof_binding(result: TaskResult) -> ProofBinding | None:
+    raw = result.metrics.get("proof_binding")
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ValueError("proof_binding must be an object")
+    if set(raw) != {"request_sha256", "scope", "tree_sha256", "evidence_ids"}:
+        raise ValueError("proof_binding fields are incomplete or unknown")
+    evidence = raw["evidence_ids"]
+    if not isinstance(evidence, list):
+        raise ValueError("proof_binding evidence_ids must be a list")
+    binding = ProofBinding(
+        request_sha256=raw["request_sha256"],
+        scope=ProofScope(raw["scope"]),
+        tree_sha256=raw["tree_sha256"],
+        evidence_ids=tuple(evidence),
+    )
+    if any(value not in result.evidence_ids for value in binding.evidence_ids):
+        raise ValueError("proof_binding cites evidence outside the task result")
+    if result.verified_at_completion and binding.scope not in {
+        ProofScope.FULL_BUILD,
+        ProofScope.FULL_TEST,
+    }:
+        raise ValueError("verified completion requires a full current-tree proof scope")
+    return binding
+
+
 def _evidence_lines(evidence_ids: tuple[str, ...], *, available_lines: int) -> tuple[str, ...]:
     if available_lines < 1:
         raise ValueError("verdict block has no room to render evidence")
@@ -223,7 +251,14 @@ def verdict_block_from_task_result(
             )
 
     evidence_ids = _evidence_ids(result.evidence_ids)
-    tree = _tree_sha256(result.metrics.get("tree_sha256"))
+    binding = _proof_binding(result)
+    if binding is not None:
+        tree = binding.tree_sha256
+        scope = f"{binding.scope.value}; request_sha256={binding.request_sha256}"
+    else:
+        # Compatibility for self-check and historical/current producers that predate
+        # typed worker proof binding. Absence remains visible as generic scope.
+        tree = _tree_sha256(result.metrics.get("tree_sha256"))
     if result.verified_at_completion:
         verification = "Verification: passed at task completion."
     elif result.verification_ran:
@@ -237,6 +272,8 @@ def verdict_block_from_task_result(
         verification,
         f"Tree SHA-256: {tree if tree is not None else 'none'}.",
     ]
+    if binding is not None:
+        lines.append(f"Proof scope: {binding.scope.value}; request: {binding.request_sha256}.")
     lines.extend(_evidence_lines(evidence_ids, available_lines=MAX_RENDERED_LINES - len(lines)))
     return VerdictBlock(
         verdict=verdict,
