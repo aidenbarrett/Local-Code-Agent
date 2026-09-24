@@ -1,11 +1,10 @@
 # Current state
 
-Reconciled against GitHub `main` at `bcdbd49e5c56480dbadb23db799a5549a31b4dfd`
-on 2026-09-24. That commit merged the truthful-runtime-facts work. The merged PR head
-`92c462d5a5b1826c70d79e7c7345d0743010dc0a` completed `tests`, `serving`,
-`product acceptance`, `integration eligibility`, `frozen experiment guard`,
-`test import boundary` and `contract declaration integrity` successfully. GitHub
-returned no pull-request-triggered workflow runs for the merge commit itself. This is
+Reconciled against GitHub `main` at `8072f882660da5f68ab1c34117a6969728447346`
+on 2026-09-24. That commit merged the product-execution-priorities documentation.
+Its reviewed PR head `f1aff1dd7b77e4bc39ba83a234a4264d104801b9` completed `tests`,
+`serving`, `product acceptance`, `integration eligibility`, `frozen experiment guard`,
+`test import boundary` and `contract declaration integrity` successfully. This is
 source/CI evidence for that reviewed head, not Panther Lake/NPU acceptance.
 
 Current source and CI are authoritative for implementation; frozen artifacts for
@@ -44,10 +43,12 @@ The public path now reaches:
 - One persisted raw conversation and a separate durable event/task store,
   admission before effects, accepted-route provenance, retained request/result
   artifacts, and restart reconciliation to unknown without replaying effects.
-- Anchored deterministic routes for `Build it.`, `What changed on my branch?`,
-  `Why did that fail?` when there is exactly one eligible failure, explicit
-  `why did task <UUID> fail?`, and `/check`. The source fixes the admitted
-  skill through the worker boundary.
+- Anchored deterministic routes for `Inspect this repo`, `Where is <symbol> defined?`,
+  `Build it.`, `What changed on my branch?`, `Why did that fail?` when there is exactly
+  one eligible failure, explicit `why did task <UUID> fail?`, and `/check`. The first
+  two bind directly to the existing read-only `repo-navigation` skill and do not require
+  a conversation-model routing call or a second `work` turn. Near matches still fall
+  through to the existing model-fallback boundary rather than gaining rule authority.
 - A live Textual conversation, activity and watch projection. The activity
   pane shows task identity, tool/verdict, retained answer and recent task IDs.
   A broken durable feed refuses new input and preserves the draft.
@@ -61,14 +62,16 @@ The public path now reaches:
   not yet fully routed through that one queue/lease authority and cross-process
   ownership is not claimed.
 
-These are parts of an honest worker, not evidence that every journey in
-`TRICKS.md` passes on the physical laptop.
+The direct J3 routing above establishes route selection and fixed read-only skill
+authority only. It does not by itself establish that every returned answer contains
+complete navigable paths/lines, truthful scope/missing-coverage detail, useful model
+analysis, or physical-NPU execution. Those remain acceptance work.
 
 ## Immediate public gaps
 
 | Gap | Observed source behaviour | First-release effect |
 |---|---|---|
-| Ordinary read-only work | Only a few anchored phrases route directly. `Inspect this repo` and `Where is X defined?` still rely on model proposal/fallback rather than a direct supported read-only journey. | J3 still makes ordinary work depend too much on internal routing behaviour. |
+| Read-only result acceptance | `Inspect this repo` and bounded `Where is <symbol> defined?` forms now route directly to `repo-navigation`, while broader natural variants still use the model-fallback boundary. Public result quality, source references, truncation/missing coverage and endpoint/result negative cases are not yet accepted end to end. | J3 routing friction is reduced, but J3 is not delivered until the result/evidence contract is proven through the public composition. |
 | Requested versus proved scope | Existing tool-level source hashes, verification facts and epoch rules do not yet bind the exact user request, complete command/check scope and current tree identity as one acceptance fact. | J5 must distinguish build pass from test pass, partial proof and stale/unavailable proof. |
 | Failure follow-up | `Why did that fail?` is deterministic only with one eligible retained failure; explicit UUID syntax works, but a useful latest/recent failure interaction remains incomplete. | J6 becomes cumbersome after multiple failures. |
 | Cancellation | `CancellableDurableTaskExecutor` can receive a cancellation request and fence a late completion. The busy Textual product path still lacks one complete Stop contract across queued work, inference, descendants, endpoint cleanup and terminalization. | J7 cannot be demonstrated honestly end to end. |
@@ -79,14 +82,15 @@ These are parts of an honest worker, not evidence that every journey in
 Build/test execution requires `--allow-execution` and configured repository
 policy. Source mutation, rename, conflict resolution and commit are longer-term
 product journeys. The existing read-only tools and worker are valuable, but
-their presence does not establish public reachability, output quality or NPU
-performance.
+their presence does not establish public output quality or NPU performance.
 
 ## Next work, in order
 
-1. Deliver direct supported read-only inspection, symbol lookup and branch review
-   through durable admission, fixed tool authority and useful cited output. The user
-   should ask for the outcome without a magic `work` turn or route/skill vocabulary.
+1. Finish J3 rather than broadening routing mechanically: prove useful source-path/line
+   references, declared search scope, truncation/missing coverage and endpoint/invalid-result
+   failures through the public composition. Add broader natural read-only phrasings only
+   where they can map safely to the same fixed authority without turning loose keywords
+   into permission.
 2. Make build/test/diagnostic and follow-up verdicts task-specific and current-tree
    aware. Exercise positive, negative, partial, stale and unavailable proof through
    the installed public path.
