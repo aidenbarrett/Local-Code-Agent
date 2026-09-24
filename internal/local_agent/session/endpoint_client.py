@@ -1,6 +1,6 @@
 """LLM client boundary owned by the Session Hub endpoint arbiter.
 
-This is deliberately a small adapter, not another scheduler.  It translates one
+This is deliberately a small adapter, not another scheduler. It translates one
 logical model call into the existing EndpointRequest vocabulary and delegates the
 actual queue/lease/quarantine lifecycle to EndpointCallAdapter.
 """
@@ -64,9 +64,8 @@ class ManagedLLMClient:
         )
 
     def chat(self, messages, tools=None, max_tokens=None):
-        request = self._request()
         result = self._adapter.call(
-            request,
+            self._request(),
             self._client.chat,
             messages,
             tools,
@@ -76,4 +75,30 @@ class ManagedLLMClient:
         return result.value
 
 
-__all__ = ["ManagedLLMClient"]
+class ManagedWorkerClientFactory:
+    """Create a worker client only after durable execution identity exists."""
+
+    def __init__(self, raw_factory, adapter: EndpointCallAdapter, *, session_id: str):
+        if not callable(raw_factory):
+            raise TypeError("managed worker client factory requires a callable raw factory")
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError("managed worker client factory requires a session id")
+        self._raw_factory = raw_factory
+        self._adapter = adapter
+        self._session_id = session_id
+
+    def __call__(self):
+        raise RuntimeError("managed worker client requires admitted task authority")
+
+    def for_task(self, task_id: str, execution_epoch: int) -> ManagedLLMClient:
+        return ManagedLLMClient(
+            self._raw_factory(),
+            self._adapter,
+            role=EndpointRole.WORKER,
+            session_id=self._session_id,
+            task_id=task_id,
+            execution_epoch=execution_epoch,
+        )
+
+
+__all__ = ["ManagedLLMClient", "ManagedWorkerClientFactory"]
