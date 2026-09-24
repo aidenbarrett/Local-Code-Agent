@@ -22,7 +22,6 @@ from local_agent.config import MODEL_PRESETS, find_repo_root, load_repo_config  
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor  # noqa: E402
-from local_agent.session.conversation_gateway import ConversationGateway  # noqa: E402
 from local_agent.session.conversation_store import (  # noqa: E402
     ContextRefusal,
     conversation,
@@ -33,6 +32,8 @@ from local_agent.session.conversation_store import (  # noqa: E402
 from local_agent.session.durable_routes import DurableRouteEvents  # noqa: E402
 from local_agent.session.durable_task_controller import AdmittedDurableTaskController  # noqa: E402
 from local_agent.session.event_buffer import EventBuffer  # noqa: E402
+from local_agent.session.runtime_facts import RuntimeFacts  # noqa: E402
+from local_agent.session.runtime_facts_gateway import RuntimeFactsGateway  # noqa: E402
 from local_agent.session.session_event_service import DurableSessionService  # noqa: E402
 from local_agent.session.session_store import SQLiteSessionStore  # noqa: E402
 from local_agent.session.task_admission import (  # noqa: E402
@@ -43,6 +44,7 @@ from local_agent.session.task_controller import TaskController  # noqa: E402
 from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
 from local_agent.session.cli import conversation_budgets, safe_terminal  # noqa: E402
 from local_agent.session.textual_runtime import build_textual_session_runtime  # noqa: E402
+from measurement.managed_runtime import ensure_managed_runtime  # noqa: E402
 
 
 def _runtime_root() -> Path:
@@ -108,7 +110,7 @@ def _resolve_model_configs(args: argparse.Namespace):
     """Resolve chat/worker profiles without silently splitting one endpoint override.
 
     ``--base-url`` is the normal single-endpoint override and therefore applies to
-    both roles. ``--worker-base-url`` is the explicit opt-in to split them.  The
+    both roles. ``--worker-base-url`` is the explicit opt-in to split them. The
     worker may still use a different model profile while sharing the endpoint.
     """
     chat_config = MODEL_PRESETS[args.profile]
@@ -140,12 +142,22 @@ def main(argv: list[str] | None = None) -> int:
 
     root = find_repo_root(Path(args.repo))
     repo = load_repo_config(root)
-
     chat_config, worker_profile, worker_config = _resolve_model_configs(args)
-
     budgets = conversation_budgets(chat_config.context_budget_tokens)
     runtime_root = _runtime_root()
+
     try:
+        if not args.check:
+            ensured = ensure_managed_runtime(args.profile, chat_config, runtime_root)
+            if not ensured.ok:
+                raise RuntimeError(ensured.message)
+
+        runtime_facts = RuntimeFacts.observe(
+            args.profile,
+            chat_config,
+            execution_enabled=args.allow_execution,
+        )
+
         if args.conversation:
             conversation_id = args.conversation
         else:
@@ -164,9 +176,6 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 _emit_session_opened(service, conversation_id=conversation_id, repo=repo, recovered=bool(recovered))
 
-                # Transient controller events remain an internal compatibility surface.
-                # Do not print them behind Textual and corrupt the terminal UI; the Hub
-                # renders committed durable state as its authority.
                 events = EventBuffer(service.stream_id)
 
                 def worker_factory():
@@ -179,18 +188,15 @@ def main(argv: list[str] | None = None) -> int:
                     allow_execution=args.allow_execution,
                     context_budget_tokens=worker_config.context_budget_tokens,
                 )
-                # Composition contract: durable admission and execution-epoch fencing
-                # are active before controller effects. Cancellation remains an intent
-                # until endpoint/process/mutation cleanup is explicitly reconciled.
                 admitted_controller = AdmittedDurableTaskController(service, controller)
                 task_runner = DurableTaskAdmissionRunner(
                     CancellableDurableTaskExecutor(service, admitted_controller)
                 )
-                # Routing contract remains gateway-owned: deterministic rules before model fallback.
-                gateway = ConversationGateway(
+                gateway = RuntimeFactsGateway(
                     OpenAICompatibleClient(chat_config),
                     controller,
                     events,
+                    runtime_facts=runtime_facts,
                     conversation=opened,
                     runtime_index=runtime_index,
                     task_runner=task_runner,
@@ -204,7 +210,12 @@ def main(argv: list[str] | None = None) -> int:
                     print(answer)
                     return 0 if gateway.last_result and gateway.last_result.outcome.succeeded else 2
 
-                with build_textual_session_runtime(service, opened, gateway) as textual:
+                with build_textual_session_runtime(
+                    service,
+                    opened,
+                    gateway,
+                    runtime_summary=runtime_facts.header(),
+                ) as textual:
                     textual.app.run()
                 return 0
             finally:

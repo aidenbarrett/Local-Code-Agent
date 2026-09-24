@@ -11,7 +11,7 @@ dependencies = [
     "openai>=1.40",
     "psutil>=6.0",
     "jsonschema>=4.23",
-    "textual>=0.89",
+    "textual>=0.89,<9",
 ]
 
 [project.optional-dependencies]
