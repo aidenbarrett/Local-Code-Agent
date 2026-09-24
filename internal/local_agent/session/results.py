@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable
 
 from .contracts import TaskResult, TaskVerdict
-from .proof_binding import ProofBinding, ProofScope
+from .proof_binding import proof_binding_from_result
 
 
 MAX_SCOPE_CHARS = 512
@@ -129,33 +129,6 @@ def _evidence_ids(values: Iterable[str]) -> tuple[str, ...]:
     return ids
 
 
-def _proof_binding(result: TaskResult) -> ProofBinding | None:
-    raw = result.metrics.get("proof_binding")
-    if raw is None:
-        return None
-    if not isinstance(raw, Mapping):
-        raise ValueError("proof_binding must be an object")
-    if set(raw) != {"request_sha256", "scope", "tree_sha256", "evidence_ids"}:
-        raise ValueError("proof_binding fields are incomplete or unknown")
-    evidence = raw["evidence_ids"]
-    if not isinstance(evidence, list):
-        raise ValueError("proof_binding evidence_ids must be a list")
-    binding = ProofBinding(
-        request_sha256=raw["request_sha256"],
-        scope=ProofScope(raw["scope"]),
-        tree_sha256=raw["tree_sha256"],
-        evidence_ids=tuple(evidence),
-    )
-    if any(value not in result.evidence_ids for value in binding.evidence_ids):
-        raise ValueError("proof_binding cites evidence outside the task result")
-    if result.verified_at_completion and binding.scope not in {
-        ProofScope.FULL_BUILD,
-        ProofScope.FULL_TEST,
-    }:
-        raise ValueError("verified completion requires a full current-tree proof scope")
-    return binding
-
-
 def _evidence_lines(evidence_ids: tuple[str, ...], *, available_lines: int) -> tuple[str, ...]:
     if available_lines < 1:
         raise ValueError("verdict block has no room to render evidence")
@@ -251,7 +224,7 @@ def verdict_block_from_task_result(
             )
 
     evidence_ids = _evidence_ids(result.evidence_ids)
-    binding = _proof_binding(result)
+    binding = proof_binding_from_result(result)
     if binding is not None:
         tree = binding.tree_sha256
         scope = f"{binding.scope.value}; request_sha256={binding.request_sha256}"
