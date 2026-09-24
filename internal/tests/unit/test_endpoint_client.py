@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from local_agent.session.endpoint_call import EndpointCallAdapter
-from local_agent.session.endpoint_client import ManagedLLMClient
+from local_agent.session.endpoint_client import ManagedLLMClient, ManagedWorkerClientFactory
 from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRole, EndpointUnavailable
 from local_agent.session.endpoint_runtime import EndpointRuntime
 
@@ -30,13 +30,7 @@ def _adapter(endpoint_id="http://127.0.0.1:8000/v1"):
 def test_conversation_call_uses_and_releases_canonical_endpoint_lease():
     runtime, adapter = _adapter()
     raw = RecordingClient()
-    client = ManagedLLMClient(
-        raw,
-        adapter,
-        role=EndpointRole.CONVERSATION,
-        session_id=str(uuid4()),
-    )
-
+    client = ManagedLLMClient(raw, adapter, role=EndpointRole.CONVERSATION, session_id=str(uuid4()))
     assert client.chat([{"role": "user", "content": "hello"}], None, 32) == "reply"
     assert raw.calls == [([{"role": "user", "content": "hello"}], None, 32)]
     assert runtime.arbiter.active_lease is None
@@ -46,40 +40,41 @@ def test_conversation_call_uses_and_releases_canonical_endpoint_lease():
 def test_worker_call_carries_task_authority_through_same_endpoint_runtime():
     runtime, adapter = _adapter()
     raw = RecordingClient()
-    task_id = str(uuid4())
     client = ManagedLLMClient(
-        raw,
-        adapter,
-        role=EndpointRole.WORKER,
-        session_id=str(uuid4()),
-        task_id=task_id,
-        execution_epoch=3,
+        raw, adapter, role=EndpointRole.WORKER, session_id=str(uuid4()),
+        task_id=str(uuid4()), execution_epoch=3,
     )
-
     assert client.chat([], [{"type": "function"}]) == "reply"
     assert runtime.arbiter.active_lease is None
+
+
+def test_worker_factory_requires_durable_authority_and_clears_it_after_scope():
+    runtime, adapter = _adapter()
+    raw = RecordingClient()
+    factory = ManagedWorkerClientFactory(lambda: raw, adapter, session_id=str(uuid4()))
+    with pytest.raises(RuntimeError, match="admitted task authority"):
+        factory()
+    task_id = str(uuid4())
+    with factory.bind_task(task_id, 4):
+        assert factory().chat([]) == "reply"
+    assert runtime.arbiter.active_lease is None
+    with pytest.raises(RuntimeError, match="admitted task authority"):
+        factory()
 
 
 def test_transport_exception_quarantines_endpoint_instead_of_freeing_it():
     runtime, adapter = _adapter()
     client = ManagedLLMClient(
-        RecordingClient(failure=RuntimeError("transport gone")),
-        adapter,
-        role=EndpointRole.CONVERSATION,
-        session_id=str(uuid4()),
+        RecordingClient(failure=RuntimeError("transport gone")), adapter,
+        role=EndpointRole.CONVERSATION, session_id=str(uuid4()),
     )
-
     with pytest.raises(RuntimeError, match="transport gone"):
         client.chat([])
-
     assert runtime.arbiter.quarantined is True
     assert runtime.arbiter.active_lease is not None
     with pytest.raises(EndpointUnavailable):
         ManagedLLMClient(
-            RecordingClient(),
-            adapter,
-            role=EndpointRole.CONVERSATION,
-            session_id=str(uuid4()),
+            RecordingClient(), adapter, role=EndpointRole.CONVERSATION, session_id=str(uuid4())
         ).chat([])
 
 
@@ -87,12 +82,8 @@ def test_conversation_client_refuses_task_execution_authority():
     _runtime, adapter = _adapter()
     with pytest.raises(ValueError, match="cannot carry task authority"):
         ManagedLLMClient(
-            RecordingClient(),
-            adapter,
-            role=EndpointRole.CONVERSATION,
-            session_id=str(uuid4()),
-            task_id=str(uuid4()),
-            execution_epoch=0,
+            RecordingClient(), adapter, role=EndpointRole.CONVERSATION,
+            session_id=str(uuid4()), task_id=str(uuid4()), execution_epoch=0,
         )
 
 
