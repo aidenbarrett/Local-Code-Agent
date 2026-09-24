@@ -16,6 +16,7 @@ from .contracts import RouteSource, TaskOutcome, TaskResult
 from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
+from .proof_binding import binding_from_run
 
 
 _PROGRAMMER_ERRORS = (TypeError, AttributeError, NameError, AssertionError)
@@ -204,11 +205,13 @@ class TaskController:
                 run = worker.run(task, skill_name=resolved_skill)
                 task_outcome = self._product_outcome(run)
                 verified = bool(task_outcome.succeeded and run.state.verified)
+                metrics = run.state.metrics.as_dict()
+                metrics["proof_binding"] = binding_from_run(task, run, self.repo.root).as_dict()
                 result = TaskResult(
                     task_id, task_outcome, run.answer,
                     verified,
                     tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
-                    run.state.metrics.as_dict(),
+                    metrics,
                     verification_ran=bool(run.state.verification_attempted),
                     reason_code=self._reason_code(run, task_outcome),
                 )
