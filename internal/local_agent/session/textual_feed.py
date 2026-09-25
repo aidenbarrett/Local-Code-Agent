@@ -62,7 +62,7 @@ class DurableHubFeed:
         self._started = False
         self._recovered_gap = False
         self._conversation: tuple[ConversationEntry, ...] = ()
-        self._result_cache: dict[str, RetainedTaskResult] = {}
+        self._result_cache: dict[str, RetainedTaskResult] = {}\n        self._retained_results_degraded = False
 
     @property
     def cursor(self) -> int:
