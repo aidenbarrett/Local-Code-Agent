@@ -133,6 +133,39 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
             worker_artifact_is_result=True,
         )
 
+    def _finalize_cancel_unreconciled(
+        self,
+        handle: TaskHandle,
+        exc: StaleExecutionEpoch,
+        *,
+        execution_epoch: int,
+    ) -> None:
+        """Close a fenced execution without fabricating cancellation cleanup.
+
+        The revoked worker result has no authority to commit, but leaving the admitted
+        task non-terminal forever is also false. Persist an explicit unknown/no-verdict
+        result whose cleanup field is still derived from durable activity for the revoked
+        epoch. This is not a `cancelled`/`stopped` claim.
+        """
+        result = TaskResult(
+            handle.task_id,
+            TaskOutcome.NO_VERDICT,
+            (
+                "Stop requested; the execution epoch was revoked before its late result "
+                "could commit. Cleanup has not been fully reconciled."
+            ),
+            False,
+            verification_ran=False,
+            reason_code="cancel_unreconciled",
+        )
+        self._finalize_result(
+            handle,
+            result,
+            execution_epoch=execution_epoch,
+            worker_artifact_is_result=True,
+        )
+        handle.error = CancelUnreconciled(str(exc))
+
     def submit(
         self,
         *,
@@ -274,7 +307,21 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 if owns_registration:
                     self._release_registration(handle.task_id, execution_epoch)
         except StaleExecutionEpoch as exc:
-            handle.error = CancelUnreconciled(str(exc))
+            try:
+                self._finalize_cancel_unreconciled(
+                    handle,
+                    exc,
+                    execution_epoch=execution_epoch,
+                )
+            except DurableWriteFailed as write_exc:
+                handle.error = write_exc
+            finally:
+                if owns_registration:
+                    try:
+                        current_epoch = self.cancellation.current_epoch(handle.task_id)
+                        self._release_registration(handle.task_id, current_epoch)
+                    except (CancellationRuntimeError, StaleExecutionEpoch):
+                        pass
         except DurableWriteFailed as exc:
             handle.error = exc
             if owns_registration:
