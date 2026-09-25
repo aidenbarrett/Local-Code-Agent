@@ -75,6 +75,15 @@ jobs:
           & .\local-code-agent.ps1 capabilities
           if ($LASTEXITCODE -ne 0) { throw "public capabilities failed with exit code $LASTEXITCODE" }
 
+      - name: Public launcher ignores hostile ambient Python configuration
+        shell: pwsh
+        run: |
+          Set-Location $env:LCA_ACCEPTANCE_ROOT
+          $env:PYTHONHOME = Join-Path $env:RUNNER_TEMP 'not-a-python-home'
+          $env:PYTHONPATH = Join-Path $env:RUNNER_TEMP 'untrusted-python-path'
+          & .\local-code-agent.ps1 help
+          if ($LASTEXITCODE -ne 0) { throw "public launcher leaked ambient Python configuration" }
+
       - name: Public launcher fails before product startup when a declared dependency disappears
         shell: pwsh
         run: |
