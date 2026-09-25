@@ -8,9 +8,10 @@ from textual.widgets import Input
 
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
+from local_agent.session.task_read_model import TaskSnapshot
 from local_agent.session.textual_dispatch import HubTurnDispatcher
 from local_agent.session.textual_feed import DurableHubFeed, HubFeedError
-from local_agent.session.textual_hub import ConversationEntry, HubInputSubmitted
+from local_agent.session.textual_hub import ConversationEntry, HubInputSubmitted, HubViewState
 from local_agent.session.textual_session_app import LiveDispatchingSessionHubApp
 
 
@@ -218,3 +219,90 @@ def test_quit_is_owned_by_textual_session_and_never_dispatched(tmp_path):
     finally:
         dispatcher.close()
         service.close()
+
+
+def test_stop_targets_active_durable_task_epoch_and_bypasses_gateway(tmp_path):
+    async def scenario() -> None:
+        service = _service(tmp_path)
+
+        class Gateway:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def turn(self, text, *, explicit_mode=None):
+                self.calls.append(text)
+                return "unused"
+
+        gateway = Gateway()
+        dispatcher = HubTurnDispatcher(gateway)
+        stop_calls: list[tuple[str, int]] = []
+        app = LiveDispatchingSessionHubApp(
+            DurableHubFeed(service),
+            dispatcher,
+            stop_task=lambda task_id, execution_epoch: stop_calls.append(
+                (task_id, execution_epoch)
+            ),
+        )
+        task_id = str(uuid4())
+        active = TaskSnapshot(
+            task_id=task_id,
+            admitted_sequence=1,
+            last_sequence=2,
+            state="running",
+            execution_epoch=7,
+            origin_kind="user_rule",
+            repository_id="repo-1",
+            skill="build",
+            deadline_utc="2030-01-01T00:00:00Z",
+        )
+        try:
+            async with app.run_test(size=(100, 30)) as pilot:
+                app.replace_state(HubViewState(tasks=(active,), status="Working"))
+                app.post_message(HubInputSubmitted(" /STOP "))
+                await pilot.pause()
+                assert stop_calls == [(task_id, 7)]
+                assert gateway.calls == []
+                assert dispatcher.busy is False
+                assert app.view_state.status == f"Stop requested · task {task_id}"
+        finally:
+            dispatcher.close()
+            service.close()
+
+    asyncio.run(scenario())
+
+
+def test_stop_without_active_task_is_visible_and_does_not_dispatch(tmp_path):
+    async def scenario() -> None:
+        service = _service(tmp_path)
+
+        class Gateway:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def turn(self, text, *, explicit_mode=None):
+                self.calls.append(text)
+                return "unused"
+
+        gateway = Gateway()
+        dispatcher = HubTurnDispatcher(gateway)
+        stop_calls: list[tuple[str, int]] = []
+        app = LiveDispatchingSessionHubApp(
+            DurableHubFeed(service),
+            dispatcher,
+            stop_task=lambda task_id, execution_epoch: stop_calls.append(
+                (task_id, execution_epoch)
+            ),
+        )
+        try:
+            async with app.run_test(size=(100, 30)) as pilot:
+                app.post_message(HubInputSubmitted("stop"))
+                await pilot.pause()
+                assert stop_calls == []
+                assert gateway.calls == []
+                assert dispatcher.busy is False
+                assert app.view_state.status == "Stop unavailable · no active task"
+        finally:
+            dispatcher.close()
+            service.close()
+
+    asyncio.run(scenario())
