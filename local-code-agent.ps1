@@ -33,8 +33,13 @@ if (-not $python) {
     exit 2
 }
 
-$existingPythonPath = if (Test-Path Env:PYTHONPATH) { $env:PYTHONPATH } else { $null }
-$env:PYTHONPATH = if ($existingPythonPath) { "$internal;$existingPythonPath" } else { $internal }
+# The public product must run from the interpreter and source tree selected above, not
+# from ambient workstation Python configuration. PYTHONHOME can make even a valid venv
+# resolve the wrong stdlib, while inherited PYTHONPATH entries can import unrelated
+# packages from the user's shell. OVMS-specific Python state is captured separately by
+# Set-ManagedOvmsEnvironment for the owned server process.
+Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+$env:PYTHONPATH = $internal
 
 # Validate the exact interpreter selected above before any public command can import
 # product code, start OVMS, or prepare a model. Startup is diagnostic-only: it never
@@ -82,8 +87,6 @@ function Set-ManagedOvmsEnvironment {
     $setupVars = Get-ChildItem $ovmsDir -Recurse -Filter setupvars.ps1 -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $ovmsExe -or -not $setupVars) { return }
 
-    $hadPythonHome = Test-Path Env:PYTHONHOME
-    $pythonHomeBefore = if ($hadPythonHome) { $env:PYTHONHOME } else { $null }
     $pythonPathBeforeSetup = $env:PYTHONPATH
 
     . $setupVars.FullName
@@ -92,8 +95,8 @@ function Set-ManagedOvmsEnvironment {
     if (Test-Path Env:PYTHONPATH) { $env:LCA_OVMS_PYTHONPATH = $env:PYTHONPATH }
     else { Remove-Item Env:LCA_OVMS_PYTHONPATH -ErrorAction SilentlyContinue }
 
-    if ($hadPythonHome) { $env:PYTHONHOME = $pythonHomeBefore }
-    else { Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue }
+    # Never let runtime setupvars alter the controller interpreter contract.
+    Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
     $env:PYTHONPATH = $pythonPathBeforeSetup
     $env:LCA_OVMS_EXECUTABLE = $ovmsExe.FullName
 }
