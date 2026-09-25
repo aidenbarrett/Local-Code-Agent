@@ -13,7 +13,11 @@ from threading import Lock, Thread
 from typing import Any
 
 from .cancellation import CancellationSite, CancellationSource, StaleExecutionEpoch
-from .cancellation_runtime import CancellationDecision, CancellationRuntime
+from .cancellation_runtime import (
+    CancellationDecision,
+    CancellationRuntime,
+    CancellationRuntimeError,
+)
 from .contracts import RouteSource, TaskOutcome, TaskResult
 from .results import verdict_block_from_task_result
 from .session_event_service import DurableSessionService, DurableTaskExecutor, TaskHandle
