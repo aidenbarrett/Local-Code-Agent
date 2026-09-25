@@ -183,6 +183,7 @@ class DurableHubFeed:
                 if result is None:
                     result = history.result_for_task(task.task_id)
                     if result is None:
+                        self._mark_retained_result_unavailable(task)
                         continue
                     if isinstance(digest, str):
                         self._result_cache[digest] = result
