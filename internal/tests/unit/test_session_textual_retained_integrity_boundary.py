@@ -6,7 +6,7 @@ from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import ArtifactIntegrityError, SQLiteSessionStore
 from local_agent.session.task_read_model import TaskSnapshot
 from local_agent.session.textual_feed import DurableHubFeed
-from local_agent.session.textual_hub import HubViewState
+from local_agent.session.textual_hub import HubViewState, render_activity
 
 
 def test_retained_result_integrity_failure_preserves_durable_verdict(tmp_path, monkeypatch):
@@ -45,10 +45,19 @@ def test_retained_result_integrity_failure_preserves_durable_verdict(tmp_path, m
 
         projected = feed._hydrate_retained_results(state)
 
-        assert projected.tasks[0].task_id == task.task_id
-        assert projected.tasks[0].verdict == "FAILED"
-        assert projected.tasks[0].verdict_scope == "full_build"
-        assert projected.tasks[0].result_answer is None
+        snapshot = projected.tasks[0]
+        assert snapshot.task_id == task.task_id
+        assert snapshot.verdict == "FAILED"
+        assert snapshot.verdict_scope == "full_build"
+        assert snapshot.result_answer is not None
+        assert "retained worker result failed integrity validation" in snapshot.result_answer
+        assert snapshot.result_verification_ran is None
+        assert snapshot.result_verified_at_completion is None
         assert feed._retained_results_degraded is True
+
+        rendered = render_activity(projected)
+        assert "Verdict: FAILED" in rendered
+        assert "Retained result:" in rendered
+        assert "durable controller verdict above remains authoritative" in rendered
     finally:
         service.close()
