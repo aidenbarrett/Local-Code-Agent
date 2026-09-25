@@ -11,6 +11,7 @@ import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Mapping
 
 from ..tools.tool_primitives import resolve_in_repo
 from ..verification import CURRENT_TREE_PROOFS, ProofKind
@@ -134,3 +135,31 @@ def binding_from_run(task: str, run, repo_root: Path) -> ProofBinding:
         tree_sha256=repository_tree_sha256(repo_root),
         evidence_ids=evidence_ids,
     )
+
+
+def proof_binding_from_result(result) -> ProofBinding | None:
+    """Validate an optional typed binding against the TaskResult evidence it cites."""
+    raw = result.metrics.get("proof_binding")
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ValueError("proof_binding must be an object")
+    if set(raw) != {"request_sha256", "scope", "tree_sha256", "evidence_ids"}:
+        raise ValueError("proof_binding fields are incomplete or unknown")
+    evidence = raw["evidence_ids"]
+    if not isinstance(evidence, list):
+        raise ValueError("proof_binding evidence_ids must be a list")
+    binding = ProofBinding(
+        request_sha256=raw["request_sha256"],
+        scope=ProofScope(raw["scope"]),
+        tree_sha256=raw["tree_sha256"],
+        evidence_ids=tuple(evidence),
+    )
+    if any(value not in result.evidence_ids for value in binding.evidence_ids):
+        raise ValueError("proof_binding cites evidence outside the task result")
+    if result.verified_at_completion and binding.scope not in {
+        ProofScope.FULL_BUILD,
+        ProofScope.FULL_TEST,
+    }:
+        raise ValueError("verified completion requires a full current-tree proof scope")
+    return binding

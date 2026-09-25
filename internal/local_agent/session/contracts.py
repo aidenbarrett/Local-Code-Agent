@@ -181,6 +181,19 @@ class TaskResult:
         else:
             proof = "not established"
         reason = f"; reason: {self.reason_code}" if self.reason_code else ""
+        binding_lines = ""
+        if "proof_binding" in self.metrics:
+            # Local import keeps the core contract independent while making worker proof
+            # visible on the actual conversation surface. Malformed bindings fail closed.
+            from .proof_binding import proof_binding_from_result
+            binding = proof_binding_from_result(self)
+            if binding is None:
+                raise ValueError("proof_binding disappeared during result rendering")
+            binding_lines = (
+                f"\nProof scope: {binding.scope.value}"
+                f"\nRequest SHA-256: {binding.request_sha256}"
+                f"\nTree SHA-256: {binding.tree_sha256}"
+            )
         return (f"{self.answer}\n\n[Controller: {self.outcome.value}; verification: {proof}{reason}; "
-                f"evidence: {len(self.evidence_ids)} item(s); task: {self.task_id}]\n"
-                f"Evidence IDs: {', '.join(self.evidence_ids) or 'none'}")
+                f"evidence: {len(self.evidence_ids)} item(s); task: {self.task_id}]"
+                f"{binding_lines}\nEvidence IDs: {', '.join(self.evidence_ids) or 'none'}")
