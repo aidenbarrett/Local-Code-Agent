@@ -38,8 +38,11 @@ def test_retained_result_integrity_failure_preserves_durable_verdict(tmp_path, m
         def reject_retained_result(self, task_id):
             raise ArtifactIntegrityError("fixture integrity failure")
 
+        from local_agent.session import textual_feed
+
         monkeypatch.setattr(
-            "local_agent.session.textual_feed.DurableTaskHistory.result_for_task",
+            textual_feed.DurableTaskHistory,
+            "result_for_task",
             reject_retained_result,
         )
 
