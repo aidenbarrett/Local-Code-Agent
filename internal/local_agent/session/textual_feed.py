@@ -23,6 +23,11 @@ class HubFeedError(RuntimeError):
 ConversationProvider = Callable[[], Sequence[ConversationEntry]]
 RouteSummaryProvider = Callable[[], str | None]
 
+_RETAINED_RESULT_UNAVAILABLE = (
+    "Unavailable — retained worker result failed integrity validation. "
+    "The durable controller verdict above remains authoritative."
+)
+
 
 class DurableHubFeed:
     """Project one durable stream into immutable Textual view state.
@@ -62,7 +67,8 @@ class DurableHubFeed:
         self._started = False
         self._recovered_gap = False
         self._conversation: tuple[ConversationEntry, ...] = ()
-        self._result_cache: dict[str, RetainedTaskResult] = {}\n        self._retained_results_degraded = False
+        self._result_cache: dict[str, RetainedTaskResult] = {}
+        self._retained_results_degraded = False
 
     @property
     def cursor(self) -> int:
@@ -158,14 +164,21 @@ class DurableHubFeed:
             changed = True
         return changed
 
+    def _mark_retained_result_unavailable(self, task) -> None:
+        """Keep durable controller truth while refusing corrupt sibling prose."""
+        self._retained_results_degraded = True
+        task.result_answer = _RETAINED_RESULT_UNAVAILABLE
+        task.result_verification_ran = None
+        task.result_verified_at_completion = None
+
     def _hydrate_retained_results(self, state: HubViewState) -> HubViewState:
         history = DurableTaskHistory(self.service.store, stream_id=self.service.stream_id)
-        try:
-            for task in state.tasks:
-                if not task.terminal:
-                    continue
-                ref = task.result_ref
-                digest = ref.get("sha256") if isinstance(ref, dict) else None
+        for task in state.tasks:
+            if not task.terminal:
+                continue
+            ref = task.result_ref
+            digest = ref.get("sha256") if isinstance(ref, dict) else None
+            try:
                 result = self._result_cache.get(digest) if isinstance(digest, str) else None
                 if result is None:
                     result = history.result_for_task(task.task_id)
@@ -185,13 +198,12 @@ class DurableHubFeed:
                     raise ArtifactIntegrityError(
                         "retained task result evidence disagrees with durable verdict"
                     )
-                task.result_answer = result.answer
-                task.result_verification_ran = result.verification_ran
-                task.result_verified_at_completion = result.verified_at_completion
-        except ArtifactIntegrityError as exc:
-            raise HubFeedError(
-                "retained task result cannot be projected truthfully"
-            ) from exc
+            except ArtifactIntegrityError:
+                self._mark_retained_result_unavailable(task)
+                continue
+            task.result_answer = result.answer
+            task.result_verification_ran = result.verification_ran
+            task.result_verified_at_completion = result.verified_at_completion
         return state
 
     def state(self, *, status: str | None = None) -> HubViewState:
@@ -215,6 +227,8 @@ class DurableHubFeed:
                 status = f"Live · durable seq {self._cursor}"
                 if self._recovered_gap:
                     status += " · replay recovered"
+                if self._retained_results_degraded:
+                    status += " · retained result unavailable"
         state = build_view_state(
             self._conversation,
             self._events,
