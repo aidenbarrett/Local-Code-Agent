@@ -7,6 +7,7 @@ it does not pretend that UI exit cancelled execution.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .conversation_store import OpenConversation
@@ -38,16 +39,19 @@ def build_textual_session_runtime(
     conversation: OpenConversation,
     gateway,
     *,
+    stop_task: Callable[[str, int], object] | None = None,
     palette_name: str = "neon",
     poll_interval: float = 0.10,
     completion_poll_interval: float = 0.05,
     runtime_summary: str | None = None,
 ) -> TextualSessionRuntime:
-    """Compose one UI from the canonical conversation, durable stream and gateway."""
+    """Compose one UI from canonical conversation, durable stream and controller authority."""
     if not isinstance(service, DurableSessionService):
         raise TypeError("Textual Session Hub runtime requires DurableSessionService")
     if not isinstance(conversation, OpenConversation):
         raise TypeError("Textual Session Hub runtime requires OpenConversation")
+    if stop_task is not None and not callable(stop_task):
+        raise TypeError("stop_task must be callable when supplied")
 
     provider = CanonicalConversationProvider(conversation)
     feed = DurableHubFeed(service, conversation_provider=provider)
@@ -56,6 +60,7 @@ def build_textual_session_runtime(
         app = LiveDispatchingSessionHubApp(
             feed,
             dispatcher,
+            stop_task=stop_task,
             palette_name=palette_name,
             poll_interval=poll_interval,
             completion_poll_interval=completion_poll_interval,
