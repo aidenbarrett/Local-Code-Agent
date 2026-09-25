@@ -52,11 +52,12 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
             observed["app_ran"] = True
 
     @contextmanager
-    def fake_textual(service, opened, gateway, *, runtime_summary=None):
+    def fake_textual(service, opened, gateway, *, runtime_summary=None, stop_task=None):
         observed["service"] = service
         observed["opened"] = opened
         observed["gateway"] = gateway
         observed["runtime_summary"] = runtime_summary
+        observed["stop_task"] = stop_task
         yield type("TextualRuntime", (), {"app": FakeApp()})()
 
     monkeypatch.setattr(hub, "_runtime_root", lambda: tmp_path)
@@ -73,6 +74,7 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
     assert observed["facts_preset"] == "ptl-npu-8b"
     assert observed["facts_execution"] is False
     assert observed["runtime_summary"] == facts.header()
+    assert callable(observed["stop_task"])
 
     gateway = observed["gateway"]
     assert isinstance(gateway, hub.RuntimeFactsGateway)
