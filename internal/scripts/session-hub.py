@@ -89,7 +89,7 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
                 "durable_task_execution", "durable_task_history", "durable_tool_activity",
                 "deterministic_routing", "textual_session_hub", "non_blocking_turn_dispatch",
                 "explicit_model_route_acceptance", "task_execution_epoch_fencing",
-                "in_process_endpoint_arbitration",
+                "in_process_endpoint_arbitration", "user_stop_request",
             ],
             "recovered": recovered,
         },
@@ -176,9 +176,8 @@ def main(argv: list[str] | None = None) -> int:
                     context_budget_tokens=worker_config.context_budget_tokens,
                 )
                 admitted_controller = AdmittedDurableTaskController(service, controller)
-                task_runner = DurableTaskAdmissionRunner(
-                    CancellableDurableTaskExecutor(service, admitted_controller)
-                )
+                task_executor = CancellableDurableTaskExecutor(service, admitted_controller)
+                task_runner = DurableTaskAdmissionRunner(task_executor)
                 chat_client = ManagedLLMClient(
                     OpenAICompatibleClient(chat_config),
                     chat_adapter,
@@ -202,7 +201,14 @@ def main(argv: list[str] | None = None) -> int:
                     return 0 if gateway.last_result and gateway.last_result.outcome.succeeded else 2
 
                 with build_textual_session_runtime(
-                    service, opened, gateway, runtime_summary=runtime_facts.header(),
+                    service,
+                    opened,
+                    gateway,
+                    stop_task=lambda task_id, execution_epoch: task_executor.request_cancel(
+                        task_id,
+                        execution_epoch=execution_epoch,
+                    ),
+                    runtime_summary=runtime_facts.header(),
                 ) as textual:
                     textual.app.run()
                 return 0
