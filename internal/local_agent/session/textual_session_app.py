@@ -7,6 +7,7 @@ canonical conversation provider and committed durable stream.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import replace
 
@@ -16,6 +17,9 @@ from .textual_dispatch import HubTurnBusy, HubTurnDispatcher, HubTurnDispatcherC
 from .textual_feed import DurableHubFeed, HubFeedError
 from .textual_hub import HubInputSubmitted, HubViewState
 from .textual_live_app import LiveSessionHubApp
+
+
+StopTask = Callable[[str, int], object]
 
 
 def _brief_error(exc: BaseException, *, limit: int = 240) -> str:
@@ -33,6 +37,7 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
         feed: DurableHubFeed,
         dispatcher: HubTurnDispatcher,
         *,
+        stop_task: StopTask | None = None,
         palette_name: str = "neon",
         poll_interval: float = 0.10,
         completion_poll_interval: float = 0.05,
@@ -40,6 +45,8 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
     ) -> None:
         if not isinstance(dispatcher, HubTurnDispatcher):
             raise TypeError("live dispatching Textual app requires HubTurnDispatcher")
+        if stop_task is not None and not callable(stop_task):
+            raise TypeError("stop_task must be callable when supplied")
         if (
             not isinstance(completion_poll_interval, (int, float))
             or isinstance(completion_poll_interval, bool)
@@ -50,6 +57,7 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
         if runtime_summary is not None and (not isinstance(runtime_summary, str) or not runtime_summary.strip()):
             raise ValueError("runtime_summary must be nonempty text when supplied")
         self.turn_dispatcher = dispatcher
+        self.stop_task = stop_task
         self.completion_poll_interval = float(completion_poll_interval)
         self.runtime_summary = runtime_summary
         self._turn_future: Future[str] | None = None
@@ -100,9 +108,27 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
         """Put rejected composer text back; refusal must never silently eat user input."""
         self.query_one("#composer", Input).value = text
 
+    def _request_stop(self) -> None:
+        if self.stop_task is None:
+            self._status("Stop unavailable · cancellation authority is not connected")
+            return
+        task = next((item for item in reversed(self.view_state.tasks) if not item.terminal), None)
+        if task is None:
+            self._status("Stop unavailable · no active task")
+            return
+        try:
+            self.stop_task(task.task_id, task.execution_epoch)
+        except Exception as exc:
+            self._status(f"Stop failed · {_brief_error(exc)}")
+            return
+        self._status(f"Stop requested · task {task.task_id}")
+
     def on_hub_input_submitted(self, message: HubInputSubmitted) -> None:
         """Submit exact composer text without blocking Textual or inventing UI state."""
         normalized = message.text.strip().lower()
+        if normalized in {"stop", "/stop"}:
+            self._request_stop()
+            return
         if normalized in {"/quit", "/exit"}:
             if self._turn_future is not None and not self._turn_future.done():
                 self._restore_draft(message.text)
