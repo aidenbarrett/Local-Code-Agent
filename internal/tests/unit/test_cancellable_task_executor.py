@@ -11,6 +11,8 @@ from local_agent.session.cancellable_task_executor import CancellableDurableTask
 from local_agent.session.contracts import TaskOutcome, TaskResult
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
+from local_agent.session.task_history import DurableTaskHistory
+from local_agent.session.task_read_model import project_task
 from local_agent.session.terminal_truth import CancelUnreconciled
 
 
@@ -51,7 +53,7 @@ def _service(tmp_path):
     )
 
 
-def test_cancelled_epoch_cannot_commit_a_late_controller_result(tmp_path):
+def test_cancelled_epoch_cannot_commit_late_result_but_terminalizes_no_verdict(tmp_path):
     service = _service(tmp_path)
     entered = threading.Event()
     release = threading.Event()
@@ -94,11 +96,37 @@ def test_cancelled_epoch_cannot_commit_a_late_controller_result(tmp_path):
             "task.admitted",
             "task.state_changed",
             "task.cancel_requested",
+            "task.verdict",
+            "task.closed",
         ]
-        cancel = events[-1]["payload"]
+        cancel = events[2]["payload"]
         assert cancel["request_id"] == decision.request.request_id
         assert cancel["execution_epoch"] == 0
-        assert service.store.task_record(handle.task_id)["terminal"] is False
+
+        task = project_task(events, handle.task_id)
+        assert task.terminal is True
+        assert task.state == "unknown"
+        assert task.verdict == "NO_VERDICT"
+        assert task.verdict_reason == "cancel_unreconciled"
+        assert task.cleanup == "not_needed"
+        assert "cancelled" not in task.verdict_lines
+
+        retained = DurableTaskHistory(
+            service.store,
+            stream_id=service.stream_id,
+        ).result_for_task(handle.task_id)
+        assert retained is not None
+        assert retained.status == "unknown"
+        assert retained.verdict == "NO_VERDICT"
+        assert "late result that must not regain authority" not in retained.answer
+        assert "Cleanup has not been fully reconciled" in retained.answer
+
+        record = service.store.task_record(handle.task_id)
+        assert record is not None
+        assert record["terminal"] is True
+
+        with pytest.raises(CancellationRuntimeError, match="not registered"):
+            executor.request_cancel(handle.task_id, execution_epoch=1)
     finally:
         release.set()
         service.close()
