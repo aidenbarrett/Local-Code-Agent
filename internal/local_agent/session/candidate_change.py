@@ -17,7 +17,7 @@ from typing import Any
 
 from ..config import RepoConfig
 from .contracts import TaskOutcome, TaskResult
-from .intents import candidate_referent, undo_referent
+from .intents import candidate_referent, commit_referent, undo_referent
 from .proof_binding import repository_tree_sha256
 from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace, WorkspaceError
 
@@ -32,7 +32,10 @@ CANDIDATE_CHANGE_SKILLS = frozenset(CANDIDATE_PROOF)
 # Controller-owned actions admitted like skills but executed without a model or tools.
 APPLY_CANDIDATE_ACTION = "apply-candidate"
 UNDO_CANDIDATE_ACTION = "undo-candidate"
-CONTROLLER_ACTIONS = frozenset({APPLY_CANDIDATE_ACTION, UNDO_CANDIDATE_ACTION})
+COMMIT_CANDIDATE_ACTION = "commit-candidate"
+CONTROLLER_ACTIONS = frozenset({
+    APPLY_CANDIDATE_ACTION, UNDO_CANDIDATE_ACTION, COMMIT_CANDIDATE_ACTION,
+})
 
 
 def controller_action_sha256(name: str) -> str:
@@ -268,7 +271,11 @@ def apply_candidate(
         task_id, TaskOutcome.PASS,
         "Applied the reviewed change from task " + referent + " to: "
         + ", ".join(candidate.paths) + ".\nNothing was staged or committed.\n" + proof_line
-        + (f"\nTo reverse exactly this change: /undo {referent}" if facts["undo_available"] else ""),
+        + (
+            f"\nTo reverse exactly this change: /undo {referent}"
+            f"\nTo commit exactly this change on the current branch: /commit {referent}"
+            if facts["undo_available"] else ""
+        ),
         True,
         metrics={
             "candidate_import": facts,
@@ -276,6 +283,73 @@ def apply_candidate(
         },
         verification_ran=True,
         reason_code="verification_passed",
+    )
+
+
+def commit_candidate(
+    manager: GitWorkspaceManager | None,
+    declared: RepoConfig,
+    *,
+    task_id: str,
+    request_text: str,
+) -> TaskResult:
+    """Commit exactly one applied candidate on the current branch; never push."""
+    referent = commit_referent(request_text)
+    if referent is None:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was committed: the request must name one full task ID.",
+                          False, reason_code="invalid_input")
+    if manager is None:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was committed: candidate workspaces are not configured.",
+                          False, reason_code="unavailable_capability")
+    if not declared.policy.allow_commit:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was committed: repository policy does not allow commits "
+                          "(policy.allow_commit = false).",
+                          False, reason_code="policy_denied")
+    message = (
+        f"Apply Local Code Agent change from task {referent}\n\n"
+        f"LCA-Task: {referent}\n"
+    )
+    done = manager.commit_applied(referent, declared.root, message)
+    facts = {
+        "candidate_task_id": referent,
+        "commit": done.commit,
+        "branch": done.branch,
+        "paths": list(done.paths),
+        "drifted": list(done.drifted),
+    }
+    if done.committed:
+        return TaskResult(
+            task_id, TaskOutcome.PASS,
+            f"Committed the change from task {referent} as {done.commit[:12]} on "
+            f"{done.branch}: " + ", ".join(done.paths) + ".\n"
+            "Only those files were committed; anything else you had staged is still "
+            "staged. Your git hooks were not run. Nothing was pushed.",
+            True,
+            metrics={"candidate_commit": facts, "tree_sha256": repository_tree_sha256(declared.root)},
+            verification_ran=True,
+            reason_code="verification_passed",
+        )
+    if done.mismatched:
+        return TaskResult(
+            task_id, TaskOutcome.FAIL,
+            f"A commit {done.commit[:12]} was created but does not contain exactly the applied "
+            "change. Inspect it before doing anything else.",
+            False, metrics={"candidate_commit": facts}, reason_code="verification_failed",
+        )
+    if done.drifted:
+        return TaskResult(
+            task_id, TaskOutcome.FAIL,
+            "Nothing was committed. These files changed after the change was applied: "
+            + ", ".join(done.drifted) + ".",
+            False, metrics={"candidate_commit": facts}, reason_code="scope_changed",
+        )
+    return TaskResult(
+        task_id, TaskOutcome.BLOCKED,
+        "Nothing was committed: " + (done.refused_reason or "refused") + ".",
+        False, metrics={"candidate_commit": facts}, reason_code="invalid_input",
     )
 
 
@@ -337,6 +411,8 @@ def undo_candidate(
 
 
 __all__ = [
+    "COMMIT_CANDIDATE_ACTION",
+    "commit_candidate",
     "UNDO_CANDIDATE_ACTION",
     "undo_candidate",
     "APPLY_CANDIDATE_ACTION",

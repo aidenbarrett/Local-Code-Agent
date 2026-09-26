@@ -90,6 +90,18 @@ class ImportResult:
 
 
 @dataclass(frozen=True)
+class CommitResult:
+    committed: bool
+    commit: str | None
+    branch: str | None
+    paths: tuple[str, ...]
+    drifted: tuple[str, ...]
+    refused_reason: str | None
+    # True when a commit was created but its content is not exactly the applied change.
+    mismatched: bool = False
+
+
+@dataclass(frozen=True)
 class UndoResult:
     undone: bool
     paths: tuple[str, ...]
@@ -484,6 +496,72 @@ class GitWorkspaceManager:
         os.replace(tmp, path)
         return path
 
+    def commit_applied(self, task_id: str, repository_root: Path, message: str) -> CommitResult:
+        """Commit exactly one applied candidate's files on the current branch, or refuse.
+
+        Preconditions, all checked before anything is written: a verified apply record
+        for this repository that is not already committed; every touched path still
+        holds exactly what the import wrote; HEAD is on a branch; no merge, rebase,
+        cherry-pick or revert is in progress. Only the touched paths are committed
+        (`git commit --only`), so anything else the user has staged stays staged and
+        uncommitted. User hooks do not run. Nothing is ever pushed.
+        """
+        path = self._applied_path(task_id)
+        if not path.is_file():
+            return CommitResult(False, None, None, (), (), f"no applied change recorded for task {task_id}")
+        record = json.loads(path.read_text(encoding="utf-8"))
+        user = Path(repository_root).resolve()
+        paths = tuple(record["paths"])
+        if Path(record["repository_root"]) != user:
+            return CommitResult(False, None, None, paths, (), "that change was applied to another repository")
+        if record.get("committed"):
+            return CommitResult(False, record["committed"], None, paths, (),
+                                f"that change is already committed as {record['committed'][:12]}")
+        branch = self._git(user, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+        if branch.returncode != 0:
+            return CommitResult(False, None, None, paths, (), "HEAD is detached; check out a branch first")
+        branch_name = branch.stdout.decode().strip()
+        for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"):
+            marker_path = Path(self._out(user, "rev-parse", "--git-path", marker))
+            if not marker_path.is_absolute():
+                marker_path = user / marker_path
+            if marker_path.exists():
+                return CommitResult(False, None, branch_name, paths, (),
+                                    "a merge, rebase, cherry-pick or revert is in progress")
+        post = {p: b for p, b in record["post_blobs"]}
+        drifted = tuple(p for p in paths if self._worktree_blob(user, p) != post.get(p))
+        if drifted:
+            return CommitResult(False, None, branch_name, paths, drifted,
+                                "files changed since the change was applied")
+        parent = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
+        if all(self._blob_at(user, parent, p) == post.get(p) for p in paths):
+            return CommitResult(False, None, branch_name, paths, (),
+                                "the applied change is already what HEAD contains; nothing to commit")
+        # Paths the candidate created are untracked, and `commit --only` accepts only
+        # paths git knows. Stage exactly those; every other index entry is left alone.
+        created = [p for p, b in record["pre_blobs"] if b is None and (user / p).exists()]
+        if created:
+            self._git(user, "add", "--", *created)
+        done = self._git(
+            user, "commit", "--quiet", "--no-verify", "--only", "-F", "-", "--", *paths,
+            stdin=message.encode("utf-8"), check=False,
+        )
+        if done.returncode != 0:
+            return CommitResult(False, None, branch_name, paths, (),
+                                "git commit failed: " + (done.stderr or done.stdout).decode("utf-8", "replace").strip()[:500])
+        commit = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
+        parents = self._out(user, "rev-parse", f"{commit}^@").split()
+        in_tree = {p: self._blob_at(user, commit, p) for p in paths}
+        if parents != [parent] or any(in_tree[p] != post.get(p) for p in paths):
+            return CommitResult(False, commit, branch_name, paths, (),
+                                "the new commit does not contain exactly the applied change",
+                                mismatched=True)
+        record["committed"] = commit
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+        return CommitResult(True, commit, branch_name, paths, (), None)
+
     def undo_applied(self, task_id: str, repository_root: Path) -> UndoResult:
         """Undo one applied candidate, only where files still hold exactly what it wrote.
 
@@ -498,6 +576,12 @@ class GitWorkspaceManager:
         user = Path(repository_root).resolve()
         if Path(record["repository_root"]) != user:
             return UndoResult(False, (), (), (), "that change was applied to another repository")
+        if record.get("committed"):
+            return UndoResult(
+                False, tuple(record["paths"]), (), (),
+                f"that change was committed as {record['committed'][:12]}; undoing files "
+                "would leave the commit in place, so revert the commit with git instead",
+            )
         paths = tuple(record["paths"])
         post = {p: b for p, b in record["post_blobs"]}
         pre_blob = {p: b for p, b in record["pre_blobs"]}
@@ -621,6 +705,7 @@ class GitWorkspaceManager:
 
 
 __all__ = [
+    "CommitResult",
     "UndoResult",
     "CandidatePatch",
     "GitWorkspaceManager",

@@ -23,6 +23,7 @@ RULE_FIX_REFERENT = "fix-referent/v1"
 RULE_FIX_BUILD = "fix-build-failure/v1"
 RULE_APPLY_CANDIDATE = "apply-candidate/v1"
 RULE_UNDO_CANDIDATE = "undo-candidate/v1"
+RULE_COMMIT_CANDIDATE = "commit-candidate/v1"
 RULE_FIX_TESTS = "fix-test-failure/v1"
 RULE_SELF_CHECK = "self-check/v1"
 
@@ -215,6 +216,13 @@ _UNDO_CANDIDATE = re.compile(
 )
 
 
+_COMMIT_CANDIDATE = re.compile(
+    r"^/?commit(?:\s+(?:candidate|task))?\s+"
+    r"(?P<task_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
+    re.IGNORECASE,
+)
+
+
 def _single_referent(pattern: re.Pattern[str], request_text: str) -> str | None:
     if not isinstance(request_text, str):
         return None
@@ -224,6 +232,11 @@ def _single_referent(pattern: re.Pattern[str], request_text: str) -> str | None:
         if (match := pattern.fullmatch(line.strip())) is not None
     ]
     return found[0] if len(set(found)) == 1 else None
+
+
+def commit_referent(request_text: str) -> str | None:
+    """The single applied-candidate task UUID a commit request names."""
+    return _single_referent(_COMMIT_CANDIDATE, request_text)
 
 
 def undo_referent(request_text: str) -> str | None:
@@ -409,6 +422,15 @@ def decide_route(
             rule_id=RULE_TASK_DIAGNOSTIC,
             skill="task-diagnostic",
             reference_ids=(task_id,),
+        )
+
+    if _COMMIT_CANDIDATE.fullmatch(stripped):
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_COMMIT_CANDIDATE,
+            skill="commit-candidate",
         )
 
     if _UNDO_CANDIDATE.fullmatch(stripped):
