@@ -395,12 +395,13 @@ def test_partial_apply_never_overwrites_content_it_did_not_write(sandbox, tmp_pa
     assert (sandbox.root / RING).read_bytes() == foreign
 
 
-def test_missing_candidate_worktree_does_not_misreport_a_completed_import(sandbox, tmp_path):
-    import shutil
-
+def test_unreadable_candidate_worktree_does_not_misreport_a_completed_import(sandbox, tmp_path):
     controller, manager, candidate_task = _prepare(sandbox, tmp_path)
     workspace, _candidate = manager.load(candidate_task)
-    shutil.rmtree(workspace.root)
+    # Break the worktree's link to its repository rather than deleting the directory:
+    # on Windows a build can still hold files open under it, and the fault under test is
+    # "the candidate tree cannot be read", not "rmtree works".
+    (workspace.root / ".git").unlink()
 
     result = _apply(controller, candidate_task)
 
