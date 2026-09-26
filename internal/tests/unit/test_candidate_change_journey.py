@@ -15,6 +15,7 @@ from local_agent.llm.protocol import ChatResponse
 from local_agent.session.contracts import TaskOutcome
 from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.intents import RULE_FIX_BUILD, RouteAction, decide_route
+from local_agent.session.results import verdict_block_from_task_result
 from local_agent.session.task_controller import TaskController
 from local_agent.session.workspaces import GitWorkspaceManager, WorkspaceError
 
@@ -202,3 +203,94 @@ def test_retained_candidate_record_is_tamper_evident(sandbox, tmp_path):
         manager.load(task_id)
     with pytest.raises(WorkspaceError):
         manager.load(str(uuid4()))
+
+
+# ------------------------------------------------------------- /apply <task>
+
+
+def _prepare(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    candidate_task = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, _fixing_turns())
+    prepared = controller.run("fix the build", task_id=candidate_task, skill_name="fix-build-failure")
+    assert prepared.metrics["candidate"]["retained"] is True
+    return controller, manager, candidate_task
+
+
+def _apply(controller, candidate_task):
+    request = f"User request:\n/apply {candidate_task}\n\nDeterministic route (controller-owned provenance):\nrule_id=apply-candidate/v1"
+    result = controller.run(request, task_id=str(uuid4()), skill_name="apply-candidate")
+    verdict_block_from_task_result(result)  # every outcome must be renderable
+    return result
+
+
+def _staged(root: Path) -> str:
+    return subprocess.run(["git", "diff", "--cached"], cwd=root, capture_output=True,
+                          text=True, check=True).stdout
+
+
+def test_apply_imports_the_reviewed_fix_once_and_says_the_proof_covers_it(sandbox, tmp_path):
+    controller, manager, candidate_task = _prepare(sandbox, tmp_path)
+
+    result = _apply(controller, candidate_task)
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    fixed = (sandbox.root / RING).read_text(encoding="utf-8")
+    assert "++count_;" in fixed and "return count_ == 0; }" in fixed
+    assert _staged(sandbox.root) == ""
+    assert "build proof covers them" in result.answer
+    assert result.metrics["candidate_import"]["checkout_matches_candidate_tree"] is True
+    assert _worktrees(sandbox.root) == 1
+
+    again = _apply(controller, candidate_task)
+    assert again.outcome is TaskOutcome.BLOCKED, "a candidate must be single-use"
+
+
+def test_apply_refuses_when_the_user_changed_a_touched_file(sandbox, tmp_path):
+    controller, manager, candidate_task = _prepare(sandbox, tmp_path)
+    mine = (sandbox.root / RING).read_text(encoding="utf-8") + "// my own edit\n"
+    (sandbox.root / RING).write_text(mine, encoding="utf-8")
+
+    result = _apply(controller, candidate_task)
+
+    assert result.outcome is TaskOutcome.FAIL
+    assert result.reason_code == "scope_changed"
+    assert "Your checkout is exactly as it was" in result.answer
+    assert (sandbox.root / RING).read_text(encoding="utf-8") == mine
+    manager.load(candidate_task)  # still retained for the user to decide
+
+
+def test_apply_with_unrelated_dirty_work_does_not_claim_the_build_proof(sandbox, tmp_path):
+    controller, _manager, candidate_task = _prepare(sandbox, tmp_path)
+    readme = sandbox.root / "README.md"
+    readme.write_text((readme.read_text(encoding="utf-8") if readme.exists() else "") + "\nlocal note\n",
+                      encoding="utf-8")
+    if not subprocess.run(["git", "ls-files", "--error-unmatch", "README.md"], cwd=sandbox.root,
+                          capture_output=True).returncode == 0:
+        pytest.skip("fixture has no tracked README.md")
+
+    result = _apply(controller, candidate_task)
+
+    assert result.outcome is TaskOutcome.PASS
+    assert result.metrics["candidate_import"]["checkout_matches_candidate_tree"] is False
+    assert "does not cover it" in result.answer
+    assert "local note" in readme.read_text(encoding="utf-8")
+
+
+def test_apply_requires_one_full_candidate_task_id(sandbox, tmp_path):
+    controller, _ = _controller(sandbox.root, tmp_path, [])
+    unknown = _apply(controller, str(uuid4()))
+    assert unknown.outcome is TaskOutcome.BLOCKED and unknown.reason_code == "invalid_input"
+    vague = controller.run("User request:\n/apply the last one", task_id=str(uuid4()),
+                           skill_name="apply-candidate")
+    assert vague.outcome is TaskOutcome.BLOCKED and vague.reason_code == "invalid_input"
+
+
+def test_apply_is_a_fingerprinted_controller_action_not_a_worker_skill(sandbox, tmp_path):
+    controller, _ = _controller(sandbox.root, tmp_path, [])
+    assert controller.resolve_skill("apply-candidate") == "apply-candidate"
+    digest = controller.effective_skill_sha256("apply-candidate")
+    assert len(digest) == 64 and int(digest, 16) >= 0
+    decision = decide_route(f"/apply {uuid4()}", active_repo_count=1)
+    assert decision.action is RouteAction.WORK and decision.skill == "apply-candidate"
+    assert decide_route("/apply 1234abcd", active_repo_count=1).action is RouteAction.MODEL_FALLBACK
