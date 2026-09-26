@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+import sys
 
 
 MODULE_PATH = Path(__file__).parents[2] / "devtools" / "check_merge_enforcement.py"
 spec = spec_from_file_location("check_merge_enforcement", MODULE_PATH)
 assert spec is not None and spec.loader is not None
 module = module_from_spec(spec)
+sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 evaluate_merge_enforcement = module.evaluate_merge_enforcement
 
