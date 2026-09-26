@@ -298,3 +298,35 @@ def test_crlf_checkout_is_not_mistaken_for_a_conflict(tmp_path):
         assert result.applied and result.verified, result
     finally:
         manager.close(ws)
+
+
+def test_partial_import_restores_modified_files_and_removes_created_ones(tmp_path, monkeypatch):
+    user = _user_repo(tmp_path)
+    manager = _manager(tmp_path)
+    ws = manager.create(user, str(uuid4()))
+    try:
+        (ws.root / "src" / "a.cpp").write_text("int a() { return 8; }\n", encoding="utf-8")
+        (ws.root / "src" / "new.cpp").write_text("int n() { return 8; }\n", encoding="utf-8")
+        candidate = manager.candidate_patch(ws)
+        before = _state(user)
+        a_before = (user / "src" / "a.cpp").read_bytes()
+        real = manager._git
+
+        def faulty(cwd, *args, **kwargs):
+            if args and args[0] == "apply" and "--check" not in args:
+                (user / "src" / "a.cpp").write_bytes((ws.root / "src" / "a.cpp").read_bytes())
+                (user / "src" / "new.cpp").write_bytes((ws.root / "src" / "new.cpp").read_bytes())
+                return subprocess.CompletedProcess(["git", *args], 128, b"", b"injected")
+            return real(cwd, *args, **kwargs)
+
+        monkeypatch.setattr(manager, "_git", faulty)
+        result = manager.import_patch(ws, candidate)
+
+        assert result.applied is False and result.rolled_back is True
+        assert result.unresolved == ()
+        assert (user / "src" / "a.cpp").read_bytes() == a_before
+        assert not (user / "src" / "new.cpp").exists()
+        assert _state(user) == before
+    finally:
+        monkeypatch.undo()
+        manager.close(ws)
