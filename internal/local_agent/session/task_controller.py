@@ -170,7 +170,9 @@ class TaskController:
             return "missing_evidence" if not run.state.verification_attempted else "cleanup_unknown"
         return "cleanup_unknown"
 
-    def _run_candidate_change(self, task, task_id, resolved_skill, source, durable_activity) -> TaskResult:
+    def _run_candidate_change(
+        self, task, task_id, resolved_skill, source, durable_activity, cancellation_probe=None,
+    ) -> TaskResult:
         """Run a source-changing skill in its own worktree and retain the candidate."""
         blocker = (
             "candidate workspaces are not configured for this session"
@@ -191,7 +193,11 @@ class TaskController:
             work_repo = candidate_repo(
                 self.declared_repo, workspace, allow_execution=self.allow_execution,
             )
-            registry, _ctx, _store = build_registry(work_repo)
+            # The same Stop token as any other task: a candidate build is a configured
+            # command and must end when the user stops the task.
+            registry, _ctx, _store = build_registry(
+                work_repo, cancellation_probe=cancellation_probe
+            )
             if durable_activity is not None:
                 registry = wrap_registry_with_durable_activity(registry, durable_activity)
             self.events.emit("worker.workspace", {
@@ -204,6 +210,19 @@ class TaskController:
                 context_budget_tokens=self.context_budget_tokens, allow_escalation=False,
             )
             run = worker.run(task, skill_name=resolved_skill)
+            if cancellation_probe is not None and cancellation_probe.requested:
+                # A stopped task never leaves a reviewable change behind, whatever the
+                # worker did after the Stop landed. The candidate is discarded unseen.
+                self.workspaces.discard(workspace)
+                settled = True
+                return TaskResult(
+                    task_id, TaskOutcome.BLOCKED,
+                    "Stopped. The isolated candidate was discarded; nothing is available "
+                    "to apply and your checkout was not modified.",
+                    False,
+                    metrics={"candidate": {"retained": False, "stopped": True}},
+                    reason_code="cancelled",
+                )
             task_outcome = self._product_outcome(run)
             verified = bool(task_outcome.succeeded and run.state.verified)
             metrics = run.state.metrics.as_dict()
@@ -266,6 +285,7 @@ class TaskController:
             elif resolved_skill in CANDIDATE_CHANGE_SKILLS:
                 result = self._run_candidate_change(
                     task, task_id, resolved_skill, source, durable_activity,
+                    cancellation_probe=cancellation_probe,
                 )
             else:
                 registry, _ctx, _store = build_registry(

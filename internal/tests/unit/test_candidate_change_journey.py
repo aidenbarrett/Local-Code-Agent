@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -294,3 +295,55 @@ def test_apply_is_a_fingerprinted_controller_action_not_a_worker_skill(sandbox, 
     decision = decide_route(f"/apply {uuid4()}", active_repo_count=1)
     assert decision.action is RouteAction.WORK and decision.skill == "apply-candidate"
     assert decide_route("/apply 1234abcd", active_repo_count=1).action is RouteAction.MODEL_FALLBACK
+
+
+def test_stop_reaches_a_running_candidate_build_and_nothing_is_retained(sandbox, tmp_path):
+    """Stop during the candidate's build ends it; no half-made candidate is kept."""
+    import threading
+    import time
+
+    from local_agent.session.cancellation import CancellationToken
+
+    sandbox.scenario("compile_error")
+    marker = tmp_path / "build-started"
+    config = sandbox.root / ".local-agent.toml"
+    slow_build = json.dumps([
+        sys.executable, "-c",
+        f"from pathlib import Path; import time; Path({str(marker)!r}).write_text('x'); time.sleep(60)",
+    ])
+    text = config.read_text(encoding="utf-8")
+    text = text.replace(
+        'build = ["cmake", "--build", "build", "--config", "Debug", "--parallel", "4"]',
+        f"build = {slow_build}",
+    )
+    text = text.replace('configure = ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"]', "")
+    config.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-qam", "slow build"],
+                   cwd=sandbox.root, check=True)
+
+    task_id = str(uuid4())
+    token = CancellationToken(task_id, 0)
+    controller, manager = _controller(sandbox.root, tmp_path, _fixing_turns())
+    results = []
+    worker = threading.Thread(target=lambda: results.append(controller.run(
+        "fix the build", task_id=task_id, skill_name="fix-build-failure",
+        cancellation_probe=token)))
+    worker.start()
+    deadline = time.monotonic() + 60
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert marker.exists(), "candidate build never started"
+    stopped_at = time.monotonic()
+    token.request()
+    worker.join(30)
+
+    assert not worker.is_alive(), "Stop did not reach the candidate build"
+    assert time.monotonic() - stopped_at < 20
+    result = results[0]
+    assert result.outcome is TaskOutcome.BLOCKED and result.reason_code == "cancelled"
+    assert result.verified_at_completion is False
+    assert result.metrics["candidate"] == {"retained": False, "stopped": True}
+    assert "nothing is available to apply" in result.answer
+    assert _worktrees(sandbox.root) == 1
+    with pytest.raises(WorkspaceError):
+        manager.load(task_id)
