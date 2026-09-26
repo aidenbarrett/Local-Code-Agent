@@ -22,7 +22,7 @@ from .session_store import SQLiteSessionStore
 from .terminal_completion import validate_terminal_completion
 
 
-_RESULT_SCHEMA = "lca.task-result/1"
+from .candidate_facts import RESULT_SCHEMA as _RESULT_SCHEMA, project_candidate
 _RESULT_MEDIA_TYPE = "application/vnd.lca.task-result+json"
 
 
@@ -282,6 +282,7 @@ class DurableSessionService:
                 "verified_at_completion": False,
                 "evidence_ids": [],
                 "answer": "Controller restarted before a durable terminal result; cleanup is unknown.",
+                "candidate": None,
             }, sort_keys=True, separators=(",", ":")).encode("utf-8")
             result_ref = self._result_ref(result_bytes)
             terminal = self.finalize_task(
@@ -482,6 +483,9 @@ class DurableTaskExecutor:
             "verified_at_completion": bool(result.verified_at_completion),
             "evidence_ids": list(result.evidence_ids),
             "answer": result.answer[:MAX_MESSAGE_CHARS],
+            "candidate": project_candidate(
+                result.task_id, result.outcome.succeeded, result.metrics,
+            ),
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return DurableSessionService._result_ref(payload), payload
 

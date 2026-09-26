@@ -747,3 +747,81 @@ def test_journal_revert_removes_a_file_the_agent_created(tmp_path):
     journal.record_write(created, None, "int n();\n", "apply_patch")
     assert journal.revert()["reverted"] == [str(created)]
     assert not created.exists()
+
+
+# ------------------------------------------ durable candidate facts (task-result/2)
+
+
+def _round_trip(result):
+    import json as _json
+
+    from local_agent.session.session_event_service import DurableTaskExecutor
+    from local_agent.session.task_history import DurableTaskHistory
+    from local_agent.session.terminal_completion import _retained_result
+
+    _ref, payload = DurableTaskExecutor._result_artifact(result)
+    raw = _json.loads(payload)
+    assert raw["schema"] == "lca.task-result/2"
+    _retained_result(result.task_id, payload)
+    DurableTaskHistory._parse_result(payload, task_id=result.task_id)
+    return raw["candidate"]
+
+
+def test_candidate_lifecycle_crosses_the_durable_result_boundary(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    subprocess.run(["git", "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-qam", "broken"],
+                   cwd=sandbox.root, check=True)
+    config = sandbox.root / ".local-agent.toml"
+    config.write_text(config.read_text(encoding="utf-8").replace("allow_commit = false", "allow_commit = true"),
+                      encoding="utf-8")
+    subprocess.run(["git", "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-qam", "commits"],
+                   cwd=sandbox.root, check=True)
+    subprocess.run(["git", "config", "user.email", "dev@example.invalid"], cwd=sandbox.root, check=True)
+    subprocess.run(["git", "config", "user.name", "Dev"], cwd=sandbox.root, check=True)
+    task_id = str(uuid4())
+    controller, _manager = _controller(sandbox.root, tmp_path, _fixing_turns())
+
+    prepared = _round_trip(controller.run("fix the build", task_id=task_id, skill_name="fix-build-failure"))
+    assert prepared["role"] == "prepared" and prepared["retained"] is True
+    assert prepared["candidate_task_id"] == task_id and prepared["paths"] == [RING]
+    assert len(prepared["patch_sha256"]) == 64 and prepared["commit"] is None
+
+    applied = _round_trip(_apply(controller, task_id))
+    assert (applied["role"], applied["candidate_task_id"], applied["retained"]) == ("applied", task_id, False)
+    assert applied["patch_sha256"] == prepared["patch_sha256"]
+
+    committed = _round_trip(_commit(controller, task_id))
+    assert committed["role"] == "committed" and len(committed["commit"]) == 40
+
+    refused = _round_trip(_undo(controller, task_id))
+    assert refused is None, "a refused undo changes no candidate state"
+
+
+def test_a_stopped_or_ordinary_task_carries_no_appliable_candidate():
+    from local_agent.session.contracts import TaskResult
+
+    stopped = TaskResult(str(uuid4()), TaskOutcome.BLOCKED, "Stopped.", False,
+                         metrics={"candidate": {"retained": False, "stopped": True}}, reason_code="cancelled")
+    block = _round_trip(stopped)
+    assert block["role"] == "prepared" and block["retained"] is False and block["paths"] == []
+    assert _round_trip(TaskResult(str(uuid4()), TaskOutcome.PASS, "built", True)) is None
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda b: b.update(role="merged"),
+    lambda b: b.update(retained=True, role="applied"),
+    lambda b: b.update(role="committed"),
+    lambda b: b.update(candidate_task_id="not-a-uuid"),
+    lambda b: b.update(patch_sha256="xyz"),
+    lambda b: b.update(extra=1),
+    lambda b: b.update(retained=True, paths=[]),
+])
+def test_malformed_candidate_facts_are_refused(mutate):
+    from local_agent.session.candidate_facts import validate_candidate
+
+    block = {"role": "prepared", "candidate_task_id": str(uuid4()), "retained": True,
+             "paths": ["src/a.cpp"], "patch_sha256": "a" * 64, "base_commit": None, "commit": None}
+    validate_candidate(dict(block))
+    mutate(block)
+    with pytest.raises(ValueError):
+        validate_candidate(block)
