@@ -18,6 +18,8 @@ from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
 from .candidate_change import (
     APPLY_CANDIDATE_ACTION,
+    UNDO_CANDIDATE_ACTION,
+    undo_candidate,
     CANDIDATE_CHANGE_SKILLS,
     CANDIDATE_PROOF,
     CONTROLLER_ACTIONS,
@@ -282,6 +284,10 @@ class TaskController:
             if self_check:
                 from .self_check import run_self_check
                 result = run_self_check(self.repo, task_id, self.events)
+            elif resolved_skill == UNDO_CANDIDATE_ACTION:
+                result = undo_candidate(
+                    self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
+                )
             elif resolved_skill == APPLY_CANDIDATE_ACTION:
                 result = apply_candidate(
                     self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
