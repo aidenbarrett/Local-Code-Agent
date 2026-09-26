@@ -1,22 +1,24 @@
 # Panther Lake physical acceptance
 
-This is the evidence procedure for the final first-release hardware gate. It is not an experiment-generation change and it must not modify frozen historical artifacts.
+This is the evidence procedure for the first-release hardware gate. It exercises the current public product path on the physical Windows target machine with external networking unavailable. Passing CI, a hardware demo, a configured device profile or an older smoke run does not establish this gate.
 
-The acceptance target is the current public `local-code-agent.ps1 session` product path on the physical Windows Panther Lake machine with external networking unavailable. Passing CI, an accelerator demo, a configured `NPU` profile, an observed model name, or an older physical smoke does not establish this gate.
+## 1. Prepare while networking is available
 
-## 1. Prepare while networking is still available
+Use the public setup path to provision the approved runtime, model and local toolchain:
 
-Use the existing work-laptop bootstrap and one-shot flow to provision the approved runtime, model and qualification report. Update the checkout and install dependencies before disconnecting.
+```powershell
+.\install.ps1
+```
 
-Do not collect the acceptance bundle from a dirty checkout. The capture helper intentionally refuses one.
+Update the checkout and dependencies before disconnecting. Do not collect the final acceptance bundle from a dirty checkout.
 
 ## 2. Disconnect external networking
 
-Disable the interfaces/routes that provide external connectivity. The capture helper fails closed if Windows still reports an alive IPv4 or IPv6 default route on an Up adapter. That is the automated offline gate recorded in the bundle; record any additional corporate-lab isolation evidence separately if relevant.
+Disable the interfaces/routes that provide WAN connectivity while retaining the local inference path required by the product. Record the exact isolation method used. Unknown network state is not offline evidence.
 
 ## 3. Capture preflight
 
-From the repository root, using the checkout that will actually be rehearsed:
+From the repository root:
 
 ```powershell
 .\.venv-workstation\Scripts\python.exe internal\scripts\panther-lake-acceptance.py preflight `
@@ -25,33 +27,39 @@ From the repository root, using the checkout that will actually be rehearsed:
   --output "$env:LOCALAPPDATA\LocalCodeAgent\reports\panther-lake-preflight.json"
 ```
 
-Preflight records or verifies:
+Preflight records or verifies the exact Git HEAD, clean checkout, offline gate, present device/driver facts, configured runtime profile, local model identity and public Session Hub self-check.
 
-- exact Git HEAD and a clean checkout;
-- absence of an active default route;
-- present Windows NPU device and driver facts;
-- the managed runtime profile;
-- the local model manifest and its hash;
-- the server qualification report and its hash;
-- the current public Session Hub `--check` path.
-
-A preflight result is deliberately labelled `preflight-only`. It is not NPU acceptance.
+A preflight result is not hardware acceptance by itself.
 
 ## 4. Rehearse the public journeys
 
-Run the real public Session Hub, not a lower-level demo:
+Run the public Session Hub:
 
 ```powershell
 .\local-code-agent.ps1 session --repo . --profile ptl-npu-8b
 ```
 
-Exercise the current first-release journeys from `TRICKS.md`, including at minimum repository inspection/source navigation, branch review, build success/failure with task-specific proof, failure follow-up, Stop, exit/restart and retained-result recovery. Capture logs/screenshots or terminal recordings that preserve task identity, verdict/evidence detail and runtime facts.
+Exercise the current journeys in `TRICKS.md`, including repository inspection/source navigation, branch review, build/test proof, failure follow-up, Stop, exit/restart and retained-result recovery. Capture logs/screenshots or terminal recordings that preserve task identity, verdict/evidence detail and runtime facts.
 
-Perform a cold and a warm rehearsal and record the measured latency values using the same declared measurement point for both. The capture helper stores the values; it does not invent or infer them.
+Physical runtime/device evidence must come from an observation that can actually identify the executing device. A configured profile name is not enough.
 
-## 5. Finalize the evidence bundle
+## 5. Measure cold/warm runtime behavior
 
-Pass the actual evidence files plus the measured cold/warm latency:
+Use the generic endpoint harness with a local profile for the exact running endpoint. Keep backend-specific commands, identity probes and optional telemetry in that local profile.
+
+```powershell
+python internal/perf/endpoint_harness.py `
+  --profile .local-agent/perf/target.toml `
+  --cold-start `
+  --context-sizes 2048,8192,32768 `
+  --output "$env:LOCALAPPDATA\LocalCodeAgent\reports\endpoint-performance.json"
+```
+
+Retain the JSON beside the acceptance evidence. Client-observed timing and backend-reported telemetry remain separately labelled.
+
+## 6. Finalize the evidence bundle
+
+Pass the actual journey evidence plus measured cold/warm latency values required by the existing capture script:
 
 ```powershell
 .\.venv-workstation\Scripts\python.exe internal\scripts\panther-lake-acceptance.py finalize `
@@ -60,19 +68,18 @@ Pass the actual evidence files plus the measured cold/warm latency:
   --cold-latency-ms 1234 `
   --warm-latency-ms 456 `
   --evidence C:\path\to\cold-session.log `
-  --evidence C:\path\to\warm-session.log
+  --evidence C:\path\to\warm-session.log `
+  --evidence "$env:LOCALAPPDATA\LocalCodeAgent\reports\endpoint-performance.json"
 ```
 
-Finalization re-checks the exact checkout and offline gate, rejects missing evidence or non-positive timings, hashes each supplied evidence file and writes `self_certified: false`.
-
-That last field is intentional. The deterministic capture tool can prove that the evidence bundle is internally tied to the same checkout and offline conditions; it cannot judge whether a screenshot/log demonstrates actual NPU utilization or whether every public journey met the acceptance contract. Review the bundle against `TRICKS.md` before narrowing or expanding any supported-hardware claim.
+Finalization ties the supplied evidence to the checkout and offline preflight. It must not self-certify whether screenshots/logs prove physical device utilisation or whether every user journey met its contract. That judgement remains an explicit acceptance review against `TRICKS.md`.
 
 ## What remains manual
 
-- interacting with the Textual Session Hub;
-- selecting a consistent latency measurement point and recording it;
-- collecting screenshots/terminal logs where the UI itself is the evidence surface;
-- reviewing observed device/runtime evidence and journey outcomes;
-- deciding whether the physical configuration satisfies the first-release support claim.
+- interacting with the real Textual Session Hub
+- collecting journey evidence where the UI is part of the acceptance surface
+- reviewing observed runtime/device proof
+- checking failure/restart/Stop behaviour against the user contract
+- deciding whether the exact physical configuration satisfies the supported-hardware claim
 
-Those are deliberately not converted into a self-certifying script.
+Those are deliberately not converted into a script that grades its own evidence.
