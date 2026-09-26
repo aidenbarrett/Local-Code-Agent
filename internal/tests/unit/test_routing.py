@@ -68,7 +68,7 @@ def test_skills_that_need_evidence_say_so():
     needs = {n for n in skills.names() if skills.get(n).verification_required}
     assert needs == {
         "build-and-test", "diagnose-build-failure", "diagnose-test-failure",
-        "fix-build-failure", "fix-test-failure",
+        "fix-build-failure", "fix-test-failure", "implement-change",
     }
 
 
