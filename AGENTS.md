@@ -18,29 +18,23 @@ The Session Hub is a projection of authoritative state, not a place to invent st
 
 | Working on | Read |
 |---|---|
-| Current product status and open gaps | `CURRENT_STATE.md`, then current source/PRs |
+| Current status | `CURRENT_STATE.md`, then current source/PRs |
 | Product priorities | `internal/docs/product-execution-priorities.md` |
-| First-release user journeys | `TRICKS.md` |
-| Session Hub routing/admission/results | `internal/local_agent/session/`, `internal/docs/session-hub-design.md` |
+| First-release journeys | `TRICKS.md` |
+| Session Hub | `internal/local_agent/session/`, `internal/docs/session-hub-design.md` |
 | Endpoint ownership | `internal/local_agent/session/endpoint_lease.py`, `endpoint_runtime.py`, `endpoint_call.py` |
-| Local runtime ownership/startup | `internal/serving/` |
-| Endpoint performance comparison | `internal/perf/README.md`, `internal/perf/endpoint_harness.py` |
-| Tools the agent can call | `internal/local_agent/tools/` |
-| Build/test proof | `internal/local_agent/tools/testing_tools.py`, `internal/docs/verification.md` |
-| Model profiles and context budgets | `internal/local_agent/config.py` |
-| Windows local bring-up | `install.ps1`, `internal/work-laptop-one-shot.ps1`, `internal/docs/work-laptop-bootstrap.md` |
-| Exact product source identity | `internal/local_agent/provenance.py` |
-| Prior review findings | `internal/docs/review-history.md` |
+| Local runtime ownership | `internal/serving/`, `internal/docs/serving.md` |
+| Endpoint performance | `internal/perf/README.md`, `internal/perf/endpoint_harness.py` |
+| Tools | `internal/local_agent/tools/` |
+| Verification | `internal/local_agent/tools/testing_tools.py`, `internal/docs/verification.md` |
+| Model profiles | `internal/local_agent/config.py` |
+| Product source identity | `internal/local_agent/provenance.py` |
 
-`internal/docs/quality-hardening-roadmap.md` is a backlog, not a spec.
-
-## Product provenance
+## Provenance
 
 `source_sha256` is derived from the exact live product tree. It is evidence about the source that produced a result, not a mutable repository constant.
 
-Do not add shared source-hash stamp files that every PR has to edit. Package/release provenance may record the Git commit, dirty state and derived `source_sha256` in generated `PACKAGE.json`.
-
-Historical research is archived off the active branch. Do not recreate experiment-era freeze machinery on `main` unless a new measured programme has a current owner, a current question and an explicit methodology.
+Historical research is archived off the active branch. Do not recreate experiment-era freeze machinery on `main` unless a new measured programme has a current owner, a current question and explicit methodology.
 
 ## Naming and structure
 
@@ -48,24 +42,19 @@ Historical research is archived off the active branch. Do not recreate experimen
 - One word has one meaning repository-wide.
 - Generic roles get qualifiers when ambiguity is possible.
 - A filename beginning with `test_` is a test module.
-- Empty or documentation-only directories belong under `internal/docs/`.
 - Product runtime code does not live under performance, demo or research directories.
-- Backend-specific runtime comparison details belong in local harness profiles, not in the generic harness.
+- Backend-specific runtime comparison details belong in local harness profiles, not the generic harness.
+- Duplicate authorities and compatibility shims with no active caller are defects.
 
-Bad or unintuitive naming, duplicate authorities and compatibility shims with no active caller are defects, not harmless tidiness issues.
+## Before a rename or move
 
-## Before you rename or move anything
-
-Run the rename pre-flight from the repository root:
+Run:
 
 ```text
 python internal/devtools/check_rename_safety.py
-python internal/devtools/check_rename_safety.py --markdown > preflight.md
 ```
 
-Then audit the old path everywhere, not just Python imports: dynamic imports, path manipulation, PowerShell, workflows, documentation, `pyproject.toml`, `.local-agent.toml`, packaging scripts, demo wrappers and tests.
-
-A clean rename means the old path has no live callers or documentation references. Do not leave a shim simply to make stale code green unless there is a real supported compatibility contract.
+Then audit the old path everywhere, not only Python imports: dynamic imports, PowerShell, workflows, docs, config, packaging and tests. Do not leave a shim merely to make stale callers green.
 
 ## Tests and CI
 
@@ -75,19 +64,17 @@ Native pytest is authoritative:
 python -m pytest -q
 ```
 
-Linux and Windows CI are both required before describing a code change as verified. Coverage is reported, not used as a substitute for behavioural acceptance.
+Linux and Windows CI are required before describing a code change as verified. New behaviour gets regression coverage. Bugs get the smallest test that would have caught them. Contract changes get positive and fail-closed negative cases.
 
-New behaviour needs regression tests. Bugs get a test for the failing case. Contract changes get positive and fail-closed negative cases.
-
-Do not weaken a test to make a change green without stating why the old assertion was wrong.
+Do not weaken a test to manufacture green.
 
 ## Performance measurement
 
 There is one generic endpoint harness under `internal/perf/`.
 
-Client latency measurements belong at the client boundary. Backend-reported values are separately labelled and never replace client observations. Cancellation latency is only a measured number when endpoint-side observation proves the request was active and later proves it stopped. Socket closure alone is not cancellation proof.
+Client latency belongs at the client boundary. Backend-reported values are separately labelled. Cancellation latency is only measured when endpoint-side observation proves the request was active and later proves it stopped. Socket closure alone is not proof.
 
-The harness must remain backend-agnostic. Machine/runtime/device-specific commands and observation URLs live in local profile configuration outside source control.
+The harness must remain backend-agnostic. Runtime/device-specific commands and observation URLs live in local profile configuration outside source control.
 
 ## Product-facing contract
 
@@ -100,18 +87,12 @@ Normal user instructions stay on supported root surfaces:
 .\demo\...
 ```
 
-Do not send a first-time user into `internal/` to repair our orchestration.
+Do not send a first-time user into `internal/` to repair orchestration.
 
 ## Working agreement
 
-One writer per branch, one coherent commit series, exact SHAs in the PR body.
-
-State what actually ran and on what. "The tests pass" is not evidence unless the exact tests and head are known.
-
-Use direct-to-main integration candidates. Stacked PRs may be useful for early CI, but they must be reconciled onto current `main` and receive fresh authoritative CI before merge.
-
-Do not overwrite user edits, staging or history. Never silently reset a worktree. Do not automatically push, rewrite history or self-upgrade.
+One writer per branch, one coherent commit series, exact SHAs in the PR body. State what actually ran and on what. Do not overwrite user edits, staging or history. Never silently reset a worktree, automatically push, rewrite history or self-upgrade.
 
 ## Done means
 
-A task is done when the change is merged and the thing it was meant to make possible has actually happened, not when the patch exists. If the request includes getting something running, running it is part of the task.
+A task is done when the change is merged and the thing it was meant to make possible has actually happened, not when the patch exists.
