@@ -1,0 +1,33 @@
+name = "example-local-endpoint"
+
+[endpoint]
+base_url = "http://127.0.0.1:9000/v1/"
+model = "model-id-from-endpoint"
+# api_key_env = "LOCAL_ENDPOINT_API_KEY"
+
+[identity]
+runtime = "runtime-build-or-version"
+device = "exact-device-identity"
+# Optional endpoint-side identity proof. Configure paths only if the backend exposes them.
+# url = "http://127.0.0.1:9000/identity"
+# model_path = "model.id"
+# runtime_path = "runtime.version"
+# device_path = "device.id"
+
+[startup]
+# Optional. Required only for cold-start measurement.
+# command = ["path/to/runtime", "--serve"]
+# stop_command = ["path/to/runtime-control", "stop"]
+# ready_url = "http://127.0.0.1:9000/v1/models"
+
+[telemetry]
+# Optional backend-reported values. They never replace client-boundary timings.
+# url = "http://127.0.0.1:9000/telemetry"
+# compile_time_path = "startup.compile_ms"
+# memory_path = "process.rss_bytes"
+
+[cancellation]
+# Optional endpoint-side observation hook. Without it cancellation latency is unsupported.
+# active_requests_url = "http://127.0.0.1:9000/debug/active-requests"
+# active_request_ids_path = "active_request_ids"
+# request_id_header = "x-request-id"
