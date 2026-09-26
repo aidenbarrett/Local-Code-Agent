@@ -1,123 +1,101 @@
 # Current state
 
-Reconciled against GitHub `main` at `8072f882660da5f68ab1c34117a6969728447346`
-on 2026-09-24. That commit merged the product-execution-priorities documentation.
-Its reviewed PR head `f1aff1dd7b77e4bc39ba83a234a4264d104801b9` completed `tests`,
-`serving`, `product acceptance`, `integration eligibility`, `frozen experiment guard`,
-`test import boundary` and `contract declaration integrity` successfully. This is
-source/CI evidence for that reviewed head, not Panther Lake/NPU acceptance.
+Reconciled against GitHub `main` at `064415b9d1136f072848f56cbf7f2593006d1fbe`
+on 2026-09-25 after the retained-result integrity, Windows containment and public Stop
+slices landed. Live source and current CI remain authoritative for implementation;
+frozen artifacts remain authoritative for historical experiments.
 
-Current source and CI are authoritative for implementation; frozen artifacts for
-historical experiments; [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable
-rationale; [TRICKS.md](TRICKS.md) for first-release public acceptance; and
-[product-execution-priorities.md](internal/docs/product-execution-priorities.md) for
-adopted cross-project product learnings, anti-tangent rules and the priority ladder
-beyond the immediate queue below.
+Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rationale,
+[TRICKS.md](TRICKS.md) for first-release public journeys and acceptance evidence, and
+[product-execution-priorities.md](internal/docs/product-execution-priorities.md) for the
+priority ladder after the immediate first-release gate.
 
-## Direction and actual public path
+## Direction and public path
 
-The goal is a dependable offline local worker for finding, Git, bounded code
-changes, builds/tests and diagnosis, with replaceable qualified model/runtime
-backends. The active product is the in-process Textual Session Hub launched by
-`local-code-agent.ps1` with no argument or `session`. The controller owns
-admission, policy, execution facts, verification and durable state. The model
-may propose work but cannot certify it. Measurement collection remains paused;
-Generation-1 evidence is frozen and Generation-2 has no collected model rows
-at this snapshot.
+The product target is a dependable local/offline worker for repository inspection, Git,
+bounded code changes, builds/tests and diagnosis with replaceable qualified model/runtime
+backends. The active surface is the in-process Textual Session Hub launched by
+`local-code-agent.ps1` with no argument or `session`.
 
-The public path now reaches:
+The deterministic controller owns admission, permissions, execution facts, verification,
+provenance and durable state. Models may propose work but cannot grant authority or
+self-certify success. Measurement collection remains paused; Generation-1 evidence is
+frozen and product hardening must not rewrite historical methodology or denominators.
 
-- An exact-interpreter dependency preflight, a managed installed-checkout
-  acceptance job on Windows, deterministic help, `--check`, and deterministic
-  in-session help/runtime-fact responses that do not require a model call.
-- Runtime observation that keeps facts distinct: the Hub can project an observed
-  model identity from a bounded `/v1/models` probe while configured preset/device
-  remain declared facts. Endpoint URL and execution-enabled state are visible.
-  This is not observed device-utilisation proof.
-- Typed endpoint-unavailable handling separate from malformed/invalid model
-  proposal handling; an endpoint outage no longer tells the user to rephrase.
-- Conservative managed primary-endpoint startup before the Session Hub opens:
-  reuse a healthy matching owned runtime, stop only stale owned state, refuse an
-  unowned reachable endpoint, otherwise start through the serving controller.
-  Runtime-specific process ownership remains at the serving edge.
-- One persisted raw conversation and a separate durable event/task store,
-  admission before effects, accepted-route provenance, retained request/result
-  artifacts, and restart reconciliation to unknown without replaying effects.
-- Anchored deterministic routes for `Inspect this repo`, `Where is <symbol> defined?`,
-  `Build it.`, `What changed on my branch?`, `Why did that fail?` when there is exactly
-  one eligible failure, explicit `why did task <UUID> fail?`, and `/check`. The first
-  two bind directly to the existing read-only `repo-navigation` skill and do not require
-  a conversation-model routing call or a second `work` turn. Near matches still fall
-  through to the existing model-fallback boundary rather than gaining rule authority.
-- A live Textual conversation, activity and watch projection. The activity
-  pane shows task identity, tool/verdict, retained answer and recent task IDs.
-  A broken durable feed refuses new input and preserves the draft.
-- The existing proof classifier, source-aware build stamp, source/skill
-  provenance at admission, stronger durable completion invariants, and
-  cancellation epoch fencing in the admitted executor. Source mutation and
-  commits remain disabled on the conversation product path.
-- `EndpointArbiter`, `EndpointRuntime` and `EndpointCallAdapter` remain the one
-  in-process endpoint arbitration implementation. The managed public startup
-  path now composes runtime ownership, but actual conversation/worker calls are
-  not yet fully routed through that one queue/lease authority and cross-process
-  ownership is not claimed.
+## What is implemented on current main
 
-The direct J3 routing above establishes route selection and fixed read-only skill
-authority only. It does not by itself establish that every returned answer contains
-complete navigable paths/lines, truthful scope/missing-coverage detail, useful model
-analysis, or physical-NPU execution. Those remain acceptance work.
+The public product path now includes:
 
-## Immediate public gaps
+- exact-interpreter dependency preflight, native Windows installed-checkout launcher
+  acceptance, deterministic help and Session Hub `--check`;
+- managed primary-runtime startup with conservative ownership/reuse rules and truthful
+  configured-versus-observed runtime facts;
+- one persisted raw conversation plus separate durable event/task state, admission before
+  effects, retained request/result artifacts and restart reconciliation that never replays
+  unknown effects;
+- deterministic public read-only journeys for repository inspection, symbol lookup and
+  branch review, with model fallback remaining advice rather than permission;
+- task-specific build/failure journeys through the public conversation gateway;
+- typed proof binding that ties accepted completion to the exact request, declared proof
+  scope, current mutation epoch and current repository tree identity; targeted/partial
+  proof cannot certify whole-tree success;
+- deterministic failure follow-up for eligible retained failures, including explicit task
+  UUID selection;
+- retained-result projection that keeps the authoritative durable task/verdict visible if
+  sibling retained worker prose fails integrity validation, while clearly marking that
+  prose unavailable;
+- Windows launcher containment of hostile ambient `PYTHONHOME`/`PYTHONPATH` state;
+- one process-local endpoint ownership/arbitration path for live conversation and worker
+  calls through the existing endpoint arbiter/runtime/call adapter; cross-process
+  arbitration is not claimed;
+- a public `stop`/`/stop` action that targets the exact active durable task ID and execution
+  epoch, bypasses model dispatch and fences late completion authority;
+- Textual activity/result projection with durable task identity, tool/verdict facts,
+  retained answer detail, recent task IDs and fail-closed input behaviour when the durable
+  feed is unhealthy.
 
-| Gap | Observed source behaviour | First-release effect |
-|---|---|---|
-| Read-only result acceptance | `Inspect this repo` and bounded `Where is <symbol> defined?` forms now route directly to `repo-navigation`, while broader natural variants still use the model-fallback boundary. Public result quality, source references, truncation/missing coverage and endpoint/result negative cases are not yet accepted end to end. | J3 routing friction is reduced, but J3 is not delivered until the result/evidence contract is proven through the public composition. |
-| Requested versus proved scope | Existing tool-level source hashes, verification facts and epoch rules do not yet bind the exact user request, complete command/check scope and current tree identity as one acceptance fact. | J5 must distinguish build pass from test pass, partial proof and stale/unavailable proof. |
-| Failure follow-up | `Why did that fail?` is deterministic only with one eligible retained failure; explicit UUID syntax works, but a useful latest/recent failure interaction remains incomplete. | J6 becomes cumbersome after multiple failures. |
-| Cancellation | `CancellableDurableTaskExecutor` can receive a cancellation request and fence a late completion. The busy Textual product path still lacks one complete Stop contract across queued work, inference, descendants, endpoint cleanup and terminalization. | J7 cannot be demonstrated honestly end to end. |
-| Endpoint call composition | Managed startup/runtime ownership is public, but real conversation and worker calls are not yet all wrapped by the single endpoint arbitration/lease authority. | Queue/lease/quarantine semantics are not yet one public execution contract. |
-| Watch creation/reuse | Watch admission/lifecycle components and a watch projection exist, but no reviewed public workflow creates a reusable watch from a successful task specification. | Recurring work is not yet a normal user capability. |
-| Physical runtime/device proof | Model identity can be observed from the endpoint, while device remains declared configuration. No disconnected Panther Lake acceptance has established actual NPU utilisation for the public journeys. | Hardware/support claims must remain narrower than the configured profile name. |
+Source mutation and commits remain disabled on the conversation product path.
 
-Build/test execution requires `--allow-execution` and configured repository
-policy. Source mutation, rename, conflict resolution and commit are longer-term
-product journeys. The existing read-only tools and worker are valuable, but
-their presence does not establish public output quality or NPU performance.
+## Boundaries that remain open
 
-## Next work, in order
+The remaining gaps must not be collapsed into stronger claims than current evidence
+supports:
 
-1. Finish J3 rather than broadening routing mechanically: prove useful source-path/line
-   references, declared search scope, truncation/missing coverage and endpoint/invalid-result
-   failures through the public composition. Add broader natural read-only phrasings only
-   where they can map safely to the same fixed authority without turning loose keywords
-   into permission.
-2. Make build/test/diagnostic and follow-up verdicts task-specific and current-tree
-   aware. Exercise positive, negative, partial, stale and unavailable proof through
-   the installed public path.
-3. Compose a visible Stop action with cancellation fencing, queued/inference handling,
-   owned process-tree cleanup, endpoint quarantine/reconciliation and one durable
-   terminal result; preserve unknown cleanup honestly as `NO_VERDICT`.
-4. Route actual conversation and worker inference through the single endpoint
-   arbitration/lease authority. Then expose truthful queue/lease/quarantine facts and
-   only afterward make recurring Watch creation a public workflow.
-5. Run the public journeys disconnected on the physical Panther Lake NPU with exact
-   model/runtime/device identities, cold/warm latency, screenshots/logs and failures.
-   Only then call that configuration supported.
+- **Physical Panther Lake acceptance is still open.** A configured `NPU` profile, prior
+  accelerator demos and old physical smoke runs do not prove the current Session Hub
+  first-release journeys. The required gate is a fresh disconnected run on the physical
+  Windows Panther Lake machine with exact checkout, model/runtime/device identity,
+  cold/warm latency and retained logs/screenshots/failures.
+- **Stop is bounded, not complete cancellation.** The public action and epoch fencing are
+  wired, but complete queued/inference interruption, descendant process-tree cleanup,
+  endpoint quarantine/reconciliation and one fully reconciled terminal cancellation
+  result still require evidence. Until cleanup is proven, the product says `Stop
+  requested`, not `Stopped`.
+- **Cross-process endpoint ownership is not claimed.** Current arbitration authority is
+  intentionally process-local.
+- **Repository-required-check enforcement is not established by workflow files alone.**
+  Repository settings must be inspected/configured before claiming merge policy enforces
+  those checks.
+- **Broader mutation, commit/push, Watch creation and richer automation remain later
+  product work.** Existing lower-level primitives are not public-journey acceptance.
 
-Once those first-release joins are closed, take the next work from
-`internal/docs/product-execution-priorities.md`: truthful evidence/result/Attention
-UX, deterministic whole-run fault injection, safe scoped mutation, reviewed reusable
-Task/Watch specifications, then real-task onboarding and human comprehension testing.
-Those later ideas do not preempt this immediate sequence.
+## Immediate work, in order
 
-Security and a user-visible false claim may interrupt the sequence. Novelty does not.
-The standards repair backlog supplies correctness repairs for these journeys, not an
-independent stream of new primitives. Each change needs a public-path behavioural
-regression, applicable native Linux/Windows tests, fresh direct-to-current-main CI,
-source identity and unchanged frozen experimental axes. A green CI run is evidence for
-that tested checkout and scope only.
+1. Complete the physical offline Panther Lake acceptance described in `TRICKS.md` using
+   the current public Session Hub. The capture procedure lives in
+   `internal/docs/panther-lake-acceptance.md`; it records exact provenance and refuses to
+   self-certify the hardware claim.
+2. Verify/configure installed-product merge enforcement if repository ownership permits;
+   keep native Linux/Windows and public-launcher acceptance authoritative.
+3. After the physical first-release gate is satisfied, take P1 work from
+   `internal/docs/product-execution-priorities.md`: evidence-backed lifecycle projection,
+   clearer result semantics, result/evidence detail, one Attention surface and a
+   deterministic whole-run/fault-injection harness.
+4. Only after those trust joins, begin intent-scoped safe mutation. Preserve dirty
+   worktrees, staging and unrelated user edits; keep commit/push/history changes as
+   separate capabilities.
 
-Repository-required-check enforcement remains a separate repository-owner concern.
-Do not describe workflow files as enforced branch protection unless repository settings
-have actually been verified/configured. Open PRs can change this snapshot; inspect live
-source and PR state before acting.
+Security defects and user-visible false claims may interrupt this order. Novelty does not.
+Every new slice needs a concrete public journey or trust-boundary failure, behavioural
+regression evidence, fail-closed negatives, fresh exact-head CI and unchanged frozen
+experimental axes.
