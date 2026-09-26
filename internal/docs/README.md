@@ -1,54 +1,44 @@
 # internal/docs/
 
-Documents here fall into three useful buckets: normative contracts, agreed design intent and operational/record material. Current source and CI remain implementation truth.
+Current source and CI own implementation truth. These documents describe contracts, agreed design and supported operating procedures.
 
-## Normative
+## Normative contracts
 
-| File | Governs |
-|---|---|
-| `session-contract/v1/events.schema.json` | supported `lca.session.events/1` wire shape loaded by the runtime |
-| `verification.md` | what counts as build/test proof and when proof goes stale |
-| `provenance/session-contract-source-identity.md` | why the runtime event schema participates in product source identity |
-| `architecture/process-containment.md` | what cancellation may and may not claim |
+- `session-contract/v1/events.schema.json`: supported Session Hub event shape loaded by the runtime
+- `verification.md`: what counts as build/test proof and when it goes stale
+- `provenance/session-contract-source-identity.md`: why the event schema participates in source identity
+- `architecture/process-containment.md`: cancellation and cleanup claim boundaries
 
-If product code deliberately changes one of these contracts, update the corresponding documentation and regression tests in the same change.
+## Product design
 
-## Design intent
+- `product-roadmap.md`: product destination and milestone gates
+- `product-execution-priorities.md`: immediate priority ladder and anti-tangent rules
+- `session-hub-design.md`: Session Hub architecture
+- `session-contract/README.md`: event-contract semantics
+- `session-hub-file-layout.md`: intended ownership/layout
+- `endpoint-scheduler-design.md`: endpoint arbitration design
+- `conversation-product-architecture.md`: conversation/task authority model
+- `textual-client-design.md`: Textual client design
+- `vscode-client-design.md`: later VS Code client design
 
-Important design documents include:
+Read design documents as intent. Current source and `CURRENT_STATE.md` decide what is actually composed.
 
-- `product-roadmap.md`
-- `product-execution-priorities.md`
-- `session-contract/README.md`
-- `session-hub-design.md`
-- `session-hub-file-layout.md`
-- `textual-client-design.md`
-- `vscode-client-design.md`
-- `endpoint-scheduler-design.md`
-- `gateway-transport-design.md`
-- `conversation-product-architecture.md`
-- `conversation-branch-validation.md`
-- `serving.md`
-- `serving-and-accelerators.md`
+## Operations
 
-Read these for intended boundaries, not as automatic claims about current `main`.
+- `serving.md`: product-owned local serving and qualification
+- `panther-lake-acceptance.md`: physical offline product acceptance
+- `verification.md`: proof semantics
 
-## Operational and record material
+Historical experiment methodology, collected evidence and research-era operating manuals are intentionally absent from the active branch. The exact old tree is preserved on `archive/legacy-experiments-2026-09-26` at commit `ad07af071a62acfa4d0168c7a89d7110a52088f6`.
 
-Operational documents include `bring-up.md`, `work-laptop-bootstrap.md` and `testing-and-tev-framework.md`.
+## Current-status order
 
-Record/backlog documents include `review-history.md`, `quality-hardening-roadmap.md`, `standards-repair-backlog-2026-09-22.md` and `UX_ROOT_REFACTOR_PLAN.md`.
+For current implementation claims use:
 
-Historical experiment methodology and collected evidence are not maintained on the active product branch. The exact pre-cleanup tree is preserved on `archive/legacy-experiments-2026-09-26` at commit `ad07af071a62acfa4d0168c7a89d7110a52088f6`.
+1. current GitHub `main` source, tests and CI
+2. root `CURRENT_STATE.md`
+3. root `PROJECT_OVERVIEW.md`
+4. `product-execution-priorities.md`
+5. other design documents
 
-## Current-status rule
-
-For current implementation claims use this order:
-
-1. current GitHub `main` source, tests and CI;
-2. root `CURRENT_STATE.md` for the latest operational snapshot;
-3. root `PROJECT_OVERVIEW.md` for durable architecture and product direction;
-4. `product-execution-priorities.md` for ordered product work beyond the immediate queue;
-5. other design documents for intended future composition.
-
-A merged primitive is not a delivered feature until the public composition uses it and a behavioural acceptance path proves it.
+A primitive is not a delivered feature until the public composition uses it and behavioural acceptance proves it.
