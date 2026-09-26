@@ -146,6 +146,7 @@ class CandidateOutcome:
             "paths": list(self.paths),
             "dirty_paths_in_base": list(workspace.dirty_paths),
             "untracked_excluded": list(workspace.untracked_excluded),
+            "untracked_included": list(workspace.untracked_included),
         }
 
 
@@ -175,10 +176,16 @@ def settle_candidate(
         f"Changed: {listed}",
         proof_line,
     ]
+    if workspace.untracked_included:
+        lines.append(
+            f"Included {len(workspace.untracked_included)} untracked file(s) from your "
+            "checkout so the candidate saw the same source (ignored files never are)."
+        )
     if workspace.untracked_excluded:
         lines.append(
-            f"{len(workspace.untracked_excluded)} untracked file(s) in your checkout were not "
-            "included in the candidate's base."
+            f"{len(workspace.untracked_excluded)} untracked file(s) over 5 MiB were left out "
+            "of the candidate, so its proof does not cover them: "
+            + ", ".join(workspace.untracked_excluded[:5])
         )
     lines.append(f"Candidate patch sha256 {candidate.sha256}. Task {task_id}.")
     return (

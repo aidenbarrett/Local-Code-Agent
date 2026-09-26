@@ -46,27 +46,43 @@ def _manager(tmp_path: Path) -> GitWorkspaceManager:
     return GitWorkspaceManager(tmp_path / "lca-workspaces", controller_commit="c" * 40)
 
 
-def test_dirty_tracked_state_is_the_base_and_the_user_checkout_is_untouched(tmp_path):
+def test_the_base_is_the_users_source_tree_and_their_checkout_is_untouched(tmp_path):
     user = _user_repo(tmp_path)
     (user / "src" / "a.cpp").write_text("int a() { return 10; }\n", encoding="utf-8")
     (user / "src" / "b.cpp").write_text("int b() { return 20; }\n", encoding="utf-8")
     _git(user, "add", "src/b.cpp")  # one staged, one unstaged edit
-    (user / "notes.txt").write_text("secret scratch\n", encoding="utf-8")
+    # A new source file the user has not added yet is part of what they build.
+    (user / "src" / "helper.cpp").write_text("int h() { return 3; }\n", encoding="utf-8")
+    # Ignored files (secrets, build output) never enter the candidate.
+    (user / ".git" / "info" / "exclude").write_text(".env\n", encoding="utf-8")
+    (user / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+    (user / "build").mkdir()
+    (user / "build" / "a.o").write_bytes(b"obj")
+    # A large untracked file stays out and is reported.
+    (user / "dataset.bin").write_bytes(b"\0" * (5 * 1024 * 1024 + 1))
     before = _state(user)
     stash_before = _git(user, "stash", "list")
 
     manager = _manager(tmp_path)
     ws = manager.create(user, str(uuid4()))
     try:
-        assert _state(user) == before
+        assert _state(user) == before, "creating a candidate changed the user's checkout or index"
         assert _git(user, "stash", "list") == stash_before
         assert ws.base_commit != ws.head_commit
-        assert set(ws.dirty_paths) == {"src/a.cpp", "src/b.cpp"}
-        assert ws.untracked_excluded == ("notes.txt",)
+        assert set(ws.dirty_paths) == {"src/a.cpp", "src/b.cpp", "src/helper.cpp"}
+        assert ws.untracked_included == ("src/helper.cpp",)
+        assert ws.untracked_excluded == ("dataset.bin",)
         assert (ws.root / "src" / "a.cpp").read_text(encoding="utf-8") == "int a() { return 10; }\n"
         assert (ws.root / "src" / "b.cpp").read_text(encoding="utf-8") == "int b() { return 20; }\n"
-        assert not (ws.root / "notes.txt").exists()
+        assert (ws.root / "src" / "helper.cpp").read_text(encoding="utf-8") == "int h() { return 3; }\n"
+        assert not (ws.root / ".env").exists()
+        assert not (ws.root / "build").exists()
+        assert not (ws.root / "dataset.bin").exists()
         assert not ws.root.is_relative_to(user)
+        # A large file the candidate never saw means its proof cannot cover the checkout.
+        assert manager.checkout_matches_candidate(ws) is False
+        (user / "dataset.bin").unlink()
+        assert manager.checkout_matches_candidate(ws) is True
     finally:
         manager.close(ws)
 

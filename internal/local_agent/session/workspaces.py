@@ -29,6 +29,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -36,6 +37,10 @@ from uuid import UUID, uuid4
 import psutil
 
 _GIT_TIMEOUT_S = 300
+# Untracked files above this size stay out of the candidate base and are reported. The
+# base commit's objects are written to the user's object store; a stray dataset or
+# binary must not bloat it.
+MAX_UNTRACKED_BYTES = 5 * 1024 * 1024
 
 
 class WorkspaceError(RuntimeError):
@@ -52,8 +57,12 @@ class Workspace:
     base_commit: str
     controller_commit: str
     dirty_paths: tuple[str, ...]
+    # Untracked, non-ignored files left out of the base because they are too large.
     untracked_excluded: tuple[str, ...]
     excluded_dirs: tuple[str, ...]
+    # Untracked, non-ignored files carried into the base so the candidate sees the
+    # same source tree the user has. Ignored files are never included.
+    untracked_included: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -134,8 +143,10 @@ class GitWorkspaceManager:
         *args: str,
         stdin: bytes | None = None,
         check: bool = True,
+        env_extra: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[bytes]:
         env = dict(os.environ)
+        env.update(env_extra or {})
         env.update({
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_OPTIONAL_LOCKS": "0",
@@ -168,8 +179,10 @@ class GitWorkspaceManager:
             raise WorkspaceError(f"git {args[0]} failed ({done.returncode}): {message}")
         return done
 
-    def _out(self, cwd: Path, *args: str) -> str:
-        return self._git(cwd, *args).stdout.decode("utf-8", "surrogateescape").strip()
+    def _out(self, cwd: Path, *args: str, env_extra: dict[str, str] | None = None) -> str:
+        return self._git(cwd, *args, env_extra=env_extra).stdout.decode(
+            "utf-8", "surrogateescape"
+        ).strip()
 
     def _blob_at(self, cwd: Path, commit: str, path: str) -> str | None:
         done = self._git(cwd, "rev-parse", "--verify", "--quiet", f"{commit}:{path}", check=False)
@@ -184,24 +197,59 @@ class GitWorkspaceManager:
             return None if not target.exists() and not target.is_symlink() else "unhashable"
         return self._out(cwd, "hash-object", f"--path={path}", "--", path)
 
-    def _snapshot_commit(self, repository_root: Path, head: str) -> str:
-        """Commit recording the user's tracked state, without touching their index.
+    def _snapshot(
+        self, repository_root: Path, head: str, excluded_dirs: tuple[str, ...],
+    ) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+        """Commit the user's current source tree without touching their index or files.
 
-        ``git stash create`` prints nothing and exits 0 when there is nothing to record.
-        With optional locks disabled it can also exit 1 with no output when files are
-        only stat-dirty (touched, content unchanged). That case is accepted as "no
-        tracked changes" only after ``git diff --quiet HEAD`` independently confirms it.
+        Built in a private temporary index: HEAD, plus every tracked change, plus
+        untracked files that are not ignored and not under an instrument directory,
+        each no larger than MAX_UNTRACKED_BYTES. Returns (commit, included, oversized).
+        The commit is HEAD itself when nothing differs.
         """
-        done = self._git(repository_root, "stash", "create", check=False)
-        out = done.stdout.decode("utf-8", "surrogateescape").strip()
-        if done.returncode == 0:
-            return out or head
-        if done.returncode == 1 and not out and not done.stderr.strip():
-            same = self._git(repository_root, "diff", "--quiet", "HEAD", "--", check=False)
-            if same.returncode == 0:
-                return head
-        message = done.stderr.decode("utf-8", "replace").strip()
-        raise WorkspaceError(f"git stash create failed ({done.returncode}): {message}")
+        untracked = [
+            p for p in _split_z(self._git(
+                repository_root, "ls-files", "--others", "--exclude-standard", "-z"
+            ).stdout)
+            if not any(p == d or p.startswith(d.rstrip("/") + "/") for d in excluded_dirs)
+        ]
+        included: list[str] = []
+        oversized: list[str] = []
+        for rel in untracked:
+            target = repository_root / rel
+            try:
+                small = target.is_symlink() or target.stat().st_size <= MAX_UNTRACKED_BYTES
+            except OSError:
+                continue
+            (included if small else oversized).append(rel)
+
+        fd, index_path = tempfile.mkstemp(prefix="lca-index-", dir=self.workspaces_root)
+        os.close(fd)
+        os.unlink(index_path)  # git must create it; an empty file is not a valid index
+        env = {"GIT_INDEX_FILE": index_path}
+        try:
+            self._git(repository_root, "read-tree", head, env_extra=env)
+            self._git(repository_root, "add", "--update", "--", ".", env_extra=env)
+            if included:
+                self._git(
+                    repository_root, "add", "--pathspec-from-file=-", "--pathspec-file-nul",
+                    stdin=b"\0".join(p.encode("utf-8", "surrogateescape") for p in included),
+                    env_extra=env,
+                )
+            tree = self._out(repository_root, "write-tree", env_extra=env)
+        finally:
+            Path(index_path).unlink(missing_ok=True)
+        if tree == self._out(repository_root, "rev-parse", f"{head}^{{tree}}"):
+            return head, tuple(included), tuple(oversized)
+        commit = self._git(
+            repository_root, "commit-tree", tree, "-p", head,
+            stdin=b"Local Code Agent candidate base\n",
+            env_extra={
+                "GIT_AUTHOR_NAME": "Local Code Agent", "GIT_AUTHOR_EMAIL": "lca@localhost",
+                "GIT_COMMITTER_NAME": "Local Code Agent", "GIT_COMMITTER_EMAIL": "lca@localhost",
+            },
+        ).stdout.decode().strip()
+        return commit, tuple(included), tuple(oversized)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -287,12 +335,11 @@ class GitWorkspaceManager:
 
         try:
             head = self._out(repository_root, "rev-parse", "--verify", "HEAD^{commit}")
-            base = self._snapshot_commit(repository_root, head)
+            base, included, oversized = self._snapshot(
+                repository_root, head, tuple(excluded_dirs),
+            )
             dirty = _split_z(self._git(
-                repository_root, "diff", "--name-only", "-z", "--no-renames", "HEAD", "--"
-            ).stdout)
-            untracked = _split_z(self._git(
-                repository_root, "ls-files", "--others", "--exclude-standard", "-z"
+                repository_root, "diff", "--name-only", "-z", "--no-renames", head, base, "--"
             ).stdout)
             self._git(repository_root, "worktree", "add", "--detach", "--quiet", str(root), base)
         except BaseException:
@@ -308,8 +355,9 @@ class GitWorkspaceManager:
             base_commit=base,
             controller_commit=self.controller_commit,
             dirty_paths=dirty,
-            untracked_excluded=untracked,
+            untracked_excluded=oversized,
             excluded_dirs=tuple(excluded_dirs),
+            untracked_included=included,
         )
 
     def candidate_patch(self, workspace: Workspace) -> CandidatePatch:
@@ -447,19 +495,24 @@ class GitWorkspaceManager:
         return tuple(unresolved)
 
     def checkout_matches_candidate(self, workspace: Workspace) -> bool | None:
-        """Whether the user's tracked files now equal the candidate tree exactly.
+        """Whether the user's source tree now equals the candidate tree exactly.
 
-        True means a proof taken on the candidate tree is a proof about the user's tracked
-        state. Untracked files are outside both trees. Nothing in the user's checkout is
-        modified to answer this. None means the comparison could not be made (for
+        Compared on the same snapshot as the base: tracked files plus untracked,
+        non-ignored files outside instrument directories. True means a proof taken on
+        the candidate tree is a proof about the user's source. Nothing in the user's
+        checkout is modified to answer this. None means the comparison could not be made (for
         example the candidate worktree is gone), which never counts as a match.
         """
         if not workspace.root.is_dir():
             return None
         user = workspace.repository_root
-        snapshot = self._snapshot_commit(
-            user, self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
+        snapshot, _included, oversized = self._snapshot(
+            user, self._out(user, "rev-parse", "--verify", "HEAD^{commit}"),
+            workspace.excluded_dirs,
         )
+        if oversized:
+            # Files the candidate never saw are part of the user's tree.
+            return False
         user_tree = self._out(user, "rev-parse", f"{snapshot}^{{tree}}")
         done = self._git(workspace.root, "write-tree", check=False)
         if done.returncode != 0:
@@ -634,6 +687,7 @@ class GitWorkspaceManager:
                 "controller_commit": workspace.controller_commit,
                 "dirty_paths": list(workspace.dirty_paths),
                 "untracked_excluded": list(workspace.untracked_excluded),
+                "untracked_included": list(workspace.untracked_included),
                 "excluded_dirs": list(workspace.excluded_dirs),
             },
             "candidate": {
@@ -668,6 +722,7 @@ class GitWorkspaceManager:
             controller_commit=w["controller_commit"],
             dirty_paths=tuple(w["dirty_paths"]),
             untracked_excluded=tuple(w["untracked_excluded"]),
+            untracked_included=tuple(w.get("untracked_included", ())),
             excluded_dirs=tuple(w["excluded_dirs"]),
         )
         if workspace.task_id != task_id:

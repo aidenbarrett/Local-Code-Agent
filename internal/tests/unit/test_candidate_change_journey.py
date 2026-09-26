@@ -825,3 +825,24 @@ def test_malformed_candidate_facts_are_refused(mutate):
     mutate(block)
     with pytest.raises(ValueError):
         validate_candidate(block)
+
+
+def test_an_untracked_source_file_the_user_builds_is_part_of_the_candidate(sandbox, tmp_path):
+    # The user has written src/extra.cpp and added it to CMake but not to git. The
+    # candidate must build the same tree, or it would prove a tree the user doesn't have.
+    sandbox.scenario("compile_error")
+    (sandbox.root / "src" / "extra.cpp").write_text("int extra_value() { return 7; }\n", encoding="utf-8")
+    cmake = sandbox.root / "CMakeLists.txt"
+    cmake.write_text(cmake.read_text(encoding="utf-8").replace(
+        "  src/text_util.cpp\n", "  src/text_util.cpp\n  src/extra.cpp\n"), encoding="utf-8")
+    task_id = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, _fixing_turns())
+
+    result = controller.run("fix the build", task_id=task_id, skill_name="fix-build-failure")
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert result.metrics["candidate"]["paths"] == [RING]
+    assert "Included 1 untracked file(s)" in result.answer
+    applied = _apply(controller, task_id)
+    assert applied.metrics["candidate_import"]["checkout_matches_candidate_tree"] is True
+    assert "build proof covers them" in applied.answer
