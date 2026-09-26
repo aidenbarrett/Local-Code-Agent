@@ -32,6 +32,7 @@ class Profile:
     stop_command: tuple[str, ...] | None = None
     telemetry_url: str | None = None
     compile_time_path: str | None = None
+    prefill_time_path: str | None = None
     memory_path: str | None = None
     identity_url: str | None = None
     identity_model_path: str | None = None
@@ -90,6 +91,7 @@ def load_profile(path: Path) -> Profile:
         stop_command=_command(startup.get("stop_command"), "startup.stop_command"),
         telemetry_url=str(telemetry["url"]) if telemetry.get("url") else None,
         compile_time_path=str(telemetry["compile_time_path"]) if telemetry.get("compile_time_path") else None,
+        prefill_time_path=str(telemetry["prefill_time_path"]) if telemetry.get("prefill_time_path") else None,
         memory_path=str(telemetry["memory_path"]) if telemetry.get("memory_path") else None,
         identity_url=str(identity["url"]) if identity.get("url") else None,
         identity_model_path=str(identity["model_path"]) if identity.get("model_path") else None,
@@ -120,6 +122,13 @@ class EndpointClient:
         with urlopen(request, timeout=self.timeout) as response:  # noqa: S310 - configured endpoint
             return json.loads(response.read().decode("utf-8"))
 
+    def ready(self) -> bool:
+        try:
+            self.get_json(self.profile.ready_url or urljoin(self.profile.base_url, "models"))
+            return True
+        except Exception:
+            return False
+
     def open_stream(self, prompt: str, max_tokens: int):
         target = urlsplit(urljoin(self.profile.base_url, "chat/completions"))
         cls = http.client.HTTPSConnection if target.scheme == "https" else http.client.HTTPConnection
@@ -137,12 +146,12 @@ class EndpointClient:
         started = time.perf_counter()
         conn.request("POST", path, body=body, headers=self.headers())
         response = conn.getresponse()
-        response_headers = {key.lower(): value for key, value in response.getheaders()}
+        headers = {key.lower(): value for key, value in response.getheaders()}
         if response.status >= 400:
             detail = response.read(4096).decode("utf-8", errors="replace")
             conn.close()
             raise RuntimeError(f"chat endpoint returned HTTP {response.status}: {detail}")
-        return conn, response, started, response_headers
+        return conn, response, started, headers
 
     @staticmethod
     def next_event(response) -> dict[str, Any] | None:
@@ -218,50 +227,83 @@ def _backend_value(client: EndpointClient, profile: Profile, path: str | None) -
     return _deep_get(client.get_json(profile.telemetry_url), path)
 
 
-def measure_cold_start(client: EndpointClient, profile: Profile, timeout: float) -> dict[str, Any]:
+def _run_stop(profile: Profile) -> None:
+    if profile.stop_command:
+        subprocess.run(profile.stop_command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _wait_not_ready(client: EndpointClient, timeout: float = 30.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not client.ready():
+            return True
+        time.sleep(0.1)
+    return not client.ready()
+
+
+def start_for_cold_measurement(
+    client: EndpointClient,
+    profile: Profile,
+    timeout: float,
+) -> tuple[dict[str, Any], subprocess.Popen[Any] | None]:
     if not profile.start_command:
-        return {"supported": False, "reason": "profile has no startup command"}
+        return {"supported": False, "reason": "profile has no startup command"}, None
+
+    if profile.stop_command:
+        _run_stop(profile)
+        if not _wait_not_ready(client):
+            return {"supported": False, "reason": "endpoint remained ready after configured stop command"}, None
+    elif client.ready():
+        return {
+            "supported": False,
+            "reason": "endpoint is already ready and no stop command is configured; cold state cannot be established",
+        }, None
+
     started = time.perf_counter()
     process = subprocess.Popen(profile.start_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = started + timeout
     last_error = None
+    while time.perf_counter() < deadline:
+        try:
+            client.get_json(profile.ready_url or urljoin(profile.base_url, "models"))
+            result: dict[str, Any] = {
+                "supported": True,
+                "client_observed_start_to_ready_ms": (time.perf_counter() - started) * 1000.0,
+                "timing_source": "client_boundary",
+            }
+            compile_time = _backend_value(client, profile, profile.compile_time_path)
+            if compile_time is not None:
+                result["backend_reported_compile_time"] = compile_time
+                result["compile_time_source"] = "backend_reported"
+            return result, process
+        except Exception as exc:
+            last_error = str(exc)
+            rc = process.poll()
+            if rc not in (None, 0):
+                raise RuntimeError(f"startup command exited {rc} before ready")
+            time.sleep(0.2)
+    raise TimeoutError(f"endpoint did not become ready within {timeout}s: {last_error}")
+
+
+def stop_started_endpoint(profile: Profile, process: subprocess.Popen[Any] | None) -> None:
+    if profile.stop_command:
+        _run_stop(profile)
+        return
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
     try:
-        while time.perf_counter() < deadline:
-            try:
-                client.get_json(profile.ready_url or urljoin(profile.base_url, "models"))
-                ready_ms = (time.perf_counter() - started) * 1000.0
-                result = {
-                    "supported": True,
-                    "client_observed_start_to_ready_ms": ready_ms,
-                    "timing_source": "client_boundary",
-                }
-                compile_time = _backend_value(client, profile, profile.compile_time_path)
-                if compile_time is not None:
-                    result["backend_reported_compile_time"] = compile_time
-                    result["compile_time_source"] = "backend_reported"
-                return result
-            except Exception as exc:
-                last_error = str(exc)
-                if process.poll() is not None:
-                    raise RuntimeError(f"startup command exited {process.returncode} before ready")
-                time.sleep(0.2)
-        raise TimeoutError(f"endpoint did not become ready within {timeout}s: {last_error}")
-    finally:
-        if profile.stop_command:
-            subprocess.run(profile.stop_command, check=False)
-        elif process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
 
 
 def benchmark_generation(client: EndpointClient, prompt: str, max_tokens: int) -> dict[str, Any]:
     return client.stream_chat(prompt, max_tokens)
 
 
-def benchmark_context_ladder(client: Any, targets: list[int]) -> list[dict[str, Any]]:
+def benchmark_context_ladder(client: Any, profile: Profile, targets: list[int]) -> list[dict[str, Any]]:
     rows = []
     for target in targets:
         prompt = "x " * target
@@ -275,13 +317,18 @@ def benchmark_context_ladder(client: Any, targets: list[int]) -> list[dict[str, 
                 "timing_source": "client_boundary",
             })
             break
-        rows.append({
+        row = {
             "requested_approx_tokens": target,
             "observed_prompt_tokens": result.get("prompt_tokens"),
-            "request_to_first_token_ms": result.get("ttft_ms"),
+            "client_observed_prompt_to_first_token_ms": result.get("ttft_ms"),
             "supported": result.get("ttft_ms") is not None,
             "timing_source": "client_boundary",
-        })
+        }
+        backend_prefill = _backend_value(client, profile, profile.prefill_time_path)
+        if backend_prefill is not None:
+            row["backend_reported_prefill_time"] = backend_prefill
+            row["prefill_time_source"] = "backend_reported"
+        rows.append(row)
     return rows
 
 
@@ -361,6 +408,7 @@ def run_soak(client: EndpointClient, profile: Profile, hours: float, prompt: str
             backend_memory = _backend_value(client, profile, profile.memory_path)
             if backend_memory is not None:
                 sample["backend_reported_memory"] = backend_memory
+                sample["memory_source"] = "backend_reported"
             samples.append(sample)
         except Exception as exc:
             errors.append({"timestamp_unix": timestamp, "type": type(exc).__name__, "message": str(exc)})
@@ -438,21 +486,31 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_tokens <= 0 or args.ready_timeout <= 0 or args.soak_hours < 0:
         parser.error("token/time values must be positive; soak may be zero")
 
-    report = {
-        "schema_version": 1,
-        "captured_at_unix": time.time(),
-        "profile_name": profile.name,
-        "identity": capture_identity(client, profile),
-        "cold_start": measure_cold_start(client, profile, args.ready_timeout) if args.cold_start else {"supported": False, "reason": "not requested"},
-        "generation": benchmark_generation(client, args.generation_prompt, args.max_tokens),
-        "context_ladder": benchmark_context_ladder(client, targets),
-        "cancellation": benchmark_cancellation(client, profile) if args.cancellation else {"supported": False, "reason": "not requested"},
-        "soak": run_soak(client, profile, args.soak_hours, args.generation_prompt, args.max_tokens),
-    }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(args.output)
-    return 0
+    started_process = None
+    cold = {"supported": False, "reason": "not requested"}
+    try:
+        if args.cold_start:
+            cold, started_process = start_for_cold_measurement(client, profile, args.ready_timeout)
+        if not client.ready():
+            raise RuntimeError("endpoint is not ready; configure startup.command or start it before running the harness")
+        report = {
+            "schema_version": 1,
+            "captured_at_unix": time.time(),
+            "profile_name": profile.name,
+            "identity": capture_identity(client, profile),
+            "cold_start": cold,
+            "generation": benchmark_generation(client, args.generation_prompt, args.max_tokens),
+            "context_ladder": benchmark_context_ladder(client, profile, targets),
+            "cancellation": benchmark_cancellation(client, profile) if args.cancellation else {"supported": False, "reason": "not requested"},
+            "soak": run_soak(client, profile, args.soak_hours, args.generation_prompt, args.max_tokens),
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(args.output)
+        return 0
+    finally:
+        if args.cold_start:
+            stop_started_endpoint(profile, started_process)
 
 
 if __name__ == "__main__":
