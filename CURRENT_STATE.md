@@ -20,10 +20,8 @@ backends. The active surface is the in-process Textual Session Hub launched by
 
 The deterministic controller owns admission, permissions, execution facts, verification,
 provenance and durable state. Models may propose work but cannot grant authority or
-self-certify success. Historical experiment machinery is no longer part of the active
-product tree or CI; the exact pre-cleanup state is preserved on
-`archive/legacy-experiments-2026-09-26`. Current runtime comparisons use the
-backend-agnostic endpoint harness under `internal/perf/`.
+self-certify success. Measurement collection remains paused; Generation-1 evidence is
+frozen and product hardening must not rewrite historical methodology or denominators.
 
 ## What is implemented on current main
 
@@ -61,13 +59,7 @@ The public/product path now includes:
   runtime/model/device provenance, public Session Hub preflight, cold/warm run evidence and
   hashes, while explicitly refusing to self-certify physical NPU acceptance;
 - a fail-closed merge-enforcement checker that distinguishes actual GitHub branch/ruleset
-  required-check policy from merely having workflow files;
-- exact product-source identity covering live product, serving, scripts, skills and
-  session-schema surfaces after removal of the retired research tree;
-- a backend-agnostic OpenAI-compatible endpoint harness under `internal/perf/` for
-  client-observed cold readiness, TTFT, decode rate, context behavior and soak evidence,
-  with backend telemetry kept separately labelled and cancellation reported only when an
-  endpoint-side lifetime hook can prove it.
+  required-check policy from merely having workflow files.
 
 Source mutation and commits remain disabled on the conversation product path.
 
@@ -94,9 +86,6 @@ supports:
   not possess repository-admin authority itself.
 - **Broader mutation, commit/push, Watch creation and richer automation remain later
   product work.** Existing lower-level primitives are not public-journey acceptance.
-- **Backend performance is deployment evidence, not an architecture claim.** Runtime
-  comparisons use the neutral endpoint harness and retain configured/observed identity
-  alongside measurements.
 
 ## Immediate work, in order
 
