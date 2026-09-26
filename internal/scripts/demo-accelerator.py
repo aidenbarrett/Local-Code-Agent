@@ -22,7 +22,7 @@ sys.path.insert(0, str(SOURCE_ROOT))
 
 from local_agent.config import MODEL_PRESETS  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
-from measurement import serve  # noqa: E402
+from serving import serve  # noqa: E402
 from terminal_ui import LCA_LOGO, WIDTH, device_label, ui  # noqa: E402
 
 BASE_PROFILE = "ptl-npu-8b"
