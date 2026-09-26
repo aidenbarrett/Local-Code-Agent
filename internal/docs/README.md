@@ -1,75 +1,54 @@
 # internal/docs/
 
-Four kinds of document. The kind matters more than the topic, because it tells you
-whether disagreeing with a file makes you wrong or makes it wrong.
+Documents here fall into three useful buckets: normative contracts, agreed design intent and operational/record material. Current source and CI remain implementation truth.
 
-No file count here on purpose. An index that states how many documents exist is wrong
-the first time somebody adds one.
-
-## Normative: the code must match these
+## Normative
 
 | File | Governs |
 |---|---|
-| `session-contract/v1/events.schema.json` | normative `lca.session.events/1` wire shape. It is loaded at runtime and part of the hashed surface. Changing frozen values requires a new supported schema version, never a silent edit |
-| `verification.md` | what counts as proof that a build or test happened, and when proof goes stale |
-| `next-experiment-preregistration.md` | endpoints E1-E4 and the bounded repeat rule, registered before collection |
-| `measurement-protocol.md` | how a run is collected and what invalidates it |
-| `provenance/session-contract-source-identity.md` | why the schema is hashed |
+| `session-contract/v1/events.schema.json` | supported `lca.session.events/1` wire shape loaded by the runtime |
+| `verification.md` | what counts as build/test proof and when proof goes stale |
+| `provenance/session-contract-source-identity.md` | why the runtime event schema participates in product source identity |
 | `architecture/process-containment.md` | what cancellation may and may not claim |
 
-If the code disagrees with one of these, the code is wrong.
+If product code deliberately changes one of these contracts, update the corresponding documentation and regression tests in the same change.
 
-## Design: agreed intent, not automatically implemented
+## Design intent
 
-| File | Current interpretation |
-|---|---|
-| `product-roadmap.md` | agreed product destination and workflow acceptance gates; future scope is not an implementation claim |
-| `product-execution-priorities.md` | adopted cross-project learnings, anti-tangent rules and priority ladder; `CURRENT_STATE.md` still owns the immediate ordered work and live source owns implementation truth |
-| `session-contract/README.md` | design rationale and semantic notes for the v1 event contract; JSON schema is normative |
-| `session-hub-design.md` | Session Hub architecture. Current source and `CURRENT_STATE.md` decide which slices are actually composed |
-| `session-hub-file-layout.md` | intended ownership/layout; verify names against current source before adding another component |
-| `session-hub-implementation-plan.md` | historical/working slice order, not proof a slice reached the public product |
-| `textual-client-design.md` | design intent for the Textual client. **A live Textual Session Hub now exists on the public session path**; remaining acceptance gaps are tracked in `CURRENT_STATE.md` |
-| `vscode-client-design.md` | later VS Code / Remote SSH client shape; no extension is delivered yet |
-| `endpoint-scheduler-design.md` | canonical endpoint arbitration design. `EndpointArbiter`, `EndpointRuntime` and `EndpointCallAdapter` exist; public conversation/worker client composition and cancellation reconciliation remain incomplete. Do not create a second scheduler authority |
-| `gateway-transport-design.md` | later transport constraints; current Session Hub remains in-process |
-| `conversation-product-architecture.md` | conversation product intent; verify reachability against current source |
-| `conversation-branch-validation.md` | branching semantics |
-| `serving.md`, `serving-and-accelerators.md` | model serving and accelerator choices |
-| `energy-study-methodology.md`, `energy-study-decisions.md` | energy study methodology/history |
-| `experiment-design.md`, `pilot-design.md`, `gen2-scripted-baseline.md` | experiment design/history |
+Important design documents include:
 
-Read design documents for intended boundaries. Do not read them as automatic descriptions
-of current `main`.
+- `product-roadmap.md`
+- `product-execution-priorities.md`
+- `session-contract/README.md`
+- `session-hub-design.md`
+- `session-hub-file-layout.md`
+- `textual-client-design.md`
+- `vscode-client-design.md`
+- `endpoint-scheduler-design.md`
+- `gateway-transport-design.md`
+- `conversation-product-architecture.md`
+- `conversation-branch-validation.md`
+- `serving.md`
+- `serving-and-accelerators.md`
 
-## Operational: how to do a thing
+Read these for intended boundaries, not as automatic claims about current `main`.
 
-`bring-up.md`, `work-laptop-bootstrap.md`, `running-experiments.md`,
-`testing-and-tev-framework.md`.
+## Operational and record material
 
-These go stale in the ordinary way. If one is wrong, fix it in the same change that
-changes the supported workflow.
+Operational documents include `bring-up.md`, `work-laptop-bootstrap.md` and `testing-and-tev-framework.md`.
 
-## Record: what happened, and what we do not yet know
+Record/backlog documents include `review-history.md`, `quality-hardening-roadmap.md`, `standards-repair-backlog-2026-09-22.md` and `UX_ROOT_REFACTOR_PLAN.md`.
 
-`review-history.md`, `project-history.md`, `open-methodology-questions.md`,
-`quality-hardening-roadmap.md`, `external-review-brief.md`, `UX_ROOT_REFACTOR_PLAN.md`.
-
-`review-history.md` is where historical merge context belongs. Historical scores and old
-snapshots stay historical. `quality-hardening-roadmap.md` is a backlog, not a
-specification and not a current assurance score.
+Historical experiment methodology and collected evidence are not maintained on the active product branch. The exact pre-cleanup tree is preserved on `archive/legacy-experiments-2026-09-26` at commit `ad07af071a62acfa4d0168c7a89d7110a52088f6`.
 
 ## Current-status rule
 
 For current implementation claims use this order:
 
-1. current GitHub `main` source/tests/CI;
-2. root `CURRENT_STATE.md` for the latest reconciled operational snapshot;
-3. root `PROJECT_OVERVIEW.md` for durable architecture, decisions and experiment history;
-4. `product-execution-priorities.md` for adopted product learnings and anti-tangent ordering beyond the immediate current-state queue;
-5. other design documents for intended future composition;
-6. chats only as disposable working discussion.
+1. current GitHub `main` source, tests and CI;
+2. root `CURRENT_STATE.md` for the latest operational snapshot;
+3. root `PROJECT_OVERVIEW.md` for durable architecture and product direction;
+4. `product-execution-priorities.md` for ordered product work beyond the immediate queue;
+5. other design documents for intended future composition.
 
-A merged primitive is not a delivered feature until the public composition uses it and a
-behavioural acceptance path proves it. A document that claims a capability the tree does
-not have is worse than a missing document, because somebody will build on it.
+A merged primitive is not a delivered feature until the public composition uses it and a behavioural acceptance path proves it.
