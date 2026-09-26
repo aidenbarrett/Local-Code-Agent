@@ -187,6 +187,15 @@ def apply_candidate(
         "import_verified": imported.verified,
         "pre_blobs": [[p, b] for p, b in imported.pre_blobs],
     }
+    if not imported.applied and imported.unresolved:
+        facts["unresolved"] = list(imported.unresolved)
+        return TaskResult(
+            task_id, TaskOutcome.NO_VERDICT,
+            "The import failed part-way and could not be fully undone. These files are "
+            "in an unknown state and need your attention: "
+            + ", ".join(imported.unresolved) + ".\n" + (imported.refused_reason or ""),
+            False, metrics={"candidate_import": facts}, reason_code="cleanup_unknown",
+        )
     if not imported.applied:
         detail = (
             "Changed since the candidate was prepared: " + ", ".join(imported.conflicts)
@@ -194,7 +203,12 @@ def apply_candidate(
         )
         return TaskResult(
             task_id, TaskOutcome.FAIL,
-            "No change was applied. Your checkout is exactly as it was.\n" + detail,
+            (
+                "No change remains applied: the import failed part-way and what it wrote "
+                "was restored. Your checkout is back exactly as it was.\n"
+                if imported.rolled_back
+                else "No change was applied. Your checkout is exactly as it was.\n"
+            ) + detail,
             False, metrics={"candidate_import": facts}, reason_code="scope_changed",
         )
     if not imported.verified:
@@ -205,16 +219,32 @@ def apply_candidate(
             False, metrics={"candidate_import": facts}, reason_code="verification_failed",
         )
 
-    matches = manager.checkout_matches_candidate(workspace)
+    try:
+        matches = manager.checkout_matches_candidate(workspace)
+    except WorkspaceError:
+        matches = None
     facts["checkout_matches_candidate_tree"] = matches
-    manager.discard(workspace)
-    proof_line = (
-        "Your tracked files now match the candidate tree exactly, so the candidate's "
-        "build proof covers them."
-        if matches else
-        "Your checkout also differs from the candidate in other tracked files, so the "
-        "candidate's build proof does not cover it. Ask me to build it to verify."
-    )
+    try:
+        manager.discard(workspace)
+    except WorkspaceError:
+        # The import itself is complete and verified; a leftover worktree is not a
+        # reason to misreport it. It is recorded for cleanup instead.
+        facts["workspace_discard_failed"] = True
+    if matches is True:
+        proof_line = (
+            "Your tracked files now match the candidate tree exactly, so the candidate's "
+            "build proof covers them."
+        )
+    elif matches is False:
+        proof_line = (
+            "Your checkout also differs from the candidate in other tracked files, so the "
+            "candidate's build proof does not cover it. Ask me to build it to verify."
+        )
+    else:
+        proof_line = (
+            "The candidate tree could not be compared with your checkout, so the "
+            "candidate's build proof is not claimed for it. Ask me to build it to verify."
+        )
     return TaskResult(
         task_id, TaskOutcome.PASS,
         "Applied the reviewed change from task " + referent + " to: "

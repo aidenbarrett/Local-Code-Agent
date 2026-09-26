@@ -76,6 +76,14 @@ class ImportResult:
     verified: bool
     # Blob ids the user's paths held immediately before import, for owned revert.
     pre_blobs: tuple[tuple[str, str | None], ...] = ()
+    # Paths left in neither their pre-import nor post-import state after a failed
+    # import and owned rollback. Nonempty means the checkout needs the user's attention.
+    unresolved: tuple[str, ...] = ()
+    # True when git wrote part of the candidate and this import restored what it wrote.
+    rolled_back: bool = False
+    # Exact bytes each touched path held in the user's checkout before import (None for
+    # a path the candidate creates). Restores are byte-exact, never re-filtered by git.
+    pre_contents: tuple[tuple[str, bytes | None], ...] = ()
 
 
 def _split_z(raw: bytes) -> tuple[str, ...]:
@@ -298,27 +306,91 @@ class GitWorkspaceManager:
                 + check.stderr.decode("utf-8", "replace").strip()[:500],
                 False, tuple(pre),
             )
-        self._git(user, "apply", "--whitespace=nowarn", "-", stdin=candidate.patch)
+        pre_contents = tuple(
+            (path, (user / path).read_bytes() if before is not None else None)
+            for path, before in pre
+        )
+        applied = self._git(
+            user, "apply", "--whitespace=nowarn", "-", stdin=candidate.patch, check=False,
+        )
+        if applied.returncode != 0:
+            # git apply can stop part-way through writing. Put back exactly what this
+            # import wrote, and nothing else: a path is restored only if it now holds
+            # the candidate's post-image. Anything else is reported, never overwritten.
+            unresolved = self._rollback_owned(user, candidate, pre_contents)
+            reason = "git apply failed while writing: " + applied.stderr.decode(
+                "utf-8", "replace"
+            ).strip()[:500]
+            return ImportResult(
+                False, candidate.paths, (), reason, False, tuple(pre), unresolved,
+                rolled_back=not unresolved, pre_contents=pre_contents,
+            )
 
         verified = all(
             self._worktree_blob(user, path) == blob for path, blob in candidate.post_blobs
         )
-        return ImportResult(True, candidate.paths, (), None, verified, tuple(pre))
+        return ImportResult(
+            True, candidate.paths, (), None, verified, tuple(pre), pre_contents=pre_contents,
+        )
 
-    def checkout_matches_candidate(self, workspace: Workspace) -> bool:
+    def _rollback_owned(
+        self,
+        user: Path,
+        candidate: CandidatePatch,
+        pre_contents: tuple[tuple[str, bytes | None], ...],
+    ) -> tuple[str, ...]:
+        """Restore paths this import wrote to their exact pre-import bytes; return the rest.
+
+        Restoration is byte-exact from the snapshot taken just before writing. Content
+        re-filtered through git could differ in line endings from what the user had
+        (for example an LF checkout under core.autocrlf=true).
+        """
+        post = dict(candidate.post_blobs)
+        unresolved: list[str] = []
+        for path, before in pre_contents:
+            target = user / path
+            try:
+                current_bytes = target.read_bytes() if target.is_file() else None
+            except OSError:
+                unresolved.append(path)
+                continue
+            if current_bytes == before:
+                continue
+            if self._worktree_blob(user, path) != post.get(path):
+                unresolved.append(path)
+                continue
+            try:
+                if before is None:
+                    target.unlink()
+                else:
+                    target.write_bytes(before)
+                restored = target.read_bytes() if target.is_file() else None
+            except OSError:
+                unresolved.append(path)
+                continue
+            if restored != before:
+                unresolved.append(path)
+        return tuple(unresolved)
+
+    def checkout_matches_candidate(self, workspace: Workspace) -> bool | None:
         """Whether the user's tracked files now equal the candidate tree exactly.
 
         True means a proof taken on the candidate tree is a proof about the user's tracked
         state. Untracked files are outside both trees. Nothing in the user's checkout is
-        modified to answer this.
+        modified to answer this. None means the comparison could not be made (for
+        example the candidate worktree is gone), which never counts as a match.
         """
+        if not workspace.root.is_dir():
+            return None
         user = workspace.repository_root
         snapshot = self._snapshot_commit(
             user, self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
         )
         user_tree = self._out(user, "rev-parse", f"{snapshot}^{{tree}}")
-        candidate_tree = self._out(workspace.root, "write-tree")
-        return user_tree == candidate_tree
+        done = self._git(workspace.root, "write-tree", check=False)
+        if done.returncode != 0:
+            return None
+        return user_tree == done.stdout.decode().strip()
 
     # -- retention -----------------------------------------------------------
 
