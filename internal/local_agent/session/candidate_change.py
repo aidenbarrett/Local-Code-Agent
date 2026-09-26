@@ -22,7 +22,12 @@ from .proof_binding import repository_tree_sha256
 from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace, WorkspaceError
 
 # Skills whose purpose is to change source. They never run against the user's checkout.
-CANDIDATE_CHANGE_SKILLS = frozenset({"fix-build-failure"})
+# Each maps to the full proof its candidate must pass, in the skill's own terms.
+CANDIDATE_PROOF = {
+    "fix-build-failure": "full build",
+    "fix-test-failure": "full test run",
+}
+CANDIDATE_CHANGE_SKILLS = frozenset(CANDIDATE_PROOF)
 
 # Controller-owned actions admitted like skills but executed without a model or tools.
 APPLY_CANDIDATE_ACTION = "apply-candidate"
@@ -44,14 +49,21 @@ def candidate_workspace_approval(tool, arguments: dict[str, Any], decision) -> b
     return tool.name in _CANDIDATE_APPROVED_TOOLS
 
 
-def candidate_blocker(declared: RepoConfig, *, allow_execution: bool) -> str | None:
+def candidate_blocker(
+    declared: RepoConfig, *, allow_execution: bool, skill: str = "fix-build-failure",
+) -> str | None:
     """Why a candidate change cannot run, or None. Checked before any workspace exists."""
     if not declared.policy.allow_patch:
         return "repository policy does not allow patches (policy.allow_patch = false)"
     if not (allow_execution and declared.policy.allow_build):
         return (
-            "a candidate change must be proven by a full build, and configured build "
-            "execution is not enabled for this session"
+            f"a candidate change must be proven by a {CANDIDATE_PROOF[skill]}, and configured "
+            "build execution is not enabled for this session"
+        )
+    if skill == "fix-test-failure" and not declared.policy.allow_test:
+        return (
+            "a test fix must be proven by a full test run, and repository policy does not "
+            "allow running tests (policy.allow_test = false)"
         )
     return None
 
@@ -111,6 +123,7 @@ def settle_candidate(
     *,
     task_id: str,
     verified: bool,
+    proof: str = "full build",
 ) -> tuple[CandidateOutcome, CandidatePatch | None]:
     """Retain a candidate with changes for review and import; discard an empty one."""
     candidate = manager.candidate_patch(workspace)
@@ -120,15 +133,15 @@ def settle_candidate(
 
     manager.retain(workspace, candidate)
     listed = ", ".join(candidate.paths[:8]) + (" …" if len(candidate.paths) > 8 else "")
-    proof = (
-        "A full build of the candidate passed."
+    proof_line = (
+        f"A {proof} of the candidate passed."
         if verified
-        else "The candidate is NOT proven: no full build passed after the last edit."
+        else f"The candidate is NOT proven: no {proof} passed after the last edit."
     )
     lines = [
-        f"Candidate change prepared in an isolated copy. Your checkout has not been modified.",
+        "Candidate change prepared in an isolated copy. Your checkout has not been modified.",
         f"Changed: {listed}",
-        proof,
+        proof_line,
     ]
     if workspace.untracked_excluded:
         lines.append(
@@ -265,6 +278,7 @@ __all__ = [
     "apply_candidate",
     "controller_action_sha256",
     "CANDIDATE_CHANGE_SKILLS",
+    "CANDIDATE_PROOF",
     "CandidateOutcome",
     "candidate_blocker",
     "candidate_repo",

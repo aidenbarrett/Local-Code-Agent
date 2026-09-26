@@ -410,3 +410,64 @@ def test_unreadable_candidate_worktree_does_not_misreport_a_completed_import(san
     assert result.metrics["candidate_import"]["checkout_matches_candidate_tree"] is None
     assert "could not be compared" in result.answer
     assert "covers them" not in result.answer
+
+
+# ------------------------------------------------------- fix the failing tests
+
+
+def _test_fixing_turns():
+    return [
+        ChatResponse(tool_calls=[tool_call("build_target", {}, "t1")]),
+        ChatResponse(tool_calls=[tool_call("run_test", {}, "t2")]),
+        ChatResponse(tool_calls=[tool_call("propose_patch", {
+            "path": RING, "find": "count_ + 1 == slots_.size()", "replace": "count_ == slots_.size()"}, "t3")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "t4")]),
+        ChatResponse(tool_calls=[tool_call("build_target", {}, "t5")]),
+        ChatResponse(tool_calls=[tool_call("run_test", {}, "t6")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "full() was off by one", "evidence_ids": ["run_test:5"]}, "t7")]),
+        ChatResponse(content="Fixed RingBuffer::full(); the full test run passes."),
+    ]
+
+
+def test_route_sends_explicit_test_fix_phrasing_to_the_candidate_skill():
+    from local_agent.session.intents import RULE_FIX_TESTS
+
+    for text in ("fix the failing tests", "Fix the test failures", "make the tests pass"):
+        decision = decide_route(text, active_repo_count=1)
+        assert (decision.action, decision.skill, decision.rule_id) == (
+            RouteAction.WORK, "fix-test-failure", RULE_FIX_TESTS)
+    assert decide_route("fix the tests by deleting them", active_repo_count=1).action is RouteAction.MODEL_FALLBACK
+
+
+def test_failing_test_is_fixed_and_proven_by_a_full_test_run_in_isolation(sandbox, tmp_path):
+    sandbox.scenario("test_failure")
+    broken = (sandbox.root / RING).read_bytes()
+    task_id = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, _test_fixing_turns())
+
+    result = controller.run("fix the failing tests", task_id=task_id, skill_name="fix-test-failure")
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert result.verified_at_completion is True
+    assert "A full test run of the candidate passed." in result.answer
+    assert result.metrics["proof_binding"]["scope"] == "full_test"
+    assert (sandbox.root / RING).read_bytes() == broken
+    assert result.metrics["candidate"]["paths"] == [RING]
+
+    applied = _apply(controller, task_id)
+    assert applied.outcome is TaskOutcome.PASS, applied.answer
+    assert "count_ == slots_.size()" in (sandbox.root / RING).read_text(encoding="utf-8")
+
+
+def test_test_fix_is_refused_before_any_workspace_when_tests_are_not_allowed(sandbox, tmp_path):
+    config = sandbox.root / ".local-agent.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("allow_test = true", "allow_test = false"),
+        encoding="utf-8",
+    )
+    controller, manager = _controller(sandbox.root, tmp_path, _test_fixing_turns())
+    result = controller.run("fix the failing tests", task_id=str(uuid4()), skill_name="fix-test-failure")
+    assert result.outcome is TaskOutcome.BLOCKED
+    assert "allow_test" in result.answer
+    assert list(manager.workspaces_root.glob("*.lease")) == []
