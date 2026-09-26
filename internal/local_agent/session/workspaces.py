@@ -81,6 +81,9 @@ class ImportResult:
     unresolved: tuple[str, ...] = ()
     # True when git wrote part of the candidate and this import restored what it wrote.
     rolled_back: bool = False
+    # Exact bytes each touched path held in the user's checkout before import (None for
+    # a path the candidate creates). Restores are byte-exact, never re-filtered by git.
+    pre_contents: tuple[tuple[str, bytes | None], ...] = ()
 
 
 def _split_z(raw: bytes) -> tuple[str, ...]:
@@ -303,6 +306,10 @@ class GitWorkspaceManager:
                 + check.stderr.decode("utf-8", "replace").strip()[:500],
                 False, tuple(pre),
             )
+        pre_contents = tuple(
+            (path, (user / path).read_bytes() if before is not None else None)
+            for path, before in pre
+        )
         applied = self._git(
             user, "apply", "--whitespace=nowarn", "-", stdin=candidate.patch, check=False,
         )
@@ -310,49 +317,58 @@ class GitWorkspaceManager:
             # git apply can stop part-way through writing. Put back exactly what this
             # import wrote, and nothing else: a path is restored only if it now holds
             # the candidate's post-image. Anything else is reported, never overwritten.
-            unresolved = self._rollback_owned(user, candidate, tuple(pre))
+            unresolved = self._rollback_owned(user, candidate, pre_contents)
             reason = "git apply failed while writing: " + applied.stderr.decode(
                 "utf-8", "replace"
             ).strip()[:500]
             return ImportResult(
                 False, candidate.paths, (), reason, False, tuple(pre), unresolved,
-                rolled_back=not unresolved,
+                rolled_back=not unresolved, pre_contents=pre_contents,
             )
 
         verified = all(
             self._worktree_blob(user, path) == blob for path, blob in candidate.post_blobs
         )
-        return ImportResult(True, candidate.paths, (), None, verified, tuple(pre))
+        return ImportResult(
+            True, candidate.paths, (), None, verified, tuple(pre), pre_contents=pre_contents,
+        )
 
     def _rollback_owned(
         self,
         user: Path,
         candidate: CandidatePatch,
-        pre: tuple[tuple[str, str | None], ...],
+        pre_contents: tuple[tuple[str, bytes | None], ...],
     ) -> tuple[str, ...]:
-        """Restore paths this import wrote to their pre-import content; return the rest."""
+        """Restore paths this import wrote to their exact pre-import bytes; return the rest.
+
+        Restoration is byte-exact from the snapshot taken just before writing. Content
+        re-filtered through git could differ in line endings from what the user had
+        (for example an LF checkout under core.autocrlf=true).
+        """
         post = dict(candidate.post_blobs)
         unresolved: list[str] = []
-        for path, before in pre:
-            current = self._worktree_blob(user, path)
-            if current == before:
-                continue
-            if current != post.get(path):
+        for path, before in pre_contents:
+            target = user / path
+            try:
+                current_bytes = target.read_bytes() if target.is_file() else None
+            except OSError:
                 unresolved.append(path)
                 continue
-            target = user / path
+            if current_bytes == before:
+                continue
+            if self._worktree_blob(user, path) != post.get(path):
+                unresolved.append(path)
+                continue
             try:
                 if before is None:
                     target.unlink()
                 else:
-                    # --filters applies the checkout's smudge/eol conversion, so the
-                    # restored bytes are what git would have checked out.
-                    data = self._git(user, "cat-file", "--filters", f"--path={path}", before).stdout
-                    target.write_bytes(data)
-            except (OSError, WorkspaceError):
+                    target.write_bytes(before)
+                restored = target.read_bytes() if target.is_file() else None
+            except OSError:
                 unresolved.append(path)
                 continue
-            if self._worktree_blob(user, path) != before:
+            if restored != before:
                 unresolved.append(path)
         return tuple(unresolved)
 

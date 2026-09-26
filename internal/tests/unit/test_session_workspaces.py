@@ -330,3 +330,34 @@ def test_partial_import_restores_modified_files_and_removes_created_ones(tmp_pat
     finally:
         monkeypatch.undo()
         manager.close(ws)
+
+
+def test_rollback_restores_exact_bytes_even_when_git_would_rewrite_line_endings(tmp_path, monkeypatch):
+    # An LF checkout under core.autocrlf=true: git's own checkout filters would write
+    # CRLF, so restoring through git would silently change every line ending. This is
+    # the Windows CI case (the fixture is LF by .gitattributes, the sandbox repo is not).
+    user = _user_repo(tmp_path)
+    (user / "src" / "a.cpp").write_bytes(b"int a() { return 1; }\n")
+    _git(user, "config", "core.autocrlf", "true")
+    manager = _manager(tmp_path)
+    ws = manager.create(user, str(uuid4()))
+    try:
+        (ws.root / "src" / "a.cpp").write_bytes(b"int a() { return 13; }\n")
+        candidate = manager.candidate_patch(ws)
+        post = (ws.root / "src" / "a.cpp").read_bytes()
+        real = manager._git
+
+        def faulty(cwd, *args, **kwargs):
+            if args and args[0] == "apply" and "--check" not in args:
+                (user / "src" / "a.cpp").write_bytes(post)
+                return subprocess.CompletedProcess(["git", *args], 128, b"", b"injected")
+            return real(cwd, *args, **kwargs)
+
+        monkeypatch.setattr(manager, "_git", faulty)
+        result = manager.import_patch(ws, candidate)
+
+        assert result.rolled_back is True
+        assert (user / "src" / "a.cpp").read_bytes() == b"int a() { return 1; }\n"
+    finally:
+        monkeypatch.undo()
+        manager.close(ws)
