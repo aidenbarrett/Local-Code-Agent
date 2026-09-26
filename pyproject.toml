@@ -18,15 +18,10 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
-# Coverage is reported, never gated, until a baseline exists and a floor has been
-# argued for. A threshold invented before the first measurement is a number
-# somebody games rather than a bar somebody clears.
 coverage = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
 ]
-# Test-time parallelism is deliberately opt-in. The C++ integration tests build
-# real projects and isolation under xdist has not yet been demonstrated.
 parallel = [
     "pytest>=8.0",
     "pytest-xdist>=3.6",
@@ -39,19 +34,9 @@ local-agent = "local_agent.cli:main"
 where = ["internal"]
 include = ["local_agent*"]
 
-# NOT distributable as a wheel yet, and this is deliberate rather than an
-# oversight.
-#
-# The eight skills live in `internal/skills/`, outside the Python package,
-# because in this experiment they are the treatment and burying them inside the
-# package would hide the thing being measured. The cost is that a built wheel
-# carries `local_agent` and no skills, so `default_search_path()` would find
-# none of the built-in ones after installation from a wheel.
-#
-# That is fine for how this is actually used: an editable install from a
-# checkout, or the release archive, both of which carry the whole tree.
-# Before anyone publishes a wheel, the skills have to move under `local_agent/`
-# as package data, and this must be verified rather than assumed.
+# The built-in skills currently live outside the Python package and are available
+# from a source checkout/release tree. A wheel is not considered self-contained
+# until those assets move under package data with an explicit installation test.
 
 [tool.pytest.ini_options]
 testpaths = ["internal/tests"]
