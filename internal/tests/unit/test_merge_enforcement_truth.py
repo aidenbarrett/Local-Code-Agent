@@ -64,44 +64,44 @@ def test_missing_expected_check_fails_closed():
     assert "product acceptance" in result.reason
 
 
+def _ruleset(enforcement: str) -> dict:
+    return {
+        "enforcement": enforcement,
+        "rules": [
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "required_status_checks": [
+                        {"context": "tests"},
+                        {"context": "product acceptance"},
+                    ]
+                },
+            }
+        ],
+    }
+
+
 def test_active_ruleset_can_supply_required_status_checks():
     result = evaluate_merge_enforcement(
         {"protected": False},
-        [
-            {
-                "enforcement": "active",
-                "rules": [
-                    {
-                        "type": "required_status_checks",
-                        "parameters": {
-                            "required_status_checks": [
-                                {"context": "tests"},
-                                {"context": "product acceptance"},
-                            ]
-                        },
-                    }
-                ],
-            }
-        ],
+        [_ruleset("active")],
         expected_checks=("tests",),
     )
     assert result.enforced is True
     assert result.source == "ruleset"
 
 
-def test_inactive_ruleset_does_not_count_as_enforcement():
+def test_disabled_ruleset_does_not_count_as_enforcement():
     result = evaluate_merge_enforcement(
         {"protected": False},
-        [
-            {
-                "enforcement": "disabled",
-                "rules": [
-                    {
-                        "type": "required_status_checks",
-                        "parameters": {"required_status_checks": [{"context": "tests"}]},
-                    }
-                ],
-            }
-        ],
+        [_ruleset("disabled")],
+    )
+    assert result.enforced is False
+
+
+def test_evaluate_ruleset_does_not_count_as_enforcement():
+    result = evaluate_merge_enforcement(
+        {"protected": False},
+        [_ruleset("evaluate")],
     )
     assert result.enforced is False
