@@ -40,7 +40,10 @@ The current product foundation provides:
 - Textual activity/result projection from durable task facts
 - exact source provenance for the live product surfaces
 
-Source mutation and commits remain disabled on the public conversation path until the trust and acceptance gates for those capabilities are closed.
+Source mutation is enabled only through the bounded isolated-candidate journey: the worker
+may prepare and prove a build fix outside the user's checkout, and applying it is a
+separate explicit controller action. This does not grant general checkout mutation,
+staging, commit, push or history authority.
 
 ## Architecture
 
@@ -81,7 +84,7 @@ The current priorities are:
 1. Make the Session Hub truthful, obvious and dependable for normal engineering work.
 2. Close cancellation, lifecycle and endpoint-ownership gaps with evidence rather than UI claims.
 3. Complete physical offline acceptance on the target local machine.
-4. Add safe mutation only after read-only and verification joins are trustworthy.
+4. Extend safe mutation from the isolated-candidate foundation only through explicit, independently verified journeys.
 5. Extend Git, build/test and repository intelligence while keeping the controller deterministic and model-agnostic.
 6. Treat endpoint/runtime performance as measured deployment data using the neutral harness, not as architecture folklore.
 
