@@ -26,8 +26,36 @@ from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace, Workspac
 CANDIDATE_PROOF = {
     "fix-build-failure": "full build",
     "fix-test-failure": "full test run",
+    "implement-change": "full build and full test run",
 }
 CANDIDATE_CHANGE_SKILLS = frozenset(CANDIDATE_PROOF)
+
+# The proof kinds that satisfy each skill's contract. The orchestrator's `verified`
+# accepts either a full build or a full test pass; a test fix must not be reported as
+# proven by a build alone.
+_REQUIRED_PROOF_KINDS = {
+    "fix-build-failure": frozenset({"full_build_pass", "full_test_pass"}),
+    "fix-test-failure": frozenset({"full_test_pass"}),
+    # run_test refuses stale or unbuilt binaries, so a current full test pass also
+    # establishes that the edited tree built.
+    "implement-change": frozenset({"full_test_pass"}),
+}
+
+
+def candidate_proof_satisfied(skill: str, run) -> bool:
+    """Whether the worker's current-epoch history holds the proof this skill requires.
+
+    Requires the orchestrator's own `verified` (no later contradiction on the current
+    tree) and at least one current-epoch proof of a required kind.
+    """
+    if not run.state.verified:
+        return False
+    required = _REQUIRED_PROOF_KINDS[skill]
+    epoch = int(run.state.mutation_epoch)
+    return any(
+        int(getattr(record, "epoch", -1)) == epoch and getattr(record, "proof", None) in required
+        for record in run.state.history
+    )
 
 # Controller-owned actions admitted like skills but executed without a model or tools.
 APPLY_CANDIDATE_ACTION = "apply-candidate"
@@ -64,10 +92,10 @@ def candidate_blocker(
             f"a candidate change must be proven by a {CANDIDATE_PROOF[skill]}, and configured "
             "build execution is not enabled for this session"
         )
-    if skill == "fix-test-failure" and not declared.policy.allow_test:
+    if skill in ("fix-test-failure", "implement-change") and not declared.policy.allow_test:
         return (
-            "a test fix must be proven by a full test run, and repository policy does not "
-            "allow running tests (policy.allow_test = false)"
+            f"this change must be proven by a {CANDIDATE_PROOF[skill]}, and repository "
+            "policy does not allow running tests (policy.allow_test = false)"
         )
     return None
 
@@ -421,6 +449,7 @@ __all__ = [
     "controller_action_sha256",
     "CANDIDATE_CHANGE_SKILLS",
     "CANDIDATE_PROOF",
+    "candidate_proof_satisfied",
     "CandidateOutcome",
     "candidate_blocker",
     "candidate_repo",

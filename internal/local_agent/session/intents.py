@@ -24,6 +24,7 @@ RULE_FIX_BUILD = "fix-build-failure/v1"
 RULE_APPLY_CANDIDATE = "apply-candidate/v1"
 RULE_UNDO_CANDIDATE = "undo-candidate/v1"
 RULE_COMMIT_CANDIDATE = "commit-candidate/v1"
+RULE_IMPLEMENT_CHANGE = "implement-change/v1"
 RULE_FIX_TESTS = "fix-test-failure/v1"
 RULE_SELF_CHECK = "self-check/v1"
 
@@ -215,6 +216,10 @@ _UNDO_CANDIDATE = re.compile(
     re.IGNORECASE,
 )
 
+
+# An explicit request for a source change. The prefix is the authority; the rest is
+# the user's description and is passed to the worker as data.
+_IMPLEMENT_CHANGE = re.compile(r"^(?:/change|change:)\s+(?P<request>\S.*)$", re.IGNORECASE | re.DOTALL)
 
 _COMMIT_CANDIDATE = re.compile(
     r"^/?commit(?:\s+(?:candidate|task))?\s+"
@@ -422,6 +427,18 @@ def decide_route(
             rule_id=RULE_TASK_DIAGNOSTIC,
             skill="task-diagnostic",
             reference_ids=(task_id,),
+        )
+
+    if _IMPLEMENT_CHANGE.fullmatch(stripped):
+        reason = _repository_target_reason(active_repo_count)
+        if reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_IMPLEMENT_CHANGE,
+            skill="implement-change",
         )
 
     if _COMMIT_CANDIDATE.fullmatch(stripped):

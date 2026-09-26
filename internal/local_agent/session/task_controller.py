@@ -24,6 +24,7 @@ from .candidate_change import (
     commit_candidate,
     CANDIDATE_CHANGE_SKILLS,
     CANDIDATE_PROOF,
+    candidate_proof_satisfied,
     CONTROLLER_ACTIONS,
     apply_candidate,
     controller_action_sha256,
@@ -232,6 +233,13 @@ class TaskController:
                 )
             task_outcome = self._product_outcome(run)
             verified = bool(task_outcome.succeeded and run.state.verified)
+            reason_code = self._reason_code(run, task_outcome)
+            if verified and not candidate_proof_satisfied(resolved_skill, run):
+                # Verified by the wrong kind of proof for this request (a test fix
+                # that only rebuilt). Not a success, and not a failure of the code.
+                verified = False
+                task_outcome = TaskOutcome.NO_VERDICT
+                reason_code = "missing_evidence"
             metrics = run.state.metrics.as_dict()
             # Proof identity is the candidate tree the build ran against.
             metrics["proof_binding"] = binding_from_run(task, run, workspace.root).as_dict()
@@ -247,7 +255,7 @@ class TaskController:
                 tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
                 metrics,
                 verification_ran=bool(run.state.verification_attempted),
-                reason_code=self._reason_code(run, task_outcome),
+                reason_code=reason_code,
             )
         finally:
             if not settled:

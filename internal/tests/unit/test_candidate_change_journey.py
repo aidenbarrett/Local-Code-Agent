@@ -618,3 +618,132 @@ def test_commit_says_nothing_to_commit_when_the_fix_restores_head(sandbox, tmp_p
     assert result.outcome is TaskOutcome.BLOCKED
     assert "nothing to commit" in result.answer
     assert _git_out(sandbox.root, "rev-parse", "HEAD") == head_before
+
+
+def test_a_test_fix_proven_only_by_a_build_is_not_reported_as_proven(sandbox, tmp_path):
+    sandbox.scenario("test_failure")
+    turns = [
+        ChatResponse(tool_calls=[tool_call("propose_patch", {
+            "path": RING, "find": "count_ + 1 == slots_.size()", "replace": "count_ == slots_.size()"}, "b1")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "b2")]),
+        ChatResponse(tool_calls=[tool_call("build_target", {}, "b3")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "built", "evidence_ids": ["build_target:2"]}, "b4")]),
+        ChatResponse(content="Fixed, the build passes."),
+    ]
+    controller, _manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the failing tests", task_id=str(uuid4()), skill_name="fix-test-failure")
+
+    assert result.verified_at_completion is False
+    assert result.outcome is TaskOutcome.NO_VERDICT and result.reason_code == "missing_evidence"
+    assert "NOT proven: no full test run passed" in result.answer
+    verdict_block_from_task_result(result)
+
+
+# --------------------------------------------------- change: <any source change>
+
+
+_CLEAR_TEST = """#include "sandbox/ring_buffer.hpp"
+
+#include <cstdio>
+
+int main() {
+    sandbox::RingBuffer buffer(2);
+    buffer.push(1);
+    buffer.push(2);
+    buffer.clear();
+    if (!buffer.empty() || buffer.size() != 0 || !buffer.push(3) || buffer.pop().value() != 3) {
+        std::fprintf(stderr, "clear() did not reset the buffer\\n");
+        return 1;
+    }
+    return 0;
+}
+"""
+
+
+def _implement_clear_turns():
+    header, source = "include/sandbox/ring_buffer.hpp", RING
+    return [
+        ChatResponse(tool_calls=[tool_call("propose_patch", {
+            "path": header, "find": "    std::optional<int> pop();\n",
+            "replace": "    std::optional<int> pop();\n    void clear();\n"}, "c1")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "c2")]),
+        ChatResponse(tool_calls=[tool_call("propose_patch", {
+            "path": source, "find": "bool RingBuffer::empty() const",
+            "replace": "void RingBuffer::clear() {\n    head_ = 0;\n    tail_ = 0;\n    count_ = 0;\n}\n\n"
+                       "bool RingBuffer::empty() const"}, "c3")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "c4")]),
+        ChatResponse(tool_calls=[tool_call("propose_file", {
+            "path": "tests/test_ring_clear.cpp", "content": _CLEAR_TEST}, "c5")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "c6")]),
+        ChatResponse(tool_calls=[tool_call("propose_patch", {
+            "path": "CMakeLists.txt", "find": "foreach(name ring_buffer text_util",
+            "replace": "foreach(name ring_buffer ring_clear text_util"}, "c7")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "c8")]),
+        ChatResponse(tool_calls=[tool_call("build_target", {}, "c9")]),
+        ChatResponse(tool_calls=[tool_call("run_test", {}, "c10")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "added RingBuffer::clear with a test",
+            "evidence_ids": ["run_test:9"]}, "c11")]),
+        ChatResponse(content="Added RingBuffer::clear() and a test for it."),
+    ]
+
+
+def test_change_route_needs_the_explicit_prefix():
+    from local_agent.session.intents import RULE_IMPLEMENT_CHANGE
+
+    for text in ("change: add a clear() method to RingBuffer", "/change rename x to y"):
+        decision = decide_route(text, active_repo_count=1)
+        assert (decision.action, decision.skill, decision.rule_id) == (
+            RouteAction.WORK, "implement-change", RULE_IMPLEMENT_CHANGE)
+    for text in ("change:", "changed my mind", "please change: x"):
+        assert decide_route(text, active_repo_count=1).action is not RouteAction.WORK
+
+
+def test_a_new_feature_with_a_new_test_is_built_tested_and_applied(sandbox, tmp_path):
+    task_id = str(uuid4())
+    before = {p: (sandbox.root / p).read_bytes() for p in (RING, "CMakeLists.txt", "include/sandbox/ring_buffer.hpp")}
+    controller, manager = _controller(sandbox.root, tmp_path, _implement_clear_turns())
+
+    result = controller.run("change: add a clear() method to RingBuffer that empties it",
+                            task_id=task_id, skill_name="implement-change")
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert result.verified_at_completion is True
+    assert result.metrics["proof_binding"]["scope"] == "full_test"
+    assert "full build and full test run of the candidate passed" in result.answer
+    assert sorted(result.metrics["candidate"]["paths"]) == sorted([
+        "CMakeLists.txt", "include/sandbox/ring_buffer.hpp", RING, "tests/test_ring_clear.cpp"])
+    assert {p: (sandbox.root / p).read_bytes() for p in before} == before
+    assert not (sandbox.root / "tests" / "test_ring_clear.cpp").exists()
+
+    applied = _apply(controller, task_id)
+    assert applied.outcome is TaskOutcome.PASS, applied.answer
+    assert (sandbox.root / "tests" / "test_ring_clear.cpp").read_text(encoding="utf-8").replace("\r\n", "\n") == _CLEAR_TEST
+    assert "void clear();" in (sandbox.root / "include/sandbox/ring_buffer.hpp").read_text(encoding="utf-8")
+
+
+def test_propose_file_refuses_existing_files_and_the_instrument(sandbox, tmp_path):
+    from local_agent.tools import build_registry
+    from local_agent.tools.tool_primitives import ToolError
+
+    registry, _ctx, _store = build_registry(load_repo_config(sandbox.root))
+    propose = registry.get("propose_file").handler
+    with pytest.raises(ToolError):
+        propose(path=RING, content="x")
+    with pytest.raises(Exception):
+        propose(path="build/.local-agent-build-ok", content="forged")
+    with pytest.raises(Exception):
+        propose(path="../outside.txt", content="x")
+
+
+def test_journal_revert_removes_a_file_the_agent_created(tmp_path):
+    from local_agent.agent.journal import MutationJournal
+
+    created = tmp_path / "new.cpp"
+    created.write_text("int n();\n", encoding="utf-8")
+    journal = MutationJournal()
+    journal.record_write(created, None, "int n();\n", "apply_patch")
+    assert journal.revert()["reverted"] == [str(created)]
+    assert not created.exists()
