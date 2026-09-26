@@ -520,3 +520,101 @@ def test_undo_requires_a_recorded_apply_and_a_full_id(sandbox, tmp_path):
     assert vague.outcome is TaskOutcome.BLOCKED and vague.reason_code == "invalid_input"
     decision = decide_route(f"/undo {uuid4()}", active_repo_count=1)
     assert (decision.action, decision.skill) == (RouteAction.WORK, "undo-candidate")
+
+
+# ------------------------------------------------------------- /commit <task>
+
+
+def _commit(controller, candidate_task):
+    request = f"User request:\n/commit {candidate_task}\n\nDeterministic route (controller-owned provenance):\nrule_id=commit-candidate/v1"
+    result = controller.run(request, task_id=str(uuid4()), skill_name="commit-candidate")
+    verdict_block_from_task_result(result)
+    return result
+
+
+def _allow_commits(root: Path) -> None:
+    """Enable commits and commit the broken scenario, so the fix is a real change to HEAD."""
+    config = root / ".local-agent.toml"
+    config.write_text(config.read_text(encoding="utf-8").replace("allow_commit = false", "allow_commit = true"),
+                      encoding="utf-8")
+    subprocess.run(["git", "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-qam", "allow commits"],
+                   cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "dev@example.invalid"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Dev"], cwd=root, check=True)
+
+
+def _git_out(root: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=True).stdout
+
+
+def test_commit_records_exactly_the_applied_change_and_leaves_other_staging_alone(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    _allow_commits(sandbox.root)
+    controller, manager, candidate_task = _prepare(sandbox, tmp_path)
+    applied = _apply(controller, candidate_task)
+    assert f"/commit {candidate_task}" in applied.answer
+    # Unrelated work the user has staged must stay staged and out of the commit.
+    notes = sandbox.root / "NOTES.md"
+    notes.write_text("my notes\n", encoding="utf-8")
+    subprocess.run(["git", "add", "NOTES.md"], cwd=sandbox.root, check=True)
+    head_before = _git_out(sandbox.root, "rev-parse", "HEAD").strip()
+
+    result = _commit(controller, candidate_task)
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    commit = result.metrics["candidate_commit"]["commit"]
+    assert _git_out(sandbox.root, "rev-parse", f"{commit}^").strip() == head_before
+    assert _git_out(sandbox.root, "diff-tree", "--no-commit-id", "--name-only", "-r", commit).split() == [RING]
+    assert f"LCA-Task: {candidate_task}" in _git_out(sandbox.root, "log", "-1", "--format=%B")
+    assert _git_out(sandbox.root, "diff", "--cached", "--name-only").split() == ["NOTES.md"]
+    assert "Nothing was pushed" in result.answer
+
+    assert _commit(controller, candidate_task).outcome is TaskOutcome.BLOCKED, "commit is single-use"
+    undo = _undo(controller, candidate_task)
+    assert undo.outcome is TaskOutcome.BLOCKED and "committed" in undo.answer
+    assert "++count_;" in (sandbox.root / RING).read_text(encoding="utf-8")
+
+
+def test_commit_is_refused_when_policy_forbids_it(sandbox, tmp_path):
+    controller, _manager, candidate_task = _prepare(sandbox, tmp_path)
+    _apply(controller, candidate_task)
+    head_before = _git_out(sandbox.root, "rev-parse", "HEAD")
+    result = _commit(controller, candidate_task)
+    assert result.outcome is TaskOutcome.BLOCKED and result.reason_code == "policy_denied"
+    assert _git_out(sandbox.root, "rev-parse", "HEAD") == head_before
+
+
+def test_commit_refuses_drift_and_detached_head_without_committing(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    _allow_commits(sandbox.root)
+    controller, _manager, candidate_task = _prepare(sandbox, tmp_path)
+    _apply(controller, candidate_task)
+    head_before = _git_out(sandbox.root, "rev-parse", "HEAD")
+
+    (sandbox.root / RING).write_text((sandbox.root / RING).read_text(encoding="utf-8") + "// later\n",
+                                     encoding="utf-8")
+    drifted = _commit(controller, candidate_task)
+    assert drifted.outcome is TaskOutcome.FAIL and drifted.reason_code == "scope_changed"
+
+    subprocess.run(["git", "checkout", "-q", "--detach"], cwd=sandbox.root, check=True)
+    detached = _commit(controller, candidate_task)
+    assert detached.outcome is TaskOutcome.BLOCKED and "detached" in detached.answer
+    assert _git_out(sandbox.root, "rev-parse", "HEAD") == head_before
+
+
+def test_commit_route_requires_a_full_task_id():
+    assert decide_route(f"/commit {uuid4()}", active_repo_count=1).skill == "commit-candidate"
+    assert decide_route("/commit abc12345", active_repo_count=1).action is RouteAction.MODEL_FALLBACK
+    assert decide_route("commit everything", active_repo_count=1).action is RouteAction.MODEL_FALLBACK
+
+
+def test_commit_says_nothing_to_commit_when_the_fix_restores_head(sandbox, tmp_path):
+    # Broken working tree over a good HEAD: the fix makes the files equal to HEAD again.
+    _allow_commits(sandbox.root)
+    controller, _manager, candidate_task = _prepare(sandbox, tmp_path)
+    _apply(controller, candidate_task)
+    head_before = _git_out(sandbox.root, "rev-parse", "HEAD")
+    result = _commit(controller, candidate_task)
+    assert result.outcome is TaskOutcome.BLOCKED
+    assert "nothing to commit" in result.answer
+    assert _git_out(sandbox.root, "rev-parse", "HEAD") == head_before
