@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from internal.devtools.check_current_state_drift import check, recorded_sha
+from devtools.check_current_state_drift import check, recorded_sha
 
 
 def _git(root: Path, *args: str) -> str:
