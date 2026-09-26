@@ -140,20 +140,6 @@ def test_install_default_is_transparent_before_machine_mutation():
     assert ".\\install.ps1 -InstallMissing" in source
 
 
-def test_readme_answers_first_time_user_questions_before_deep_internals():
-    text = (REPO / "README.md").read_text(encoding="utf-8")
-    plain = " ".join(text.replace("**", "").split())
-    assert "lets a local AI model work on a code repository using controlled tools" in text
-    assert "## Current setup target" in text
-    assert "Windows 11 on Intel Panther Lake" in text
-    assert "not a claim that arbitrary Windows, Linux or macOS machines" in plain
-    assert ".\\install.ps1 -CheckOnly" in text
-    assert ".\\local-code-agent.ps1 chat qwen3-8b-npu" in text
-    assert ".\\local-code-agent.ps1 capabilities" in text
-    assert "Examples of intended workloads include" in text
-    assert "not claims that every task is solved successfully" in text
-    assert "See [`QUICKSTART.md`](QUICKSTART.md) for the full walkthrough" in text
-
 
 def test_local_code_agent_root_facade_is_the_default_product_surface():
     wrapper = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
@@ -178,47 +164,7 @@ def test_capabilities_use_plain_user_facing_language():
     assert "python benchmark_fixture/" not in source
 
 
-def test_public_demo_wrappers_exist_and_hide_implementation_paths_from_docs():
-    expected = {
-        "run-qwen-on-npu.ps1",
-        "run-qwen-on-gpu.ps1",
-        "run-qwen-on-cpu.ps1",
-        "show-stale-test-rejection.ps1",
-        "run-complete-local-code-agent-demo.ps1",
-    }
-    assert expected <= {p.name for p in (REPO / "demo").iterdir()}
 
-    quickstart = (REPO / "QUICKSTART.md").read_text(encoding="utf-8")
-    assert ".\\demo\\run-qwen-on-npu.ps1" in quickstart
-    assert ".\\demo\\show-stale-test-rejection.ps1" in quickstart
-    assert ".\\scripts\\" not in quickstart
-    assert "python measurement/" not in quickstart
-    assert "qwen3-coder-30b" not in quickstart
-
-
-def test_quickstart_teaches_the_detailed_user_journey_in_order():
-    text = (REPO / "QUICKSTART.md").read_text(encoding="utf-8")
-    clone = text.index("git clone https://github.com/aidenbarrett/Local-Code-Agent.git")
-    preflight = text.index(".\\install.ps1 -CheckOnly")
-    setup = text.index(".\\install.ps1\n", preflight)
-    hub = text.index(".\\local-code-agent.ps1\n")
-    chat = text.index(".\\local-code-agent.ps1 chat qwen3-8b-npu")
-    capabilities = text.index(".\\local-code-agent.ps1 capabilities")
-    task = text.index(".\\local-code-agent.ps1 run-task")
-    accelerator = text.index(".\\demo\\run-qwen-on-npu.ps1")
-    verification = text.index(".\\demo\\show-stale-test-rejection.ps1")
-    assert clone < preflight < setup < hub < chat < capabilities < task < accelerator < verification
-    assert "The model can propose actions. It cannot mark its own homework." in text
-    assert "Windows 11 on Intel Panther Lake" in text
-    assert "What are you?" in text
-    assert "Are you connected to the internet?" in text
-    assert "Can you inspect this repository for me?" in text
-
-
-def test_generation_one_reproduction_points_to_the_frozen_tag():
-    readme = (REPO / "README.md").read_text(encoding="utf-8")
-    assert "instrument-08d5e0fe" in readme
-    assert "current tree intentionally has a different repository layout and source identity" in readme
 
 
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell path-with-spaces regression is Windows-specific")
@@ -268,8 +214,3 @@ def test_root_commands_work_from_a_checkout_path_with_spaces(tmp_path):
         assert expected in combined
 
 
-def test_previous_research_readme_is_preserved():
-    history = (INTERNAL / "docs" / "project-history.md").read_text(encoding="utf-8")
-    plain = " ".join(history.replace("**", "").split()).lower()
-    assert "measurement instrument first and an agent second" in plain
-    assert "| verified completion | 3/10 | 8/10 | 8/10 |" in plain

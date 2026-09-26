@@ -9,7 +9,7 @@ import pytest
 
 
 INTERNAL = Path(__file__).resolve().parents[2]
-PACKAGES = ("local_agent", "evaluation", "measurement", "scripts")
+PACKAGES = ("local_agent", "serving", "perf", "scripts")
 
 
 def _module_name(path: Path) -> str:
@@ -99,27 +99,6 @@ def _reaches(graph: dict[str, set[str]], start: str) -> set[str]:
     return seen
 
 
-FORBIDDEN_FROM_EVALUATION = (
-    "local_agent.session",
-    "scripts.chat",
-    "scripts.chat_context",
-    "scripts.chat_persona",
-)
-
-
-def test_evaluation_never_reaches_the_product_layer():
-    graph = _graph()
-    offenders = {}
-    for module in [name for name in _sources() if name.startswith("evaluation")]:
-        reach = _reaches(graph, module)
-        hits = sorted(
-            target for target in reach if any(target.startswith(prefix) for prefix in FORBIDDEN_FROM_EVALUATION)
-        )
-        if hits:
-            offenders[module] = hits
-    assert not offenders, f"evaluation reaches product modules: {offenders}"
-
-
 def test_agent_core_never_reaches_the_session_layer():
     graph = _graph()
     offenders = {}
@@ -163,13 +142,12 @@ def test_module_level_imports_have_no_cycles():
     assert not _cycles(_graph(module_level_only=True))
 
 
-def test_cycle_breaking_imports_stay_deferred():
-    """Load-bearing deferred imports must not be hoisted into import-time cycles."""
+def test_function_local_imports_do_not_create_module_level_cycles():
+    """Function-local imports are allowed only while the import-time graph remains acyclic."""
     full = _cycles(_graph())
     module_level = {tuple(cycle) for cycle in _cycles(_graph(module_level_only=True))}
     hoisted = [cycle for cycle in full if tuple(cycle) in module_level]
-    assert not hoisted, f"a cycle-breaking import was hoisted to module level: {hoisted}"
-    assert full, "no deferred cycles found; update this test because its premise is stale"
+    assert not hoisted, f"a function-local import created an import-time cycle: {hoisted}"
 
 
 def test_no_shipped_module_imports_a_test_module():

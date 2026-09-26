@@ -149,9 +149,9 @@ def test_valid_single_call_still_reaches_handler(tmp_path):
 
 
 def test_operational_qualification_rejects_malformed_unoffered_tool():
-    measurement = REPO / "measurement"
-    if str(measurement) not in sys.path:
-        sys.path.insert(0, str(measurement))
+    serving = REPO / "serving"
+    if str(serving) not in sys.path:
+        sys.path.insert(0, str(serving))
 
     from local_agent.config import MODEL_PRESETS
     from qualify_server import run_qualification
