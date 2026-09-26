@@ -122,6 +122,29 @@ def test_candidate_excludes_build_and_run_dirs_and_records_new_files(tmp_path):
         manager.close(ws)
 
 
+def test_ignored_build_dir_and_base_tracked_files_under_excluded_dirs(tmp_path):
+    # The real layout: build/ is gitignored, and git refuses exclude pathspecs that name
+    # ignored directories. A file the user tracks under an excluded dir must not show up
+    # as deleted either.
+    user = _user_repo(tmp_path)
+    (user / "tools").mkdir()
+    (user / "tools" / "keep.txt").write_text("tracked\n", encoding="utf-8")
+    _git(user, "add", "-A")
+    _git(user, "commit", "-qm", "tracked under an excluded dir")
+    manager = _manager(tmp_path)
+    ws = manager.create(user, str(uuid4()), excluded_dirs=("build", "tools"))
+    try:
+        (ws.root / "build").mkdir()
+        (ws.root / "build" / "a.o").write_bytes(b"obj")
+        (ws.root / "tools" / "keep.txt").unlink()
+        (ws.root / "tools" / "generated.txt").write_text("x", encoding="utf-8")
+        (ws.root / "src" / "a.cpp").write_text("int a() { return 6; }\n", encoding="utf-8")
+        candidate = manager.candidate_patch(ws)
+        assert candidate.paths == ("src/a.cpp",)
+    finally:
+        manager.close(ws)
+
+
 def test_import_applies_exactly_without_touching_the_index(tmp_path):
     user = _user_repo(tmp_path)
     (user / "src" / "b.cpp").write_text("int b() { return 7; }\n", encoding="utf-8")  # unrelated dirty edit

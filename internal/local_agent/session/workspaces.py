@@ -212,9 +212,17 @@ class GitWorkspaceManager:
 
     def candidate_patch(self, workspace: Workspace) -> CandidatePatch:
         """Return the exact binary diff from the base to the candidate's current files."""
-        excludes = [f":(exclude){d}" for d in workspace.excluded_dirs]
         # The candidate worktree's index is LCA's own; staging there records new files.
-        self._git(workspace.root, "add", "-A", "--", ".", *excludes)
+        # Instrument directories are then reset to the base in that index, which drops
+        # build/run output whether or not the user's .gitignore covers it, and keeps any
+        # base-tracked files under them unchanged. (Exclude pathspecs cannot be used: git
+        # refuses them outright when they name ignored directories.)
+        self._git(workspace.root, "add", "-A", "--", ".")
+        if workspace.excluded_dirs:
+            self._git(
+                workspace.root, "reset", "-q", workspace.base_commit, "--",
+                *workspace.excluded_dirs,
+            )
         diff_args = ("--cached", "--no-renames", "--no-ext-diff", "--no-textconv")
         paths = _split_z(self._git(
             workspace.root, "diff", *diff_args, "--name-only", "-z", workspace.base_commit, "--"
