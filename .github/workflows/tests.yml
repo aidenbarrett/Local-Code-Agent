@@ -38,6 +38,8 @@ jobs:
           if-no-files-found: error
       - name: Install
         run: python -m pip install -e ".[dev]"
+      - name: CURRENT_STATE drift guard
+        run: python internal/devtools/check_current_state_drift.py --max-behind 5
       - name: Session Hub acceptance gates
         run: python internal/scripts/accept-session-hub.py
       - name: Session event contract
