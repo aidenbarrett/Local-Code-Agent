@@ -48,13 +48,9 @@ Historical research is archived off the active branch. Do not recreate experimen
 
 ## Before a rename or move
 
-Run:
+Audit the old name/path everywhere, not only Python imports: dynamic imports, PowerShell, workflows, docs, config, packaging and tests. Search current callers first, move the owning implementation once, then make the old path disappear completely unless there is a real supported compatibility contract.
 
-```text
-python internal/devtools/check_rename_safety.py
-```
-
-Then audit the old path everywhere, not only Python imports: dynamic imports, PowerShell, workflows, docs, config, packaging and tests. Do not leave a shim merely to make stale callers green.
+A clean rename still needs imports/tests/CI. Text search alone does not prove behaviour.
 
 ## Tests and CI
 
