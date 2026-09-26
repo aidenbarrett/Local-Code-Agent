@@ -23,7 +23,9 @@ the caller's approval authority before ``import_patch`` is called.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -74,6 +76,14 @@ class ImportResult:
     verified: bool
     # Blob ids the user's paths held immediately before import, for owned revert.
     pre_blobs: tuple[tuple[str, str | None], ...] = ()
+    # Paths left in neither their pre-import nor post-import state after a failed
+    # import and owned rollback. Nonempty means the checkout needs the user's attention.
+    unresolved: tuple[str, ...] = ()
+    # True when git wrote part of the candidate and this import restored what it wrote.
+    rolled_back: bool = False
+    # Exact bytes each touched path held in the user's checkout before import (None for
+    # a path the candidate creates). Restores are byte-exact, never re-filtered by git.
+    pre_contents: tuple[tuple[str, bytes | None], ...] = ()
 
 
 def _split_z(raw: bytes) -> tuple[str, ...]:
@@ -296,12 +306,170 @@ class GitWorkspaceManager:
                 + check.stderr.decode("utf-8", "replace").strip()[:500],
                 False, tuple(pre),
             )
-        self._git(user, "apply", "--whitespace=nowarn", "-", stdin=candidate.patch)
+        pre_contents = tuple(
+            (path, (user / path).read_bytes() if before is not None else None)
+            for path, before in pre
+        )
+        applied = self._git(
+            user, "apply", "--whitespace=nowarn", "-", stdin=candidate.patch, check=False,
+        )
+        if applied.returncode != 0:
+            # git apply can stop part-way through writing. Put back exactly what this
+            # import wrote, and nothing else: a path is restored only if it now holds
+            # the candidate's post-image. Anything else is reported, never overwritten.
+            unresolved = self._rollback_owned(user, candidate, pre_contents)
+            reason = "git apply failed while writing: " + applied.stderr.decode(
+                "utf-8", "replace"
+            ).strip()[:500]
+            return ImportResult(
+                False, candidate.paths, (), reason, False, tuple(pre), unresolved,
+                rolled_back=not unresolved, pre_contents=pre_contents,
+            )
 
         verified = all(
             self._worktree_blob(user, path) == blob for path, blob in candidate.post_blobs
         )
-        return ImportResult(True, candidate.paths, (), None, verified, tuple(pre))
+        return ImportResult(
+            True, candidate.paths, (), None, verified, tuple(pre), pre_contents=pre_contents,
+        )
+
+    def _rollback_owned(
+        self,
+        user: Path,
+        candidate: CandidatePatch,
+        pre_contents: tuple[tuple[str, bytes | None], ...],
+    ) -> tuple[str, ...]:
+        """Restore paths this import wrote to their exact pre-import bytes; return the rest.
+
+        Restoration is byte-exact from the snapshot taken just before writing. Content
+        re-filtered through git could differ in line endings from what the user had
+        (for example an LF checkout under core.autocrlf=true).
+        """
+        post = dict(candidate.post_blobs)
+        unresolved: list[str] = []
+        for path, before in pre_contents:
+            target = user / path
+            try:
+                current_bytes = target.read_bytes() if target.is_file() else None
+            except OSError:
+                unresolved.append(path)
+                continue
+            if current_bytes == before:
+                continue
+            if self._worktree_blob(user, path) != post.get(path):
+                unresolved.append(path)
+                continue
+            try:
+                if before is None:
+                    target.unlink()
+                else:
+                    target.write_bytes(before)
+                restored = target.read_bytes() if target.is_file() else None
+            except OSError:
+                unresolved.append(path)
+                continue
+            if restored != before:
+                unresolved.append(path)
+        return tuple(unresolved)
+
+    def checkout_matches_candidate(self, workspace: Workspace) -> bool | None:
+        """Whether the user's tracked files now equal the candidate tree exactly.
+
+        True means a proof taken on the candidate tree is a proof about the user's tracked
+        state. Untracked files are outside both trees. Nothing in the user's checkout is
+        modified to answer this. None means the comparison could not be made (for
+        example the candidate worktree is gone), which never counts as a match.
+        """
+        if not workspace.root.is_dir():
+            return None
+        user = workspace.repository_root
+        snapshot = self._snapshot_commit(
+            user, self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
+        )
+        user_tree = self._out(user, "rev-parse", f"{snapshot}^{{tree}}")
+        done = self._git(workspace.root, "write-tree", check=False)
+        if done.returncode != 0:
+            return None
+        return user_tree == done.stdout.decode().strip()
+
+    # -- retention -----------------------------------------------------------
+
+    def _record_path(self, task_id: str) -> Path:
+        UUID(task_id)
+        return self.workspaces_root / f"{task_id}.candidate.json"
+
+    def retain(self, workspace: Workspace, candidate: CandidatePatch) -> Path:
+        """Persist a reviewed candidate so a later, separate import can find it."""
+        if candidate.workspace_id != workspace.workspace_id:
+            raise WorkspaceError("candidate does not belong to this workspace")
+        record = {
+            "workspace": {
+                "workspace_id": workspace.workspace_id,
+                "task_id": workspace.task_id,
+                "root": str(workspace.root),
+                "repository_root": str(workspace.repository_root),
+                "head_commit": workspace.head_commit,
+                "base_commit": workspace.base_commit,
+                "controller_commit": workspace.controller_commit,
+                "dirty_paths": list(workspace.dirty_paths),
+                "untracked_excluded": list(workspace.untracked_excluded),
+                "excluded_dirs": list(workspace.excluded_dirs),
+            },
+            "candidate": {
+                "workspace_id": candidate.workspace_id,
+                "base_commit": candidate.base_commit,
+                "patch_b64": base64.b64encode(candidate.patch).decode("ascii"),
+                "sha256": candidate.sha256,
+                "paths": list(candidate.paths),
+                "post_blobs": [[path, blob] for path, blob in candidate.post_blobs],
+            },
+        }
+        path = self._record_path(workspace.task_id)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+        return path
+
+    def load(self, task_id: str) -> tuple[Workspace, CandidatePatch]:
+        """Load a retained candidate, refusing any record whose patch bytes were altered."""
+        path = self._record_path(task_id)
+        if not path.is_file():
+            raise WorkspaceError(f"no retained candidate for task {task_id}")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        w, c = raw["workspace"], raw["candidate"]
+        workspace = Workspace(
+            workspace_id=w["workspace_id"],
+            task_id=w["task_id"],
+            root=Path(w["root"]),
+            repository_root=Path(w["repository_root"]),
+            head_commit=w["head_commit"],
+            base_commit=w["base_commit"],
+            controller_commit=w["controller_commit"],
+            dirty_paths=tuple(w["dirty_paths"]),
+            untracked_excluded=tuple(w["untracked_excluded"]),
+            excluded_dirs=tuple(w["excluded_dirs"]),
+        )
+        if workspace.task_id != task_id:
+            raise WorkspaceError("retained candidate record names a different task")
+        patch = base64.b64decode(c["patch_b64"], validate=True)
+        if hashlib.sha256(patch).hexdigest() != c["sha256"]:
+            raise WorkspaceError("retained candidate patch does not match its recorded hash")
+        candidate = CandidatePatch(
+            workspace_id=c["workspace_id"],
+            base_commit=c["base_commit"],
+            patch=patch,
+            sha256=c["sha256"],
+            paths=tuple(c["paths"]),
+            post_blobs=tuple((p, b) for p, b in c["post_blobs"]),
+        )
+        return workspace, candidate
+
+    def discard(self, workspace: Workspace) -> None:
+        """Close the workspace and forget its retained candidate."""
+        try:
+            self.close(workspace)
+        finally:
+            self._record_path(workspace.task_id).unlink(missing_ok=True)
 
     def close(self, workspace: Workspace) -> None:
         """Remove the candidate worktree and release the task's lease."""

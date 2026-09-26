@@ -20,6 +20,8 @@ RULE_REPO_NAVIGATION = "repo-navigation/v1"
 RULE_BUILD_AND_TEST = "build-and-test/v1"
 RULE_TASK_DIAGNOSTIC = "task-diagnostic/v1"
 RULE_MUTATION_UNAVAILABLE = "mutation-unavailable/v1"
+RULE_FIX_BUILD = "fix-build-failure/v1"
+RULE_APPLY_CANDIDATE = "apply-candidate/v1"
 RULE_SELF_CHECK = "self-check/v1"
 
 
@@ -174,7 +176,38 @@ _BUILD = re.compile(r"^build (?:it|this|the repo|the repository)[.!]?$", re.IGNO
 _DIAGNOSTIC = re.compile(r"^why did that fail\??$", re.IGNORECASE)
 _EXPLICIT_DIAGNOSTIC = re.compile(r"^why did task (?P<task_id>\S+) fail\??$", re.IGNORECASE)
 _FIX = re.compile(r"^fix it[.!]?$", re.IGNORECASE)
+# Explicit build-fix phrasing only. The change is prepared in an isolated candidate
+# worktree and is never applied to the user's checkout by this route.
+_FIX_BUILD = re.compile(
+    r"^(?:please\s+)?(?:fix|repair)\s+(?:the\s+)?(?:build|compile|compilation)"
+    r"(?:\s+(?:errors?|failures?))?[.!]?$"
+    r"|^make\s+(?:the\s+build|it)\s+(?:compile|build)[.!]?$",
+    re.IGNORECASE,
+)
 _SELF_CHECK = re.compile(r"^/check$", re.IGNORECASE)
+# The user's explicit, per-candidate instruction to import a reviewed change into their
+# checkout. The full task UUID is required: a prefix or "the last one" is not authority.
+_APPLY_CANDIDATE = re.compile(
+    r"^/?apply(?:\s+candidate)?(?:\s+(?:from\s+)?task)?\s+"
+    r"(?P<task_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
+    re.IGNORECASE,
+)
+
+
+def candidate_referent(request_text: str) -> str | None:
+    """The single task UUID an apply request names, read from its user-request line.
+
+    The controller re-derives the referent from the durably admitted request text with
+    this same parser, so routing and execution cannot disagree about which candidate.
+    """
+    if not isinstance(request_text, str):
+        return None
+    found = [
+        match.group("task_id").lower()
+        for line in request_text.splitlines()
+        if (match := _APPLY_CANDIDATE.fullmatch(line.strip())) is not None
+    ]
+    return found[0] if len(set(found)) == 1 else None
 _CONTROL = {"/quit": "quit", "/exit": "quit"}
 
 
@@ -345,6 +378,27 @@ def decide_route(
             rule_id=RULE_TASK_DIAGNOSTIC,
             skill="task-diagnostic",
             reference_ids=(task_id,),
+        )
+
+    if _APPLY_CANDIDATE.fullmatch(stripped):
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_APPLY_CANDIDATE,
+            skill="apply-candidate",
+        )
+
+    if _FIX_BUILD.fullmatch(stripped):
+        reason = _repository_target_reason(active_repo_count)
+        if reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_FIX_BUILD,
+            skill="fix-build-failure",
         )
 
     if _FIX.fullmatch(stripped):
