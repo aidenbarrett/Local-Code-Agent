@@ -1,101 +1,59 @@
 # Current state
 
-Reconciled against GitHub `main` at `064415b9d1136f072848f56cbf7f2593006d1fbe`
-on 2026-09-25 after the retained-result integrity, Windows containment and public Stop
-slices landed. Live source and current CI remain authoritative for implementation;
-frozen artifacts remain authoritative for historical experiments.
+Live GitHub `main` is authoritative for implementation. This document records the product state around the legacy-research cleanup based on pre-cleanup `main` at `ad07af071a62acfa4d0168c7a89d7110a52088f6`.
 
-Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rationale,
-[TRICKS.md](TRICKS.md) for first-release public journeys and acceptance evidence, and
-[product-execution-priorities.md](internal/docs/product-execution-priorities.md) for the
-priority ladder after the immediate first-release gate.
+Use `PROJECT_OVERVIEW.md` for durable architecture, `TRICKS.md` for first-release public journeys and `internal/docs/product-execution-priorities.md` for the active priority ladder.
 
 ## Direction and public path
 
-The product target is a dependable local/offline worker for repository inspection, Git,
-bounded code changes, builds/tests and diagnosis with replaceable qualified model/runtime
-backends. The active surface is the in-process Textual Session Hub launched by
-`local-code-agent.ps1` with no argument or `session`.
+The product target is a dependable local/offline worker for repository inspection, Git, bounded code changes, builds/tests and diagnosis with replaceable qualified model/runtime backends. The active surface is the in-process Textual Session Hub launched by `local-code-agent.ps1` with no argument or `session`.
 
-The deterministic controller owns admission, permissions, execution facts, verification,
-provenance and durable state. Models may propose work but cannot grant authority or
-self-certify success. Measurement collection remains paused; Generation-1 evidence is
-frozen and product hardening must not rewrite historical methodology or denominators.
+The deterministic controller owns admission, permissions, execution facts, verification, provenance and durable state. Models may propose work but cannot grant authority or self-certify success.
 
-## What is implemented on current main
+Historical experiment machinery is no longer part of the active product tree or CI. The exact pre-cleanup state is preserved on `archive/legacy-experiments-2026-09-26`. Current runtime comparisons use the backend-agnostic endpoint harness under `internal/perf/`.
 
-The public product path now includes:
+## Implemented on current product line
 
-- exact-interpreter dependency preflight, native Windows installed-checkout launcher
-  acceptance, deterministic help and Session Hub `--check`;
-- managed primary-runtime startup with conservative ownership/reuse rules and truthful
-  configured-versus-observed runtime facts;
-- one persisted raw conversation plus separate durable event/task state, admission before
-  effects, retained request/result artifacts and restart reconciliation that never replays
-  unknown effects;
-- deterministic public read-only journeys for repository inspection, symbol lookup and
-  branch review, with model fallback remaining advice rather than permission;
-- task-specific build/failure journeys through the public conversation gateway;
-- typed proof binding that ties accepted completion to the exact request, declared proof
-  scope, current mutation epoch and current repository tree identity; targeted/partial
-  proof cannot certify whole-tree success;
-- deterministic failure follow-up for eligible retained failures, including explicit task
-  UUID selection;
-- retained-result projection that keeps the authoritative durable task/verdict visible if
-  sibling retained worker prose fails integrity validation, while clearly marking that
-  prose unavailable;
-- Windows launcher containment of hostile ambient `PYTHONHOME`/`PYTHONPATH` state;
-- one process-local endpoint ownership/arbitration path for live conversation and worker
-  calls through the existing endpoint arbiter/runtime/call adapter; cross-process
-  arbitration is not claimed;
-- a public `stop`/`/stop` action that targets the exact active durable task ID and execution
-  epoch, bypasses model dispatch and fences late completion authority;
-- Textual activity/result projection with durable task identity, tool/verdict facts,
-  retained answer detail, recent task IDs and fail-closed input behaviour when the durable
-  feed is unhealthy.
+The public product path includes:
+
+- exact-interpreter dependency preflight and deterministic Session Hub self-check
+- managed primary-runtime startup with conservative ownership/reuse rules
+- one persisted raw conversation plus separate durable event/task state
+- admission before effects, retained request/result artifacts and restart reconciliation
+- deterministic public read-only journeys for repository inspection, symbol lookup and branch review
+- task-specific build/failure journeys through the public conversation gateway
+- proof binding to the exact request, verification scope, mutation epoch and repository tree
+- deterministic follow-up for explicitly referenced retained failures
+- truthful retained-result projection when sibling worker prose fails integrity validation
+- one process-local endpoint ownership/arbitration path for live conversation and worker calls
+- public `stop`/`/stop` targeting the exact active durable task and execution epoch
+- Textual activity/result projection with durable task identity, tool/verdict facts and retained detail
+- exact product source identity covering live product/serving surfaces
 
 Source mutation and commits remain disabled on the conversation product path.
 
+## Performance harness
+
+`internal/perf/endpoint_harness.py` is the single runtime-comparison harness. It talks to any OpenAI-compatible endpoint and emits JSON containing configured model/runtime/device identity plus optional endpoint-observed identity.
+
+It measures client-boundary cold-start readiness, TTFT, decode rate and context-size behavior. Backend-reported compile/memory telemetry is kept separate from client-observed timing. Cancellation latency is only reported when an endpoint-side active-request hook proves the request existed before disconnect and later proves it stopped. Otherwise cancellation measurement is explicitly unsupported.
+
+The soak path runs a fixed request loop for a chosen duration and records memory, errors and TTFT drift. Backend-specific commands and observation hooks live in local profile files, not in the harness source.
+
 ## Boundaries that remain open
 
-The remaining gaps must not be collapsed into stronger claims than current evidence
-supports:
+- **Physical offline acceptance is still open.** A configured accelerator profile is not proof of the current Session Hub journeys on the target machine. A fresh disconnected acceptance run is still required.
+- **Stop is bounded, not complete cancellation.** Public stop and epoch fencing exist, but queued/inference interruption, descendant cleanup, endpoint reconciliation and one fully reconciled terminal cancellation result still need evidence.
+- **Cross-process endpoint ownership is not claimed.** Current arbitration is process-local.
+- **Mutation, commit/push, Watch creation and broader automation remain later product work.** Lower-level primitives are not public acceptance.
+- **Backend performance is deployment evidence, not an architecture claim.** Compare endpoints with the neutral harness and retain the identity alongside the numbers.
 
-- **Physical Panther Lake acceptance is still open.** A configured `NPU` profile, prior
-  accelerator demos and old physical smoke runs do not prove the current Session Hub
-  first-release journeys. The required gate is a fresh disconnected run on the physical
-  Windows Panther Lake machine with exact checkout, model/runtime/device identity,
-  cold/warm latency and retained logs/screenshots/failures.
-- **Stop is bounded, not complete cancellation.** The public action and epoch fencing are
-  wired, but complete queued/inference interruption, descendant process-tree cleanup,
-  endpoint quarantine/reconciliation and one fully reconciled terminal cancellation
-  result still require evidence. Until cleanup is proven, the product says `Stop
-  requested`, not `Stopped`.
-- **Cross-process endpoint ownership is not claimed.** Current arbitration authority is
-  intentionally process-local.
-- **Repository-required-check enforcement is not established by workflow files alone.**
-  Repository settings must be inspected/configured before claiming merge policy enforces
-  those checks.
-- **Broader mutation, commit/push, Watch creation and richer automation remain later
-  product work.** Existing lower-level primitives are not public-journey acceptance.
+## Immediate work
 
-## Immediate work, in order
+1. Keep hardening the Session Hub around truthful lifecycle/result projection and intuitive interaction.
+2. Complete the physical offline acceptance using the current public product path.
+3. Close end-to-end cancellation and endpoint cleanup with direct evidence.
+4. Use the neutral endpoint harness for runtime comparisons rather than carrying backend-specific benchmark logic in product code.
+5. Only after the trust joins above, begin intent-scoped safe mutation while preserving dirty worktrees, staging and unrelated edits.
 
-1. Complete the physical offline Panther Lake acceptance described in `TRICKS.md` using
-   the current public Session Hub. The capture procedure lives in
-   `internal/docs/panther-lake-acceptance.md`; it records exact provenance and refuses to
-   self-certify the hardware claim.
-2. Verify/configure installed-product merge enforcement if repository ownership permits;
-   keep native Linux/Windows and public-launcher acceptance authoritative.
-3. After the physical first-release gate is satisfied, take P1 work from
-   `internal/docs/product-execution-priorities.md`: evidence-backed lifecycle projection,
-   clearer result semantics, result/evidence detail, one Attention surface and a
-   deterministic whole-run/fault-injection harness.
-4. Only after those trust joins, begin intent-scoped safe mutation. Preserve dirty
-   worktrees, staging and unrelated user edits; keep commit/push/history changes as
-   separate capabilities.
-
-Security defects and user-visible false claims may interrupt this order. Novelty does not.
-Every new slice needs a concrete public journey or trust-boundary failure, behavioural
-regression evidence, fail-closed negatives, fresh exact-head CI and unchanged frozen
-experimental axes.
+Security defects and user-visible false claims may interrupt this order. Novelty does not. Every new slice still needs behavioural regression coverage, fail-closed negatives and fresh exact-head CI.
