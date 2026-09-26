@@ -471,3 +471,52 @@ def test_test_fix_is_refused_before_any_workspace_when_tests_are_not_allowed(san
     assert result.outcome is TaskOutcome.BLOCKED
     assert "allow_test" in result.answer
     assert list(manager.workspaces_root.glob("*.lease")) == []
+
+
+# ------------------------------------------------------------- /undo <task>
+
+
+def _undo(controller, candidate_task):
+    request = f"User request:\n/undo {candidate_task}\n\nDeterministic route (controller-owned provenance):\nrule_id=undo-candidate/v1"
+    result = controller.run(request, task_id=str(uuid4()), skill_name="undo-candidate")
+    verdict_block_from_task_result(result)
+    return result
+
+
+def test_undo_restores_exactly_the_pre_import_bytes_once(sandbox, tmp_path):
+    controller, manager, candidate_task = _prepare(sandbox, tmp_path)
+    before = (sandbox.root / RING).read_bytes()
+    applied = _apply(controller, candidate_task)
+    assert f"/undo {candidate_task}" in applied.answer
+    assert (sandbox.root / RING).read_bytes() != before
+
+    undone = _undo(controller, candidate_task)
+
+    assert undone.outcome is TaskOutcome.PASS, undone.answer
+    assert (sandbox.root / RING).read_bytes() == before
+    assert _staged(sandbox.root) == ""
+    again = _undo(controller, candidate_task)
+    assert again.outcome is TaskOutcome.BLOCKED, "undo must be single-use"
+
+
+def test_undo_refuses_to_overwrite_work_done_after_the_apply(sandbox, tmp_path):
+    controller, manager, candidate_task = _prepare(sandbox, tmp_path)
+    _apply(controller, candidate_task)
+    mine = (sandbox.root / RING).read_text(encoding="utf-8") + "// kept\n"
+    (sandbox.root / RING).write_text(mine, encoding="utf-8")
+
+    undone = _undo(controller, candidate_task)
+
+    assert undone.outcome is TaskOutcome.FAIL and undone.reason_code == "scope_changed"
+    assert "Nothing was undone" in undone.answer
+    assert (sandbox.root / RING).read_text(encoding="utf-8") == mine
+
+
+def test_undo_requires_a_recorded_apply_and_a_full_id(sandbox, tmp_path):
+    controller, _ = _controller(sandbox.root, tmp_path, [])
+    assert _undo(controller, str(uuid4())).outcome is TaskOutcome.BLOCKED
+    vague = controller.run("User request:\n/undo the last one", task_id=str(uuid4()),
+                           skill_name="undo-candidate")
+    assert vague.outcome is TaskOutcome.BLOCKED and vague.reason_code == "invalid_input"
+    decision = decide_route(f"/undo {uuid4()}", active_repo_count=1)
+    assert (decision.action, decision.skill) == (RouteAction.WORK, "undo-candidate")

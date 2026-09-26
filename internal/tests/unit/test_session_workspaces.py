@@ -422,3 +422,26 @@ def test_unreadable_lease_is_left_for_a_human(tmp_path):
     lease.write_text("", encoding="utf-8")
     assert manager.reap_orphans() == ()
     assert lease.exists()
+
+
+def test_undo_removes_a_created_file_and_restores_a_modified_one(tmp_path):
+    user = _user_repo(tmp_path)
+    manager = _manager(tmp_path)
+    task_id = str(uuid4())
+    ws = manager.create(user, task_id)
+    a_before = (user / "src" / "a.cpp").read_bytes()
+    (ws.root / "src" / "a.cpp").write_text("int a() { return 12; }\n", encoding="utf-8")
+    (ws.root / "src" / "made.cpp").write_text("int m() { return 12; }\n", encoding="utf-8")
+    candidate = manager.candidate_patch(ws)
+    result = manager.import_patch(ws, candidate)
+    manager.record_applied(task_id, user, candidate, result)
+    manager.discard(ws)
+    before_undo_index = _git(user, "diff", "--cached")
+
+    undone = manager.undo_applied(task_id, user)
+
+    assert undone.undone and undone.unresolved == () and undone.drifted == ()
+    assert (user / "src" / "a.cpp").read_bytes() == a_before
+    assert not (user / "src" / "made.cpp").exists()
+    assert _git(user, "diff", "--cached") == before_undo_index
+    assert manager.undo_applied(task_id, user).undone is False

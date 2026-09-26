@@ -22,6 +22,7 @@ RULE_TASK_DIAGNOSTIC = "task-diagnostic/v1"
 RULE_MUTATION_UNAVAILABLE = "mutation-unavailable/v1"
 RULE_FIX_BUILD = "fix-build-failure/v1"
 RULE_APPLY_CANDIDATE = "apply-candidate/v1"
+RULE_UNDO_CANDIDATE = "undo-candidate/v1"
 RULE_FIX_TESTS = "fix-test-failure/v1"
 RULE_SELF_CHECK = "self-check/v1"
 
@@ -203,20 +204,36 @@ _APPLY_CANDIDATE = re.compile(
 )
 
 
+_UNDO_CANDIDATE = re.compile(
+    r"^/?(?:undo|revert)(?:\s+(?:candidate|task))?\s+"
+    r"(?P<task_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
+    re.IGNORECASE,
+)
+
+
+def _single_referent(pattern: re.Pattern[str], request_text: str) -> str | None:
+    if not isinstance(request_text, str):
+        return None
+    found = [
+        match.group("task_id").lower()
+        for line in request_text.splitlines()
+        if (match := pattern.fullmatch(line.strip())) is not None
+    ]
+    return found[0] if len(set(found)) == 1 else None
+
+
+def undo_referent(request_text: str) -> str | None:
+    """The single applied-candidate task UUID an undo request names."""
+    return _single_referent(_UNDO_CANDIDATE, request_text)
+
+
 def candidate_referent(request_text: str) -> str | None:
     """The single task UUID an apply request names, read from its user-request line.
 
     The controller re-derives the referent from the durably admitted request text with
     this same parser, so routing and execution cannot disagree about which candidate.
     """
-    if not isinstance(request_text, str):
-        return None
-    found = [
-        match.group("task_id").lower()
-        for line in request_text.splitlines()
-        if (match := _APPLY_CANDIDATE.fullmatch(line.strip())) is not None
-    ]
-    return found[0] if len(set(found)) == 1 else None
+    return _single_referent(_APPLY_CANDIDATE, request_text)
 _CONTROL = {"/quit": "quit", "/exit": "quit"}
 
 
@@ -387,6 +404,15 @@ def decide_route(
             rule_id=RULE_TASK_DIAGNOSTIC,
             skill="task-diagnostic",
             reference_ids=(task_id,),
+        )
+
+    if _UNDO_CANDIDATE.fullmatch(stripped):
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_UNDO_CANDIDATE,
+            skill="undo-candidate",
         )
 
     if _APPLY_CANDIDATE.fullmatch(stripped):

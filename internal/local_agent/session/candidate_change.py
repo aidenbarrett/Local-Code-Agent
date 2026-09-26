@@ -17,7 +17,7 @@ from typing import Any
 
 from ..config import RepoConfig
 from .contracts import TaskOutcome, TaskResult
-from .intents import candidate_referent
+from .intents import candidate_referent, undo_referent
 from .proof_binding import repository_tree_sha256
 from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace, WorkspaceError
 
@@ -31,7 +31,8 @@ CANDIDATE_CHANGE_SKILLS = frozenset(CANDIDATE_PROOF)
 
 # Controller-owned actions admitted like skills but executed without a model or tools.
 APPLY_CANDIDATE_ACTION = "apply-candidate"
-CONTROLLER_ACTIONS = frozenset({APPLY_CANDIDATE_ACTION})
+UNDO_CANDIDATE_ACTION = "undo-candidate"
+CONTROLLER_ACTIONS = frozenset({APPLY_CANDIDATE_ACTION, UNDO_CANDIDATE_ACTION})
 
 
 def controller_action_sha256(name: str) -> str:
@@ -238,6 +239,11 @@ def apply_candidate(
         matches = None
     facts["checkout_matches_candidate_tree"] = matches
     try:
+        manager.record_applied(referent, declared.root, candidate, imported)
+        facts["undo_available"] = True
+    except (WorkspaceError, OSError):
+        facts["undo_available"] = False
+    try:
         manager.discard(workspace)
     except WorkspaceError:
         # The import itself is complete and verified; a leftover worktree is not a
@@ -261,7 +267,8 @@ def apply_candidate(
     return TaskResult(
         task_id, TaskOutcome.PASS,
         "Applied the reviewed change from task " + referent + " to: "
-        + ", ".join(candidate.paths) + ".\nNothing was staged or committed.\n" + proof_line,
+        + ", ".join(candidate.paths) + ".\nNothing was staged or committed.\n" + proof_line
+        + (f"\nTo reverse exactly this change: /undo {referent}" if facts["undo_available"] else ""),
         True,
         metrics={
             "candidate_import": facts,
@@ -272,7 +279,66 @@ def apply_candidate(
     )
 
 
+def undo_candidate(
+    manager: GitWorkspaceManager | None,
+    declared: RepoConfig,
+    *,
+    task_id: str,
+    request_text: str,
+) -> TaskResult:
+    """Reverse one applied candidate where its files still hold exactly what it wrote."""
+    referent = undo_referent(request_text)
+    if referent is None:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was undone: the request must name one full task ID.",
+                          False, reason_code="invalid_input")
+    if manager is None:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was undone: candidate workspaces are not configured.",
+                          False, reason_code="unavailable_capability")
+    if not declared.policy.allow_patch:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was undone: repository policy does not allow patches.",
+                          False, reason_code="policy_denied")
+    undone = manager.undo_applied(referent, declared.root)
+    facts = {
+        "candidate_task_id": referent,
+        "paths": list(undone.paths),
+        "drifted": list(undone.drifted),
+        "unresolved": list(undone.unresolved),
+    }
+    if undone.unresolved:
+        return TaskResult(
+            task_id, TaskOutcome.NO_VERDICT,
+            "The undo could not restore every file. These need your attention: "
+            + ", ".join(undone.unresolved) + ".",
+            False, metrics={"candidate_undo": facts}, reason_code="cleanup_unknown",
+        )
+    if not undone.undone and undone.drifted:
+        return TaskResult(
+            task_id, TaskOutcome.FAIL,
+            "Nothing was undone. These files changed after the change was applied, and "
+            "undoing would overwrite that work: " + ", ".join(undone.drifted) + ".",
+            False, metrics={"candidate_undo": facts}, reason_code="scope_changed",
+        )
+    if not undone.undone:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was undone: " + (undone.refused_reason or "refused") + ".",
+                          False, metrics={"candidate_undo": facts}, reason_code="invalid_input")
+    return TaskResult(
+        task_id, TaskOutcome.PASS,
+        f"Undid the change applied from task {referent}. Restored exactly: "
+        + ", ".join(undone.paths) + ". Nothing was staged or committed.",
+        True,
+        metrics={"candidate_undo": facts, "tree_sha256": repository_tree_sha256(declared.root)},
+        verification_ran=True,
+        reason_code="verification_passed",
+    )
+
+
 __all__ = [
+    "UNDO_CANDIDATE_ACTION",
+    "undo_candidate",
     "APPLY_CANDIDATE_ACTION",
     "CONTROLLER_ACTIONS",
     "apply_candidate",
