@@ -47,11 +47,11 @@ def test_rejects_drift_beyond_budget(repo: Path):
 
 def test_rejects_non_ancestor_reconciliation(repo: Path):
     target = _git(repo, "rev-parse", "HEAD")
+    text = (repo / "CURRENT_STATE.md").read_text(encoding="utf-8")
+    old = recorded_sha(text)
     subprocess.check_call(["git", "checkout", "--orphan", "other"], cwd=repo)
     subprocess.check_call(["git", "rm", "-rf", "."], cwd=repo)
     foreign = _commit(repo, "foreign")
-    text = (repo / "CURRENT_STATE.md").read_text(encoding="utf-8")
-    old = recorded_sha(text)
     (repo / "CURRENT_STATE.md").write_text(text.replace(old, foreign), encoding="utf-8")
     with pytest.raises(RuntimeError, match="not an ancestor"):
         check(repo, target=target, max_behind=3)
