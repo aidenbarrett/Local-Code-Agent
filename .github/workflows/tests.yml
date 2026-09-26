@@ -1,9 +1,5 @@
 name: tests
 
-# Real pytest is authoritative on Linux and Windows. Cheap structural gates run
-# first so broken contracts do not consume the full matrix.
-# Per-job evidence is captured before commands run. It declares intended scope;
-# only the trusted GitHub job conclusion can establish that scope passed.
 on:
   push:
     branches: [main]
@@ -46,12 +42,10 @@ jobs:
         run: python internal/scripts/accept-session-hub.py
       - name: Session event contract
         run: python -m pytest -q internal/tests/unit/test_session_contract_schema.py
-      - name: Product outcome and generation contracts
-        run: |
-          python -m pytest -q \
-            internal/tests/unit/test_outcomes.py \
-            internal/tests/unit/test_ledger_outcome_partition.py \
-            internal/tests/unit/test_generation2_contract_freeze.py
+      - name: Product outcome contracts
+        run: python -m pytest -q internal/tests/unit/test_outcomes.py internal/tests/unit/test_ledger_outcome_partition.py
+      - name: Cleanup and harness contracts
+        run: python -m pytest -q internal/tests/unit/test_no_legacy_experiment_references.py internal/tests/unit/test_endpoint_harness.py
       - name: Syntax scan
         run: python -m pytest -q internal/tests/unit/test_no_syntax_warnings.py
 
@@ -85,15 +79,8 @@ jobs:
           name: ci-job-tests-pytest-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
           path: ci-job-evidence.json
           if-no-files-found: error
-      - name: Toolchain identity
-        run: |
-          python --version
-          cmake --version
-          ctest --version
       - name: Install
         run: python -m pip install -e ".[dev]"
-      - name: Build the fixture repository
-        run: python internal/benchmark_fixture/generate_project.py
       - name: Authoritative test suite
         run: python -m pytest -q
 
@@ -109,24 +96,8 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - name: Capture declared CI job scope and checkout identity
-        env:
-          LCA_ARTIFACT_NAME: ci-job-tests-coverage-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
-          LCA_COMMAND_SCOPE: coverage-report
-          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
-        run: python internal/devtools/capture_ci_checkout.py
-      - name: Upload declared CI job scope and checkout identity
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-job-tests-coverage-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
-          path: ci-job-evidence.json
-          if-no-files-found: error
       - name: Install
         run: python -m pip install -e ".[coverage]"
-      - name: Build the fixture repository
-        run: python internal/benchmark_fixture/generate_project.py
       - name: Measure coverage
         run: python -m pytest -q --cov --cov-report=xml --cov-report=term-missing:skip-covered
       - name: Report what is uncovered
@@ -138,119 +109,3 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: warn
-
-  compatibility-runner:
-    name: compatibility runner (offline subset)
-    needs: gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Capture declared CI job scope and checkout identity
-        env:
-          LCA_ARTIFACT_NAME: ci-job-tests-compatibility-runner-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
-          LCA_COMMAND_SCOPE: compatibility-runner
-          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
-        run: python internal/devtools/capture_ci_checkout.py
-      - name: Upload declared CI job scope and checkout identity
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-job-tests-compatibility-runner-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
-          path: ci-job-evidence.json
-          if-no-files-found: error
-      - name: Install
-        run: python -m pip install -e ".[dev]"
-      - name: Build the fixture repository
-        run: python internal/benchmark_fixture/generate_project.py
-      - name: Compatibility suite
-        run: python internal/measurement/run_test_suite.py internal/tests
-
-  integrity:
-    name: fixture and instrument integrity (${{ matrix.os }})
-    needs: gates
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Capture declared CI job scope and checkout identity
-        env:
-          LCA_ARTIFACT_NAME: ci-job-tests-integrity-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
-          LCA_COMMAND_SCOPE: fixture-instrument-integrity
-          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
-        run: python internal/devtools/capture_ci_checkout.py
-      - name: Upload declared CI job scope and checkout identity
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-job-tests-integrity-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
-          path: ci-job-evidence.json
-          if-no-files-found: error
-      - name: Install
-        run: python -m pip install -e ".[dev]"
-      - name: Generated fixture matches the committed one
-        run: |
-          python internal/benchmark_fixture/generate_project.py
-          git diff --exit-code -- internal/benchmark_fixture/cpp_project
-      - name: Frozen contract identities match internal/INSTRUMENT.json
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json
-          import sys
-          from local_agent import provenance as p
-
-          with open("internal/INSTRUMENT.json", encoding="utf-8") as fh:
-              declared = json.load(fh)
-
-          source = p.source_sha256()
-          actual_contracts = {
-              "base_prompt_sha256": p.base_prompt_sha256(),
-              "outcome_contract_sha256": p.outcome_contract_sha256(),
-          }
-          print(f"{'source_sha256':<24} {source}  (derived exact-tree provenance)")
-
-          drift = []
-          for key, value in actual_contracts.items():
-              print(f"{key:<24} {value}")
-              if declared.get(key) != value:
-                  drift.append((key, declared.get(key), value))
-
-          if drift:
-              print("\nFROZEN CONTRACT DRIFT\n")
-              for key, want, got in drift:
-                  print(f"  {key}\n    declared  {want}\n    computed  {got}")
-              print(
-                  "A model-facing or outcome-facing contract moved; review generation "
-                  "semantics before updating the declaration."
-              )
-              sys.exit(1)
-
-          if "source_sha256" in declared:
-              print(
-                  "internal/INSTRUMENT.json must not declare live source_sha256; "
-                  "source provenance is derived from the exact checkout."
-              )
-              sys.exit(1)
-
-          print(
-              f"\nfrozen contract axes match generation {declared['generation']}; "
-              "source identity was derived from this exact checkout."
-          )
-          PY

@@ -7,23 +7,16 @@ __pycache__/
 dist/
 build/
 
-# The CMake build tree inside the C++ validation project, and the agent's own
-# run journal and build-provenance stamps.
+# CMake build tree and the agent's own run/provenance state.
 internal/benchmark_fixture/cpp_project/build/
 .local-agent/
 .local-agent-build-ok
 .local-agent-configured-profile
 
-# Scratch output from a run in progress. Datasets kept under
-# internal/experiments/<run>/data/ are committed deliberately, so they are
-# exempt from generic scratch ignores.
-experiment-runs/
-qualify-*.json
-results.json
-!internal/experiments/**/*.json
+# Benchmark reports are local evidence unless explicitly attached elsewhere.
+endpoint-benchmark*.json
 
-# Personal chat personas stay local by default. Neutral and Aiden are explicit
-# versioned examples; any other local persona remains ignored.
+# Personal chat personas stay local by default. Neutral and Aiden are explicit examples.
 internal/personas/*.toml
 !internal/personas/neutral.toml
 !internal/personas/aiden.toml
@@ -32,8 +25,5 @@ internal/personas/*.toml
 models/
 *.gguf
 
-# PACKAGE.json is a build artifact. internal/scripts/stamp_package.py writes it
-# and internal/scripts/build_release_package.sh injects it into the archive. It
-# names the commit it was built from, so tracking it would make it name its own
-# parent. Datasets are reconciled against the copy inside the release archive.
+# PACKAGE.json is generated release provenance.
 PACKAGE.json

@@ -9,7 +9,7 @@ skills_dir = "internal/skills"
 [profiles.python]
 configure = []
 build = ["python", "-c", "import compileall,sys; sys.exit(0 if compileall.compile_dir('internal/local_agent', quiet=1) else 1)"]
-test = ["python", "internal/measurement/run_test_suite.py", "internal/tests"]
+test = ["python", "-m", "pytest", "-q"]
 
 [policy]
 allow_build = true
