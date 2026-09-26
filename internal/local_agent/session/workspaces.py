@@ -150,6 +150,25 @@ class GitWorkspaceManager:
             return None if not target.exists() and not target.is_symlink() else "unhashable"
         return self._out(cwd, "hash-object", f"--path={path}", "--", path)
 
+    def _snapshot_commit(self, repository_root: Path, head: str) -> str:
+        """Commit recording the user's tracked state, without touching their index.
+
+        ``git stash create`` prints nothing and exits 0 when there is nothing to record.
+        With optional locks disabled it can also exit 1 with no output when files are
+        only stat-dirty (touched, content unchanged). That case is accepted as "no
+        tracked changes" only after ``git diff --quiet HEAD`` independently confirms it.
+        """
+        done = self._git(repository_root, "stash", "create", check=False)
+        out = done.stdout.decode("utf-8", "surrogateescape").strip()
+        if done.returncode == 0:
+            return out or head
+        if done.returncode == 1 and not out and not done.stderr.strip():
+            same = self._git(repository_root, "diff", "--quiet", "HEAD", "--", check=False)
+            if same.returncode == 0:
+                return head
+        message = done.stderr.decode("utf-8", "replace").strip()
+        raise WorkspaceError(f"git stash create failed ({done.returncode}): {message}")
+
     # -- lifecycle ----------------------------------------------------------
 
     def _lease_path(self, task_id: str) -> Path:
@@ -181,8 +200,7 @@ class GitWorkspaceManager:
 
         try:
             head = self._out(repository_root, "rev-parse", "--verify", "HEAD^{commit}")
-            snapshot = self._out(repository_root, "stash", "create")
-            base = snapshot or head
+            base = self._snapshot_commit(repository_root, head)
             dirty = _split_z(self._git(
                 repository_root, "diff", "--name-only", "-z", "--no-renames", "HEAD", "--"
             ).stdout)

@@ -82,6 +82,24 @@ def test_clean_checkout_bases_on_head(tmp_path):
         manager.close(ws)
 
 
+def test_touched_but_unchanged_files_base_on_head(tmp_path):
+    # A build or an editor save can leave files stat-dirty with identical content. With
+    # optional locks off, `git stash create` then exits 1 with no output.
+    user = _user_repo(tmp_path)
+    target = user / "src" / "a.cpp"
+    content = target.read_bytes()
+    stat = target.stat()
+    target.write_bytes(content)
+    os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+    manager = _manager(tmp_path)
+    ws = manager.create(user, str(uuid4()))
+    try:
+        assert ws.base_commit == ws.head_commit
+        assert ws.dirty_paths == ()
+    finally:
+        manager.close(ws)
+
+
 def test_user_hooks_never_run_for_controller_git_operations(tmp_path):
     user = _user_repo(tmp_path)
     marker = tmp_path / "hook-ran"
