@@ -1,93 +1,44 @@
 # internal/
 
-The root of the repository is the product surface: what a first-time user runs. This
-directory is everything behind it. A stranger who opens the repository should never be
-sent in here to make the product work.
+The repository root is the product surface. `internal/` contains implementation, tests, operator tooling and deeper documentation.
 
 ## What lives where
 
-| Directory | What it is | Part of the instrument? |
-|---|---|---|
-| `local_agent/` | the agent itself: controller, worker, tools, policy, session hub, inference clients | yes, every `.py` |
-| `evaluation/` | what makes a result count: task contracts, endpoints, the oracle, the evaluator | yes, every `.py` |
-| `measurement/` | qualification, benchmarking, experiment launch, the offline test runner | yes, `.py` and `.sh` |
-| `skills/` | model-facing skill documents, loaded on demand | yes, every file |
-| `benchmark_fixture/cpp_project/` | the C++ project the agent is measured on | yes, every file |
-| `docs/session-contract/v1/` | the versioned wire contract the validator loads at runtime | yes, the JSON |
-| `tests/` | unit and integration tests | no |
-| `devtools/` | developer utilities that inspect the repository, such as the rename pre-flight | no |
-| `scripts/` | operator tools, demos, product help, chat entry points | no |
-| `docs/` | design, methodology, review history, bring-up and future-client plans | no, except `session-contract/v1` |
-| `experiments/` | frozen collected evidence | no, and never edited |
-| `personas/` | chat persona configuration | no |
+| Directory | Purpose |
+|---|---|
+| `local_agent/` | deterministic controller, model client, tools, policy, durable session/runtime logic |
+| `serving/` | owned local-runtime process control used by product entrypoints |
+| `perf/` | neutral OpenAI-compatible endpoint performance harness and example profile |
+| `skills/` | model-facing task procedures loaded on demand |
+| `scripts/` | product composition roots, operator utilities and demos |
+| `tests/` | unit and integration regression coverage |
+| `devtools/` | repository engineering and CI support utilities |
+| `docs/` | architecture, product planning, verification and acceptance documentation |
+| `personas/` | optional raw-chat persona configuration |
+| `ui/` | presentation assets |
+| `benchmark_fixture/` | retained synthetic C++ fixture used by some engineering tests |
+| `evaluation/` | retained evaluator code used by existing engineering/test paths; not a historical-results store |
 
-A documentation-only future component belongs under `docs/`, not in a source-looking
-folder. `docs/textual-client-design.md` and `docs/vscode-client-design.md` hold the
-current future-client notes. Runtime paths such as `internal/ui/` or
-`internal/vscode/` should appear only when real implementation code exists and their
-instrument classification has been made deliberately.
+Historical research artifacts and the old experiment measurement stack are intentionally not present on the active product branch. The exact pre-cleanup tree is preserved on `archive/legacy-experiments-2026-09-26` at `ad07af071a62acfa4d0168c7a89d7110a52088f6`.
 
-"Part of the instrument" means the file's bytes feed `source_sha256`. Editing one
-changes the identity of the thing that produced every measurement. That is not a reason
-to avoid editing it; it is a reason to know you did.
+## Product source identity
 
-The table above is not the authority. `provenance._HASHED` is, and
-`internal/tests/unit/test_hashed_surface_membership.py` fails if the two disagree, in
-either direction. If you add a directory here, that test will fail until you classify
-it. That is the intended behaviour, not an obstacle: a new area silently joining or
-leaving the instrument is a bug we have already had.
+`local_agent.provenance.source_sha256()` hashes the live product surfaces that can affect user-visible behavior or runtime composition. It includes the agent, serving code, product scripts, skills, the runtime session schema and root launch/install metadata. Test code and archived research are not part of that identity.
 
-## The three identities
-
-| Hash | Covers | Moving it means |
-|---|---|---|
-| `source_sha256` | behavioural source bytes and their canonical paths | update `INSTRUMENT.json` in the same change |
-| `base_prompt_sha256` | what the model is told | **ends a generation once rows exist** |
-| `outcome_contract_sha256` | what the evaluator calls correct | **ends a generation once rows exist** |
-
-Recompute all three from the repository root. Windows PowerShell or WSL, either works:
-
-```text
-python -c "import sys; sys.path.insert(0,'internal'); from local_agent import provenance as p; print(p.source_sha256()); print(p.base_prompt_sha256()); print(p.outcome_contract_sha256())"
-```
-
-Generation 2 has zero collected model rows, and both contract axes are already
-deliberately pinned. Zero rows does not make them casually editable; it makes an explicit
-generation change cheap rather than expensive. Either way, moving one is a decision taken
-on purpose and stated in the PR, never a side effect of a rename.
-
-Once the first Generation-2 row exists, moving either contract axis ends Generation 2
-for confirmatory comparison and requires an explicit new-generation decision.
+A packaged build may also record the exact Git commit and dirty state in `PACKAGE.json`. Unknown provenance fails closed rather than producing a clean-looking package stamp.
 
 ## Running the suite
 
-Native pytest is authoritative. From the repository root:
+Native pytest is authoritative:
 
 ```text
 python -m pytest -q
 ```
 
-The offline runner exists for machines with no package index, and is not authoritative:
+The repository's own `.local-agent.toml` uses that same command, so the agent does not depend on a second compatibility test runner.
 
-```text
-python internal/measurement/run_test_suite.py internal/tests
-```
+## Endpoint performance work
 
-That second command is also what `.local-agent.toml` points the agent at when it tests
-its own checkout, which is why `internal/tests/unit/test_self_test_path_is_executable.py`
-executes it rather than trusting the string.
+Use `perf/endpoint_harness.py` for runtime comparison. Backend-specific commands, telemetry URLs and device identities belong in local profile files under an ignored local path such as `.local-agent/perf/`.
 
-## Before you rename or move anything in here
-
-```text
-python internal/devtools/check_rename_safety.py
-```
-
-It reports which of the three identities a rename would move, whether a name collides
-with a frozen wire value, what imports a module by bare name because something put a
-directory on `sys.path`, and which scripts and configuration files name its path. It
-exits non-zero on a real obstacle and on anything it could not analyse.
-
-A clean run means no contract-axis obstacle was detected. It does not mean the tree
-still imports, and it does not mean the move is correct. Read its header for what it
-cannot see.
+Do not add backend-specific branching to the harness. Optional backend telemetry must remain explicitly labelled as backend-reported; client timings stay client-observed.

@@ -1,9 +1,8 @@
 name: product acceptance
 
 # Exercise the public Windows composition from a fresh managed checkout environment.
-# This is product acceptance, not a replacement for authoritative pytest or frozen
-# experiment guards. It deliberately uses no live model, NPU, network repair or
-# machine-level installer mutation.
+# This is product acceptance, not a replacement for authoritative pytest or physical
+# hardware acceptance. It uses no live model, network repair or machine-level installer mutation.
 on:
   push:
     branches: [main]
@@ -53,9 +52,6 @@ jobs:
           robocopy . $target /E /XD .git .venv .venv-workstation .pytest_cache __pycache__ | Out-Null
           $copyRc = $LASTEXITCODE
           if ($copyRc -ge 8) { throw "robocopy failed with exit code $copyRc" }
-          # Robocopy uses 1..7 for successful copy/difference states. PowerShell leaves
-          # that value in $LASTEXITCODE and GitHub would otherwise fail this step despite
-          # our explicit success-range check above.
           $global:LASTEXITCODE = 0
           "LCA_ACCEPTANCE_ROOT=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -95,9 +91,6 @@ jobs:
           if ($rc -eq 0) { throw 'launcher accepted a managed environment missing jsonschema' }
           if ($output -notmatch 'runtime preflight failed') { throw 'missing dependency did not fail at runtime preflight' }
           if ($output -notmatch 'jsonschema') { throw 'runtime preflight did not identify the missing dependency' }
-          # The non-zero launcher status is the expected evidence for this negative
-          # acceptance case. Clear it only after every assertion above has passed so
-          # PowerShell does not turn a successful refusal test into a failed CI step.
           $global:LASTEXITCODE = 0
 
       - name: Explicit reinstall repairs the managed checkout environment

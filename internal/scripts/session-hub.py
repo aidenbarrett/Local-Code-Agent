@@ -41,7 +41,7 @@ from local_agent.session.task_admission import DurableTaskAdmissionRunner, repos
 from local_agent.session.task_controller import TaskController  # noqa: E402
 from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
 from local_agent.session.textual_runtime import build_textual_session_runtime  # noqa: E402
-from measurement.managed_runtime import ensure_managed_runtime  # noqa: E402
+from serving.managed_runtime import ensure_managed_runtime  # noqa: E402
 
 
 def _runtime_root() -> Path:

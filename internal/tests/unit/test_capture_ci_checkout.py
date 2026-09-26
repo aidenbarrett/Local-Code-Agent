@@ -124,14 +124,10 @@ def test_every_workflow_job_defines_unique_matrix_evidence_and_scope():
             "attempt-${{ github.run_attempt }}": "authoritative-pytest",
             "ci-job-tests-coverage-${{ runner.os }}-${{ runner.arch }}-"
             "attempt-${{ github.run_attempt }}": "coverage-report",
-            "ci-job-tests-compatibility-runner-${{ runner.os }}-${{ runner.arch }}-"
-            "attempt-${{ github.run_attempt }}": "compatibility-runner",
-            "ci-job-tests-integrity-${{ runner.os }}-${{ runner.arch }}-"
-            "attempt-${{ github.run_attempt }}": "fixture-instrument-integrity",
         },
         root / ".github/workflows/serving.yml": {
             "ci-job-serving-serving-${{ runner.os }}-${{ runner.arch }}-"
-            "attempt-${{ github.run_attempt }}": "serving-and-energy",
+            "attempt-${{ github.run_attempt }}": "serving",
         },
     }
     for path, jobs in workflows.items():
