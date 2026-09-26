@@ -1,6 +1,7 @@
 """Fix-the-build journey: the worker edits its own worktree, never the user's checkout."""
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 from pathlib import Path
@@ -15,7 +16,11 @@ from local_agent.session.contracts import TaskOutcome
 from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.intents import RULE_FIX_BUILD, RouteAction, decide_route
 from local_agent.session.task_controller import TaskController
-from local_agent.session.workspaces import GitWorkspaceManager
+from local_agent.session.workspaces import GitWorkspaceManager, WorkspaceError
+
+# Imports stay at module scope. test_session_import_boundary purges and re-imports
+# local_agent modules; a function-local import can then bind a newer class than the
+# one the controller raises or returns, and isinstance/raises checks stop matching.
 
 
 RING = "src/ring_buffer.cpp"
@@ -191,10 +196,8 @@ def test_retained_candidate_record_is_tamper_evident(sandbox, tmp_path):
     controller.run("fix the build", task_id=task_id, skill_name="fix-build-failure")
     record = manager.workspaces_root / f"{task_id}.candidate.json"
     raw = json.loads(record.read_text(encoding="utf-8"))
-    import base64
     raw["candidate"]["patch_b64"] = base64.b64encode(b"diff --git a/x b/x\n").decode()
     record.write_text(json.dumps(raw), encoding="utf-8")
-    from local_agent.session.workspaces import WorkspaceError
     with pytest.raises(WorkspaceError):
         manager.load(task_id)
     with pytest.raises(WorkspaceError):
