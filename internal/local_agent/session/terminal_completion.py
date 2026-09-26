@@ -12,7 +12,7 @@ from typing import Any
 
 from .contracts import TaskOutcome, TaskResult
 
-_RESULT_SCHEMA = "lca.task-result/1"
+from .candidate_facts import result_fields_for, validate_candidate
 _RESULT_MEDIA_TYPE = "application/vnd.lca.task-result+json"
 _ALLOWED_CLEANUP = frozenset({"confirmed", "not_needed", "attempted", "unknown"})
 
@@ -31,21 +31,13 @@ def _retained_result(task_id: str, result_bytes: bytes | None) -> tuple[TaskResu
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("retained task result must be UTF-8 JSON") from exc
     result = _mapping(raw, "retained task result")
-    required = {
-        "schema",
-        "task_id",
-        "outcome",
-        "terminal_state",
-        "verdict",
-        "verification_ran",
-        "verified_at_completion",
-        "evidence_ids",
-        "answer",
-    }
+    try:
+        required = result_fields_for(result.get("schema"))
+    except ValueError as exc:
+        raise ValueError("retained task result schema mismatch") from exc
     if set(result) != required:
-        raise ValueError("retained task result fields do not match lca.task-result/1")
-    if result["schema"] != _RESULT_SCHEMA:
-        raise ValueError("retained task result schema mismatch")
+        raise ValueError(f"retained task result fields do not match {result['schema']}")
+    validate_candidate(result.get("candidate"))
     if result["task_id"] != task_id:
         raise ValueError("retained task result task_id disagrees with terminal task")
     if not isinstance(result["answer"], str):

@@ -14,7 +14,7 @@ from .contracts import MAX_MESSAGE_CHARS, TaskOutcome, TaskVerdict, TerminalStat
 from .session_store import ArtifactIntegrityError, SQLiteSessionStore
 
 
-_RESULT_SCHEMA = "lca.task-result/1"
+from .candidate_facts import CandidateFacts, result_fields_for, validate_candidate
 _RESULT_MEDIA_TYPE = "application/vnd.lca.task-result+json"
 
 
@@ -35,6 +35,8 @@ class RetainedTaskResult:
     evidence_ids: tuple[str, ...]
     verification_ran: bool
     verified_at_completion: bool
+    # Durable candidate facts (lca.task-result/2); None for /1 results and other tasks.
+    candidate: CandidateFacts | None = None
 
 
 @dataclass(frozen=True)
@@ -68,13 +70,19 @@ class DurableTaskHistory:
             value = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as exc:
             raise ArtifactIntegrityError("retained task result is not valid UTF-8 JSON") from exc
-        expected = {
-            "schema", "task_id", "outcome", "terminal_state", "verdict",
-            "verification_ran", "verified_at_completion", "evidence_ids", "answer",
-        }
-        if not isinstance(value, dict) or set(value) != expected:
+        if not isinstance(value, dict):
             raise ArtifactIntegrityError("retained task result has an unexpected shape")
-        if value["schema"] != _RESULT_SCHEMA or value["task_id"] != task_id:
+        try:
+            expected = result_fields_for(value.get("schema"))
+        except ValueError as exc:
+            raise ArtifactIntegrityError("retained task result identity does not match task index") from exc
+        if set(value) != expected:
+            raise ArtifactIntegrityError("retained task result has an unexpected shape")
+        try:
+            validate_candidate(value.get("candidate"))
+        except ValueError as exc:
+            raise ArtifactIntegrityError("retained task result candidate facts are invalid") from exc
+        if value["task_id"] != task_id:
             raise ArtifactIntegrityError("retained task result identity does not match task index")
         try:
             TaskOutcome(value["outcome"])
@@ -114,6 +122,7 @@ class DurableTaskHistory:
             evidence_ids=tuple(value["evidence_ids"]),
             verification_ran=bool(value["verification_ran"]),
             verified_at_completion=bool(value["verified_at_completion"]),
+            candidate=validate_candidate(value.get("candidate")),
         )
 
     def result_for_task(self, task_id: str) -> RetainedTaskResult | None:
