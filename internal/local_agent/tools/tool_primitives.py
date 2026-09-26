@@ -92,6 +92,9 @@ class Reason(str, Enum):
     # directory, the run journal, or .git internals. Refused, and recorded,
     # because attempting it is itself a measurement.
     PROTECTED_PATH = "protected_path"
+    # The user's Stop reached a configured command: either before it spawned, or
+    # while it ran and the runner ended its process tree.
+    COMMAND_CANCELLED = "command_cancelled"
 
     @property
     def locus(self) -> Locus:
@@ -119,6 +122,7 @@ _LOCUS: dict[Reason, Locus] = {
     Reason.NO_BUILD_RECORD: Locus.MODEL,
     Reason.PROFILE_MISMATCH: Locus.MODEL,
     Reason.PROTECTED_PATH: Locus.MODEL,
+    Reason.COMMAND_CANCELLED: Locus.USER,
 }
 assert set(_LOCUS) == set(Reason), "every Reason needs a Locus"
 

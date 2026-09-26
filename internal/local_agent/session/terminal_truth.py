@@ -79,11 +79,12 @@ def derive_terminal_activity_truth(
     ):
         cleanup = "not_needed"
     elif any(
-        finish is not None and finish.get("reason_code") == "tool_timeout"
+        finish is not None and finish.get("reason_code") in {"tool_timeout", "cancelled"}
         for finish in process_calls.values()
     ):
-        # The command runner attempted bounded timeout cleanup, but descendant/process
-        # containment is not yet strong enough to call that cleanup confirmed.
+        # The command runner ended the tree on timeout or Stop. Windows Job Object
+        # accounting can confirm that locally, but the confirmation is not yet carried
+        # in the durable tool.finished contract, so terminal truth cannot claim it.
         cleanup = "attempted"
     else:
         cleanup = "unknown"

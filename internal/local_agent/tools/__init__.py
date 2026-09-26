@@ -66,9 +66,12 @@ UNIVERSAL_TOOLS = ["submit_answer"]
 
 
 def build_registry(
-    repo: RepoConfig, journal: object | None = None
+    repo: RepoConfig,
+    journal: object | None = None,
+    *,
+    cancellation_probe: object | None = None,
 ) -> tuple[ToolRegistry, ToolContext, PatchStore]:
-    ctx = ToolContext(repo=repo)
+    ctx = ToolContext(repo=repo, cancellation_probe=cancellation_probe)
     reg = ToolRegistry()
     store = PatchStore(journal=journal)
 
