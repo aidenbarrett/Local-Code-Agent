@@ -618,3 +618,24 @@ def test_commit_says_nothing_to_commit_when_the_fix_restores_head(sandbox, tmp_p
     assert result.outcome is TaskOutcome.BLOCKED
     assert "nothing to commit" in result.answer
     assert _git_out(sandbox.root, "rev-parse", "HEAD") == head_before
+
+
+def test_a_test_fix_proven_only_by_a_build_is_not_reported_as_proven(sandbox, tmp_path):
+    sandbox.scenario("test_failure")
+    turns = [
+        ChatResponse(tool_calls=[tool_call("propose_patch", {
+            "path": RING, "find": "count_ + 1 == slots_.size()", "replace": "count_ == slots_.size()"}, "b1")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "b2")]),
+        ChatResponse(tool_calls=[tool_call("build_target", {}, "b3")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "built", "evidence_ids": ["build_target:2"]}, "b4")]),
+        ChatResponse(content="Fixed, the build passes."),
+    ]
+    controller, _manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the failing tests", task_id=str(uuid4()), skill_name="fix-test-failure")
+
+    assert result.verified_at_completion is False
+    assert result.outcome is TaskOutcome.NO_VERDICT and result.reason_code == "missing_evidence"
+    assert "NOT proven: no full test run passed" in result.answer
+    verdict_block_from_task_result(result)

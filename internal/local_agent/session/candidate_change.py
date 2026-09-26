@@ -29,6 +29,30 @@ CANDIDATE_PROOF = {
 }
 CANDIDATE_CHANGE_SKILLS = frozenset(CANDIDATE_PROOF)
 
+# The proof kinds that satisfy each skill's contract. The orchestrator's `verified`
+# accepts either a full build or a full test pass; a test fix must not be reported as
+# proven by a build alone.
+_REQUIRED_PROOF_KINDS = {
+    "fix-build-failure": frozenset({"full_build_pass", "full_test_pass"}),
+    "fix-test-failure": frozenset({"full_test_pass"}),
+}
+
+
+def candidate_proof_satisfied(skill: str, run) -> bool:
+    """Whether the worker's current-epoch history holds the proof this skill requires.
+
+    Requires the orchestrator's own `verified` (no later contradiction on the current
+    tree) and at least one current-epoch proof of a required kind.
+    """
+    if not run.state.verified:
+        return False
+    required = _REQUIRED_PROOF_KINDS[skill]
+    epoch = int(run.state.mutation_epoch)
+    return any(
+        int(getattr(record, "epoch", -1)) == epoch and getattr(record, "proof", None) in required
+        for record in run.state.history
+    )
+
 # Controller-owned actions admitted like skills but executed without a model or tools.
 APPLY_CANDIDATE_ACTION = "apply-candidate"
 UNDO_CANDIDATE_ACTION = "undo-candidate"
@@ -421,6 +445,7 @@ __all__ = [
     "controller_action_sha256",
     "CANDIDATE_CHANGE_SKILLS",
     "CANDIDATE_PROOF",
+    "candidate_proof_satisfied",
     "CandidateOutcome",
     "candidate_blocker",
     "candidate_repo",
