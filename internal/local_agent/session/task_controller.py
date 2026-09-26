@@ -16,6 +16,14 @@ from .contracts import RouteSource, TaskOutcome, TaskResult
 from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
+from .candidate_change import (
+    CANDIDATE_CHANGE_SKILLS,
+    candidate_blocker,
+    candidate_repo,
+    candidate_workspace_approval,
+    excluded_dirs,
+    settle_candidate,
+)
 from .proof_binding import binding_from_run
 
 
@@ -24,8 +32,13 @@ _PROGRAMMER_ERRORS = (TypeError, AttributeError, NameError, AssertionError)
 
 class TaskController:
     def __init__(self, repo: RepoConfig, worker_factory, events: EventBuffer,
-                 *, allow_execution: bool = False, context_budget_tokens: int = 12_000):
-        # Product v0 cannot write source or history, even if repo policy permits it.
+                 *, allow_execution: bool = False, context_budget_tokens: int = 12_000,
+                 workspaces=None):
+        # The user's checkout is never written by a worker, even if repo policy permits
+        # it. Source-changing skills run in an LCA-owned candidate worktree instead, and
+        # take their patch authority from the declared policy kept here.
+        self.declared_repo = repo
+        self.workspaces = workspaces
         self.repo = replace(repo, policy=replace(
             repo.policy, allow_patch=False, allow_commit=False,
             allow_build=allow_execution and repo.policy.allow_build,
@@ -146,6 +159,63 @@ class TaskController:
             return "missing_evidence" if not run.state.verification_attempted else "cleanup_unknown"
         return "cleanup_unknown"
 
+    def _run_candidate_change(self, task, task_id, resolved_skill, source, durable_activity) -> TaskResult:
+        """Run a source-changing skill in its own worktree and retain the candidate."""
+        blocker = (
+            "candidate workspaces are not configured for this session"
+            if self.workspaces is None
+            else candidate_blocker(self.declared_repo, allow_execution=self.allow_execution)
+        )
+        if blocker is not None:
+            return TaskResult(
+                task_id, TaskOutcome.BLOCKED,
+                f"No change was prepared: {blocker}.", False,
+                reason_code="policy_denied",
+            )
+        workspace = self.workspaces.create(
+            self.declared_repo.root, task_id, excluded_dirs=excluded_dirs(self.declared_repo),
+        )
+        settled = False
+        try:
+            work_repo = candidate_repo(
+                self.declared_repo, workspace, allow_execution=self.allow_execution,
+            )
+            registry, _ctx, _store = build_registry(work_repo)
+            if durable_activity is not None:
+                registry = wrap_registry_with_durable_activity(registry, durable_activity)
+            self.events.emit("worker.workspace", {
+                "workspace_id": workspace.workspace_id,
+                "base_commit": workspace.base_commit,
+            }, task_id)
+            worker = Orchestrator(
+                repo=work_repo, registry=registry, client=self.worker_factory(),
+                skills=self._skill_library(), approval=candidate_workspace_approval,
+                context_budget_tokens=self.context_budget_tokens, allow_escalation=False,
+            )
+            run = worker.run(task, skill_name=resolved_skill)
+            task_outcome = self._product_outcome(run)
+            verified = bool(task_outcome.succeeded and run.state.verified)
+            metrics = run.state.metrics.as_dict()
+            # Proof identity is the candidate tree the build ran against.
+            metrics["proof_binding"] = binding_from_run(task, run, workspace.root).as_dict()
+            outcome, _candidate = settle_candidate(
+                self.workspaces, workspace, task_id=task_id, verified=verified,
+            )
+            settled = True
+            metrics["candidate"] = outcome.as_metrics(workspace)
+            answer = outcome.summary + ("\n\n" + run.answer if run.answer else "")
+            return TaskResult(
+                task_id, task_outcome, answer, verified,
+                tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
+                metrics,
+                verification_ran=bool(run.state.verification_attempted),
+                reason_code=self._reason_code(run, task_outcome),
+            )
+        finally:
+            if not settled:
+                # Nothing reviewable was produced; never leave an orphaned worktree.
+                self.workspaces.discard(workspace)
+
     def run(
         self,
         task: str,
@@ -178,6 +248,10 @@ class TaskController:
             if self_check:
                 from .self_check import run_self_check
                 result = run_self_check(self.repo, task_id, self.events)
+            elif resolved_skill in CANDIDATE_CHANGE_SKILLS:
+                result = self._run_candidate_change(
+                    task, task_id, resolved_skill, source, durable_activity,
+                )
             else:
                 registry, _ctx, _store = build_registry(
                     self.repo, cancellation_probe=cancellation_probe

@@ -20,6 +20,7 @@ RULE_REPO_NAVIGATION = "repo-navigation/v1"
 RULE_BUILD_AND_TEST = "build-and-test/v1"
 RULE_TASK_DIAGNOSTIC = "task-diagnostic/v1"
 RULE_MUTATION_UNAVAILABLE = "mutation-unavailable/v1"
+RULE_FIX_BUILD = "fix-build-failure/v1"
 RULE_SELF_CHECK = "self-check/v1"
 
 
@@ -174,6 +175,14 @@ _BUILD = re.compile(r"^build (?:it|this|the repo|the repository)[.!]?$", re.IGNO
 _DIAGNOSTIC = re.compile(r"^why did that fail\??$", re.IGNORECASE)
 _EXPLICIT_DIAGNOSTIC = re.compile(r"^why did task (?P<task_id>\S+) fail\??$", re.IGNORECASE)
 _FIX = re.compile(r"^fix it[.!]?$", re.IGNORECASE)
+# Explicit build-fix phrasing only. The change is prepared in an isolated candidate
+# worktree and is never applied to the user's checkout by this route.
+_FIX_BUILD = re.compile(
+    r"^(?:please\s+)?(?:fix|repair)\s+(?:the\s+)?(?:build|compile|compilation)"
+    r"(?:\s+(?:errors?|failures?))?[.!]?$"
+    r"|^make\s+(?:the\s+build|it)\s+(?:compile|build)[.!]?$",
+    re.IGNORECASE,
+)
 _SELF_CHECK = re.compile(r"^/check$", re.IGNORECASE)
 _CONTROL = {"/quit": "quit", "/exit": "quit"}
 
@@ -345,6 +354,18 @@ def decide_route(
             rule_id=RULE_TASK_DIAGNOSTIC,
             skill="task-diagnostic",
             reference_ids=(task_id,),
+        )
+
+    if _FIX_BUILD.fullmatch(stripped):
+        reason = _repository_target_reason(active_repo_count)
+        if reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_FIX_BUILD,
+            skill="fix-build-failure",
         )
 
     if _FIX.fullmatch(stripped):
