@@ -6,9 +6,15 @@ disk rather than into the context window.
 
 Timeout and cancellation are execution-state claims, not just return codes. A POSIX
 session gives us a useful process group to kill, but it is not containment: a descendant
-can call ``setsid()`` and escape that group. Windows process enumeration has the same
-proof problem until the runner owns a Job Object. Cleanup is therefore reported as
-unconfirmed on both platforms unless stronger OS containment exists.
+can call ``setsid()`` and escape that group, so POSIX cleanup is reported unconfirmed.
+
+On Windows the command is created suspended and adopted by a kill-on-close Job Object
+before its first instruction runs (``windows_job``). Descendants cannot break away, and
+cleanup is confirmed only when the kernel's job accounting reports zero active
+processes. If the OS refuses the job, the runner falls back to visible-tree enumeration
+and reports cleanup unconfirmed, exactly as before. Descendants still alive when the
+direct child exits normally are terminated with the job and counted, so a finished
+command never leaves an owned process behind.
 
 Child output is written to private temporary files and snapshotted into the
 public run artifacts only after the direct child exits or timeout/cancellation handling
@@ -31,6 +37,8 @@ from pathlib import Path
 from typing import BinaryIO, Protocol
 
 import psutil
+
+from . import windows_job
 
 
 _POST_KILL_WAIT_S = 2.0
@@ -63,6 +71,12 @@ class RunOutcome:
     # Linux cgroup or Windows Job Object.
     process_cleanup_confirmed: bool | None = None
     cancel_requested: bool = False
+    # Whole-tree ownership held for this run: "job_object" (Windows Job Object),
+    # "process_group" (POSIX session, escapable) or "visible_tree" (Windows fallback).
+    containment: str = "process_group"
+    # Descendants still inside the job when the direct child exited normally, which
+    # the runner then terminated. None when the containment cannot count them.
+    stray_descendants_at_exit: int | None = None
 
     @property
     def ok(self) -> bool:
@@ -106,8 +120,17 @@ def _best_effort_windows_tree_kill(proc: subprocess.Popen) -> None:
             pass
 
 
-def _kill_process_tree_best_effort(proc: subprocess.Popen) -> bool:
+def _kill_process_tree_best_effort(
+    proc: subprocess.Popen, job: "windows_job.ProcessTreeJob | None" = None
+) -> bool:
     """Best-effort cleanup; return whether whole-tree cleanup is proven."""
+    if job is not None:
+        confirmed = job.terminate_and_confirm(_POST_KILL_WAIT_S)
+        if not confirmed:
+            # The kernel still reports live members. Try the visible tree too, but the
+            # answer stays unconfirmed: only job accounting may say the tree is gone.
+            _best_effort_windows_tree_kill(proc)
+        return confirmed
     if os.name == "nt":
         _best_effort_windows_tree_kill(proc)
         # Enumeration is not containment. A Windows Job Object is required before
@@ -205,6 +228,17 @@ def run_command(
     timed_out = False
     cancel_requested = False
     cleanup_confirmed: bool | None = None
+    stray_descendants: int | None = None
+    job: windows_job.ProcessTreeJob | None = None
+    if windows_job.supported():
+        try:
+            job = windows_job.ProcessTreeJob()
+        except windows_job.JobContainmentError:
+            job = None
+    containment = (
+        "job_object" if job is not None
+        else ("visible_tree" if os.name == "nt" else "process_group")
+    )
     try:
         # These captures never live inside the public run directory. If an
         # escaped descendant retains its inherited descriptor, it can only keep
@@ -214,33 +248,49 @@ def run_command(
             tempfile.TemporaryFile(mode="w+b") as stdout_capture,
             tempfile.TemporaryFile(mode="w+b") as stderr_capture,
         ):
-            proc = subprocess.Popen(
-                [exe, *command[1:]],
-                cwd=str(cwd),
-                env=env,
-                stdout=stdout_capture,
-                stderr=stderr_capture,
-                start_new_session=(os.name != "nt"),
-            )
+            def spawn(suspended: bool) -> subprocess.Popen:
+                return subprocess.Popen(
+                    [exe, *command[1:]],
+                    cwd=str(cwd),
+                    env=env,
+                    stdout=stdout_capture,
+                    stderr=stderr_capture,
+                    start_new_session=(os.name != "nt"),
+                    creationflags=(windows_job.CREATE_SUSPENDED if suspended else 0),
+                )
+
+            proc = spawn(job is not None)
+            if job is not None:
+                try:
+                    job.adopt_suspended(proc.pid)
+                except windows_job.JobContainmentError:
+                    # adopt_suspended already terminated the suspended child, which never
+                    # executed an instruction, so running the command again is not a
+                    # replayed effect. Without a job, cleanup can no longer be proven.
+                    _bounded_reap(proc)
+                    job.close()
+                    job = None
+                    containment = "visible_tree"
+                    proc = spawn(False)
             code: int | None = None
             while code is None:
                 try:
                     if _probe_requested(cancellation_probe):
                         cancel_requested = True
-                        cleanup_confirmed = _kill_process_tree_best_effort(proc)
+                        cleanup_confirmed = _kill_process_tree_best_effort(proc, job)
                         _bounded_reap(proc)
                         code = 130
                         break
                 except BaseException:
                     # A broken cancellation source must not strand a child process.
-                    _kill_process_tree_best_effort(proc)
+                    _kill_process_tree_best_effort(proc, job)
                     _bounded_reap(proc)
                     raise
 
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     timed_out = True
-                    cleanup_confirmed = _kill_process_tree_best_effort(proc)
+                    cleanup_confirmed = _kill_process_tree_best_effort(proc, job)
                     _bounded_reap(proc)
                     code = 124
                     break
@@ -249,12 +299,26 @@ def run_command(
                 except subprocess.TimeoutExpired:
                     continue
 
+            if job is not None and not timed_out and not cancel_requested:
+                # The direct child is gone. Anything left in the job is a descendant it
+                # abandoned; it may still hold the captures open, so end it now rather
+                # than let it outlive the result.
+                try:
+                    stray_descendants = job.active_processes()
+                except windows_job.JobContainmentError:
+                    stray_descendants = None
+                if stray_descendants != 0:
+                    job.terminate_and_confirm(_POST_KILL_WAIT_S)
+
             stdout = _snapshot_capture(stdout_capture)
             stderr = _snapshot_capture(stderr_capture)
     except OSError as exc:
         raise BlockedError(
             f"could not start {exe!r}: {exc.strerror or exc}", Reason.SPAWN_FAILURE
         ) from exc
+    finally:
+        if job is not None:
+            job.close()
 
     if timed_out:
         stderr += (
@@ -276,7 +340,8 @@ def run_command(
         " ".join(command)
         + f"\nexit={code} elapsed={elapsed:.2f}s timed_out={str(timed_out).lower()} "
         + f"cancel_requested={str(cancel_requested).lower()} "
-        + f"cleanup_confirmed={cleanup_confirmed}\n",
+        + f"cleanup_confirmed={cleanup_confirmed} containment={containment} "
+        + f"stray_descendants_at_exit={stray_descendants}\n",
         encoding="utf-8",
     )
 
@@ -291,4 +356,6 @@ def run_command(
         combined_path=combined_path,
         process_cleanup_confirmed=cleanup_confirmed,
         cancel_requested=cancel_requested,
+        containment=containment,
+        stray_descendants_at_exit=stray_descendants,
     )
