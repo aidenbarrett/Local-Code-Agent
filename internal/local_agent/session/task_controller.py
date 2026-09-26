@@ -12,6 +12,7 @@ from ..agent.state import HaltCause
 from ..config import RepoConfig
 from ..tools import build_registry
 from ..tools.tool_primitives import Risk
+from ..verification import CONTRADICTS_CURRENT_TREE, ProofKind
 from .contracts import RouteSource, TaskOutcome, TaskResult
 from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
@@ -38,6 +39,19 @@ from .proof_binding import binding_from_run
 
 
 _PROGRAMMER_ERRORS = (TypeError, AttributeError, NameError, AssertionError)
+
+
+def _current_tree_observed_failure(run) -> bool:
+    """Whether the last proof-bearing call on the current tree observed a failure."""
+    epoch = int(run.state.mutation_epoch)
+    last = None
+    for record in run.state.history:
+        if int(getattr(record, "epoch", -1)) != epoch:
+            continue
+        kind = getattr(record, "proof", ProofKind.NO_CURRENT_PROOF.value)
+        if kind != ProofKind.NO_CURRENT_PROOF.value:
+            last = kind
+    return last in {k.value for k in CONTRADICTS_CURRENT_TREE}
 
 
 class TaskController:
@@ -142,6 +156,11 @@ class TaskController:
         if run.state.halt_cause in (HaltCause.SERVER_UNAVAILABLE, HaltCause.INFERENCE_STALLED):
             return TaskOutcome.NO_VERDICT
         if outcome.succeeded and not run.state.verified:
+            # The worker completed its job, but the tree is not proven. If the last
+            # current-epoch proof is an observed build or test failure, the honest
+            # product answer is that the check FAILED, not that the outcome is unknown.
+            if _current_tree_observed_failure(run):
+                return TaskOutcome.FAIL
             return TaskOutcome.NO_VERDICT
         return outcome
 
