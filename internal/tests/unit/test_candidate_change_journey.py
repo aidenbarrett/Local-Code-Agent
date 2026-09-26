@@ -347,3 +347,65 @@ def test_stop_reaches_a_running_candidate_build_and_nothing_is_retained(sandbox,
     assert _worktrees(sandbox.root) == 1
     with pytest.raises(WorkspaceError):
         manager.load(task_id)
+# ------------------------------------------------------ fault injection: /apply
+
+
+def _fail_apply_after(manager, write):
+    """Make the real (non --check) git apply write something, then report failure."""
+    real = manager._git
+
+    def faulty(cwd, *args, **kwargs):
+        if args and args[0] == "apply" and "--check" not in args:
+            write()
+            return subprocess.CompletedProcess(["git", *args], 1, b"", b"injected: disk full")
+        return real(cwd, *args, **kwargs)
+
+    return faulty
+
+
+def test_partial_apply_is_rolled_back_to_exactly_the_pre_import_content(sandbox, tmp_path, monkeypatch):
+    controller, manager, candidate_task = _prepare(sandbox, tmp_path)
+    workspace, _candidate = manager.load(candidate_task)
+    before = (sandbox.root / RING).read_bytes()
+    post = (workspace.root / RING).read_bytes()
+    monkeypatch.setattr(manager, "_git", _fail_apply_after(
+        manager, lambda: (sandbox.root / RING).write_bytes(post)))
+
+    result = _apply(controller, candidate_task)
+
+    assert result.outcome is TaskOutcome.FAIL
+    assert "restored" in result.answer and "back exactly as it was" in result.answer
+    assert (sandbox.root / RING).read_bytes() == before
+    assert _staged(sandbox.root) == ""
+    manager.load(candidate_task)  # not consumed by a failed import
+
+
+def test_partial_apply_never_overwrites_content_it_did_not_write(sandbox, tmp_path, monkeypatch):
+    controller, manager, candidate_task = _prepare(sandbox, tmp_path)
+    foreign = b"// written by something else mid-import\n"
+    monkeypatch.setattr(manager, "_git", _fail_apply_after(
+        manager, lambda: (sandbox.root / RING).write_bytes(foreign)))
+
+    result = _apply(controller, candidate_task)
+
+    assert result.outcome is TaskOutcome.NO_VERDICT
+    assert result.reason_code == "cleanup_unknown"
+    assert RING in result.answer and "need your attention" in result.answer
+    assert result.metrics["candidate_import"]["unresolved"] == [RING]
+    assert (sandbox.root / RING).read_bytes() == foreign
+
+
+def test_missing_candidate_worktree_does_not_misreport_a_completed_import(sandbox, tmp_path):
+    import shutil
+
+    controller, manager, candidate_task = _prepare(sandbox, tmp_path)
+    workspace, _candidate = manager.load(candidate_task)
+    shutil.rmtree(workspace.root)
+
+    result = _apply(controller, candidate_task)
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert "++count_;" in (sandbox.root / RING).read_text(encoding="utf-8")
+    assert result.metrics["candidate_import"]["checkout_matches_candidate_tree"] is None
+    assert "could not be compared" in result.answer
+    assert "covers them" not in result.answer
