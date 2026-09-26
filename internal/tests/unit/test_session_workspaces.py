@@ -330,3 +330,95 @@ def test_partial_import_restores_modified_files_and_removes_created_ones(tmp_pat
     finally:
         monkeypatch.undo()
         manager.close(ws)
+
+
+# ------------------------------------------------------------- orphan reaping
+
+
+def _lease_record(manager, task_id):
+    import json as _json
+
+    return _json.loads((manager.workspaces_root / f"{task_id}.lease").read_text(encoding="utf-8"))
+
+
+def _rewrite_owner(manager, task_id, owner):
+    import json as _json
+
+    lease = manager.workspaces_root / f"{task_id}.lease"
+    record = _json.loads(lease.read_text(encoding="utf-8"))
+    record["owner"] = owner
+    lease.write_text(_json.dumps(record), encoding="utf-8")
+
+
+def test_lease_describes_owner_and_target(tmp_path):
+    user = _user_repo(tmp_path)
+    manager = _manager(tmp_path)
+    task_id = str(uuid4())
+    ws = manager.create(user, task_id)
+    try:
+        record = _lease_record(manager, task_id)
+        assert record["workspace_id"] == ws.workspace_id
+        assert Path(record["root"]).resolve() == ws.root
+        assert Path(record["repository_root"]) == user
+        assert record["owner"] == GitWorkspaceManager._owner_token(os.getpid())
+    finally:
+        manager.close(ws)
+
+
+def test_worktree_of_a_dead_controller_is_reaped(tmp_path):
+    user = _user_repo(tmp_path)
+    manager = _manager(tmp_path)
+    task_id = str(uuid4())
+    ws = manager.create(user, task_id)
+    _rewrite_owner(manager, task_id, "2147483000:1.000000")  # no such process
+
+    assert manager.reap_orphans() == (task_id,)
+    assert not ws.root.exists()
+    assert not (manager.workspaces_root / f"{task_id}.lease").exists()
+    assert str(ws.root) not in _git(user, "worktree", "list", "--porcelain")
+
+
+def test_reused_pid_is_not_mistaken_for_the_owner(tmp_path):
+    user = _user_repo(tmp_path)
+    manager = _manager(tmp_path)
+    task_id = str(uuid4())
+    ws = manager.create(user, task_id)
+    _rewrite_owner(manager, task_id, f"{os.getpid()}:1.000000")  # our PID, wrong start time
+    assert manager.reap_orphans() == (task_id,)
+    assert not ws.root.exists()
+
+
+def test_live_owner_is_never_reaped(tmp_path):
+    user = _user_repo(tmp_path)
+    manager = _manager(tmp_path)
+    ws = manager.create(user, str(uuid4()))
+    try:
+        assert manager.reap_orphans() == ()
+        assert ws.root.exists()
+    finally:
+        manager.close(ws)
+
+
+def test_retained_candidate_is_never_reaped_even_if_its_owner_died(tmp_path):
+    user = _user_repo(tmp_path)
+    manager = _manager(tmp_path)
+    task_id = str(uuid4())
+    ws = manager.create(user, task_id)
+    try:
+        (ws.root / "src" / "a.cpp").write_text("int a() { return 11; }\n", encoding="utf-8")
+        manager.retain(ws, manager.candidate_patch(ws))
+        _rewrite_owner(manager, task_id, "2147483000:1.000000")
+        assert manager.reap_orphans() == ()
+        assert ws.root.exists()
+        manager.load(task_id)
+    finally:
+        manager.discard(ws)
+
+
+def test_unreadable_lease_is_left_for_a_human(tmp_path):
+    manager = _manager(tmp_path)
+    task_id = str(uuid4())
+    lease = manager.workspaces_root / f"{task_id}.lease"
+    lease.write_text("", encoding="utf-8")
+    assert manager.reap_orphans() == ()
+    assert lease.exists()

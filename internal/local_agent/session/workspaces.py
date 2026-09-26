@@ -33,6 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import psutil
+
 _GIT_TIMEOUT_S = 300
 
 
@@ -181,6 +183,47 @@ class GitWorkspaceManager:
     def _lease_path(self, task_id: str) -> Path:
         return self.workspaces_root / f"{task_id}.lease"
 
+    @staticmethod
+    def _owner_token(pid: int) -> str | None:
+        """PID plus process start time: a reused PID is a different owner."""
+        try:
+            return f"{pid}:{psutil.Process(pid).create_time():.6f}"
+        except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
+            return None
+
+    def reap_orphans(self) -> tuple[str, ...]:
+        """Remove worktrees whose owning controller process is gone and left nothing to apply.
+
+        A lease is reaped only when its recorded owner process is provably not the same
+        live process (by PID and start time) and no retained candidate exists for its
+        task. Leases held by a live process, including another Session Hub, are never
+        touched. Unreadable leases are left for a human rather than guessed at.
+        """
+        reaped: list[str] = []
+        for lease in sorted(self.workspaces_root.glob("*.lease")):
+            task_id = lease.name[: -len(".lease")]
+            try:
+                UUID(task_id)
+                record = json.loads(lease.read_text(encoding="utf-8"))
+                owner = record["owner"]
+                root = Path(record["root"])
+                repository_root = Path(record["repository_root"])
+            except (ValueError, KeyError, TypeError, OSError):
+                continue
+            if self._record_path(task_id).exists():
+                continue
+            if isinstance(owner, str) and owner == self._owner_token(int(owner.split(":", 1)[0])):
+                continue
+            if repository_root.is_dir():
+                self._git(repository_root, "worktree", "remove", "--force", str(root), check=False)
+                self._git(repository_root, "worktree", "prune", check=False)
+            if root.exists():
+                shutil.rmtree(root, ignore_errors=True)
+            if not root.exists():
+                lease.unlink(missing_ok=True)
+                reaped.append(task_id)
+        return tuple(reaped)
+
     def create(
         self,
         repository_root: Path,
@@ -203,7 +246,19 @@ class GitWorkspaceManager:
             fd = os.open(lease, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError as exc:
             raise WorkspaceError(f"task {task_id} already holds a workspace lease") from exc
-        os.close(fd)
+        workspace_id = str(uuid4())
+        root = self.workspaces_root / workspace_id[:12]
+        try:
+            # The lease describes its owner and target before anything exists on disk,
+            # so a crash at any later point leaves a lease that reap_orphans can act on.
+            os.write(fd, json.dumps({
+                "workspace_id": workspace_id,
+                "root": str(root),
+                "repository_root": str(repository_root),
+                "owner": self._owner_token(os.getpid()),
+            }).encode("utf-8"))
+        finally:
+            os.close(fd)
 
         try:
             head = self._out(repository_root, "rev-parse", "--verify", "HEAD^{commit}")
@@ -214,10 +269,7 @@ class GitWorkspaceManager:
             untracked = _split_z(self._git(
                 repository_root, "ls-files", "--others", "--exclude-standard", "-z"
             ).stdout)
-            workspace_id = str(uuid4())
-            root = self.workspaces_root / workspace_id[:12]
             self._git(repository_root, "worktree", "add", "--detach", "--quiet", str(root), base)
-            lease.write_text(workspace_id, encoding="utf-8")
         except BaseException:
             lease.unlink(missing_ok=True)
             raise
