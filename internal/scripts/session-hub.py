@@ -39,6 +39,7 @@ from local_agent.session.session_event_service import DurableSessionService  # n
 from local_agent.session.session_store import SQLiteSessionStore  # noqa: E402
 from local_agent.session.task_admission import DurableTaskAdmissionRunner, repository_id  # noqa: E402
 from local_agent.session.task_controller import TaskController  # noqa: E402
+from local_agent.session.workspaces import GitWorkspaceManager  # noqa: E402
 from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
 from local_agent.session.textual_runtime import build_textual_session_runtime  # noqa: E402
 from serving.managed_runtime import ensure_managed_runtime  # noqa: E402
@@ -174,6 +175,11 @@ def main(argv: list[str] | None = None) -> int:
                     repo, worker_factory, events,
                     allow_execution=args.allow_execution,
                     context_budget_tokens=worker_config.context_budget_tokens,
+                    # Short on purpose: MSVC build trees nest deep under a candidate
+                    # worktree and Windows MAX_PATH is counted from the drive root.
+                    workspaces=GitWorkspaceManager(
+                        runtime_root / "ws", controller_commit=_controller_commit(),
+                    ),
                 )
                 admitted_controller = AdmittedDurableTaskController(service, controller)
                 task_executor = CancellableDurableTaskExecutor(service, admitted_controller)

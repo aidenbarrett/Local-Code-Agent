@@ -23,7 +23,9 @@ the caller's approval authority before ``import_patch`` is called.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -302,6 +304,100 @@ class GitWorkspaceManager:
             self._worktree_blob(user, path) == blob for path, blob in candidate.post_blobs
         )
         return ImportResult(True, candidate.paths, (), None, verified, tuple(pre))
+
+    def checkout_matches_candidate(self, workspace: Workspace) -> bool:
+        """Whether the user's tracked files now equal the candidate tree exactly.
+
+        True means a proof taken on the candidate tree is a proof about the user's tracked
+        state. Untracked files are outside both trees. Nothing in the user's checkout is
+        modified to answer this.
+        """
+        user = workspace.repository_root
+        snapshot = self._snapshot_commit(
+            user, self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
+        )
+        user_tree = self._out(user, "rev-parse", f"{snapshot}^{{tree}}")
+        candidate_tree = self._out(workspace.root, "write-tree")
+        return user_tree == candidate_tree
+
+    # -- retention -----------------------------------------------------------
+
+    def _record_path(self, task_id: str) -> Path:
+        UUID(task_id)
+        return self.workspaces_root / f"{task_id}.candidate.json"
+
+    def retain(self, workspace: Workspace, candidate: CandidatePatch) -> Path:
+        """Persist a reviewed candidate so a later, separate import can find it."""
+        if candidate.workspace_id != workspace.workspace_id:
+            raise WorkspaceError("candidate does not belong to this workspace")
+        record = {
+            "workspace": {
+                "workspace_id": workspace.workspace_id,
+                "task_id": workspace.task_id,
+                "root": str(workspace.root),
+                "repository_root": str(workspace.repository_root),
+                "head_commit": workspace.head_commit,
+                "base_commit": workspace.base_commit,
+                "controller_commit": workspace.controller_commit,
+                "dirty_paths": list(workspace.dirty_paths),
+                "untracked_excluded": list(workspace.untracked_excluded),
+                "excluded_dirs": list(workspace.excluded_dirs),
+            },
+            "candidate": {
+                "workspace_id": candidate.workspace_id,
+                "base_commit": candidate.base_commit,
+                "patch_b64": base64.b64encode(candidate.patch).decode("ascii"),
+                "sha256": candidate.sha256,
+                "paths": list(candidate.paths),
+                "post_blobs": [[path, blob] for path, blob in candidate.post_blobs],
+            },
+        }
+        path = self._record_path(workspace.task_id)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+        return path
+
+    def load(self, task_id: str) -> tuple[Workspace, CandidatePatch]:
+        """Load a retained candidate, refusing any record whose patch bytes were altered."""
+        path = self._record_path(task_id)
+        if not path.is_file():
+            raise WorkspaceError(f"no retained candidate for task {task_id}")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        w, c = raw["workspace"], raw["candidate"]
+        workspace = Workspace(
+            workspace_id=w["workspace_id"],
+            task_id=w["task_id"],
+            root=Path(w["root"]),
+            repository_root=Path(w["repository_root"]),
+            head_commit=w["head_commit"],
+            base_commit=w["base_commit"],
+            controller_commit=w["controller_commit"],
+            dirty_paths=tuple(w["dirty_paths"]),
+            untracked_excluded=tuple(w["untracked_excluded"]),
+            excluded_dirs=tuple(w["excluded_dirs"]),
+        )
+        if workspace.task_id != task_id:
+            raise WorkspaceError("retained candidate record names a different task")
+        patch = base64.b64decode(c["patch_b64"], validate=True)
+        if hashlib.sha256(patch).hexdigest() != c["sha256"]:
+            raise WorkspaceError("retained candidate patch does not match its recorded hash")
+        candidate = CandidatePatch(
+            workspace_id=c["workspace_id"],
+            base_commit=c["base_commit"],
+            patch=patch,
+            sha256=c["sha256"],
+            paths=tuple(c["paths"]),
+            post_blobs=tuple((p, b) for p, b in c["post_blobs"]),
+        )
+        return workspace, candidate
+
+    def discard(self, workspace: Workspace) -> None:
+        """Close the workspace and forget its retained candidate."""
+        try:
+            self.close(workspace)
+        finally:
+            self._record_path(workspace.task_id).unlink(missing_ok=True)
 
     def close(self, workspace: Workspace) -> None:
         """Remove the candidate worktree and release the task's lease."""
