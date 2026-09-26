@@ -39,6 +39,29 @@ def _request_json(url: str, token: str | None = None) -> Any:
         return json.load(response)
 
 
+def _load_rulesets(owner: str, repo: str, token: str | None) -> list[dict[str, Any]]:
+    summaries = _request_json(f"https://api.github.com/repos/{owner}/{repo}/rulesets", token)
+    if not isinstance(summaries, list):
+        raise ValueError("GitHub returned an unexpected ruleset-list response shape")
+    details: list[dict[str, Any]] = []
+    for summary in summaries:
+        if not isinstance(summary, dict):
+            raise ValueError("GitHub returned a malformed ruleset summary")
+        if "rules" in summary:
+            details.append(summary)
+            continue
+        ruleset_id = summary.get("id")
+        if not isinstance(ruleset_id, int) or isinstance(ruleset_id, bool):
+            raise ValueError("GitHub ruleset summary did not include a numeric id")
+        detail = _request_json(
+            f"https://api.github.com/repos/{owner}/{repo}/rulesets/{ruleset_id}", token
+        )
+        if not isinstance(detail, dict):
+            raise ValueError("GitHub returned an unexpected ruleset-detail response shape")
+        details.append(detail)
+    return details
+
+
 def _classic_protection(branch: dict[str, Any]) -> EnforcementResult | None:
     if not branch.get("protected"):
         return None
@@ -75,7 +98,7 @@ def _ruleset_protection(rulesets: list[dict[str, Any]]) -> EnforcementResult | N
     for ruleset in rulesets:
         if not isinstance(ruleset, dict):
             continue
-        if ruleset.get("enforcement") not in {"active", "evaluate"}:
+        if ruleset.get("enforcement") != "active":
             continue
         rules = ruleset.get("rules") or ()
         for rule in rules:
@@ -93,7 +116,7 @@ def _ruleset_protection(rulesets: list[dict[str, Any]]) -> EnforcementResult | N
             False,
             "ruleset",
             (),
-            "a required-status-check ruleset exists but declares no check contexts",
+            "an active required-status-check ruleset exists but declares no check contexts",
         )
     return EnforcementResult(
         True,
@@ -165,9 +188,9 @@ def main(argv: list[str] | None = None) -> int:
         branch = _request_json(
             f"https://api.github.com/repos/{owner}/{repo}/branches/{args.branch}", token
         )
-        rulesets = _request_json(f"https://api.github.com/repos/{owner}/{repo}/rulesets", token)
-        if not isinstance(branch, dict) or not isinstance(rulesets, list):
-            raise ValueError("GitHub returned an unexpected merge-policy response shape")
+        rulesets = _load_rulesets(owner, repo, token)
+        if not isinstance(branch, dict):
+            raise ValueError("GitHub returned an unexpected branch response shape")
         result = evaluate_merge_enforcement(
             branch,
             rulesets,
