@@ -81,7 +81,7 @@ def test_live_activity_puts_human_result_above_raw_controller_detail():
         "Proof scope: full_build.",
     )
     rendered = render_live_activity(HubViewState(tasks=(task,)))
-    assert rendered.startswith("Result: VERIFIED — full current-tree build proof.\n\n")
+    assert rendered.startswith("Result: VERIFIED — full current-tree build proof.\nEvidence:\n")
     assert "Verdict: VERIFIED · verification_passed" in rendered
     assert "Proof scope: full_build." in rendered
 
