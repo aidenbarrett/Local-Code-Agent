@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `ad07af071a62acfa4d0168c7a89d7110a52088f6`
+Reconciled against GitHub `main` at `6b925111989cf8afecefafd963baacc5beb3d84c`
 on 2026-09-26 after the retained-result, Windows containment, public Stop, Panther Lake
 capture, Stop terminal-reconciliation and merge-enforcement truth slices landed. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
@@ -61,7 +61,11 @@ The public/product path now includes:
 - a fail-closed merge-enforcement checker that distinguishes actual GitHub branch/ruleset
   required-check policy from merely having workflow files.
 
-Source mutation and commits remain disabled on the conversation product path.
+The public conversation path now supports one bounded source-mutation journey: a build-fix
+candidate is prepared in an isolated LCA-owned worktree from the user's exact tracked
+state and must be proven there before it can be retained for explicit review/import.
+Preparing the candidate does not modify the user's checkout. Broader mutation and Git
+history capabilities remain outside the accepted public surface.
 
 ## Boundaries that remain open
 
@@ -84,8 +88,10 @@ supports:
   the last verified GitHub read, `main` was unprotected and no active required-status-check
   ruleset existed. The checker can prove configuration after an owner applies it; it does
   not possess repository-admin authority itself.
-- **Broader mutation, commit/push, Watch creation and richer automation remain later
-  product work.** Existing lower-level primitives are not public-journey acceptance.
+- **Mutation remains intentionally narrow.** The accepted source-changing surface is the
+  isolated build-fix candidate journey. General feature edits, commit/push, Watch creation
+  and richer automation remain later product work. Candidate verification belongs to the
+  isolated candidate tree and must not be presented as proof of an untouched checkout.
 
 ## Immediate work, in order
 
@@ -102,9 +108,9 @@ supports:
 4. Continue Stop cleanup only through bounded authority-specific joins: endpoint
    interruption/quarantine, owned process-tree termination and mutation reconciliation.
    Do not promote `UNKNOWN` / `NO_VERDICT` into `CANCELLED` without cleanup evidence.
-5. Only after those trust joins, begin intent-scoped safe mutation. Preserve dirty
-   worktrees, staging and unrelated user edits; keep commit/push/history changes as
-   separate capabilities.
+5. Extend mutation only through explicit intent-scoped journeys. Preserve dirty worktrees,
+   staging and unrelated user edits; keep commit/push/history changes as separate
+   capabilities, and never project candidate proof as checkout proof.
 
 Security defects and user-visible false claims may interrupt this order. Novelty does not.
 Every new slice needs a concrete user journey or trust-boundary failure, behavioural
