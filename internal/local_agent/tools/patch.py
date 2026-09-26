@@ -42,7 +42,7 @@ from .tool_context import ToolContext
 class PendingPatch:
     patch_id: str
     path: Path
-    original: str
+    original: str | None  # None: a new file, which must still not exist at apply time
     updated: str
     diff: str
 
@@ -142,6 +142,45 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
         )
 
     @reg.add(
+        "propose_file",
+        "Propose creating one NEW file with the given content and return the diff. "
+        "Changes nothing on disk. Refuses if the file already exists: use "
+        "propose_patch to change an existing file. Apply it with apply_patch.",
+        {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+                "rationale": {"type": "string"},
+            },
+            "required": ["path", "content"],
+            "additionalProperties": False,
+        },
+        Risk.READ,
+    )
+    def propose_file(path: str, content: str, rationale: str = "") -> ToolResult:
+        target = resolve_in_repo(ctx.root, path)
+        assert_writable(ctx.root, target, _protected(ctx))
+        if target.exists() or target.is_symlink():
+            raise ToolError(f"{path!r} already exists. Use propose_patch to change it.")
+        if not content:
+            raise ToolError("a new file needs content")
+        rel = relpath(ctx.root, target)
+        diff = "".join(
+            difflib.unified_diff(
+                [], content.splitlines(keepends=True),
+                fromfile="/dev/null", tofile=f"b/{rel}", n=3,
+            )
+        )
+        patch_id = uuid.uuid4().hex[:8]
+        store.put(PendingPatch(patch_id, target, None, content, diff))
+        return ToolResult(
+            ok=True,
+            summary=f"new file {patch_id} proposed for {rel} (nothing written yet)",
+            data={"patch_id": patch_id, "path": rel, "rationale": rationale, "diff": diff},
+        )
+
+    @reg.add(
         "apply_patch",
         "Apply a patch that was previously returned by propose_patch. Requires "
         "approval. Refuses if the file changed since the patch was proposed.",
@@ -164,12 +203,22 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
         # reaching here means the guard list changed underneath a stored patch,
         # and the write is the moment that matters.
         assert_writable(ctx.root, patch.path, _protected(ctx))
-        current = patch.path.read_text(encoding="utf-8")
-        if current != patch.original:
-            raise ToolError(
-                f"{relpath(ctx.root, patch.path)} changed since patch {patch_id} was "
-                "proposed. Re-read the file and propose again."
-            )
+        if patch.original is None:
+            if patch.path.exists() or patch.path.is_symlink():
+                raise ToolError(
+                    f"{relpath(ctx.root, patch.path)} was created since new file "
+                    f"{patch_id} was proposed. Read it and propose a change instead."
+                )
+            patch.path.parent.mkdir(parents=True, exist_ok=True)
+            # Refuse, rather than follow, a parent that resolved outside the repo.
+            assert_writable(ctx.root, patch.path, _protected(ctx))
+        else:
+            current = patch.path.read_text(encoding="utf-8")
+            if current != patch.original:
+                raise ToolError(
+                    f"{relpath(ctx.root, patch.path)} changed since patch {patch_id} was "
+                    "proposed. Re-read the file and propose again."
+                )
         patch.path.write_text(patch.updated, encoding="utf-8")
         if store.journal is not None:
             store.journal.record_write(

@@ -107,7 +107,7 @@ class RepoFingerprint:
 @dataclass
 class FileMutation:
     path: Path
-    before: str
+    before: str | None  # None: the file did not exist before this write
     after: str
     tool: str
 
@@ -119,7 +119,7 @@ class MutationJournal:
     entries: list[FileMutation] = field(default_factory=list)
     irreversible: list[str] = field(default_factory=list)
 
-    def record_write(self, path: Path, before: str, after: str, tool: str) -> None:
+    def record_write(self, path: Path, before: str | None, after: str, tool: str) -> None:
         self.entries.append(FileMutation(path, before, after, tool))
 
     def record_irreversible(self, description: str) -> None:
@@ -154,7 +154,10 @@ class MutationJournal:
             if current != entry.after:
                 skipped.append(f"{entry.path} (changed by someone else since)")
                 continue
-            entry.path.write_text(entry.before, encoding="utf-8")
+            if entry.before is None:
+                entry.path.unlink()
+            else:
+                entry.path.write_text(entry.before, encoding="utf-8")
             reverted.append(str(entry.path))
 
         result = {

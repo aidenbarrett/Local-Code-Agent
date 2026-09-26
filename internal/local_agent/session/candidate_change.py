@@ -26,6 +26,7 @@ from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace, Workspac
 CANDIDATE_PROOF = {
     "fix-build-failure": "full build",
     "fix-test-failure": "full test run",
+    "implement-change": "full build and full test run",
 }
 CANDIDATE_CHANGE_SKILLS = frozenset(CANDIDATE_PROOF)
 
@@ -35,6 +36,9 @@ CANDIDATE_CHANGE_SKILLS = frozenset(CANDIDATE_PROOF)
 _REQUIRED_PROOF_KINDS = {
     "fix-build-failure": frozenset({"full_build_pass", "full_test_pass"}),
     "fix-test-failure": frozenset({"full_test_pass"}),
+    # run_test refuses stale or unbuilt binaries, so a current full test pass also
+    # establishes that the edited tree built.
+    "implement-change": frozenset({"full_test_pass"}),
 }
 
 
@@ -88,10 +92,10 @@ def candidate_blocker(
             f"a candidate change must be proven by a {CANDIDATE_PROOF[skill]}, and configured "
             "build execution is not enabled for this session"
         )
-    if skill == "fix-test-failure" and not declared.policy.allow_test:
+    if skill in ("fix-test-failure", "implement-change") and not declared.policy.allow_test:
         return (
-            "a test fix must be proven by a full test run, and repository policy does not "
-            "allow running tests (policy.allow_test = false)"
+            f"this change must be proven by a {CANDIDATE_PROOF[skill]}, and repository "
+            "policy does not allow running tests (policy.allow_test = false)"
         )
     return None
 
