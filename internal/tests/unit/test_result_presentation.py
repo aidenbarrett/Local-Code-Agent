@@ -4,6 +4,8 @@ from uuid import uuid4
 
 from local_agent.session.result_presentation import render_result_summary
 from local_agent.session.task_read_model import TaskSnapshot
+from local_agent.session.textual_hub import HubViewState
+from local_agent.session.textual_live_app import render_live_activity
 
 
 def _task(*, verdict=None, reason=None, scope=None) -> TaskSnapshot:
@@ -65,3 +67,26 @@ def test_pending_and_unknown_values_fail_closed():
     assert render_result_summary(_task(verdict="FUTURE_VALUE")) == (
         "Result: UNKNOWN — unsupported durable verdict 'FUTURE_VALUE'."
     )
+
+
+def test_live_activity_puts_human_result_above_raw_controller_detail():
+    task = _task(
+        verdict="VERIFIED",
+        reason="verification_passed",
+        scope="full_build; request_sha256=" + "c" * 64,
+    )
+    task.verdict_lines = (
+        "VERIFIED: pass.",
+        "Reason: verification_passed.",
+        "Proof scope: full_build.",
+    )
+    rendered = render_live_activity(HubViewState(tasks=(task,)))
+    assert rendered.startswith("Result: VERIFIED — full current-tree build proof.\n\n")
+    assert "Verdict: VERIFIED · verification_passed" in rendered
+    assert "Proof scope: full_build." in rendered
+
+
+def test_live_activity_keeps_no_task_empty_state_without_fake_result():
+    rendered = render_live_activity(HubViewState())
+    assert "Result:" not in rendered
+    assert "Task: none" in rendered
