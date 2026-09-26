@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+import re
 import sys
 
 import pytest
@@ -99,6 +100,5 @@ def test_decode_rate_counts_tokens_after_first_arrival():
 
 
 def test_harness_has_no_backend_brand_names():
-    text = HARNESS.read_text(encoding="utf-8").lower()
-    forbidden = ("openvino", "ovms", "intel", "npu")
-    assert not [word for word in forbidden if word in text]
+    text = HARNESS.read_text(encoding="utf-8")
+    assert re.search(r"\b(openvino|ovms|intel|npu)\b", text, re.IGNORECASE) is None
