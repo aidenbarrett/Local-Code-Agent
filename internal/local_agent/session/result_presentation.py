@@ -93,7 +93,7 @@ def render_result_evidence(task: TaskSnapshot) -> str:
         execution = tool.execution or "finished"
         exit_text = "unknown" if tool.exit_code is None else str(tool.exit_code)
         lines.append(f"  Last tool: {tool.tool_name} · {execution} · exit {exit_text}")
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 __all__ = ["render_result_evidence", "render_result_summary"]
