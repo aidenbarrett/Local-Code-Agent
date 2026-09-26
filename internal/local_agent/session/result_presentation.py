@@ -67,4 +67,33 @@ def render_result_summary(task: TaskSnapshot) -> str:
     return f"Result: UNKNOWN — unsupported durable verdict {verdict!r}."
 
 
-__all__ = ["render_result_summary"]
+def render_result_evidence(task: TaskSnapshot) -> str:
+    """Render durable proof identity separately from worker prose."""
+    if not isinstance(task, TaskSnapshot):
+        raise TypeError("result evidence requires TaskSnapshot")
+
+    scope = _scope_text(task.verdict_scope) or "not established"
+    evidence = ", ".join(task.evidence_ids) if task.evidence_ids else "none"
+    verification = "not established"
+    if task.result_verified_at_completion is True:
+        verification = "passed at task completion"
+    elif task.result_verification_ran is True:
+        verification = "ran but did not establish success"
+
+    lines = [
+        "Evidence:",
+        f"  Repository: {task.repository_id}",
+        f"  Execution epoch: {task.execution_epoch}",
+        f"  Proof scope: {scope}",
+        f"  Evidence IDs: {evidence}",
+        f"  Verification: {verification}",
+    ]
+    if task.last_tool is not None:
+        tool = task.last_tool
+        execution = tool.execution or "finished"
+        exit_text = "unknown" if tool.exit_code is None else str(tool.exit_code)
+        lines.append(f"  Last tool: {tool.tool_name} · {execution} · exit {exit_text}")
+    return "\\n".join(lines)
+
+
+__all__ = ["render_result_evidence", "render_result_summary"]
