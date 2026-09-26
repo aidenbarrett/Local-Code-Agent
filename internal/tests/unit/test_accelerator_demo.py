@@ -1,7 +1,7 @@
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
-from measurement import serve
+from serving import serve
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,7 +63,6 @@ def test_windows_wrapper_can_leave_server_running_for_chat():
 
 def test_human_facing_output_explains_the_hardware_demo_to_a_new_user():
     source = SCRIPT.read_text(encoding="utf-8")
-
     assert "LOCAL AI HARDWARE DEMO" in source
     assert "Same local Qwen3-8B model. Only the hardware target changes." in source
     assert "Qwen3-8B (INT4)" in source
@@ -73,7 +72,6 @@ def test_human_facing_output_explains_the_hardware_demo_to_a_new_user():
     assert "LIVE INFERENCE" in source
     assert "MODEL SERVER" in source
     assert "RESULT" in source
-
     assert 'term.request_header(calls, "COLD START")' in source
     assert 'term.request_header(calls, "WARM")' in source
     assert "First token" in source
@@ -81,15 +79,12 @@ def test_human_facing_output_explains_the_hardware_demo_to_a_new_user():
     assert "Output length" in source
     assert "One-time runtime warm-up + prompt processing" in source
     assert "Runtime already initialised; prompt processing still happens" in source
-
     assert "Starting the local model server" in source
     assert "Hardware target confirmed" in source
     assert "[3/3] DEMO COMPLETE" in source
     assert "Average speed" in source
     assert "Best first token" in source
     assert "Live demo observations · not benchmark results." in source
-
-    # Internal plumbing belongs in verbose/developer paths, not the stranger-facing report.
     assert "Ready at" not in source
     assert "Process ID" not in source
     assert "Accelerator Verification Demo" not in source
