@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import re
-from typing import Sequence
+from typing import Mapping, Sequence
 from uuid import UUID
 
 from .contracts import MAX_MESSAGE_CHARS, RouteSource
@@ -19,7 +19,7 @@ RULE_GIT_REVIEW = "git-review/v1"
 RULE_REPO_NAVIGATION = "repo-navigation/v1"
 RULE_BUILD_AND_TEST = "build-and-test/v1"
 RULE_TASK_DIAGNOSTIC = "task-diagnostic/v1"
-RULE_MUTATION_UNAVAILABLE = "mutation-unavailable/v1"
+RULE_FIX_REFERENT = "fix-referent/v1"
 RULE_FIX_BUILD = "fix-build-failure/v1"
 RULE_APPLY_CANDIDATE = "apply-candidate/v1"
 RULE_UNDO_CANDIDATE = "undo-candidate/v1"
@@ -177,7 +177,11 @@ _SYMBOL_LOOKUP = re.compile(
 _BUILD = re.compile(r"^build (?:it|this|the repo|the repository)[.!]?$", re.IGNORECASE)
 _DIAGNOSTIC = re.compile(r"^why did that fail\??$", re.IGNORECASE)
 _EXPLICIT_DIAGNOSTIC = re.compile(r"^why did task (?P<task_id>\S+) fail\??$", re.IGNORECASE)
-_FIX = re.compile(r"^fix it[.!]?$", re.IGNORECASE)
+_FIX = re.compile(r"^fix (?:it|that)[.!]?$", re.IGNORECASE)
+_EXPLICIT_FIX = re.compile(r"^fix task (?P<task_id>\S+?)[.!]?$", re.IGNORECASE)
+# Which candidate skill fixes a referenced failure, keyed by the failing tool's kind.
+# The kind comes from durable typed tool facts, never from retained worker prose.
+FIX_SKILL_BY_FAILURE_KIND = {"build": "fix-build-failure", "test": "fix-test-failure"}
 # Explicit build-fix phrasing only. The change is prepared in an isolated candidate
 # worktree and is never applied to the user's checkout by this route.
 _FIX_BUILD = re.compile(
@@ -300,6 +304,7 @@ def decide_route(
     explicit_mode: ExplicitMode | str | None = None,
     active_repo_count: int | None = None,
     eligible_task_ids: Sequence[str] = (),
+    failure_kinds: Mapping[str, str] | None = None,
 ) -> RouteDecision:
     """Resolve deterministic routing before the model-fallback boundary.
 
@@ -448,12 +453,27 @@ def decide_route(
             skill="fix-build-failure",
         )
 
-    if _FIX.fullmatch(stripped):
+    explicit_fix = _EXPLICIT_FIX.fullmatch(stripped)
+    if explicit_fix is not None or _FIX.fullmatch(stripped):
+        if explicit_fix is not None:
+            task_id, reason = _explicit_referent(explicit_fix.group("task_id"), eligible_task_ids)
+        else:
+            task_id, reason = _unique_referent(eligible_task_ids)
+        if task_id is None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
+        repo_reason = _repository_target_reason(active_repo_count)
+        if repo_reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=repo_reason)
+        skill = FIX_SKILL_BY_FAILURE_KIND.get((failure_kinds or {}).get(task_id, ""))
+        if skill is None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code="unfixable_failure_kind")
         return RouteDecision(
-            RouteAction.REFUSE,
+            RouteAction.WORK,
             objective=text,
-            rule_id=RULE_MUTATION_UNAVAILABLE,
-            reason_code="mutation_workflow_unavailable",
+            source=RouteSource.RULE,
+            rule_id=RULE_FIX_REFERENT,
+            skill=skill,
+            reference_ids=(task_id,),
         )
 
     return RouteDecision(RouteAction.MODEL_FALLBACK, objective=text)
