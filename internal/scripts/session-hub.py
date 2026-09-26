@@ -171,15 +171,19 @@ def main(argv: list[str] | None = None) -> int:
                     worker_adapter,
                     session_id=service.session_id,
                 )
+                # Short on purpose: MSVC build trees nest deep under a candidate
+                # worktree and Windows MAX_PATH is counted from the drive root.
+                workspaces = GitWorkspaceManager(
+                    runtime_root / "ws", controller_commit=_controller_commit(),
+                )
+                # Worktrees left by a controller that died mid-task, with nothing
+                # retained to apply. Live owners (including another Hub) are untouched.
+                workspaces.reap_orphans()
                 controller = TaskController(
                     repo, worker_factory, events,
                     allow_execution=args.allow_execution,
                     context_budget_tokens=worker_config.context_budget_tokens,
-                    # Short on purpose: MSVC build trees nest deep under a candidate
-                    # worktree and Windows MAX_PATH is counted from the drive root.
-                    workspaces=GitWorkspaceManager(
-                        runtime_root / "ws", controller_commit=_controller_commit(),
-                    ),
+                    workspaces=workspaces,
                 )
                 admitted_controller = AdmittedDurableTaskController(service, controller)
                 task_executor = CancellableDurableTaskExecutor(service, admitted_controller)
