@@ -305,6 +305,21 @@ class GitWorkspaceManager:
         )
         return ImportResult(True, candidate.paths, (), None, verified, tuple(pre))
 
+    def checkout_matches_candidate(self, workspace: Workspace) -> bool:
+        """Whether the user's tracked files now equal the candidate tree exactly.
+
+        True means a proof taken on the candidate tree is a proof about the user's tracked
+        state. Untracked files are outside both trees. Nothing in the user's checkout is
+        modified to answer this.
+        """
+        user = workspace.repository_root
+        snapshot = self._snapshot_commit(
+            user, self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
+        )
+        user_tree = self._out(user, "rev-parse", f"{snapshot}^{{tree}}")
+        candidate_tree = self._out(workspace.root, "write-tree")
+        return user_tree == candidate_tree
+
     # -- retention -----------------------------------------------------------
 
     def _record_path(self, task_id: str) -> Path:

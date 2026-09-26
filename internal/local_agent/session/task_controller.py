@@ -17,7 +17,11 @@ from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
 from .candidate_change import (
+    APPLY_CANDIDATE_ACTION,
     CANDIDATE_CHANGE_SKILLS,
+    CONTROLLER_ACTIONS,
+    apply_candidate,
+    controller_action_sha256,
     candidate_blocker,
     candidate_repo,
     candidate_workspace_approval,
@@ -65,6 +69,11 @@ class TaskController:
         return skill
 
     def resolve_skill(self, skill_name: str) -> str:
+        if skill_name in CONTROLLER_ACTIONS:
+            return skill_name
+        return self._resolve_worker_skill(skill_name)
+
+    def _resolve_worker_skill(self, skill_name: str) -> str:
         """Resolve one controller-selected skill before durable admission/effects.
 
         Routing authority belongs to the controller. A recorded deterministic skill must
@@ -83,6 +92,8 @@ class TaskController:
         Symlinks escaping the skill directory are refused rather than leaving provenance
         dependent on unbound external bytes.
         """
+        if skill_name in CONTROLLER_ACTIONS:
+            return controller_action_sha256(skill_name)
         skill = self._resolved_skill(skill_name)
         root = skill.path.resolve()
         manifest: list[dict[str, object]] = []
@@ -248,6 +259,10 @@ class TaskController:
             if self_check:
                 from .self_check import run_self_check
                 result = run_self_check(self.repo, task_id, self.events)
+            elif resolved_skill == APPLY_CANDIDATE_ACTION:
+                result = apply_candidate(
+                    self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
+                )
             elif resolved_skill in CANDIDATE_CHANGE_SKILLS:
                 result = self._run_candidate_change(
                     task, task_id, resolved_skill, source, durable_activity,
