@@ -19,6 +19,7 @@ from .execution_source import TaskExecutionSource
 from .candidate_change import (
     APPLY_CANDIDATE_ACTION,
     CANDIDATE_CHANGE_SKILLS,
+    CANDIDATE_PROOF,
     CONTROLLER_ACTIONS,
     apply_candidate,
     controller_action_sha256,
@@ -177,7 +178,9 @@ class TaskController:
         blocker = (
             "candidate workspaces are not configured for this session"
             if self.workspaces is None
-            else candidate_blocker(self.declared_repo, allow_execution=self.allow_execution)
+            else candidate_blocker(
+                self.declared_repo, allow_execution=self.allow_execution, skill=resolved_skill,
+            )
         )
         if blocker is not None:
             return TaskResult(
@@ -230,6 +233,7 @@ class TaskController:
             metrics["proof_binding"] = binding_from_run(task, run, workspace.root).as_dict()
             outcome, _candidate = settle_candidate(
                 self.workspaces, workspace, task_id=task_id, verified=verified,
+                proof=CANDIDATE_PROOF[resolved_skill],
             )
             settled = True
             metrics["candidate"] = outcome.as_metrics(workspace)

@@ -22,6 +22,7 @@ RULE_TASK_DIAGNOSTIC = "task-diagnostic/v1"
 RULE_MUTATION_UNAVAILABLE = "mutation-unavailable/v1"
 RULE_FIX_BUILD = "fix-build-failure/v1"
 RULE_APPLY_CANDIDATE = "apply-candidate/v1"
+RULE_FIX_TESTS = "fix-test-failure/v1"
 RULE_SELF_CHECK = "self-check/v1"
 
 
@@ -185,6 +186,14 @@ _FIX_BUILD = re.compile(
     re.IGNORECASE,
 )
 _SELF_CHECK = re.compile(r"^/check$", re.IGNORECASE)
+# Explicit test-fix phrasing only; same isolated-candidate contract as build fixes.
+_FIX_TESTS = re.compile(
+    r"^(?:please\s+)?(?:fix|repair)\s+(?:the\s+)?(?:failing\s+)?tests?"
+    r"(?:\s+failures?)?[.!]?$"
+    r"|^(?:please\s+)?fix\s+the\s+test\s+failures?[.!]?$"
+    r"|^make\s+the\s+tests\s+pass[.!]?$",
+    re.IGNORECASE,
+)
 # The user's explicit, per-candidate instruction to import a reviewed change into their
 # checkout. The full task UUID is required: a prefix or "the last one" is not authority.
 _APPLY_CANDIDATE = re.compile(
@@ -387,6 +396,18 @@ def decide_route(
             source=RouteSource.RULE,
             rule_id=RULE_APPLY_CANDIDATE,
             skill="apply-candidate",
+        )
+
+    if _FIX_TESTS.fullmatch(stripped):
+        reason = _repository_target_reason(active_repo_count)
+        if reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_FIX_TESTS,
+            skill="fix-test-failure",
         )
 
     if _FIX_BUILD.fullmatch(stripped):
