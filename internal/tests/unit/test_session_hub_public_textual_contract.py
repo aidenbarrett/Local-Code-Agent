@@ -84,3 +84,7 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
     assert isinstance(executor.controller, hub.AdmittedDurableTaskController)
     assert executor.controller.service is observed["service"]
     assert gateway.runtime_facts is facts
+    # Source-changing work has an isolated place to happen, outside the user's checkout.
+    workspaces = executor.controller.controller.workspaces
+    assert isinstance(workspaces, hub.GitWorkspaceManager)
+    assert workspaces.workspaces_root == (tmp_path / "ws").resolve()
