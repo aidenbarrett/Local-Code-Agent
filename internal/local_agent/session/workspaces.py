@@ -83,6 +83,18 @@ class ImportResult:
     unresolved: tuple[str, ...] = ()
     # True when git wrote part of the candidate and this import restored what it wrote.
     rolled_back: bool = False
+    # Exact bytes each touched path held in the user's checkout before import (None for
+    # a path the candidate creates). Kept so an applied change can later be undone.
+    pre_contents: tuple[tuple[str, bytes | None], ...] = ()
+
+
+@dataclass(frozen=True)
+class UndoResult:
+    undone: bool
+    paths: tuple[str, ...]
+    drifted: tuple[str, ...]
+    unresolved: tuple[str, ...]
+    refused_reason: str | None
 
 
 def _split_z(raw: bytes) -> tuple[str, ...]:
@@ -355,6 +367,10 @@ class GitWorkspaceManager:
                 + check.stderr.decode("utf-8", "replace").strip()[:500],
                 False, tuple(pre),
             )
+        pre_contents = tuple(
+            (path, (user / path).read_bytes() if before is not None else None)
+            for path, before in pre
+        )
         applied = self._git(
             user, "apply", "--whitespace=nowarn", "-", stdin=candidate.patch, check=False,
         )
@@ -374,7 +390,9 @@ class GitWorkspaceManager:
         verified = all(
             self._worktree_blob(user, path) == blob for path, blob in candidate.post_blobs
         )
-        return ImportResult(True, candidate.paths, (), None, verified, tuple(pre))
+        return ImportResult(
+            True, candidate.paths, (), None, verified, tuple(pre), pre_contents=pre_contents,
+        )
 
     def _rollback_owned(
         self,
@@ -427,6 +445,81 @@ class GitWorkspaceManager:
         if done.returncode != 0:
             return None
         return user_tree == done.stdout.decode().strip()
+
+    # -- applied changes and owned undo --------------------------------------
+
+    def _applied_path(self, task_id: str) -> Path:
+        UUID(task_id)
+        return self.workspaces_root / f"{task_id}.applied.json"
+
+    def record_applied(
+        self, task_id: str, repository_root: Path, candidate: CandidatePatch, result: ImportResult,
+    ) -> Path:
+        """Keep what a verified import replaced, so exactly that change can be undone."""
+        if not (result.applied and result.verified):
+            raise WorkspaceError("only a verified import can be recorded for undo")
+        record = {
+            "task_id": task_id,
+            "repository_root": str(Path(repository_root).resolve()),
+            "patch_sha256": candidate.sha256,
+            "paths": list(candidate.paths),
+            "post_blobs": [[p, b] for p, b in candidate.post_blobs],
+            "pre_blobs": [[p, b] for p, b in result.pre_blobs],
+            "pre_contents": [
+                [p, None if data is None else base64.b64encode(data).decode("ascii")]
+                for p, data in result.pre_contents
+            ],
+        }
+        path = self._applied_path(task_id)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+        return path
+
+    def undo_applied(self, task_id: str, repository_root: Path) -> UndoResult:
+        """Undo one applied candidate, only where files still hold exactly what it wrote.
+
+        Every touched path must still hash to the candidate's post-image, or the whole
+        undo is refused and nothing is written: later work on those files is the user's.
+        Paths are restored to their exact pre-import bytes. The record is single-use.
+        """
+        path = self._applied_path(task_id)
+        if not path.is_file():
+            return UndoResult(False, (), (), (), f"no applied change recorded for task {task_id}")
+        record = json.loads(path.read_text(encoding="utf-8"))
+        user = Path(repository_root).resolve()
+        if Path(record["repository_root"]) != user:
+            return UndoResult(False, (), (), (), "that change was applied to another repository")
+        paths = tuple(record["paths"])
+        post = {p: b for p, b in record["post_blobs"]}
+        pre_blob = {p: b for p, b in record["pre_blobs"]}
+        pre_bytes = {
+            p: None if data is None else base64.b64decode(data, validate=True)
+            for p, data in record["pre_contents"]
+        }
+        drifted = tuple(p for p in paths if self._worktree_blob(user, p) != post.get(p))
+        if drifted:
+            return UndoResult(
+                False, paths, drifted, (),
+                "files changed since the change was applied; undo would overwrite that work",
+            )
+        unresolved: list[str] = []
+        for rel in paths:
+            target = user / rel
+            try:
+                if pre_bytes.get(rel) is None:
+                    target.unlink()
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(pre_bytes[rel])
+            except OSError:
+                unresolved.append(rel)
+                continue
+            if self._worktree_blob(user, rel) != pre_blob.get(rel):
+                unresolved.append(rel)
+        if not unresolved:
+            path.unlink(missing_ok=True)
+        return UndoResult(not unresolved, paths, (), tuple(unresolved), None)
 
     # -- retention -----------------------------------------------------------
 
@@ -520,6 +613,7 @@ class GitWorkspaceManager:
 
 
 __all__ = [
+    "UndoResult",
     "CandidatePatch",
     "GitWorkspaceManager",
     "ImportResult",
