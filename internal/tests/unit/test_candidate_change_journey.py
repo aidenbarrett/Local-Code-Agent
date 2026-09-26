@@ -15,6 +15,7 @@ from local_agent.llm.protocol import ChatResponse
 from local_agent.session.contracts import TaskOutcome
 from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.intents import RULE_FIX_BUILD, RouteAction, decide_route
+from local_agent.session.results import verdict_block_from_task_result
 from local_agent.session.task_controller import TaskController
 from local_agent.session.workspaces import GitWorkspaceManager, WorkspaceError
 
@@ -217,8 +218,6 @@ def _prepare(sandbox, tmp_path):
 
 
 def _apply(controller, candidate_task):
-    from local_agent.session.results import verdict_block_from_task_result
-
     request = f"User request:\n/apply {candidate_task}\n\nDeterministic route (controller-owned provenance):\nrule_id=apply-candidate/v1"
     result = controller.run(request, task_id=str(uuid4()), skill_name="apply-candidate")
     verdict_block_from_task_result(result)  # every outcome must be renderable
