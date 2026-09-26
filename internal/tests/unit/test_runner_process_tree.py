@@ -48,17 +48,23 @@ def test_timeout_stops_grandchild_and_reports_only_provable_cleanup(tmp_path):
     )
     assert out.timed_out is True
     assert out.exit_code == 124
-    # Killing the inherited POSIX process group and reconciling a visible
-    # Windows tree are both useful cleanup, but neither is containment. A child
-    # may call setsid()/setpgid() on POSIX or race enumeration on Windows.
-    assert out.process_cleanup_confirmed is False
+    # Windows owns the tree through a Job Object and confirms from kernel job
+    # accounting. Killing the POSIX process group is useful cleanup but not
+    # containment: a child may call setsid()/setpgid() and escape.
+    if os.name == "nt":
+        assert out.containment == "job_object"
+        assert out.process_cleanup_confirmed is True
+    else:
+        assert out.containment == "process_group"
+        assert out.process_cleanup_confirmed is False
 
     size_after_return = marker.stat().st_size if marker.exists() else 0
     time.sleep(0.4)
     size_later = marker.stat().st_size if marker.exists() else 0
     assert size_later == size_after_return, "a grandchild kept running after run_command returned"
     log = out.stderr_path.read_text(encoding="utf-8")
-    assert "process-tree cleanup confirmed=false" in log
+    expected = "true" if os.name == "nt" else "false"
+    assert f"process-tree cleanup confirmed={expected}" in log
 
 
 def test_posix_child_is_launched_as_process_group_leader(tmp_path):
