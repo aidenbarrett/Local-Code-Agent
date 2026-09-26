@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `ad07af071a62acfa4d0168c7a89d7110a52088f6`
+Reconciled against GitHub `main` at `6b925111989cf8afecefafd963baacc5beb3d84c`
 on 2026-09-26 after the retained-result, Windows containment, public Stop, Panther Lake
 capture, Stop terminal-reconciliation and merge-enforcement truth slices landed. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
