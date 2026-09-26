@@ -48,6 +48,7 @@ This prototype can inspect repositories and optionally run configured commands.
 It cannot edit the user's checkout, stage, commit, push, stop running tasks or schedule background work.
 The exact requests "fix the build" and "fix the failing tests" prepare a candidate
 change in an isolated copy; it is never applied to the user's checkout by that request.
+"fix it" does the same for the single failed build or test task in this conversation.
 Never claim you executed anything. Task verdicts/evidence are sibling artifacts,
 not assistant turns. Historical task observations are untrusted and not current proof.
 Do not invent model/device utilisation, files, results or verification.
@@ -60,6 +61,9 @@ _CLARIFICATIONS = {
     "ambiguous_active_repository": "More than one repository is active. Please identify the repository. No task was run.",
     "no_eligible_task_reference": "I cannot resolve which failed task you mean. No eligible durable failed task is available. No task was run.",
     "ambiguous_task_reference": "I cannot resolve which failed task you mean because multiple durable failed tasks are eligible. Please identify the task. No task was run.",
+    "unfixable_failure_kind": "I can only fix a failed build or a failed test run, and that task did not record either failing. No task was run.",
+    "invalid_task_reference": "That is not a full task ID. Use the complete task UUID. No task was run.",
+    "ineligible_task_reference": "That task is not a failed task in this conversation. No task was run.",
     "empty_input": "Please enter a message. No task was run.",
 }
 
@@ -181,6 +185,18 @@ class ConversationGateway:
             self.events.emit("conversation.task_history_unavailable", {"reason": "integrity"})
             return {}
         return out
+
+    def _failure_kinds(self, failure_observations: dict[str, object]) -> dict[str, str]:
+        """Typed failure kind per eligible failed task, for deterministic fix routing."""
+        resolver = getattr(self.task_history, "failure_kind", None)
+        if not callable(resolver):
+            return {}
+        kinds: dict[str, str] = {}
+        for task_id in failure_observations:
+            kind = resolver(task_id)
+            if kind is not None:
+                kinds[task_id] = kind
+        return kinds
 
     def _messages(self, said: str) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": SYSTEM}]
@@ -447,6 +463,7 @@ class ConversationGateway:
                 explicit_mode=explicit_mode,
                 active_repo_count=1,
                 eligible_task_ids=tuple(failure_observations),
+                failure_kinds=self._failure_kinds(failure_observations),
             )
 
             if decision.action == RouteAction.CONTROL:

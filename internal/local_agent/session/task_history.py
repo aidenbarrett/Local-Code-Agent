@@ -168,6 +168,24 @@ class DurableTaskHistory:
                 break
         return out
 
+    def failure_kind(self, task_id: str) -> str | None:
+        """What kind of check a task last saw fail, from durable typed tool facts only.
+
+        Returns "build" or "test" for the last committed tool.finished of this task with
+        a failing domain result from a build or test tool, else None. Retained worker
+        prose is never consulted.
+        """
+        kinds = {"build_target": "build", "configure_project": "build", "run_test": "test"}
+        last: str | None = None
+        for event in self._stream_events():
+            if event.get("task_id") != task_id or event.get("kind") != "tool.finished":
+                continue
+            payload = event.get("payload") or {}
+            kind = kinds.get(str(payload.get("tool_name")))
+            if kind is not None and payload.get("execution") == "ok" and payload.get("domain") == "fail":
+                last = kind
+        return last
+
     def failure_candidates(self, conversation_id: str) -> tuple[TaskCandidate, ...]:
         """Return all durable FAILED task candidates for deterministic referent routing.
 

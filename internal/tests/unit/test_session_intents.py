@@ -12,7 +12,6 @@ from local_agent.session.intents import (
     RouteAction,
     RULE_BUILD_AND_TEST,
     RULE_GIT_REVIEW,
-    RULE_MUTATION_UNAVAILABLE,
     RULE_SELF_CHECK,
     RULE_TASK_DIAGNOSTIC,
     TaskIntent,
@@ -125,11 +124,10 @@ def test_duplicate_referent_input_fails_closed_instead_of_hiding_store_bug():
         decide_route("Why did that fail?", eligible_task_ids=("task-1", "task-1"))
 
 
-def test_fix_it_is_a_deterministic_refusal_until_mutation_exists():
+def test_fix_it_without_a_failed_task_clarifies_instead_of_guessing():
     decision = decide_route("Fix it")
-    assert decision.action == RouteAction.REFUSE
-    assert decision.rule_id == RULE_MUTATION_UNAVAILABLE
-    assert decision.reason_code == "mutation_workflow_unavailable"
+    assert decision.action == RouteAction.CLARIFY
+    assert decision.reason_code == "no_eligible_task_reference"
     assert decision.source is None
 
 
