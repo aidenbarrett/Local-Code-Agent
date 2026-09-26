@@ -8,15 +8,16 @@ model = "model-id-from-endpoint"
 [identity]
 runtime = "runtime-build-or-version"
 device = "exact-device-identity"
-# Optional endpoint-side identity proof. Configure paths only if the backend exposes them.
+# Optional endpoint-side identity proof.
 # url = "http://127.0.0.1:9000/identity"
 # model_path = "model.id"
 # runtime_path = "runtime.version"
 # device_path = "device.id"
 
 [startup]
-# Optional. Required only for cold-start measurement.
+# Optional. Required for cold-start measurement.
 # command = ["path/to/runtime", "--serve"]
+# A stop command is strongly preferred so the harness can establish a real cold state.
 # stop_command = ["path/to/runtime-control", "stop"]
 # ready_url = "http://127.0.0.1:9000/v1/models"
 
@@ -24,6 +25,7 @@ device = "exact-device-identity"
 # Optional backend-reported values. They never replace client-boundary timings.
 # url = "http://127.0.0.1:9000/telemetry"
 # compile_time_path = "startup.compile_ms"
+# prefill_time_path = "request.prefill_ms"
 # memory_path = "process.rss_bytes"
 
 [cancellation]
