@@ -30,7 +30,7 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
-from measurement import serve  # noqa: E402
+from serving import serve  # noqa: E402
 from scripts.chat_persona import Persona, PersonaError, load_persona, persona_message  # noqa: E402
 from scripts.chat_context import (  # noqa: E402
     ContextRefusal,
