@@ -136,6 +136,7 @@ class TaskController:
                 "approval_declined": "user_denied",
                 "missing_executable": "missing_dependency",
                 "orchestrator_timeout": "tool_timeout",
+                "command_cancelled": "cancelled",
                 "bad_arguments": "invalid_input",
                 "invalid_model_response": "invalid_input",
                 "unknown_tool": "unavailable_capability",
@@ -154,6 +155,7 @@ class TaskController:
         task_id: str | None = None,
         durable_activity=None,
         skill_name: str | None = None,
+        cancellation_probe=None,
     ) -> TaskResult:
         # ``route_source`` is retained as the existing call-surface name while the
         # controller now validates the broader execution provenance vocabulary. The
@@ -177,7 +179,9 @@ class TaskController:
                 from .self_check import run_self_check
                 result = run_self_check(self.repo, task_id, self.events)
             else:
-                registry, _ctx, _store = build_registry(self.repo)
+                registry, _ctx, _store = build_registry(
+                    self.repo, cancellation_probe=cancellation_probe
+                )
                 if durable_activity is not None:
                     # The wrapper commits tool.started before entering an effectful
                     # handler and typed tool.finished afterwards. Policy still lives

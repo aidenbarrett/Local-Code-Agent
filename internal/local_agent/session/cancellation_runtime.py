@@ -93,6 +93,20 @@ class CancellationRuntime:
         except KeyError as exc:
             raise CancellationRuntimeError("task is not registered for cancellation") from exc
 
+    def token(self, task_id: str, execution_epoch: int) -> CancellationToken:
+        """Return the registered token for exactly this task execution epoch.
+
+        Tools poll it to stop configured commands. Handing out a token never grants
+        authority; a stale epoch is refused rather than silently given a live token.
+        """
+        with self._lock:
+            state = self._state(task_id)
+            if state.token.execution_epoch != execution_epoch:
+                raise StaleExecutionEpoch(
+                    f"no cancellation token for stale execution epoch {execution_epoch}"
+                )
+            return state.token
+
     def current_epoch(self, task_id: str) -> int:
         with self._lock:
             return self._state(task_id).fence.current

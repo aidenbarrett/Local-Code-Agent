@@ -40,6 +40,11 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
     ) -> None:
         super().__init__(service, controller)
         self.cancellation = cancellation_runtime or CancellationRuntime()
+        # The controller consults the same runtime that Stop writes to, keyed by task
+        # and epoch, so a Stop reaches configured commands already running.
+        binder = getattr(controller, "bind_cancellation_tokens", None)
+        if callable(binder):
+            binder(self.cancellation.token)
         self._ownership_lock = Lock()
         self._authority_lock = Lock()
         self._registered_tasks: set[str] = set()

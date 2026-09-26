@@ -26,7 +26,6 @@ from .tool_primitives import (
 )
 from .tool_context import ToolContext
 from .logs import parse_test_log
-from .process_runner import run_command
 
 # ctest -R takes a regular expression, so the filter has to be able to be one.
 # The old validator stripped |^$() and then demanded [A-Za-z0-9_.:-], which
@@ -310,7 +309,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         active = configured_profile(ctx.root, ctx.repo.build_dir)
         wrong_profile = active is not None and active != prof.name
 
-        outcome = run_command(command, ctx.root, ctx.run_root, ctx.timeout, prof.env)
+        outcome = ctx.run_configured(command, prof.env)
         report = parse_test_log(outcome.combined_path.read_text(errors="replace"))
 
         ran_nothing = bool(
@@ -463,9 +462,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         prof = ctx.repo.profile(profile)
         if not prof.test:
             raise ToolError(f"profile {prof.name!r} defines no test step")
-        outcome = run_command(
-            [*prof.test, "-N"], ctx.root, ctx.run_root, ctx.timeout, prof.env
-        )
+        outcome = ctx.run_configured([*prof.test, "-N"], prof.env)
         text = outcome.combined_path.read_text(errors="replace")
         names = re.findall(r"^\s*Test\s+#\d+:\s+(\S+)", text, flags=re.MULTILINE)
         return ToolResult(

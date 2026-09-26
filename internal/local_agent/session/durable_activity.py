@@ -33,6 +33,7 @@ _TOOL_REASON_TO_EVENT_REASON = {
     "no_build_record": "missing_evidence",
     "profile_mismatch": "scope_changed",
     "protected_path": "policy_denied",
+    "command_cancelled": "cancelled",
 }
 _ALLOWED_EXECUTION = frozenset({"ok", "blocked", "error", "interrupted", "unknown"})
 _ALLOWED_DOMAIN = frozenset({"pass", "fail", "unknown"})

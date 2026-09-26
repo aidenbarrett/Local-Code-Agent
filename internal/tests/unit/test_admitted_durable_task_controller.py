@@ -143,7 +143,7 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
     wrapped_registry = object()
     observed = {}
 
-    def build_registry_spy(_repo):
+    def build_registry_spy(_repo, **_kwargs):
         observed["registry_built_for"] = _repo
         return registry, object(), object()
 

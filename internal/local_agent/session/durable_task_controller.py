@@ -28,6 +28,15 @@ class AdmittedDurableTaskController:
         self.service = service
         self.controller = controller
         self.source_sha256_at_start = source_sha256()
+        self._cancellation_tokens = None
+
+    def bind_cancellation_tokens(self, lookup) -> None:
+        """Accept the executor's ``(task_id, execution_epoch) -> token`` lookup once."""
+        if not callable(lookup):
+            raise TypeError("cancellation token lookup must be callable")
+        if self._cancellation_tokens is not None and self._cancellation_tokens != lookup:
+            raise RuntimeError("admitted controller is already bound to a cancellation runtime")
+        self._cancellation_tokens = lookup
 
     @property
     def repo(self):
@@ -75,6 +84,11 @@ class AdmittedDurableTaskController:
             if callable(binder) and not self_check
             else nullcontext()
         )
+        extra = {}
+        if self._cancellation_tokens is not None and not self_check:
+            extra["cancellation_probe"] = self._cancellation_tokens(
+                task_id, activity.execution_epoch
+            )
         with authority:
             return self.controller.run(
                 task,
@@ -83,6 +97,7 @@ class AdmittedDurableTaskController:
                 task_id=task_id,
                 durable_activity=activity,
                 skill_name=skill_name,
+                **extra,
             )
 
 

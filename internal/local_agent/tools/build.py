@@ -23,7 +23,6 @@ from .tool_primitives import (
 from .tool_context import ToolContext
 from .testing_tools import configured_profile, set_configured_profile, touch_build_stamp
 from .logs import parse_build_log
-from .process_runner import run_command
 
 
 def _profile_names(ctx: ToolContext) -> list[str]:
@@ -54,9 +53,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         if not prof.configure:
             raise ToolError(f"profile {prof.name!r} defines no configure step")
 
-        outcome = run_command(
-            prof.configure, ctx.root, ctx.run_root, ctx.timeout, prof.env
-        )
+        outcome = ctx.run_configured(prof.configure, prof.env)
         if outcome.ok:
             set_configured_profile(ctx.root, ctx.repo.build_dir, prof.name)
         report = parse_build_log(outcome.combined_path.read_text(errors="replace"))
@@ -132,7 +129,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         cache = (ctx.root / ctx.repo.build_dir / "CMakeCache.txt").is_file()
         needs_configure = not cache or active is None or active != prof.name
         if prof.configure and needs_configure:
-            pre = run_command(prof.configure, ctx.root, ctx.run_root, ctx.timeout, prof.env)
+            pre = ctx.run_configured(prof.configure, prof.env)
             if pre.ok:
                 set_configured_profile(ctx.root, ctx.repo.build_dir, prof.name)
             if not pre.ok:
@@ -145,7 +142,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                     data={"command": prof.configure, **report.as_dict()},
                 )
 
-        outcome = run_command(command, ctx.root, ctx.run_root, ctx.timeout, prof.env)
+        outcome = ctx.run_configured(command, prof.env)
         report = parse_build_log(outcome.combined_path.read_text(errors="replace"))
 
         if outcome.ok and not outcome.timed_out and not target:
