@@ -11,14 +11,29 @@ builds; nothing has been applied to it.
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, replace
 from typing import Any
 
 from ..config import RepoConfig
-from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace
+from .contracts import TaskOutcome, TaskResult
+from .intents import candidate_referent
+from .proof_binding import repository_tree_sha256
+from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace, WorkspaceError
 
 # Skills whose purpose is to change source. They never run against the user's checkout.
 CANDIDATE_CHANGE_SKILLS = frozenset({"fix-build-failure"})
+
+# Controller-owned actions admitted like skills but executed without a model or tools.
+APPLY_CANDIDATE_ACTION = "apply-candidate"
+CONTROLLER_ACTIONS = frozenset({APPLY_CANDIDATE_ACTION})
+
+
+def controller_action_sha256(name: str) -> str:
+    """Admission fingerprint for a controller action; changes only with its contract."""
+    if name not in CONTROLLER_ACTIONS:
+        raise ValueError(f"not a controller action: {name}")
+    return hashlib.sha256(f"lca-controller-action:{name}:v1".encode("utf-8")).hexdigest()
 
 # The only approval-gated tool a candidate run may use. Staging and committing remain
 # denied even inside the candidate: history changes are separate capabilities.
@@ -127,7 +142,98 @@ def settle_candidate(
     )
 
 
+def apply_candidate(
+    manager: GitWorkspaceManager | None,
+    declared: RepoConfig,
+    *,
+    task_id: str,
+    request_text: str,
+) -> TaskResult:
+    """Import one retained, reviewed candidate into the user's checkout, or refuse.
+
+    The user's request names the exact candidate task. Import writes files only when
+    every touched path still holds the candidate's base content; the index is never
+    touched. A successful import is single-use: the workspace and record are removed.
+    """
+    def refuse(outcome: TaskOutcome, reason: str, answer: str) -> TaskResult:
+        return TaskResult(task_id, outcome, answer, False, reason_code=reason)
+
+    referent = candidate_referent(request_text)
+    if referent is None:
+        return refuse(TaskOutcome.BLOCKED, "invalid_input",
+                      "No change was applied: the request must name one full candidate task ID.")
+    if manager is None:
+        return refuse(TaskOutcome.BLOCKED, "unavailable_capability",
+                      "No change was applied: candidate workspaces are not configured.")
+    if not declared.policy.allow_patch:
+        return refuse(TaskOutcome.BLOCKED, "policy_denied",
+                      "No change was applied: repository policy does not allow patches.")
+    try:
+        workspace, candidate = manager.load(referent)
+    except (WorkspaceError, ValueError, KeyError) as exc:
+        return refuse(TaskOutcome.BLOCKED, "invalid_input",
+                      f"No change was applied: no usable candidate for task {referent} ({exc}).")
+    if workspace.repository_root.resolve() != declared.root.resolve():
+        return refuse(TaskOutcome.BLOCKED, "invalid_input",
+                      f"No change was applied: task {referent} prepared a change for another repository.")
+
+    imported = manager.import_patch(workspace, candidate)
+    facts = {
+        "candidate_task_id": referent,
+        "patch_sha256": candidate.sha256,
+        "paths": list(candidate.paths),
+        "conflicts": list(imported.conflicts),
+        "applied": imported.applied,
+        "import_verified": imported.verified,
+        "pre_blobs": [[p, b] for p, b in imported.pre_blobs],
+    }
+    if not imported.applied:
+        detail = (
+            "Changed since the candidate was prepared: " + ", ".join(imported.conflicts)
+            if imported.conflicts else (imported.refused_reason or "refused")
+        )
+        return TaskResult(
+            task_id, TaskOutcome.FAIL,
+            "No change was applied. Your checkout is exactly as it was.\n" + detail,
+            False, metrics={"candidate_import": facts}, reason_code="scope_changed",
+        )
+    if not imported.verified:
+        return TaskResult(
+            task_id, TaskOutcome.FAIL,
+            "The candidate was applied, but the resulting files do not match the reviewed "
+            "change. Inspect: " + ", ".join(candidate.paths),
+            False, metrics={"candidate_import": facts}, reason_code="verification_failed",
+        )
+
+    matches = manager.checkout_matches_candidate(workspace)
+    facts["checkout_matches_candidate_tree"] = matches
+    manager.discard(workspace)
+    proof_line = (
+        "Your tracked files now match the candidate tree exactly, so the candidate's "
+        "build proof covers them."
+        if matches else
+        "Your checkout also differs from the candidate in other tracked files, so the "
+        "candidate's build proof does not cover it. Ask me to build it to verify."
+    )
+    return TaskResult(
+        task_id, TaskOutcome.PASS,
+        "Applied the reviewed change from task " + referent + " to: "
+        + ", ".join(candidate.paths) + ".\nNothing was staged or committed.\n" + proof_line,
+        True,
+        metrics={
+            "candidate_import": facts,
+            "tree_sha256": repository_tree_sha256(declared.root),
+        },
+        verification_ran=True,
+        reason_code="verification_passed",
+    )
+
+
 __all__ = [
+    "APPLY_CANDIDATE_ACTION",
+    "CONTROLLER_ACTIONS",
+    "apply_candidate",
+    "controller_action_sha256",
     "CANDIDATE_CHANGE_SKILLS",
     "CandidateOutcome",
     "candidate_blocker",
