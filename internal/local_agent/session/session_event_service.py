@@ -12,9 +12,10 @@ from dataclasses import dataclass, field
 from queue import Empty, Full, Queue
 from threading import Event as ThreadEvent, Lock, Thread
 from time import monotonic
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID, uuid4, uuid5
 
+from ..config import RepoConfig
 from .contracts import MAX_MESSAGE_CHARS, RouteSource, TaskOutcome, TaskResult, TaskVerdict
 from .event_contract import build_event
 from .results import verdict_block_from_task_result
@@ -76,7 +77,9 @@ class Subscription:
             raise ValueError("drain limit must be positive")
         with self._lock:
             if self._gap:
-                raise SubscriptionGap("subscriber overflowed; replay durable state from the last cursor")
+                raise SubscriptionGap(
+                    "subscriber overflowed; replay durable state from the last cursor"
+                )
         out: list[dict[str, Any]] = []
         for _ in range(limit):
             try:
@@ -208,7 +211,9 @@ class DurableSessionService:
             "request_bytes": request_bytes,
         }))
 
-    def append(self, kind: str, payload: dict[str, Any], *, task_id: str | None = None) -> WriteReceipt:
+    def append(
+        self, kind: str, payload: dict[str, Any], *, task_id: str | None = None,
+    ) -> WriteReceipt:
         if kind in {"task.verdict", "task.closed"}:
             raise ValueError("terminal task events must use finalize_task")
         receipt = WriteReceipt(task_id=task_id)
@@ -328,7 +333,9 @@ class DurableSessionService:
                 try:
                     self._commands.put(None, timeout=remaining)
                 except Full as exc:
-                    raise TimeoutError("session writer shutdown could not be queued before timeout") from exc
+                    raise TimeoutError(
+                        "session writer shutdown could not be queued before timeout"
+                    ) from exc
                 self._shutdown_enqueued = True
         remaining = max(0.0, deadline - monotonic())
         self._thread.join(remaining)
@@ -409,7 +416,9 @@ class DurableSessionService:
                     )
                     self.store.append(event, expected_sequence=sequence)
                     self._publish(event)
-            except BaseException as exc:
+            # The writer thread must survive any single write: the failure belongs to the
+            # receipt of the write that caused it, and its waiter re-raises it.
+            except BaseException as exc:  # noqa: BLE001
                 receipt.error = exc
             finally:
                 receipt.committed.set()
@@ -431,8 +440,35 @@ class TaskHandle:
         return self.result
 
 
+class ExecutableController(Protocol):
+    """What a durable executor dispatches to: the admitted durable controller adapter.
+
+    Admission also reads the repository it will act on, to bind the admission record.
+    """
+
+    @property
+    def repo(self) -> RepoConfig: ...
+
+    def run(
+        self,
+        task: str,
+        *,
+        self_check: bool = ...,
+        route_source: RouteSource | str = ...,
+        task_id: str | None = ...,
+        skill_name: str | None = ...,
+    ) -> TaskResult: ...
+
+
+def admitted_task_id(admission: WriteReceipt) -> str:
+    """The task id durable admission assigned; refused explicitly, never by `assert`."""
+    if admission.task_id is None:
+        raise RuntimeError("durable admission returned no task id")
+    return admission.task_id
+
+
 class DurableTaskExecutor:
-    def __init__(self, service: DurableSessionService, controller):
+    def __init__(self, service: DurableSessionService, controller: ExecutableController):
         self.service = service
         self.controller = controller
 
@@ -454,8 +490,8 @@ class DurableTaskExecutor:
             admission_payload=admission_payload,
             request_bytes=request_bytes,
         )
-        assert admission.task_id is not None
-        handle = TaskHandle(admission.task_id, admission)
+        task_id = admitted_task_id(admission)
+        handle = TaskHandle(task_id, admission)
         Thread(
             target=self._run,
             args=(
@@ -466,7 +502,7 @@ class DurableTaskExecutor:
                 int(admission_payload["execution_epoch"]),
                 skill_name,
             ),
-            name=f"lca-task-{admission.task_id[:8]}",
+            name=f"lca-task-{task_id[:8]}",
             daemon=True,
         ).start()
         return handle
@@ -539,7 +575,9 @@ class DurableTaskExecutor:
                 result_bytes=result_bytes,
             )
             terminal.wait(30)
-        except BaseException as exc:
+        # A daemon thread has no caller to raise to: every failure, including interrupts,
+        # is handed to the waiting TaskHandle, which re-raises it.
+        except BaseException as exc:  # noqa: BLE001
             handle.error = exc
         finally:
             handle.done.set()
