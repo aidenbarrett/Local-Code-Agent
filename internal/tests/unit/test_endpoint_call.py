@@ -7,7 +7,7 @@ import pytest
 
 from local_agent.session.endpoint_call import EndpointCallAdapter, EndpointCallStateError
 from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRequest, EndpointRole, EndpointUnavailable
-from local_agent.session.endpoint_runtime import EndpointRuntime
+from local_agent.session.endpoint_runtime import EndpointRequestCancelled, EndpointRuntime
 
 
 def _request(endpoint_id: str) -> EndpointRequest:
@@ -131,7 +131,11 @@ def test_stop_quarantine_is_reconciled_when_exact_active_call_returns_normally()
     thread.start()
     assert entered.wait(1)
 
-    assert runtime.cancel_execution(request.task_id, request.execution_epoch) == ()
+    task_id = request.task_id
+    execution_epoch = request.execution_epoch
+    assert task_id is not None
+    assert execution_epoch is not None
+    assert runtime.cancel_execution(task_id, execution_epoch) == ()
     assert runtime.arbiter.quarantined is True
     assert runtime.arbiter.active_lease is not None
 
@@ -146,7 +150,7 @@ def test_stop_quarantine_is_reconciled_when_exact_active_call_returns_normally()
 
     # The revoked execution stays fenced even though its completed call supplied
     # enough evidence to make the physical endpoint reusable.
-    with pytest.raises(Exception, match="cancelled before endpoint dispatch"):
+    with pytest.raises(EndpointRequestCancelled, match="cancelled before endpoint dispatch"):
         adapter.begin(request, timeout=0.1)
     survivor = adapter.begin(_request(endpoint_id), timeout=0.1)
     survivor.release_without_call()
