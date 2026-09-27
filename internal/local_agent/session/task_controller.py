@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable, Mapping
 from dataclasses import replace
+from typing import TYPE_CHECKING, Final, Protocol
 from uuid import UUID, uuid4
 
 from ..agent import Orchestrator, SkillLibrary, default_search_path
@@ -41,27 +43,70 @@ from .candidate_change import (
 )
 from .proof_binding import binding_from_run
 
+if TYPE_CHECKING:
+    from ..agent.orchestrator import RunResult
+    from ..agent.skills import Skill
+    from ..llm.client import LLMClient
+    from ..tools.process_runner import CancellationProbe
+    from .durable_activity import DurableToolActivity
+    from .workspaces import GitWorkspaceManager
+
+# A controller action is deterministic and model-free: (manager, declared repository,
+# task id, request text) -> result. One table owns which names are actions and what
+# each one runs, so dispatch cannot drift from CONTROLLER_ACTIONS.
+class ControllerAction(Protocol):
+    def __call__(
+        self, manager: GitWorkspaceManager | None, declared: RepoConfig, /,
+        *, task_id: str, request_text: str,
+    ) -> TaskResult: ...
+
+
+_CONTROLLER_ACTION_HANDLERS: Final[Mapping[str, ControllerAction]] = {
+    APPLY_CANDIDATE_ACTION: apply_candidate,
+    UNDO_CANDIDATE_ACTION: undo_candidate,
+    COMMIT_CANDIDATE_ACTION: commit_candidate,
+    DIFF_CANDIDATE_ACTION: diff_candidate,
+    DISCARD_CANDIDATE_ACTION: discard_candidate,
+}
+if frozenset(_CONTROLLER_ACTION_HANDLERS) != CONTROLLER_ACTIONS:
+    raise ImportError("every controller action needs exactly one handler")
+
 
 _PROGRAMMER_ERRORS = (TypeError, AttributeError, NameError, AssertionError)
 
 
-def _current_tree_observed_failure(run) -> bool:
+# Typed worker block reasons projected into the product reason vocabulary. Anything not
+# listed (including no recorded reason) is an unavailable capability.
+_BLOCKED_REASON_CODES: Final[Mapping[str, str]] = {
+    "policy_denied": "policy_denied",
+    "approval_declined": "user_denied",
+    "missing_executable": "missing_dependency",
+    "orchestrator_timeout": "tool_timeout",
+    "command_cancelled": "cancelled",
+    "bad_arguments": "invalid_input",
+    "invalid_model_response": "invalid_input",
+    "unknown_tool": "unavailable_capability",
+    "tool_not_allowed": "unavailable_capability",
+}
+
+
+def _current_tree_observed_failure(run: RunResult) -> bool:
     """Whether the last proof-bearing call on the current tree observed a failure."""
-    epoch = int(run.state.mutation_epoch)
-    last = None
+    epoch = run.state.mutation_epoch
+    last: str | None = None
     for record in run.state.history:
-        if int(getattr(record, "epoch", -1)) != epoch:
+        if record.epoch != epoch:
             continue
-        kind = getattr(record, "proof", ProofKind.NO_CURRENT_PROOF.value)
-        if kind != ProofKind.NO_CURRENT_PROOF.value:
-            last = kind
+        if record.proof != ProofKind.NO_CURRENT_PROOF.value:
+            last = record.proof
     return last in {k.value for k in CONTRADICTS_CURRENT_TREE}
 
 
 class TaskController:
-    def __init__(self, repo: RepoConfig, worker_factory, events: EventBuffer,
-                 *, allow_execution: bool = False, context_budget_tokens: int = 12_000,
-                 workspaces=None):
+    def __init__(self, repo: RepoConfig, worker_factory: Callable[[], LLMClient],
+                 events: EventBuffer, *, allow_execution: bool = False,
+                 context_budget_tokens: int = 12_000,
+                 workspaces: GitWorkspaceManager | None = None):
         # The user's checkout is never written by a worker, even if repo policy permits
         # it. Source-changing skills run in an LCA-owned candidate worktree instead, and
         # take their patch authority from the declared policy kept here.
@@ -82,7 +127,7 @@ class TaskController:
             default_search_path(self.repo.root, self.repo.skills_dir)
         )
 
-    def _resolved_skill(self, skill_name: str):
+    def _resolved_skill(self, skill_name: object) -> Skill:
         if not isinstance(skill_name, str) or not skill_name.strip():
             raise ValueError("selected skill must be a nonempty string")
         skill = self._skill_library().get(skill_name)
@@ -154,7 +199,7 @@ class TaskController:
         )
 
     @staticmethod
-    def _product_outcome(run) -> TaskOutcome:
+    def _product_outcome(run: RunResult) -> TaskOutcome:
         """Project worker outcome into product lifecycle without calling outages refusals."""
         outcome = TaskOutcome(run.outcome.value)
         if run.state.halt_cause in (HaltCause.SERVER_UNAVAILABLE, HaltCause.INFERENCE_STALLED):
@@ -169,7 +214,7 @@ class TaskController:
         return outcome
 
     @staticmethod
-    def _reason_code(run, outcome: TaskOutcome) -> str:
+    def _reason_code(run: RunResult, outcome: TaskOutcome) -> str:
         """Project typed worker facts into the product reason vocabulary."""
         if run.state.halt_cause is HaltCause.SERVER_UNAVAILABLE:
             return "endpoint_unavailable"
@@ -180,43 +225,38 @@ class TaskController:
         if outcome.succeeded:
             return "verification_passed"
         if outcome in (TaskOutcome.FAIL, TaskOutcome.ESCALATED_FAIL):
-            return "verification_failed" if run.state.verification_attempted else "missing_evidence"
+            return ("verification_failed" if run.state.verification_attempted
+                    else "missing_evidence")
         if outcome is TaskOutcome.BLOCKED:
             blocked = next((item for item in run.state.history if item.blocked), None)
-            reason = getattr(blocked, "reason", None)
-            return {
-                "policy_denied": "policy_denied",
-                "approval_declined": "user_denied",
-                "missing_executable": "missing_dependency",
-                "orchestrator_timeout": "tool_timeout",
-                "command_cancelled": "cancelled",
-                "bad_arguments": "invalid_input",
-                "invalid_model_response": "invalid_input",
-                "unknown_tool": "unavailable_capability",
-                "tool_not_allowed": "unavailable_capability",
-            }.get(reason, "unavailable_capability")
+            reason = blocked.reason if blocked is not None else None
+            return _BLOCKED_REASON_CODES.get(reason or "", "unavailable_capability")
         if outcome is TaskOutcome.NO_VERDICT:
-            return "missing_evidence" if not run.state.verification_attempted else "cleanup_unknown"
+            return ("missing_evidence" if not run.state.verification_attempted
+                    else "cleanup_unknown")
         return "cleanup_unknown"
 
     def _run_candidate_change(
-        self, task, task_id, resolved_skill, source, durable_activity, cancellation_probe=None,
+        self, task: str, task_id: str, resolved_skill: str,
+        durable_activity: DurableToolActivity | None,
+        cancellation_probe: CancellationProbe | None = None,
     ) -> TaskResult:
         """Run a source-changing skill in its own worktree and retain the candidate."""
+        manager = self.workspaces
         blocker = (
             "candidate workspaces are not configured for this session"
-            if self.workspaces is None
+            if manager is None
             else candidate_blocker(
                 self.declared_repo, allow_execution=self.allow_execution, skill=resolved_skill,
             )
         )
-        if blocker is not None:
+        if manager is None or blocker is not None:
             return TaskResult(
                 task_id, TaskOutcome.BLOCKED,
                 f"No change was prepared: {blocker}.", False,
                 reason_code="policy_denied",
             )
-        readiness = self.workspaces.readiness(self.declared_repo.root)
+        readiness = manager.readiness(self.declared_repo.root)
         if not readiness.ready:
             # An environment limit, reported before any worktree or model call exists.
             return TaskResult(
@@ -230,7 +270,7 @@ class TaskController:
                 }},
                 reason_code="missing_dependency",
             )
-        workspace = self.workspaces.create(
+        workspace = manager.create(
             self.declared_repo.root, task_id, excluded_dirs=excluded_dirs(self.declared_repo),
         )
         settled = False
@@ -258,7 +298,7 @@ class TaskController:
             if cancellation_probe is not None and cancellation_probe.requested:
                 # A stopped task never leaves a reviewable change behind, whatever the
                 # worker did after the Stop landed. The candidate is discarded unseen.
-                self.workspaces.discard(workspace)
+                manager.discard(workspace)
                 settled = True
                 return TaskResult(
                     task_id, TaskOutcome.BLOCKED,
@@ -281,7 +321,7 @@ class TaskController:
             # Proof identity is the candidate tree the build ran against.
             metrics["proof_binding"] = binding_from_run(task, run, workspace.root).as_dict()
             outcome, _candidate = settle_candidate(
-                self.workspaces, workspace, task_id=task_id, verified=verified,
+                manager, workspace, task_id=task_id, verified=verified,
                 proof=CANDIDATE_PROOF[resolved_skill],
             )
             settled = True
@@ -297,7 +337,7 @@ class TaskController:
         finally:
             if not settled:
                 # Nothing reviewable was produced; never leave an orphaned worktree.
-                self.workspaces.discard(workspace)
+                manager.discard(workspace)
 
     def run(
         self,
@@ -306,9 +346,9 @@ class TaskController:
         self_check: bool = False,
         route_source: RouteSource | TaskExecutionSource | str = RouteSource.MODEL_PROPOSAL,
         task_id: str | None = None,
-        durable_activity=None,
+        durable_activity: DurableToolActivity | None = None,
         skill_name: str | None = None,
-        cancellation_probe=None,
+        cancellation_probe: CancellationProbe | None = None,
     ) -> TaskResult:
         # ``route_source`` is retained as the existing call-surface name while the
         # controller now validates the broader execution provenance vocabulary. The
@@ -331,29 +371,13 @@ class TaskController:
             if self_check:
                 from .self_check import run_self_check
                 result = run_self_check(self.repo, task_id, self.events)
-            elif resolved_skill == DISCARD_CANDIDATE_ACTION:
-                result = discard_candidate(
+            elif (action := _CONTROLLER_ACTION_HANDLERS.get(resolved_skill or "")) is not None:
+                result = action(
                     self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
                 )
-            elif resolved_skill == DIFF_CANDIDATE_ACTION:
-                result = diff_candidate(
-                    self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
-                )
-            elif resolved_skill == COMMIT_CANDIDATE_ACTION:
-                result = commit_candidate(
-                    self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
-                )
-            elif resolved_skill == UNDO_CANDIDATE_ACTION:
-                result = undo_candidate(
-                    self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
-                )
-            elif resolved_skill == APPLY_CANDIDATE_ACTION:
-                result = apply_candidate(
-                    self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
-                )
-            elif resolved_skill in CANDIDATE_CHANGE_SKILLS:
+            elif resolved_skill is not None and resolved_skill in CANDIDATE_CHANGE_SKILLS:
                 result = self._run_candidate_change(
-                    task, task_id, resolved_skill, source, durable_activity,
+                    task, task_id, resolved_skill, durable_activity,
                     cancellation_probe=cancellation_probe,
                 )
             else:
@@ -367,16 +391,19 @@ class TaskController:
                     registry = wrap_registry_with_durable_activity(registry, durable_activity)
                 skills = self._skill_library()
 
-                def observe(kind, payload):
+                def observe(kind: str, payload: Mapping[str, object]) -> None:
                     fields = {
                         "route": ("skill", "tier"), "tool": ("name",),
-                        "observe": ("ok",), "llm": ("total_s", "ttft_s", "prompt_tokens", "completion_tokens"),
+                        "observe": ("ok",),
+                        "llm": ("total_s", "ttft_s", "prompt_tokens", "completion_tokens"),
                         "escalate": ("from", "to"), "blocked": ("reason", "skill"),
                         "router_uncertain": ("skill", "score"),
                     }
                     if kind in fields:
-                        self.events.emit("worker." + kind,
-                                         {k: payload[k] for k in fields[kind] if k in payload}, task_id)
+                        self.events.emit(
+                            "worker." + kind,
+                            {k: payload[k] for k in fields[kind] if k in payload}, task_id,
+                        )
 
                 worker = Orchestrator(
                     repo=self.repo, registry=registry, client=self.worker_factory(), skills=skills,
@@ -411,7 +438,7 @@ class TaskController:
                 "process_cleanup_confirmed": False,
             }, task_id)
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the one operational-fault boundary
             # Operational/controller failures remain typed task failures rather than
             # escaping as programmer faults. Durable execution still records truthful
             # cleanup from tool activity when this result is terminalised.

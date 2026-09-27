@@ -44,10 +44,8 @@
     "no-untyped-def": 2
    },
    "internal/local_agent/session/contracts.py": {
-    "index": 1,
     "no-untyped-def": 1,
-    "redundant-expr": 1,
-    "union-attr": 1
+    "redundant-expr": 1
    },
    "internal/local_agent/session/conversation_gateway.py": {
     "attr-defined": 1,
@@ -128,7 +126,7 @@
    "internal/local_agent/session/results.py": {
     "assignment": 1,
     "redundant-expr": 4,
-    "union-attr": 3
+    "union-attr": 2
    },
    "internal/local_agent/session/runtime_facts.py": {
     "no-any-return": 1
@@ -142,8 +140,7 @@
     "no-untyped-def": 2
    },
    "internal/local_agent/session/session_event_service.py": {
-    "no-untyped-def": 1,
-    "union-attr": 2
+    "no-untyped-def": 1
    },
    "internal/local_agent/session/session_store.py": {
     "no-any-return": 2,
@@ -152,13 +149,6 @@
    "internal/local_agent/session/task_admission.py": {
     "no-untyped-def": 4,
     "redundant-expr": 2
-   },
-   "internal/local_agent/session/task_controller.py": {
-    "arg-type": 1,
-    "no-any-return": 1,
-    "no-untyped-def": 8,
-    "redundant-expr": 1,
-    "union-attr": 2
    },
    "internal/local_agent/session/task_read_model.py": {
     "type-arg": 4
@@ -293,10 +283,8 @@
     "no-untyped-def": 2
    },
    "internal/local_agent/session/contracts.py": {
-    "index": 1,
     "no-untyped-def": 1,
-    "redundant-expr": 1,
-    "union-attr": 1
+    "redundant-expr": 1
    },
    "internal/local_agent/session/conversation_gateway.py": {
     "attr-defined": 1,
@@ -376,7 +364,7 @@
    "internal/local_agent/session/results.py": {
     "assignment": 1,
     "redundant-expr": 4,
-    "union-attr": 3
+    "union-attr": 2
    },
    "internal/local_agent/session/runtime_facts.py": {
     "no-any-return": 1
@@ -390,8 +378,7 @@
     "no-untyped-def": 2
    },
    "internal/local_agent/session/session_event_service.py": {
-    "no-untyped-def": 1,
-    "union-attr": 2
+    "no-untyped-def": 1
    },
    "internal/local_agent/session/session_store.py": {
     "no-any-return": 2,
@@ -400,13 +387,6 @@
    "internal/local_agent/session/task_admission.py": {
     "no-untyped-def": 4,
     "redundant-expr": 2
-   },
-   "internal/local_agent/session/task_controller.py": {
-    "arg-type": 1,
-    "no-any-return": 1,
-    "no-untyped-def": 8,
-    "redundant-expr": 1,
-    "union-attr": 2
    },
    "internal/local_agent/session/task_read_model.py": {
     "type-arg": 4
@@ -657,7 +637,7 @@
     "W292": 1
    },
    "internal/local_agent/session/contracts.py": {
-    "E501": 4,
+    "E501": 3,
     "S105": 2,
     "UP037": 1,
     "UP042": 4
@@ -768,7 +748,7 @@
    },
    "internal/local_agent/session/self_check.py": {
     "C420": 1,
-    "E501": 5,
+    "E501": 4,
     "S314": 1,
     "S603": 1,
     "S607": 1,
@@ -794,13 +774,9 @@
     "UP017": 1
    },
    "internal/local_agent/session/task_controller.py": {
-    "ARG002": 1,
-    "BLE001": 1,
-    "E501": 2,
     "PLR0911": 1,
     "PLR0912": 1,
-    "PLR0913": 3,
-    "PLR0915": 1
+    "PLR0913": 2
    },
    "internal/local_agent/session/task_history.py": {
     "E501": 3
@@ -978,5 +954,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1068
+ "total": 1024
 }
