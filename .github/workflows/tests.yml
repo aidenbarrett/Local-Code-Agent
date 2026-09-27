@@ -86,11 +86,11 @@ jobs:
           path: ci-job-evidence.json
           if-no-files-found: error
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,parallel]"
       - name: Authoritative test suite
         # The slowest tests are listed so a suite drifting toward the job timeout is
         # visible before it goes red (Windows runs near 35 of its 45 minutes).
-        run: python -m pytest -q --durations=30 --durations-min=5 --junitxml=pytest-junit.xml
+        run: python -m pytest -q -n auto --durations=30 --durations-min=5 --junitxml=pytest-junit.xml
       - name: Annotate failed tests
         # The job log is not always readable by whoever fixes the failure; the checks
         # API always returns annotations. One error annotation per failed test.
