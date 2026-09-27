@@ -129,9 +129,6 @@
     "no-untyped-call": 2,
     "no-untyped-def": 2
    },
-   "internal/local_agent/session/session_event_service.py": {
-    "no-untyped-def": 1
-   },
    "internal/local_agent/session/session_store.py": {
     "no-any-return": 2,
     "no-untyped-def": 1
@@ -356,9 +353,6 @@
    "internal/local_agent/session/self_check.py": {
     "no-untyped-call": 2,
     "no-untyped-def": 2
-   },
-   "internal/local_agent/session/session_event_service.py": {
-    "no-untyped-def": 1
    },
    "internal/local_agent/session/session_store.py": {
     "no-any-return": 2,
@@ -732,12 +726,10 @@
     "UP022": 1
    },
    "internal/local_agent/session/session_event_service.py": {
-    "BLE001": 2,
-    "E501": 5,
+    "E501": 2,
     "FBT001": 1,
     "N818": 2,
-    "PLR0913": 2,
-    "S101": 1
+    "PLR0913": 2
    },
    "internal/local_agent/session/session_store.py": {
     "E501": 14,
@@ -931,5 +923,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 987
+ "total": 979
 }

@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import traceback
 from threading import Lock, Thread
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from .cancellation import CancellationSite, CancellationSource, StaleExecutionEpoch
 from .cancellation_runtime import (
@@ -21,7 +21,13 @@ from .cancellation_runtime import (
 )
 from .contracts import RouteSource, TaskOutcome, TaskResult
 from .results import verdict_block_from_task_result
-from .session_event_service import DurableSessionService, DurableTaskExecutor, TaskHandle
+from .session_event_service import (
+    DurableSessionService,
+    DurableTaskExecutor,
+    ExecutableController,
+    TaskHandle,
+    admitted_task_id,
+)
 from .terminal_truth import (
     CancelUnreconciled,
     DurableWriteFailed,
@@ -30,20 +36,6 @@ from .terminal_truth import (
 
 if TYPE_CHECKING:
     from .terminal_truth import TerminalActivityTruth
-
-
-class ExecutableController(Protocol):
-    """What the executor dispatches to: the admitted durable controller adapter."""
-
-    def run(
-        self,
-        task: str,
-        *,
-        self_check: bool = ...,
-        route_source: RouteSource | str = ...,
-        task_id: str | None = ...,
-        skill_name: str | None = ...,
-    ) -> TaskResult: ...
 
 
 class CancellableDurableTaskExecutor(DurableTaskExecutor):
@@ -212,11 +204,9 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
             admission_payload=admission_payload,
             request_bytes=request_bytes,
         )
-        if admission.task_id is None:
-            # Not an assertion: this must hold under `python -O` too.
-            raise RuntimeError("durable admission returned no task id")
-        owns_registration = self._register_once(admission.task_id, execution_epoch)
-        handle = TaskHandle(admission.task_id, admission)
+        task_id = admitted_task_id(admission)
+        owns_registration = self._register_once(task_id, execution_epoch)
+        handle = TaskHandle(task_id, admission)
         Thread(
             target=self._run_fenced,
             args=(
@@ -228,7 +218,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 skill_name,
                 owns_registration,
             ),
-            name=f"lca-task-{admission.task_id[:8]}",
+            name=f"lca-task-{task_id[:8]}",
             daemon=True,
         ).start()
         return handle
