@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..tools.tool_primitives import resolve_in_repo
 from ..tools.process_runner import run_command
-from .contracts import TaskResult
+from .contracts import TaskOutcome, TaskResult
 
 # Self-check is authority over the Local Code Agent checkout that supplied this running
 # code, not over any repository that happens to call itself "local-code-agent".
@@ -64,15 +64,18 @@ def junit_counts(path: Path) -> dict[str, int]:
 
 def run_self_check(repo, task_id, events) -> TaskResult:
     if not (repo.policy.allow_build and repo.policy.allow_test):
-        return TaskResult(task_id, "blocked", "Self-check requires execution enabled and repository build/test permission.")
+        return TaskResult(
+            task_id, TaskOutcome.BLOCKED,
+            "Self-check requires execution enabled and repository build/test permission.",
+        )
     if repo.root.resolve() != _LCA_SOURCE_ROOT:
         return TaskResult(
             task_id,
-            "blocked",
+            TaskOutcome.BLOCKED,
             "Self-check only supports the Local Code Agent checkout that supplied this running controller.",
         )
     if not (repo.root / "internal/tests").is_dir():
-        return TaskResult(task_id, "blocked", "Local Code Agent self-check files are unavailable.")
+        return TaskResult(task_id, TaskOutcome.BLOCKED, "Local Code Agent self-check files are unavailable.")
     before = tree_digest(repo.root)
     artifacts = resolve_in_repo(repo.root, f".local-agent/session-checks/{task_id}")
     artifacts.mkdir(parents=True, exist_ok=False)
@@ -81,7 +84,9 @@ def run_self_check(repo, task_id, events) -> TaskResult:
     events.emit("check.compile", {}, task_id)
     compiled = run_command(compile_argv, repo.root, artifacts, repo.policy.command_timeout_seconds)
     if not compiled.ok:
-        return TaskResult(task_id, "fail", f"Python compilation failed. Log: {compiled.combined_path}")
+        return TaskResult(
+            task_id, TaskOutcome.FAIL, f"Python compilation failed. Log: {compiled.combined_path}",
+        )
     events.emit("check.pytest", {}, task_id)
     tested = run_command(
         [sys.executable, "-m", "pytest", "-q", "-o", "addopts=", "internal/tests", f"--junitxml={report}"],
@@ -94,7 +99,9 @@ def run_self_check(repo, task_id, events) -> TaskResult:
     except (OSError, ValueError, KeyError, ET.ParseError):
         # pytest was launched but produced nothing readable, so no check was
         # completed: verification did not run to a usable result.
-        return TaskResult(task_id, "fail", f"No usable pytest report. Log: {tested.combined_path}")
+        return TaskResult(
+            task_id, TaskOutcome.FAIL, f"No usable pytest report. Log: {tested.combined_path}",
+        )
     proved = (tested.ok and counts["tests"] > counts["skipped"]
               and not counts["failures"] and not counts["errors"] and unchanged)
     summary = (f"Python compilation passed. Pytest: {counts['tests']} cases, "
@@ -103,7 +110,7 @@ def run_self_check(repo, task_id, events) -> TaskResult:
                f"Log: {tested.combined_path}")
     # Compilation and the test run are the check. It ran either way; whether it
     # established success is the separate `proved` bit.
-    return TaskResult(task_id, "pass" if proved else "fail", summary, proved,
+    return TaskResult(task_id, TaskOutcome.PASS if proved else TaskOutcome.FAIL, summary, proved,
                       ("compile:0", "pytest:1"),
                       {"compile_s": compiled.elapsed_s, "pytest_s": tested.elapsed_s,
                        "tree_sha256": before, "tests": counts},

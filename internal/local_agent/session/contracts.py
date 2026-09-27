@@ -137,7 +137,9 @@ class EvidenceRef:
 @dataclass(frozen=True)
 class TaskResult:
     task_id: str
-    outcome: TaskOutcome | str
+    # Always a TaskOutcome once constructed. A raw value (from a retained record) is
+    # coerced once here, at the boundary, and refused if it is not a declared outcome.
+    outcome: TaskOutcome
     answer: str
     verified_at_completion: bool = False
     evidence_ids: tuple[str, ...] = ()
@@ -147,7 +149,8 @@ class TaskResult:
 
     def __post_init__(self) -> None:
         try:
-            outcome = self.outcome if isinstance(self.outcome, TaskOutcome) else TaskOutcome(self.outcome)
+            raw: object = self.outcome
+            outcome = raw if isinstance(raw, TaskOutcome) else TaskOutcome(raw)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"undeclared task outcome: {self.outcome!r}") from exc
         object.__setattr__(self, "outcome", outcome)
