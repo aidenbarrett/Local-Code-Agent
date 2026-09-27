@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `677ab2acb5b69f2807287d58f9ad60fe52a51a2d`
+Reconciled against GitHub `main` at `47406bbaca12d1753b01895f8751ea9a17a3b61f`
 on 2026-09-27 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -10,7 +10,10 @@ journey runner (#234, #239, #243), truthful model-unavailable answers (#241, #24
 the context-exhaustion verdict fix (#244), the quality floor (#231), the Panther Lake
 acceptance summary (#232), candidate-ready truth (#236) and Stop endpoint fencing with
 natural-completion reconciliation (#237, #238, #240, integrated by #246 and #247), the
-answered stopped turn and durable unproven test runs (#249) landed. Live
+answered stopped turn and durable unproven test runs (#249), repository questions answered
+from the repository and the search-streak nudge (#250), deterministic push/commit/delete
+refusals and the scripted candidate journey (#252, #253) landed. Parallel CI tests (#251)
+were measured and not adopted: no reliable Windows gain and a Windows-only failure. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
@@ -54,7 +57,13 @@ The public/product path now includes:
   Hub composition and keeps `journeys.json`, a summary, transcripts and durable event logs;
   the report records the exact product source (`package_identity()`), and with
   `--allow-model` one call through the product's own client must succeed before any model
-  journey runs, otherwise those journeys are UNKNOWN with the client's error;
+  journey runs, otherwise those journeys are UNKNOWN with the client's error; J13 runs the
+  whole candidate lifecycle (diff, stale apply, apply, undo, commit) with a scripted worker
+  through the real controller, so CI exercises it on Linux and Windows without a model;
+- everyday repository questions ("what does this repository do?", "how is it built and
+  tested?", "where is the X implemented?") route directly to read-only repository
+  navigation; push, bare commit and delete imperatives are refused without a model, naming
+  the supported path; a model repository proposal is shown as the user's own request;
 - a task that could not use the model says why in the transport's own words, and a turn
   after the endpoint is quarantined is answered with the reason and "restart the Hub"
   instead of raising; a worker that exhausts its context budget ends BLOCKED /
