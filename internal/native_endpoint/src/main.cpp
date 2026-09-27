@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <span>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -27,8 +28,10 @@ constexpr int kExitOk = 0;
 constexpr int kExitUsage = 2;
 constexpr int kExitBackendFailed = 3;
 constexpr int kExitBindFailed = 4;
+constexpr int kExitSignalSetupFailed = 5;
 
-std::atomic<bool> g_stop{false};
+// The one mutable global: a signal handler can reach nothing else safely.
+std::atomic<bool> g_stop{false};  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 extern "C" void on_signal(int) { g_stop.store(true); }
 
@@ -82,7 +85,9 @@ bool parse_positive(const std::string& text, long long lo, long long hi, long lo
 
 int parse_arguments(int argc, char** argv, Arguments& args) {
     args.options.port = 9000;
-    std::vector<std::string> a(argv + 1, argv + argc);
+    if (argc < 1 || argv == nullptr) return kExitUsage;  // no program name: nothing to parse
+    const std::span<char*> argv_span(argv, static_cast<std::size_t>(argc));
+    std::vector<std::string> a(argv_span.begin() + 1, argv_span.end());
     for (std::size_t i = 0; i < a.size(); ++i) {
         const std::string& flag = a[i];
         auto value = [&](std::string& out) -> bool {
@@ -213,8 +218,11 @@ int main(int argc, char** argv) {
     if (parsed == -1) return kExitOk;
     if (parsed != kExitOk) return parsed;
 
-    std::signal(SIGINT, on_signal);
-    std::signal(SIGTERM, on_signal);
+    if (std::signal(SIGINT, on_signal) == SIG_ERR || std::signal(SIGTERM, on_signal) == SIG_ERR) {
+        // Without the handlers, Ctrl+C would kill the process without a clean stop.
+        std::cerr << "lca-endpoint: cannot install signal handlers\n";
+        return kExitSignalSetupFailed;
+    }
 
     lca::EndpointServer server(args.options, make_factory(args));
     try {

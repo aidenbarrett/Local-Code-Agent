@@ -13,6 +13,8 @@
 // prove cancellation instead of assuming it.
 #pragma once
 
+#include <cstdint>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -53,6 +55,8 @@ public:
 
     EndpointServer(const EndpointServer&) = delete;
     EndpointServer& operator=(const EndpointServer&) = delete;
+    EndpointServer(EndpointServer&&) = delete;
+    EndpointServer& operator=(EndpointServer&&) = delete;
 
     // Binds, then starts serving and loading the backend on background
     // threads. Returns the bound port. Throws std::runtime_error when the
@@ -71,7 +75,7 @@ public:
     std::optional<std::string> load_error() const;
 
 private:
-    enum class Status { Loading, Ready, Failed };
+    enum class Status : std::uint8_t { Loading, Ready, Failed };
 
     void install_routes();
     void load_backend();

@@ -281,7 +281,7 @@ void InferenceScheduler::execute(InferenceJob& job) {
 
     ChannelEvent done;
     done.kind = ChannelEvent::Kind::Finished;
-    done.finished = std::move(finished);
+    done.finished = finished;
     channel.push(std::move(done));
 }
 

@@ -43,7 +43,7 @@ struct FailureFacts {
 };
 
 struct ChannelEvent {
-    enum class Kind { Admitted, Parts, Finished, Failed };
+    enum class Kind : std::uint8_t { Admitted, Parts, Finished, Failed };
     Kind kind = Kind::Parts;
     AdmittedFacts admitted;
     std::vector<ParsedPart> parts;
@@ -114,6 +114,8 @@ public:
 
     InferenceScheduler(const InferenceScheduler&) = delete;
     InferenceScheduler& operator=(const InferenceScheduler&) = delete;
+    InferenceScheduler(InferenceScheduler&&) = delete;
+    InferenceScheduler& operator=(InferenceScheduler&&) = delete;
 
     // False when the queue is full (the caller answers 503).
     bool submit(InferenceJob job);

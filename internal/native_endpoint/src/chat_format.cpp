@@ -1,6 +1,6 @@
 #include "chat_format.hpp"
 
-#include <cstdio>
+#include <array>
 
 namespace lca {
 
@@ -8,7 +8,8 @@ namespace {
 
 void append_python_string(std::string& out, const std::string& value) {
     out.push_back('"');
-    for (unsigned char c : value) {
+    for (const char ch : value) {
+        const auto c = static_cast<unsigned char>(ch);
         switch (c) {
             case '"': out += "\\\""; break;
             case '\\': out += "\\\\"; break;
@@ -19,9 +20,12 @@ void append_python_string(std::string& out, const std::string& value) {
             case '\f': out += "\\f"; break;
             default:
                 if (c < 0x20) {
-                    char buf[8];
-                    std::snprintf(buf, sizeof buf, "\\u%04x", c);
-                    out += buf;
+                    // A control character is written as \u00XX: no printf, no buffer.
+                    constexpr std::array<char, 16> kHex{'0', '1', '2', '3', '4', '5', '6', '7',
+                                                        '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+                    out += "\\u00";
+                    out.push_back(kHex.at(c >> 4U));
+                    out.push_back(kHex.at(c & 0x0FU));
                 } else {
                     out.push_back(static_cast<char>(c));
                 }
@@ -168,7 +172,7 @@ RenderedPrompt render_chatml_hermes_prompt(const std::vector<ChatMessage>& messa
             }
             for (std::size_t k = 0; k < m.tool_calls.size(); ++k) {
                 if ((k == 0 && !content.empty()) || k > 0) out += "\n";
-                out += "<tool_call>\n{\"name\": \"" + m.tool_calls[k].name + "\", \"arguments\": " +
+                out += "<tool_call>\n{\"name\": \"" + m.tool_calls[k].name + R"(", "arguments": )" +
                        m.tool_calls[k].arguments_text + "}\n</tool_call>";
             }
             out += "<|im_end|>\n";

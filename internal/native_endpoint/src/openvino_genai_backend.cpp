@@ -146,7 +146,8 @@ public:
         // step, and is labelled as backend-reported by the endpoint.
         outcome.stats.prefill_ms = static_cast<double>(metrics.get_ttft().mean);
         if (generated > 1) {
-            outcome.stats.decode_ms = static_cast<double>(metrics.get_tpot().mean) * (generated - 1);
+            outcome.stats.decode_ms =
+                static_cast<double>(metrics.get_tpot().mean) * static_cast<double>(generated - 1);
         }
         if (cancel.requested()) {
             outcome.finish = FinishReason::Cancelled;

@@ -44,7 +44,7 @@ struct GenerationRequest {
     SamplingParams sampling;
 };
 
-enum class FinishReason { EndOfSequence, Length, StoppedBySink, Cancelled };
+enum class FinishReason : std::uint8_t { EndOfSequence, Length, StoppedBySink, Cancelled };
 
 const char* to_string(FinishReason reason);
 
@@ -61,7 +61,7 @@ struct GenerationOutcome {
     GenerationStats stats;
 };
 
-enum class SinkAction { Continue, Stop };
+enum class SinkAction : std::uint8_t { Continue, Stop };
 
 using TextSink = std::function<SinkAction(std::string_view piece)>;
 
@@ -74,7 +74,7 @@ private:
     std::atomic<bool> requested_{false};
 };
 
-enum class BackendErrorKind { InvalidArgument, ContextExceeded, Unavailable, Internal };
+enum class BackendErrorKind : std::uint8_t { InvalidArgument, ContextExceeded, Unavailable, Internal };
 
 class BackendError : public std::runtime_error {
 public:
@@ -89,6 +89,16 @@ private:
 class InferenceBackend {
 public:
     virtual ~InferenceBackend() = default;
+    // A polymorphic base is used through references only (Core Guidelines C.67).
+    InferenceBackend(const InferenceBackend&) = delete;
+    InferenceBackend& operator=(const InferenceBackend&) = delete;
+    InferenceBackend(InferenceBackend&&) = delete;
+    InferenceBackend& operator=(InferenceBackend&&) = delete;
+
+protected:
+    InferenceBackend() = default;
+
+public:
 
     virtual const BackendIdentity& identity() const = 0;
 
