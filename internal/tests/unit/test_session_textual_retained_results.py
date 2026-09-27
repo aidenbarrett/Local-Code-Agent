@@ -217,8 +217,8 @@ def test_live_hub_labels_prepared_candidate_as_not_applied(tmp_path):
             {
                 "schema": "lca.task-result/2",
                 "task_id": task_id,
-                "outcome": "success",
-                "terminal_state": "succeeded",
+                "outcome": "pass",
+                "terminal_state": "completed",
                 "verdict": "VERIFIED",
                 "verification_ran": True,
                 "verified_at_completion": True,
@@ -241,7 +241,7 @@ def test_live_hub_labels_prepared_candidate_as_not_applied(tmp_path):
             verdict_payload={
                 "completion": {
                     "task_id": task_id,
-                    "status": "succeeded",
+                    "status": "completed",
                     "verdict_block": {
                         "verdict": "VERIFIED",
                         "reason_code": "verification_passed",
