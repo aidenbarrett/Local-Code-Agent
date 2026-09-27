@@ -90,7 +90,12 @@ jobs:
       - name: Authoritative test suite
         # The slowest tests are listed so a suite drifting toward the job timeout is
         # visible before it goes red (Windows runs near 35 of its 45 minutes).
-        run: python -m pytest -q --durations=30 --durations-min=5
+        run: python -m pytest -q --durations=30 --durations-min=5 --junitxml=pytest-junit.xml
+      - name: Annotate failed tests
+        # The job log is not always readable by whoever fixes the failure; the checks
+        # API always returns annotations. One error annotation per failed test.
+        if: failure()
+        run: python internal/devtools/annotate_test_failures.py pytest-junit.xml
 
   coverage:
     name: coverage (report only)
@@ -121,7 +126,10 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[coverage]"
       - name: Measure coverage
-        run: python -m pytest -q --cov --cov-report=xml --cov-report=term-missing:skip-covered
+        run: python -m pytest -q --cov --cov-report=xml --cov-report=term-missing:skip-covered --junitxml=pytest-junit.xml
+      - name: Annotate failed tests
+        if: failure()
+        run: python internal/devtools/annotate_test_failures.py pytest-junit.xml
       - name: Report what is uncovered
         run: python internal/scripts/coverage-report.py coverage.xml --against internal/coverage-baseline.json
       - name: Upload report
