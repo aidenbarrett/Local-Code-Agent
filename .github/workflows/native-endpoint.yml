@@ -262,12 +262,14 @@ jobs:
           # On failure, surface the tail of each log as annotations.
           report() {
             code=$?
-            grep -E "^FAIL" qualification.out 2>/dev/null | head -5 | while IFS= read -r l; do echo "::error title=qualification::${l//%/%25}"; done
+            echo "::error title=failed command::exit $code at line ${BASH_LINENO[0]}: ${BASH_COMMAND//%/%25}"
+            grep -E "^FAIL" qualification.out 2>/dev/null | head -3 | while IFS= read -r l; do echo "::error title=qualification::${l//%/%25}"; done
+            [ -s qualification.out ] && tail -n 2 qualification.out | while IFS= read -r l; do echo "::error title=qualification tail::${l//%/%25}"; done
             # What the model actually said to the tool-call probe, unparsed.
-            curl -s http://127.0.0.1:18123/v1/chat/completions -H 'Content-Type: application/json' -d "{\"model\": \"$CONFORMANCE_MODEL\", \"max_tokens\": 128, \"temperature\": 0, \"chat_template_kwargs\": {\"enable_thinking\": false}, \"messages\": [{\"role\": \"user\", \"content\": \"Call echo_value with value READY. Do not answer directly.\"}], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"echo_value\", \"description\": \"Return one supplied string.\", \"parameters\": {\"type\": \"object\", \"properties\": {\"value\": {\"type\": \"string\"}}, \"required\": [\"value\"]}}}]}" \
+            curl -s --max-time 60 http://127.0.0.1:18123/v1/chat/completions -H 'Content-Type: application/json' -d "{\"model\": \"$CONFORMANCE_MODEL\", \"max_tokens\": 128, \"temperature\": 0, \"chat_template_kwargs\": {\"enable_thinking\": false}, \"messages\": [{\"role\": \"user\", \"content\": \"Call echo_value with value READY. Do not answer directly.\"}], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"echo_value\", \"description\": \"Return one supplied string.\", \"parameters\": {\"type\": \"object\", \"properties\": {\"value\": {\"type\": \"string\"}}, \"required\": [\"value\"]}}}]}" \
               | head -c 900 | tr '\n' ' ' | sed 's/%/%25/g; s/^/::error title=tool probe raw::/'; echo
             for f in harness.out endpoint.log; do
-              [ -s "$f" ] && tail -n 3 "$f" | while IFS= read -r l; do echo "::error title=$f::${l//%/%25}"; done
+              if [ -s "$f" ]; then tail -n 2 "$f" | while IFS= read -r l; do echo "::error title=$f::${l//%/%25}"; done; fi
             done
             exit $code
           }
