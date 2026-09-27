@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from time import monotonic
 
+from .durable_activity import DurableActivityError
+
 from ..tools.tool_primitives import (
     BlockedError,
     Reason,
@@ -81,15 +83,22 @@ def wrap_registry_with_durable_activity(
                 )
                 _finish_exception(activity, opened, _tool.name, exc, started)
                 raise exc
-            activity.finish_tool(
-                call_id=opened.call_id,
-                tool_name=_tool.name,
-                execution=result.execution_status.value,
-                domain=result.domain_status.value,
-                reason=result.reason.value if result.reason is not None else None,
-                exit_code=result.exit_code,
-                duration_ms=max(0, int((monotonic() - started) * 1000)),
-            )
+            try:
+                activity.finish_tool(
+                    call_id=opened.call_id,
+                    tool_name=_tool.name,
+                    execution=result.execution_status.value,
+                    domain=result.domain_status.value,
+                    reason=result.reason.value if result.reason is not None else None,
+                    exit_code=result.exit_code,
+                    duration_ms=max(0, int((monotonic() - started) * 1000)),
+                )
+            except DurableActivityError as exc:
+                # The result cannot be recorded as typed. Close this exact call as an
+                # internal error so the next tool is not refused for an open call
+                # this one left behind, then surface the contract failure.
+                _finish_exception(activity, opened, _tool.name, exc, started)
+                raise
             return result
 
         wrapped.register(

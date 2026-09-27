@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .durable_activity import OK_EXECUTION_REASON_CODES
+
 
 class DurableWriteFailed(RuntimeError):
     reason_code = "durable_write_failed"
@@ -74,7 +76,7 @@ def derive_terminal_activity_truth(
     elif all(
         finish is not None
         and finish.get("execution") == "ok"
-        and finish.get("reason_code") == "completed"
+        and finish.get("reason_code") in OK_EXECUTION_REASON_CODES
         for finish in process_calls.values()
     ):
         cleanup = "not_needed"
