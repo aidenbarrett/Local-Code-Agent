@@ -1,8 +1,9 @@
 # Current state
 
-Reconciled against GitHub `main` at `c941000d1ecc731cb9049aa547f147b5f31a4845`
-on 2026-09-27 after the isolated candidate-change journeys (#197-#209: build/test fixes,
-`fix it`, `change:`, `/apply`, `/undo`, `/commit`, durable candidate facts) landed. Live
+Reconciled against GitHub `main` at `e20719b86a61e088ed3436ee72815c59c9cbddd7`
+on 2026-09-27 after the isolated candidate-change journeys (#197-#213: build/test fixes,
+`fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, durable candidate facts,
+readiness refusal) and the engineering-standards ratchet (#216) landed. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
@@ -82,7 +83,20 @@ modifies the user's checkout, index or history:
   (prepared/applied/apply_refused/undone/committed) for the Session Hub; `/1` stays readable;
 - an observed failing build or test is reported as `FAILED` / `verification_failed` with an
   observed-failure proof scope, not as `NO_VERDICT`;
-- orphaned candidate worktrees from a dead controller are reaped at Session Hub start.
+- orphaned candidate worktrees from a dead controller are reaped at Session Hub start;
+- a candidate change is refused up front, with reasons and before any workspace exists, when
+  the machine cannot run one (git older than 2.25, not a top-level checkout with a commit,
+  or an unwritable workspace folder outside the repository);
+- the candidate-ready answer shows a diffstat and a bounded preview, and `/diff <id>` shows
+  the exact retained patch before anything is applied;
+- `propose_patch` tolerates indentation slips for one unique whole-line block and
+  re-indents the replacement to the file's style, so small models can land edits.
+
+Engineering standards for Python, C++ and Rust are written in
+`internal/docs/engineering-standards.md`. The fast gates enforce them on the product package
+and dev tools as a ratchet (strict mypy on linux and win32 plus a ruff rule set, per file and
+code): no file may gain a finding and new files must be clean. Existing debt is recorded in
+`internal/static-standards-baseline.json` and is being burned down; it is not yet zero.
 
 ## Boundaries that remain open
 
