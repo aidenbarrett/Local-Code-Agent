@@ -17,7 +17,8 @@ concurrency:
 
 env:
   OPENVINO_GENAI_RELEASE: "2026.3"
-  CONFORMANCE_MODEL: OpenVINO/Qwen3-0.6B-int4-ov
+  # Smallest first that follows a tool-call instruction reliably; 0.6B does not.
+  CONFORMANCE_MODEL_CANDIDATES: "OpenVINO/Qwen3-1.7B-int4-ov OpenVINO/Qwen3-4B-int4-ov"
 
 jobs:
   build-test:
@@ -274,7 +275,15 @@ jobs:
           set -eEo pipefail
           python -m pip install -e ".[dev]" huggingface_hub
           model_dir="$RUNNER_TEMP/model"
-          python -c "from huggingface_hub import snapshot_download as d; print(d('$CONFORMANCE_MODEL', local_dir='$model_dir'))"
+          CONFORMANCE_MODEL=""
+          for candidate in $CONFORMANCE_MODEL_CANDIDATES; do
+            if python -c "from huggingface_hub import snapshot_download as d; print(d('$candidate', local_dir='$model_dir'))"; then
+              CONFORMANCE_MODEL="$candidate"
+              break
+            fi
+          done
+          test -n "$CONFORMANCE_MODEL"
+          echo "::notice title=conformance model::$CONFORMANCE_MODEL"
           source "$OV_ROOT/setupvars.sh"
           cat > "$RUNNER_TEMP/genai.json" <<EOF
           {"model_path": "$model_dir", "device": "CPU", "model_id": "$CONFORMANCE_MODEL", "max_context_tokens": 8192}

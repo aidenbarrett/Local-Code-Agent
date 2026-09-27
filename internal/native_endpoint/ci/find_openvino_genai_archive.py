@@ -43,8 +43,10 @@ def main(argv: list[str] | None = None) -> int:
             print(p[p.index("/repositories/"):])
         return 0
     suffix = r"\.tar\.gz" if args.platform == "ubuntu24" else r"\.zip"
+    # Anchored at the file name: the folder also holds pdb_openvino_genai_*
+    # debug-symbol archives, which contain no headers or CMake package.
     pattern = re.compile(
-        rf"openvino_genai_{args.platform}_{re.escape(args.release)}(\.\d+)*_x86_64{suffix}$")
+        rf"/openvino_genai_{args.platform}_{re.escape(args.release)}(\.\d+)*_x86_64{suffix}$")
     matches = sorted(p for p in walk(tree) if folder in p and pattern.search(p))
     if not matches:
         print(f"no OpenVINO GenAI {args.release} {args.platform} archive in the storage index",
