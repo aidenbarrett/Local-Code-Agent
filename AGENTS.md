@@ -76,6 +76,8 @@ Native pytest is authoritative:
 python -m pytest -q
 ```
 
+CI runs the same suite split into duration-balanced shards of whole test files (`--shard K/N`, `internal/devtools/ci_shards.py`); the shards partition the collected suite, so every test still runs on both platforms. Refresh `internal/tests/shard-weights.json` with `python internal/devtools/ci_shards.py update <junit.xml>` when the balance drifts.
+
 Linux and Windows CI are required before describing a code change as verified. New behaviour gets regression coverage. Bugs get the smallest test that would have caught them. Contract changes get positive and fail-closed negative cases.
 
 Do not weaken a test to manufacture green.
