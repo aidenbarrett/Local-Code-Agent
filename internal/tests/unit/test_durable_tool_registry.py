@@ -164,7 +164,9 @@ def test_invalid_tool_return_is_recorded_as_internal_error():
 def test_a_result_the_contract_rejects_closes_its_call_instead_of_jamming_the_task():
     # The real durable writer refuses the typed finish; the wrapper must still close
     # this exact call, or every later tool fails with "a previous tool call is still open".
-    from local_agent.session.durable_activity import DurableActivityError
+    # Take the class the wrapper catches: other tests reload session modules.
+    from local_agent.session import durable_tool_registry
+    DurableActivityError = durable_tool_registry.DurableActivityError  # noqa: N806
 
     class _Refuses(_Activity):
         def finish_tool(self, **payload):
