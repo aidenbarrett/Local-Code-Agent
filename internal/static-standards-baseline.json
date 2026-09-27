@@ -72,12 +72,6 @@
     "no-untyped-def": 1,
     "redundant-expr": 4
    },
-   "internal/local_agent/session/durable_task_controller.py": {
-    "no-any-return": 2,
-    "no-untyped-def": 7,
-    "unreachable": 3,
-    "var-annotated": 1
-   },
    "internal/local_agent/session/durable_tool_registry.py": {
     "misc": 3,
     "no-untyped-def": 3,
@@ -309,12 +303,6 @@
     "call-overload": 1,
     "no-untyped-def": 1,
     "redundant-expr": 4
-   },
-   "internal/local_agent/session/durable_task_controller.py": {
-    "no-any-return": 2,
-    "no-untyped-def": 7,
-    "unreachable": 3,
-    "var-annotated": 1
    },
    "internal/local_agent/session/durable_tool_registry.py": {
     "misc": 3,
@@ -954,5 +942,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1024
+ "total": 998
 }
