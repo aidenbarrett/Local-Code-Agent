@@ -154,3 +154,40 @@ def test_stop_quarantine_is_reconciled_when_exact_active_call_returns_normally()
         adapter.begin(request, timeout=0.1)
     survivor = adapter.begin(_request(endpoint_id), timeout=0.1)
     survivor.release_without_call()
+
+
+def test_stop_quarantine_preserves_client_exception_if_active_call_then_fails():
+    endpoint_id, runtime, adapter = _adapter()
+    request = _request(endpoint_id)
+    entered = Event()
+    fail = Event()
+    box = {}
+
+    def inference():
+        entered.set()
+        assert fail.wait(1)
+        raise RuntimeError("transport failed after Stop")
+
+    def invoke():
+        try:
+            adapter.call(request, inference, timeout=0.1)
+        except BaseException as exc:
+            box["error"] = exc
+
+    thread = Thread(target=invoke)
+    thread.start()
+    assert entered.wait(1)
+    assert request.task_id is not None
+    assert request.execution_epoch is not None
+    assert runtime.cancel_execution(request.task_id, request.execution_epoch) == ()
+    reason = runtime.arbiter.quarantine_reason
+
+    fail.set()
+    thread.join(1)
+
+    assert thread.is_alive() is False
+    assert isinstance(box.get("error"), RuntimeError)
+    assert str(box["error"]) == "transport failed after Stop"
+    assert runtime.arbiter.quarantined is True
+    assert runtime.arbiter.quarantine_reason == reason
+    assert runtime.arbiter.active_lease is not None
