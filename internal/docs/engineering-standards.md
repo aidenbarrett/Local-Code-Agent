@@ -63,6 +63,9 @@ mode, and the Core Guidelines translated where Python has an equivalent.
 | `Optional` is handled before use | Core Guidelines: never dereference a possibly-null pointer | mypy `union-attr`, `index` |
 | `Any` does not leak past the boundary that produced it | Stroustrup: no type-unsafe casts | mypy `no-any-return`, `warn_return_any` |
 | Closed sets are `Enum`/`Literal`; branches over them end in `assert_never` | Alexandrescu: compile-time exhaustiveness | mypy `strict`, `warn_unreachable` |
+| Outcomes that carry different data are distinct types in a union, matched exhaustively; never one class of flags and optionals | Alexandrescu: illegal states unrepresentable | mypy `assert_never`, `union-attr` |
+| Boundary validators take `object` (or `Mapping[str, object]`) and return the typed value; an `isinstance` check on an already-typed parameter is dead code | Stroustrup: validate at the interface, trust the type inside | mypy `redundant-expr`, `unreachable` |
+| Platform-specific code is guarded by `sys.platform` (which the checker understands), not `os.name` | compile-time platform selection, like `#if` | mypy on `linux` and `win32` |
 | Value types are `@dataclass(frozen=True, slots=True)`; constants are `Final` | Meyers: prefer `const`; Stroustrup: value semantics | mypy (`Final` reassignment), review |
 | Generic code is written against a `Protocol`, not a concrete class | Stepanov: concepts before algorithms | mypy, review |
 | No boolean positional parameters; use keyword-only or an enum | Meyers: interfaces hard to use incorrectly | ruff `FBT001`, `FBT002` |
