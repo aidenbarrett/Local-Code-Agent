@@ -323,6 +323,10 @@ jobs:
           assert report["identity"]["model_verified_by_models_endpoint"], report["identity"]
           assert report["cancellation"]["supported"], report["cancellation"]
           print(json.dumps({k: report[k] for k in ("generation", "context_ladder", "cancellation")}, indent=2))
+          g, c = report["generation"], report["cancellation"]
+          print(f"::notice title=real model on CPU::ttft_ms={g['ttft_ms']:.0f} "
+                f"decode_tok_s={g['decode_tokens_per_second'] or 0:.1f} "
+                f"disconnect_to_endpoint_stop_ms={c['disconnect_to_endpoint_stop_ms']:.0f}")
           PY
           kill %1
           wait %1 || true
