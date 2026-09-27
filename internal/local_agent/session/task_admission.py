@@ -17,6 +17,7 @@ from uuid import UUID, uuid5
 from ..provenance import source_sha256
 from .contracts import RouteSource, TaskResult
 from .session_event_service import DurableTaskExecutor
+from .terminal_truth import CancelUnreconciled
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -256,7 +257,15 @@ class DurableTaskAdmissionRunner:
             route_source=source,
             skill_name=skill,
         )
-        result = handle.wait()
+        try:
+            result = handle.wait()
+        except CancelUnreconciled:
+            # Stop revoked this execution. The executor committed an explicit
+            # NO_VERDICT / cancel_unreconciled terminal; answer the turn with it
+            # instead of raising out of the conversation.
+            if handle.result is None:
+                raise
+            result = handle.result
         if result is None:
             raise RuntimeError(
                 f"task {handle.task_id} was already admitted; refusing to replay task effects"

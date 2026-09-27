@@ -62,6 +62,11 @@ Do not invent model/device utilisation, files, results or verification.
 """
 
 
+def _quoted_request(said: str, limit: int = 200) -> str:
+    text = " ".join(said.split())
+    return f'"{text if len(text) <= limit else text[: limit - 3] + "..."}"'
+
+
 def quarantined_endpoint_answer(exc: ModelEndpointQuarantinedError) -> str:
     """What the user is told when the Hub will no longer send to the endpoint."""
     return (
@@ -566,8 +571,12 @@ class ConversationGateway:
             )
             if not route.requires_acceptance:
                 raise ArtifactIntegrityError("model route unexpectedly bypassed user acceptance")
+            # The proposal text is the conversation model's, which cannot read the
+            # repository; on a small model it can even claim it has no access. It is
+            # not shown as an answer. The task that would run is the user's request.
             answer = (
-                proposal.text
+                "That needs the repository. Proposed repository task: "
+                + _quoted_request(said)
                 + "\n\n[Repository work proposed; reply `work` to accept or `chat` to keep this conversation-only.]"
             )
             self._record_assistant(answer)

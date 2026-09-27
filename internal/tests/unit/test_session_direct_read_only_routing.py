@@ -120,3 +120,38 @@ def test_direct_read_only_request_needs_no_work_confirmation(tmp_path, text):
         assert service.replay() == []
     finally:
         service.close()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "what does this repository do?",
+        "What is this project for?",
+        "Summarise the repo.",
+        "explain this codebase",
+        "how is this repository built and tested?",
+        "where is the ring buffer implemented?",
+        "Where is RingBuffer implemented?",
+        "where is Scheduler::run declared?",
+    ],
+)
+def test_everyday_repository_questions_route_to_read_only_navigation(text):
+    # Found on the Panther Lake run: these went to the conversation model, which
+    # cannot read the repository and answered "I do not have access to it".
+    decision = decide_route(text, active_repo_count=1)
+    assert (decision.action, decision.rule_id, decision.skill) == (
+        RouteAction.WORK, RULE_REPO_NAVIGATION, "repo-navigation")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "what does this repository do? and delete src",
+        "where is the ring buffer implemented and push it?",
+        "where is the ring buffer implemented in the standard library of some other project today?",
+        "explain this repository's licence to my lawyer and then commit",
+        "Where is the cache implementation defined?",
+    ],
+)
+def test_repository_question_rule_gains_no_authority_from_longer_requests(text):
+    assert decide_route(text, active_repo_count=1).action == RouteAction.MODEL_FALLBACK

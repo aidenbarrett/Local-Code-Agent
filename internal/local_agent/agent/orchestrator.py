@@ -55,6 +55,20 @@ log = logging.getLogger("local_agent.orchestrator")
 # Defined once, in local_agent.verification, and re-exported here under the old
 # name so the orchestrator and the evaluator cannot end up with two lists.
 _VERIFYING_TOOLS = VERIFYING_TOOLS
+# Tools that look for code without reading or changing it. A small model can spend a
+# whole budget on them (the Panther Lake run: build, log, then 13 search_text calls
+# and no read). A streak of this length gets one plain instruction to read and act.
+_SEARCH_TOOLS = frozenset({"search_text", "find_definition"})
+SEARCH_STREAK_NUDGE = 4
+
+
+def _search_streak(history: list[Any]) -> int:
+    streak = 0
+    for record in reversed(history):
+        if record.name not in _SEARCH_TOOLS:
+            break
+        streak += 1
+    return streak
 
 
 def _resolve_citations(cited: list[str], history: list[Any]):
@@ -546,6 +560,7 @@ class Orchestrator:
 
         answer = ""
         nudged = False
+        search_nudges = 0
         task_lower = task.lower()
         build_summary_mode = (
             skill is not None
@@ -705,6 +720,28 @@ class Orchestrator:
                 if stop:
                     halt = True
                     break
+            streak = _search_streak(state.history)
+            if streak < SEARCH_STREAK_NUDGE:
+                search_nudges = 0
+            if (
+                not submitted and not halt
+                and streak >= SEARCH_STREAK_NUDGE and streak // SEARCH_STREAK_NUDGE > search_nudges
+                and (not state.toolset or "read_file" in state.toolset)
+            ):
+                # After every tool result of this turn, so the message order stays valid.
+                search_nudges = streak // SEARCH_STREAK_NUDGE
+                self.observer("search_streak", {"calls": streak})
+                ctx.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"You have run {streak} searches in a row without reading "
+                            "any code. Stop searching. Call read_file on the file and "
+                            "line named in the first diagnostic or search result you "
+                            "already have, then act on what you read."
+                        ),
+                    }
+                )
             if submitted:
                 state.phase = Phase.REPORT
                 break

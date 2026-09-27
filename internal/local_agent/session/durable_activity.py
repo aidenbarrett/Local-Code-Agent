@@ -35,23 +35,38 @@ _TOOL_REASON_TO_EVENT_REASON = {
     "protected_path": "policy_denied",
     "command_cancelled": "cancelled",
 }
+# A test run can execute cleanly and still say nothing about the current tree: the
+# binaries were stale, never built, or built for another profile. The tool reports
+# execution OK, domain UNKNOWN and one of these reasons, and the reason is the fact
+# a reader needs, so it is kept rather than flattened to ``completed``.
+_UNPROVEN_OK_REASONS = frozenset({"stale_binary", "no_build_record", "profile_mismatch"})
+# Durable reason codes a finished OK execution may carry: the command exited on its own.
+OK_EXECUTION_REASON_CODES = frozenset(
+    {"completed"} | {_TOOL_REASON_TO_EVENT_REASON[r] for r in _UNPROVEN_OK_REASONS}
+)
 _ALLOWED_EXECUTION = frozenset({"ok", "blocked", "error", "interrupted", "unknown"})
 _ALLOWED_DOMAIN = frozenset({"pass", "fail", "unknown"})
 
 
-def durable_tool_reason(*, execution: str, reason: str | None) -> str:
+def durable_tool_reason(*, execution: str, reason: str | None, domain: str = "unknown") -> str:
     """Project typed tool reasons onto the reviewed durable-event vocabulary.
 
     Successful execution has an independent domain axis, so a command that ran and
-    observed a failure still has reason ``completed``. Any non-OK execution must carry
-    a known typed reason; silently guessing a new mapping would weaken the contract.
+    observed a failure still has reason ``completed``. The one exception is a clean
+    run whose result is unproven for the current tree (domain ``unknown``), which
+    keeps its typed reason. Any non-OK execution must carry a known typed reason;
+    silently guessing a new mapping would weaken the contract.
     """
     if execution not in _ALLOWED_EXECUTION:
         raise DurableActivityError(f"unknown tool execution status {execution!r}")
     if execution == "ok":
-        if reason is not None:
-            raise DurableActivityError("successful tool execution cannot carry an error reason")
-        return "completed"
+        if reason is None:
+            return "completed"
+        if reason in _UNPROVEN_OK_REASONS and domain == "unknown":
+            return _TOOL_REASON_TO_EVENT_REASON[reason]
+        raise DurableActivityError(
+            f"successful tool execution cannot carry reason {reason!r} with domain {domain!r}"
+        )
     if reason is None:
         raise DurableActivityError("non-OK tool execution requires a typed reason")
     try:
@@ -172,7 +187,7 @@ class DurableToolActivity:
             raise DurableActivityError(f"unknown tool domain status {domain!r}")
         if not isinstance(duration_ms, int) or isinstance(duration_ms, bool) or duration_ms < 0:
             raise ValueError("duration_ms must be a non-negative integer")
-        durable_reason = durable_tool_reason(execution=execution, reason=reason)
+        durable_reason = durable_tool_reason(execution=execution, reason=reason, domain=domain)
         ids = tuple(str(value) for value in evidence_ids)
         if any(not value for value in ids):
             raise ValueError("evidence ids must be nonempty strings")

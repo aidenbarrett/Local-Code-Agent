@@ -67,6 +67,9 @@ def test_model_repository_proposal_waits_for_explicit_work_acceptance(tmp_path):
         answer = gateway.turn("Could you inspect the cache implementation?")
         assert runner.calls == []
         assert "reply `work` to accept" in answer
+        # The model's proposal prose is not presented as an answer; the user's request is.
+        assert "I can inspect" not in answer
+        assert '"Could you inspect the cache implementation?"' in answer
         assert [event["kind"] for event in service.replay()] == ["route.proposed"]
         proposal_turn = gateway.last_turn_ref
         assert proposal_turn is not None
