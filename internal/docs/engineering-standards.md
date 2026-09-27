@@ -138,9 +138,10 @@ Clippy's pedantic lint set and the RustSec advisory database.
 
 ## Existing code: the ratchet
 
-`main` did not start at this bar. On the day this standard landed, the Python package had
-1,108 recorded findings (strict mypy on two platforms plus the ruff rule set). They are
-recorded per checker, file and code in `internal/static-standards-baseline.json`.
+`main` did not start at this bar. The findings that existed when this standard landed
+(strict mypy on two platforms plus the ruff rule set, about 1,100) are recorded per
+checker, file and code in `internal/static-standards-baseline.json`; its `total` is the
+current debt.
 
 `internal/devtools/check_static_standards.py` runs in the fast gates on every PR:
 
@@ -152,6 +153,9 @@ recorded per checker, file and code in `internal/static-standards-baseline.json`
   return;
 - `--update` never raises a count. Raising one is a hand-edited baseline change that has
   to survive review.
+- counts belong to the whole tree, so a PR is only mergeable on a green run against the
+  current `main`. After another PR merges, rebase and rerun before merging; a green run
+  against an older base proves nothing about the combination.
 
 Burn-down is done file by file, owner by owner, with the same behavioural test discipline
 as any other change: fixing a type error that hid a bug gets a regression test for the
