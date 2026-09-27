@@ -178,6 +178,40 @@ Do not begin broad source mutation merely because lower-level write tools exist.
 Exit condition: positive and adversarial mutation journeys show exact intended diffs,
 no unrelated edits, safe interruption/recovery and independent verification.
 
+
+### P2 — Engineering expertise: Git and repair loop
+
+Once the current Stop/PTL truth gates and safe candidate authority are solid, deepen routine
+engineering capability before adding broad automation.
+
+1. **Structured Git inspection and classification.** One Git authority produces typed facts
+   for branch/upstream/divergence, dirty/index state, interrupted operations, conflicts,
+   refs/reflog/stash/worktrees and recoverability. Do not ask the model to rediscover these
+   mechanically.
+2. **Git recovery journeys.** Add behavioural journeys for conflicts, interrupted
+   rebase/cherry-pick, divergence, detached HEAD, lost commits, stash/index confusion and
+   ref failures. History/ref mutation and push remain separately authorized.
+3. **General engineering loop.** Compose configured build/test/run actions into
+   Discover -> Execute -> Observe -> Classify -> Retrieve -> Diagnose -> Repair -> Verify.
+   Mechanical build/test execution is controller-owned; model judgement begins at genuine
+   ambiguity/diagnosis.
+4. **Progressive project knowledge.** Define a bounded repository knowledge contract for
+   configure/build/run/debug instructions, log locations and project-specific evidence.
+   Retrieve only what the current task needs; retrieved content cannot grant authority.
+5. **NPU firmware proving ground.** Use sanitized behavioural findings from the one-way
+   Panther Lake/NPU FW environment to harden the generic engines. Never require proprietary
+   source/log export and never bake Intel-specific assumptions into generic controller
+   policy.
+6. **Adversarial qualification.** Build public/synthetic Git and build/debug torture
+   fixtures and measure recovery, state preservation, refusal/UNKNOWN correctness,
+   verification and unnecessary work.
+
+Exit condition: representative weird Git states and broken build/run/test tasks can be
+requested in natural language and carried to a verified recovery or a truthful bounded
+refusal without requiring the user to know LCA internals or manually prescribe Git/build
+commands.
+
+
 ### P2 — Reusable work and Watch
 
 Turn proven successful work into a reviewed reusable specification rather than replaying
