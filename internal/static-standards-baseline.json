@@ -586,12 +586,8 @@
     "PLR0913": 1
    },
    "internal/local_agent/session/candidate_change.py": {
-    "ARG001": 2,
-    "E501": 6,
     "PLR0911": 3,
-    "PLR0912": 1,
-    "RUF022": 1,
-    "UP012": 1
+    "PLR0912": 1
    },
    "internal/local_agent/session/candidate_facts.py": {
     "E501": 1,
@@ -848,9 +844,7 @@
     "PLR0912": 1,
     "PLR0913": 1,
     "PLR0915": 1,
-    "S603": 1,
-    "SIM105": 6,
-    "UP037": 1
+    "S603": 1
    },
    "internal/local_agent/tools/search.py": {
     "E501": 2,
@@ -916,5 +910,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 972
+ "total": 955
 }
