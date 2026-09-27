@@ -45,6 +45,7 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert "--allow-model" in by_id["J08-fix-build"]["reason"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
     assert "Product   PASS 5 / FAIL 0" in summary
+    assert "Model     not used" in summary
 
 
 def test_a_journey_whose_claim_does_not_hold_fails_the_run(tmp_path, monkeypatch):
@@ -58,3 +59,34 @@ def test_a_journey_whose_claim_does_not_hold_fails_the_run(tmp_path, monkeypatch
     wrong = _report(out)["JX-wrong"]
     assert wrong["status"] == "FAIL"
     assert "clean tree build was fail/verification_failed" in wrong["reason"]
+
+
+def test_the_report_names_the_product_source_that_produced_it(tmp_path):
+    out = tmp_path / "acc"
+    journeys.main(["--output", str(out), "--only", "J04-ambiguous"])
+    report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))
+    product = report["preconditions"]["product"]
+    assert len(product["source_sha256"]) == 64
+    assert f"source sha256 {product['source_sha256'][:16]}" in (out / "summary.txt").read_text(encoding="utf-8")
+
+
+def test_a_model_the_product_cannot_call_is_one_precondition_not_every_journey(tmp_path, monkeypatch):
+    # /models answers, but the product's own client cannot complete a call.
+    monkeypatch.setattr(journeys, "endpoint_reachable", lambda _config: True)
+
+    def broken_client(_config):
+        raise ModuleNotFoundError("No module named 'jiter'")
+
+    monkeypatch.setattr(journeys, "build_client", broken_client)
+    out = tmp_path / "acc"
+    journeys.main(["--output", str(out), "--allow-model", "--base-url", "http://127.0.0.1:9/v1",
+                   "--model", "m", "--only", "J08-fix-build"])
+    report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))
+    pre = report["preconditions"]
+    assert pre["model_call"]["ok"] is False
+    assert pre["model_endpoint"]["ok"] is False
+    assert "No module named 'jiter'" in pre["model_endpoint"]["message"]
+    assert "Model     NOT USABLE: " in (out / "summary.txt").read_text(encoding="utf-8")
+    fix = _report(out)["J08-fix-build"]
+    assert fix["status"] == "UNKNOWN"
+    assert "No module named 'jiter'" in fix["reason"]

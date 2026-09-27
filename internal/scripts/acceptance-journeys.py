@@ -49,7 +49,10 @@ if str(SOURCE_ROOT) not in sys.path:
 
 import psutil  # noqa: E402
 
-from local_agent.config import MODEL_PRESETS, load_repo_config  # noqa: E402
+from local_agent.config import MODEL_PRESETS, ModelConfig, load_repo_config  # noqa: E402
+from local_agent.llm.client import build_client  # noqa: E402
+from local_agent.llm.protocol import LLMTransportError  # noqa: E402
+from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cli import conversation_budgets  # noqa: E402
 from local_agent.session.contracts import TaskOutcome, TaskResult  # noqa: E402
 from local_agent.session.conversation_store import (  # noqa: E402
@@ -658,6 +661,8 @@ class Runner:
 
     def check_preconditions(self) -> None:
         facts: dict[str, Any] = {
+            # Exactly which product source produced this evidence.
+            "product": package_identity(),
             "platform": platform.platform(),
             "python": sys.version.split()[0],
             "git": shutil.which("git"),
@@ -682,6 +687,15 @@ class Runner:
             else:
                 ensured = HUB.ensure_managed_runtime(self.profile, self.chat_config, HUB._runtime_root())
                 facts["model_endpoint"] = {"ok": bool(ensured.ok), "message": str(ensured.message)}
+            if facts["model_endpoint"]["ok"]:
+                probe = model_call_probe(self.chat_config)
+                facts["model_call"] = probe
+                if not probe["ok"]:
+                    facts["model_endpoint"] = {
+                        "ok": False,
+                        "message": "the endpoint answers but a model call through the product "
+                                   f"client failed: {probe['error']}",
+                    }
         try:
             self.runtime_facts = RuntimeFacts.observe(self.profile, self.chat_config, execution_enabled=True)
             facts["runtime_header"] = str(self.runtime_facts.header())
@@ -759,6 +773,47 @@ class Runner:
         return results
 
 
+def model_call_probe(config: ModelConfig) -> dict[str, Any]:
+    """One tiny chat through the product's own client before any journey runs.
+
+    A reachable ``/models`` does not prove the product can talk to the model: the
+    client can fail to build, the served id can differ, or the template can be
+    rejected. Every model journey would then end ``endpoint_unavailable`` one by
+    one. One call here turns that into a single precondition with the real error.
+    """
+    started = time.monotonic()
+    try:
+        build_client(config).chat([{"role": "user", "content": "Reply with the word ready."}],
+                                  max_tokens=8)
+    except LLMTransportError as exc:
+        error = f"{exc} (transport: {exc.kind})"
+    except Exception as exc:  # noqa: BLE001 - whatever fails here is the finding
+        error = f"{type(exc).__name__}: {exc}"
+    else:
+        return {"ok": True, "seconds": round(time.monotonic() - started, 1)}
+    return {"ok": False, "seconds": round(time.monotonic() - started, 1), "error": error}
+
+
+def source_line(product: Any) -> str:
+    if not isinstance(product, dict):
+        return "UNKNOWN"
+    commit = product.get("package_commit")
+    dirty = product.get("package_dirty")
+    state = " (uncommitted changes)" if dirty else "" if dirty is False else " (dirty: unknown)"
+    return (f"commit {str(commit)[:12] if commit else 'UNKNOWN'}{state}"
+            f" · source sha256 {str(product.get('source_sha256', 'UNKNOWN'))[:16]}")
+
+
+def model_line(preconditions: dict[str, Any]) -> str:
+    endpoint = preconditions.get("model_endpoint")
+    if not isinstance(endpoint, dict):
+        return "not used (run with --allow-model to include the model journeys)"
+    call = preconditions.get("model_call")
+    if isinstance(call, dict) and call.get("ok"):
+        return f"a call through the product client answered in {call.get('seconds')}s"
+    return f"NOT USABLE: {endpoint.get('message')}"
+
+
 def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> str:
     counts: dict[str, int] = {}
     for journey in journeys:
@@ -768,7 +823,9 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
     lines = [
         "LOCAL CODE AGENT ACCEPTANCE JOURNEYS",
         "",
+        f"Source    {source_line(runner.preconditions.get('product'))}",
         f"Runtime   {runner.preconditions.get('runtime_header', 'UNKNOWN')}",
+        f"Model     {model_line(runner.preconditions)}",
         f"Product   PASS {sum(j.status == 'PASS' for j in product)} / FAIL {sum(j.status == 'FAIL' for j in product)}"
         f" / UNKNOWN {sum(j.status == 'UNKNOWN' for j in product)}",
         "",
