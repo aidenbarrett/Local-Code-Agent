@@ -1,13 +1,15 @@
 # Current state
 
-Reconciled against GitHub `main` at `7ea869ab0db90813322eeb97d72e68c8c82579ef`
+Reconciled against GitHub `main` at `8b9aa968d10f8c853034b1ae7e14959005f2fe55`
 on 2026-09-27 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
 #217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
 real-model CI journey (#230), deterministic build/test routes (#233), the acceptance
 journey runner (#234, #239, #243), truthful model-unavailable answers (#241, #242) and
-the context-exhaustion verdict fix (#244) landed. Live
+the context-exhaustion verdict fix (#244), the quality floor (#231), the Panther Lake
+acceptance summary (#232), candidate-ready truth (#236) and Stop endpoint fencing with
+natural-completion reconciliation (#237, #238, #240, integrated by #246) landed. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
@@ -141,11 +143,13 @@ supports:
   Windows commands run in a kill-on-close Job Object. Complete queued and
   inference interruption, owned descendant process-tree cleanup, endpoint quarantine/
   reconciliation and mutation reconciliation still require effectful proof. Until cleanup
-  is proven, the product says `Stop requested`, not `Stopped`. Measured with acceptance
-  J07 against a slow fixture endpoint (about 60 s per generation): Stop during model work
-  reached no terminal within 240 s on `9f2c442`, because nothing fences the worker's model
-  calls (Stop code is unchanged since); against a fast endpoint the task ends on its own
-  budget first. An in-process quarantine is permanent until the Hub restarts.
+  is proven, the product says `Stop requested`, not `Stopped`. Stop now fences queued worker
+  requests for the exact task execution at the endpoint arbiter. Measured with acceptance
+  J07 against a slow fixture endpoint (about 60 s per generation) on the #246 tree: Stop
+  during model work reached a durable terminal in 128.6 s (on `ce32594` it reached none
+  within 240 s), and the next turn was answered after the in-flight generation completed.
+  Stop is therefore bounded by one in-flight generation, not interrupted; the stopped turn
+  itself still raises `CancelUnreconciled` out of the gateway.
 - **The native endpoint is not a serving profile yet.** No preset or `serve.py` path
   launches it, and it has no NPU, Panther Lake or OVMS-comparison evidence. Its CI
   real-model check is a small model on a hosted CPU runner.
