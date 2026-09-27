@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from typing import Iterable
 from uuid import UUID
 
+from .candidate_facts import CandidateFacts
+
 
 class TaskReadModelError(RuntimeError):
     pass
@@ -68,6 +70,7 @@ class TaskSnapshot:
     result_answer: str | None = None
     result_verification_ran: bool | None = None
     result_verified_at_completion: bool | None = None
+    candidate: CandidateFacts | None = None
     open_tools: dict[str, ToolActivity] = field(default_factory=dict)
     last_tool: ToolActivity | None = None
     endpoint: EndpointActivity | None = None

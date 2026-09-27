@@ -183,6 +183,31 @@ def _result_preview(answer: str) -> str:
     return compact[: _RECENT_RESULT_PREVIEW_CHARS - 1].rstrip() + "…"
 
 
+def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
+    candidate = task.candidate
+    if candidate is None:
+        return ()
+    if candidate.role == "prepared" and candidate.retained:
+        return (
+            "Candidate: READY · NOT APPLIED",
+            f"Candidate task: {candidate.candidate_task_id}",
+            f"Candidate base: {candidate.base_commit or 'unknown'}",
+            f"Candidate patch: {candidate.patch_sha256 or 'unknown'}",
+            "Proof applies to the isolated candidate tree, not the checkout.",
+            f"Apply: /apply {candidate.candidate_task_id}",
+        )
+    labels = {
+        "applied": "Candidate: APPLIED · checkout import verified",
+        "apply_refused": "Candidate: NOT APPLIED · apply refused",
+        "undone": "Candidate: UNDONE",
+        "discarded": "Candidate: DISCARDED",
+    }
+    if candidate.role == "committed":
+        return (f"Candidate: COMMITTED · {candidate.commit or 'unknown'}",)
+    label = labels.get(candidate.role)
+    return () if label is None else (label,)
+
+
 def render_activity(state: HubViewState) -> str:
     task = _active_task(state.tasks)
     lines: list[str] = []
@@ -222,6 +247,8 @@ def render_activity(state: HubViewState) -> str:
         lines.append(f"Verdict: {task.verdict}{reason}")
         # These lines are deterministic controller output.  Do not rewrite them.
         lines.extend(task.verdict_lines)
+
+    lines.extend(_candidate_lines(task))
 
     if task.result_answer is not None:
         lines.extend(("", "Retained result:", task.result_answer))
