@@ -1,8 +1,8 @@
 # Current state
 
-Reconciled against GitHub `main` at `6b925111989cf8afecefafd963baacc5beb3d84c`
-on 2026-09-26 after the retained-result, Windows containment, public Stop, Panther Lake
-capture, Stop terminal-reconciliation and merge-enforcement truth slices landed. Live
+Reconciled against GitHub `main` at `c941000d1ecc731cb9049aa547f147b5f31a4845`
+on 2026-09-27 after the isolated candidate-change journeys (#197-#209: build/test fixes,
+`fix it`, `change:`, `/apply`, `/undo`, `/commit`, durable candidate facts) landed. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
@@ -61,11 +61,28 @@ The public/product path now includes:
 - a fail-closed merge-enforcement checker that distinguishes actual GitHub branch/ruleset
   required-check policy from merely having workflow files.
 
-The public conversation path now supports one bounded source-mutation journey: a build-fix
-candidate is prepared in an isolated LCA-owned worktree from the user's exact tracked
-state and must be proven there before it can be retained for explicit review/import.
-Preparing the candidate does not modify the user's checkout. Broader mutation and Git
-history capabilities remain outside the accepted public surface.
+The public conversation path now supports isolated source-changing journeys. Each prepares a
+candidate in an LCA-owned worktree whose base is the user's current source (tracked changes
+plus untracked, non-ignored files up to 5 MiB, snapshotted through a private temporary
+index), proves it there, and retains it for explicit review. Preparing a candidate never
+modifies the user's checkout, index or history:
+
+- `fix the build` (proof: a full build), `fix the failing tests` (proof: a full unfiltered
+  test run) and `change: <request>` (any requested source change, including new files;
+  proof: a full unfiltered test run, which also establishes a current build);
+- `fix it` / `fix that` / `fix task <uuid>` for exactly one durable FAILED task in the
+  conversation, with the build or test fix chosen from durable `tool.finished` facts, never
+  from worker prose;
+- explicit, full-UUID, model-free controller actions: `/apply` (all-or-nothing import with a
+  base-content precondition and byte-exact owned rollback; never stages), `/undo` (restores
+  exact pre-import bytes; refuses if the files changed since), and `/commit` (requires
+  `policy.allow_commit`; commits only the applied paths with `--only`, leaves other staged
+  work staged, does not run user hooks, never pushes);
+- retained results are `lca.task-result/2`, carrying a typed `candidate` block
+  (prepared/applied/apply_refused/undone/committed) for the Session Hub; `/1` stays readable;
+- an observed failing build or test is reported as `FAILED` / `verification_failed` with an
+  observed-failure proof scope, not as `NO_VERDICT`;
+- orphaned candidate worktrees from a dead controller are reaped at Session Hub start.
 
 ## Boundaries that remain open
 
@@ -78,7 +95,9 @@ supports:
   identity, cold/warm latency and retained logs/screenshots/failures. No hardware claim is
   complete until that run exists.
 - **Stop remains bounded, not complete cancellation.** Public Stop, epoch fencing and
-  durable `UNKNOWN` / `NO_VERDICT` terminal reconciliation exist. Complete queued and
+  durable `UNKNOWN` / `NO_VERDICT` terminal reconciliation exist. Stop now reaches running
+  configured commands (including candidate builds, whose candidate is then discarded), and
+  Windows commands run in a kill-on-close Job Object. Complete queued and
   inference interruption, owned descendant process-tree cleanup, endpoint quarantine/
   reconciliation and mutation reconciliation still require effectful proof. Until cleanup
   is proven, the product says `Stop requested`, not `Stopped`.
@@ -88,10 +107,13 @@ supports:
   the last verified GitHub read, `main` was unprotected and no active required-status-check
   ruleset existed. The checker can prove configuration after an owner applies it; it does
   not possess repository-admin authority itself.
-- **Mutation remains intentionally narrow.** The accepted source-changing surface is the
-  isolated build-fix candidate journey. General feature edits, commit/push, Watch creation
-  and richer automation remain later product work. Candidate verification belongs to the
-  isolated candidate tree and must not be presented as proof of an untouched checkout.
+- **Candidate journeys are proven with scripted workers only.** Every source-changing
+  journey is exercised end to end (including one test through the same object graph as
+  `session-hub.py`) with real git, CMake and CTest, but no real model has yet driven one.
+  That evidence, and the Session Hub's "candidate ready, not applied" presentation, are
+  still open. Candidate verification belongs to the candidate tree; `/apply` claims it for
+  the checkout only when the checkout's source then equals the candidate tree exactly.
+- **Push, Watch creation and richer automation remain later product work.**
 
 ## Immediate work, in order
 
