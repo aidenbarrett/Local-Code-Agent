@@ -103,6 +103,17 @@ class AdmittedDurableTaskController:
             raise TypeError("admitted skill fingerprint must be a string")
         return digest
 
+    def cancel_endpoint_execution(
+        self, task_id: str, execution_epoch: int
+    ) -> tuple[str, ...] | None:
+        """Delegate Stop to the worker factory endpoint authority when configured."""
+        worker_factory = getattr(self.controller, "worker_factory", None)
+        cancel = getattr(worker_factory, "cancel_execution", None)
+        if not callable(cancel):
+            return None
+        removed = cancel(task_id, execution_epoch)
+        return tuple(str(request_id) for request_id in removed)
+
     def process_spawning_tools(self) -> frozenset[str]:
         resolver = getattr(self.controller, "process_spawning_tools", None)
         if not callable(resolver):

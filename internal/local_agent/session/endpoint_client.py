@@ -118,6 +118,13 @@ class ManagedWorkerClientFactory:
         finally:
             self._authority.value = previous
 
+    def cancel_execution(self, task_id: str, execution_epoch: int) -> tuple[str, ...]:
+        """Fence endpoint dispatch for one exact durable task execution."""
+        UUID(task_id)
+        if type(execution_epoch) is not int or execution_epoch < 0:
+            raise ValueError("worker endpoint cancellation requires a nonnegative execution epoch")
+        return self._adapter.runtime.cancel_execution(task_id, execution_epoch)
+
     def __call__(self) -> ManagedLLMClient:
         authority = getattr(self._authority, "value", None)
         if authority is None:

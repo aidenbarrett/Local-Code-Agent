@@ -162,3 +162,44 @@ def test_normal_terminal_commit_releases_cancellation_authority(tmp_path):
             executor.request_cancel(handle.task_id, execution_epoch=0)
     finally:
         service.close()
+
+def test_public_stop_delegates_exact_task_epoch_to_endpoint_authority(tmp_path):
+    service = _service(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    cancelled = []
+
+    class Controller:
+        def run(self, task, *, self_check=False, route_source=None, task_id=None, skill_name=None):
+            assert task_id is not None
+            entered.set()
+            assert release.wait(5)
+            return TaskResult(task_id, TaskOutcome.FAIL, "late", False)
+
+        def cancel_endpoint_execution(self, task_id, execution_epoch):
+            cancelled.append((task_id, execution_epoch))
+            return ()
+
+    try:
+        executor = CancellableDurableTaskExecutor(service, Controller())
+        handle = executor.submit(
+            task="inspect",
+            request_id="endpoint-stop-join",
+            payload_sha256="c" * 64,
+            admission_payload=_admission_payload(),
+            route_source="user_direct",
+        )
+        assert entered.wait(5)
+
+        executor.request_cancel(handle.task_id, execution_epoch=0)
+
+        assert cancelled == [(handle.task_id, 0)]
+        cancel_events = [
+            event for event in service.replay() if event["kind"] == "task.cancel_requested"
+        ]
+        assert len(cancel_events) == 1
+        assert cancel_events[0]["task_id"] == handle.task_id
+        assert cancel_events[0]["payload"]["execution_epoch"] == 0
+    finally:
+        release.set()
+        service.close()
