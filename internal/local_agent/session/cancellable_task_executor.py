@@ -8,9 +8,10 @@ separate reconciliation before a cancelled terminal claim can be made.
 """
 from __future__ import annotations
 
+import contextlib
 import traceback
 from threading import Lock, Thread
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from .cancellation import CancellationSite, CancellationSource, StaleExecutionEpoch
 from .cancellation_runtime import (
@@ -27,6 +28,23 @@ from .terminal_truth import (
     derive_terminal_activity_truth,
 )
 
+if TYPE_CHECKING:
+    from .terminal_truth import TerminalActivityTruth
+
+
+class ExecutableController(Protocol):
+    """What the executor dispatches to: the admitted durable controller adapter."""
+
+    def run(
+        self,
+        task: str,
+        *,
+        self_check: bool = ...,
+        route_source: RouteSource | str = ...,
+        task_id: str | None = ...,
+        skill_name: str | None = ...,
+    ) -> TaskResult: ...
+
 
 class CancellableDurableTaskExecutor(DurableTaskExecutor):
     """DurableTaskExecutor whose live task authority is fenced by execution epoch."""
@@ -34,7 +52,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
     def __init__(
         self,
         service: DurableSessionService,
-        controller,
+        controller: ExecutableController,
         *,
         cancellation_runtime: CancellationRuntime | None = None,
     ) -> None:
@@ -71,7 +89,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
         resolver = getattr(self.controller, "process_spawning_tools", None)
         return frozenset(resolver()) if callable(resolver) else frozenset()
 
-    def _terminal_truth(self, task_id: str, execution_epoch: int):
+    def _terminal_truth(self, task_id: str, execution_epoch: int) -> TerminalActivityTruth:
         return derive_terminal_activity_truth(
             self.service,
             task_id=task_id,
@@ -194,7 +212,9 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
             admission_payload=admission_payload,
             request_bytes=request_bytes,
         )
-        assert admission.task_id is not None
+        if admission.task_id is None:
+            # Not an assertion: this must hold under `python -O` too.
+            raise RuntimeError("durable admission returned no task id")
         owns_registration = self._register_once(admission.task_id, execution_epoch)
         handle = TaskHandle(admission.task_id, admission)
         Thread(
@@ -286,7 +306,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                     task_id=handle.task_id,
                     skill_name=skill_name,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - every controller fault is finalised
                 self._finalize_controller_fault(handle, exc, execution_epoch=execution_epoch)
                 handle.error = exc
                 if owns_registration:
@@ -326,27 +346,34 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 handle.error = write_exc
             finally:
                 if owns_registration:
-                    try:
+                    # Registration may already have moved on; there is nothing to release.
+                    with contextlib.suppress(CancellationRuntimeError, StaleExecutionEpoch):
                         current_epoch = self.cancellation.current_epoch(handle.task_id)
                         self._release_registration(handle.task_id, current_epoch)
-                    except (CancellationRuntimeError, StaleExecutionEpoch):
-                        pass
         except DurableWriteFailed as exc:
             handle.error = exc
             if owns_registration:
-                try:
+                with contextlib.suppress(StaleExecutionEpoch):
                     self._release_registration(handle.task_id, execution_epoch)
-                except StaleExecutionEpoch:
-                    pass
-        except BaseException as exc:
+        # A daemon thread has no caller to raise to: every failure, including interrupts,
+        # is handed to the waiting TaskHandle, which re-raises it.
+        except BaseException as exc:  # noqa: BLE001
             handle.error = exc
             if owns_registration:
-                try:
+                with contextlib.suppress(StaleExecutionEpoch):
                     self._release_registration(handle.task_id, execution_epoch)
-                except StaleExecutionEpoch:
-                    pass
         finally:
             handle.done.set()
 
 
-__all__ = ["CancellableDurableTaskExecutor"]
+if TYPE_CHECKING:
+    from .durable_task_controller import AdmittedDurableTaskController
+
+    def _admitted_controller_is_executable(
+        controller: AdmittedDurableTaskController,
+    ) -> ExecutableController:
+        """Static assertion, checked by mypy only: the product adapter fits the executor."""
+        return controller
+
+
+__all__ = ["CancellableDurableTaskExecutor", "ExecutableController"]
