@@ -1,0 +1,20 @@
+{
+  "model_id": "lca-fixture-model",
+  "max_context_tokens": 8192,
+  "piece_delay_ms": 2,
+  "prefill_ms_per_1k_tokens": 5,
+  "rules": [
+    {
+      "prompt_contains": "Call echo_value with value READY",
+      "reply": "<tool_call>\n{\"name\": \"echo_value\", \"arguments\": {\"value\": \"READY\"}}\n</tool_call>"
+    },
+    {
+      "prompt_contains": "Reply with exactly READY",
+      "reply": "READY"
+    },
+    {
+      "prompt_contains": "Explain deterministic verification",
+      "reply": "Deterministic verification means the verdict comes from code that re-runs the check against the current tree, not from the model's own claim."
+    }
+  ]
+}

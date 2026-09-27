@@ -62,6 +62,11 @@ The public/product path now includes:
   hashes, while explicitly refusing to self-certify physical NPU acceptance;
 - a fail-closed merge-enforcement checker that distinguishes actual GitHub branch/ruleset
   required-check policy from merely having workflow files.
+- a native C++ OpenAI-compatible endpoint (`internal/native_endpoint/`, `lca-endpoint`)
+  with a fixture backend, an OpenVINO GenAI backend and a C ABI for out-of-tree runtime
+  plugins, exposing request-id, active-request, identity and telemetry hooks the endpoint
+  harness consumes. CI drives it with the product client, `qualify_server.py` and the
+  harness, including endpoint-proven cancellation.
 
 The public conversation path now supports isolated source-changing journeys. Each prepares a
 candidate in an LCA-owned worktree whose base is the user's current source (tracked changes
@@ -119,6 +124,9 @@ supports:
   inference interruption, owned descendant process-tree cleanup, endpoint quarantine/
   reconciliation and mutation reconciliation still require effectful proof. Until cleanup
   is proven, the product says `Stop requested`, not `Stopped`.
+- **The native endpoint is not a serving profile yet.** No preset or `serve.py` path
+  launches it, and it has no NPU, Panther Lake or OVMS-comparison evidence. Its CI
+  real-model check is a small model on a hosted CPU runner.
 - **Cross-process endpoint ownership is not claimed.** Current arbitration authority is
   intentionally process-local.
 - **Merge enforcement is now machine-checkable but not configured by the repository.** At

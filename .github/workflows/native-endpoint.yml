@@ -1,0 +1,351 @@
+name: native endpoint
+
+# Builds and tests the C++ OpenAI-compatible endpoint (internal/native_endpoint),
+# then drives the built binary with the product's own client, the serving
+# qualification check and the endpoint performance harness. The fixture backend
+# is not a model; the OpenVINO GenAI job runs a small real model on CPU. None of
+# this is NPU or hardware acceptance.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: native-endpoint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  OPENVINO_GENAI_RELEASE: "2026.3"
+  # Smallest first that follows a tool-call instruction reliably; 0.6B does not.
+  CONFORMANCE_MODEL_CANDIDATES: "OpenVINO/Qwen3-1.7B-int4-ov OpenVINO/Qwen3-4B-int4-ov"
+
+jobs:
+  build-test:
+    name: build and conformance (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Capture declared CI job scope and checkout identity
+        env:
+          LCA_ARTIFACT_NAME: ci-job-native-endpoint-build-test-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_COMMAND_SCOPE: native-endpoint-build-conformance
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+      - name: Upload declared CI job scope and checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-job-native-endpoint-build-test-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          path: ci-job-evidence.json
+          if-no-files-found: error
+      - name: Configure
+        run: cmake -S internal/native_endpoint -B build/native-endpoint -DCMAKE_BUILD_TYPE=Release -DLCA_WARNINGS_AS_ERRORS=ON -DLCA_OPENVINO_GENAI=OFF
+      - name: Build
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! cmake --build build/native-endpoint --config Release --parallel 2>&1 | tee build.log; then
+            # Surface compiler errors as annotations so they are readable without the raw log.
+            grep -E "error|Error|undefined reference" build.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done
+            exit 1
+          fi
+      - name: C++ tests
+        run: ctest --test-dir build/native-endpoint -C Release --output-on-failure
+      - name: Locate the endpoint binary
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            bin="build/native-endpoint/Release/lca-endpoint.exe"
+          else
+            bin="build/native-endpoint/lca-endpoint"
+          fi
+          test -f "$bin"
+          "$bin" --version
+          echo "LCA_NATIVE_ENDPOINT_BIN=$GITHUB_WORKSPACE/$bin" >> "$GITHUB_ENV"
+      - run: python -m pip install -e ".[dev]"
+      - name: Product client, qualification and harness against the binary
+        env:
+          LCA_REQUIRE_NATIVE_ENDPOINT: "1"
+        run: python -m pytest -q internal/tests/integration/test_native_endpoint_conformance.py
+
+  sanitizers:
+    name: sanitizers (${{ matrix.sanitizer }})
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [asan-ubsan, tsan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Capture declared CI job scope and checkout identity
+        env:
+          LCA_ARTIFACT_NAME: ci-job-native-endpoint-sanitizers-${{ matrix.sanitizer }}-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_COMMAND_SCOPE: native-endpoint-sanitizers
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+      - name: Upload declared CI job scope and checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-job-native-endpoint-sanitizers-${{ matrix.sanitizer }}-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          path: ci-job-evidence.json
+          if-no-files-found: error
+      - name: Configure and build
+        run: |
+          case "${{ matrix.sanitizer }}" in
+            asan-ubsan) flags="address,undefined" ;;
+            tsan) flags="thread" ;;
+          esac
+          cmake -S internal/native_endpoint -B build/sanitized -DCMAKE_BUILD_TYPE=Debug -DLCA_OPENVINO_GENAI=OFF -DLCA_SANITIZE="$flags"
+          cmake --build build/sanitized --parallel
+      - name: C++ tests under the sanitizer
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        run: ctest --test-dir build/sanitized --output-on-failure
+
+  openvino-genai:
+    name: openvino genai backend (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Capture declared CI job scope and checkout identity
+        env:
+          LCA_ARTIFACT_NAME: ci-job-native-endpoint-openvino-genai-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_COMMAND_SCOPE: native-endpoint-openvino-genai
+          LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LCA_CHECKOUT_EVIDENCE: ci-job-evidence.json
+        run: python internal/devtools/capture_ci_checkout.py
+      - name: Upload declared CI job scope and checkout identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-job-native-endpoint-openvino-genai-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          path: ci-job-evidence.json
+          if-no-files-found: error
+
+      - name: Download OpenVINO GenAI (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # libopenvino_genai links the OpenCL ICD loader, which hosted runners lack.
+          sudo apt-get update -q && sudo apt-get install -y -q ocl-icd-libopencl1
+          url="$(python internal/native_endpoint/ci/find_openvino_genai_archive.py --release "$OPENVINO_GENAI_RELEASE" --platform ubuntu24)"
+          echo "archive: $url"
+          mkdir -p "$RUNNER_TEMP/ov"
+          curl -fsSL "$url" | tar -xz -C "$RUNNER_TEMP/ov" --strip-components=1
+          echo "OV_ROOT=$RUNNER_TEMP/ov" >> "$GITHUB_ENV"
+      - name: Download OpenVINO GenAI (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python internal/native_endpoint/ci/find_openvino_genai_archive.py --release $env:OPENVINO_GENAI_RELEASE --platform windows --list |
+            Where-Object { $_ -match 'windows' } | Select-Object -First 8 | ForEach-Object { Write-Output "::notice title=release file::$_" }
+          $url = python internal/native_endpoint/ci/find_openvino_genai_archive.py --release $env:OPENVINO_GENAI_RELEASE --platform windows
+          if ($LASTEXITCODE -ne 0) { throw "archive lookup failed" }
+          Write-Host "archive: $url"
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'ov.zip'
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $dest = Join-Path $env:RUNNER_TEMP 'ov-unpacked'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          # 7-Zip, not Expand-Archive: the latter reports some entry failures as
+          # non-terminating errors and leaves a partial tree behind.
+          7z x $zip "-o$dest" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "extracting $zip failed with $LASTEXITCODE" }
+          $root = (Get-ChildItem $dest -Directory | Select-Object -First 1).FullName
+          "OV_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build with the OpenVINO GenAI backend (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          source "$OV_ROOT/setupvars.sh"
+          set -o pipefail
+          cmake -S internal/native_endpoint -B build/genai -DCMAKE_BUILD_TYPE=Release -DLCA_OPENVINO_GENAI=ON -DLCA_WARNINGS_AS_ERRORS=ON -DOpenVINOGenAI_DIR="$OV_ROOT/runtime/cmake" -DOpenVINO_DIR="$OV_ROOT/runtime/cmake" 2>&1 | tee configure.log || {
+            grep -iE "error|not found|could not" configure.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done; exit 1; }
+          cmake --build build/genai --parallel 2>&1 | tee build.log || {
+            grep -E "error|Error|undefined reference" build.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done; exit 1; }
+          ctest --test-dir build/genai --output-on-failure
+          echo "LCA_GENAI_ENDPOINT_BIN=$GITHUB_WORKSPACE/build/genai/lca-endpoint" >> "$GITHUB_ENV"
+      - name: Build with the OpenVINO GenAI backend (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Show-Errors($log) {
+            # Surface errors as annotations so they are readable without the raw log.
+            Select-String -Path $log -Pattern 'error|not found|could not|unresolved' | Select-Object -First 40 |
+              ForEach-Object { Write-Output ("::error::" + ($_.Line -replace '%', '%25')) }
+          }
+          try {
+            # The Windows GenAI archive ships no setupvars script: find the CMake
+            # package and put every runtime DLL directory on PATH directly.
+            $config = Get-ChildItem -Path $env:OV_ROOT -Recurse -File |
+              Where-Object { $_.Name -match '^(OpenVINOGenAI|openvinogenai)(Config|-config)\.cmake$' } | Select-Object -First 1
+            if (-not $config) {
+              $dirs = Get-ChildItem -Path (Join-Path $env:OV_ROOT 'runtime') -Directory -Recurse -Depth 2 |
+                Select-Object -First 40 | ForEach-Object { $_.FullName.Substring($env:OV_ROOT.Length) }
+              throw ("no OpenVINO GenAI CMake package under " + $env:OV_ROOT + "; runtime holds: " + ($dirs -join ', '))
+            }
+            $cmake = $config.DirectoryName
+            $dllDirs = Get-ChildItem -Path $env:OV_ROOT -Recurse -Filter '*.dll' |
+              Where-Object { $_.DirectoryName -notmatch '\\Debug($|\\)' } |
+              ForEach-Object DirectoryName | Sort-Object -Unique
+            $env:PATH = (($dllDirs -join ';') + ';' + $env:PATH)
+            ($dllDirs -join ';') | Out-File -FilePath runtime-path.txt -Encoding utf8
+            cmake -S internal/native_endpoint -B build/genai -DLCA_OPENVINO_GENAI=ON -DLCA_WARNINGS_AS_ERRORS=ON "-DOpenVINOGenAI_DIR=$cmake" "-DOpenVINO_DIR=$cmake" *> configure.log
+            $code = $LASTEXITCODE
+            Get-Content configure.log
+            if ($code -ne 0) { Show-Errors configure.log; throw "configure failed" }
+            cmake --build build/genai --config Release --parallel *> build.log
+            $code = $LASTEXITCODE
+            Get-Content build.log
+            if ($code -ne 0) { Show-Errors build.log; throw "build failed" }
+            ctest --test-dir build/genai -C Release --output-on-failure
+            if ($LASTEXITCODE -ne 0) { throw "tests failed" }
+            $bin = Join-Path $env:GITHUB_WORKSPACE 'build\genai\Release\lca-endpoint.exe'
+            & $bin --version
+            if ($LASTEXITCODE -ne 0) { throw "lca-endpoint --version failed" }
+            "LCA_GENAI_ENDPOINT_BIN=$bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } catch {
+            Write-Output ("::error::" + ($_.Exception.Message -replace '%', '%25'))
+            throw
+          }
+
+      - name: A missing model is a clean load failure (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          source "$OV_ROOT/setupvars.sh"
+          set +e
+          "$LCA_GENAI_ENDPOINT_BIN" --backend openvino-genai --port 0 \
+            --backend-config-json '{"model_path": "/nonexistent", "device": "CPU", "model_id": "m", "max_context_tokens": 4096}' 2> load.err
+          code=$?
+          set -e
+          cat load.err
+          test "$code" -eq 3
+          grep -q "OpenVINO GenAI could not load /nonexistent on CPU" load.err
+
+      - name: Real model on CPU through the product client, qualification and harness (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # On failure, surface the tail of each log as annotations.
+          report() {
+            code=$?
+            echo "::error title=failed command::exit $code at line ${BASH_LINENO[0]}: ${BASH_COMMAND//%/%25}"
+            grep -E "^FAIL" qualification.out 2>/dev/null | head -3 | while IFS= read -r l; do echo "::error title=qualification::${l//%/%25}"; done
+            [ -s qualification.out ] && tail -n 2 qualification.out | while IFS= read -r l; do echo "::error title=qualification tail::${l//%/%25}"; done
+            # What the model actually said to the tool-call probe, unparsed.
+            curl -s --max-time 60 http://127.0.0.1:18123/v1/chat/completions -H 'Content-Type: application/json' -d "{\"model\": \"$CONFORMANCE_MODEL\", \"max_tokens\": 128, \"temperature\": 0, \"chat_template_kwargs\": {\"enable_thinking\": false}, \"messages\": [{\"role\": \"user\", \"content\": \"Call echo_value with value READY. Do not answer directly.\"}], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"echo_value\", \"description\": \"Return one supplied string.\", \"parameters\": {\"type\": \"object\", \"properties\": {\"value\": {\"type\": \"string\"}}, \"required\": [\"value\"]}}}]}" \
+              | head -c 900 | tr '\n' ' ' | sed 's/%/%25/g; s/^/::error title=tool probe raw::/'; echo
+            for f in harness.out endpoint.log; do
+              if [ -s "$f" ]; then tail -n 2 "$f" | while IFS= read -r l; do echo "::error title=$f::${l//%/%25}"; done; fi
+            done
+            exit $code
+          }
+          trap report ERR
+          set -eEo pipefail
+          python -m pip install -e ".[dev]" huggingface_hub
+          model_dir="$RUNNER_TEMP/model"
+          CONFORMANCE_MODEL=""
+          for candidate in $CONFORMANCE_MODEL_CANDIDATES; do
+            if python -c "from huggingface_hub import snapshot_download as d; print(d('$candidate', local_dir='$model_dir'))"; then
+              CONFORMANCE_MODEL="$candidate"
+              break
+            fi
+          done
+          test -n "$CONFORMANCE_MODEL"
+          echo "::notice title=conformance model::$CONFORMANCE_MODEL"
+          source "$OV_ROOT/setupvars.sh"
+          cat > "$RUNNER_TEMP/genai.json" <<EOF
+          {"model_path": "$model_dir", "device": "CPU", "model_id": "$CONFORMANCE_MODEL", "max_context_tokens": 8192}
+          EOF
+          "$LCA_GENAI_ENDPOINT_BIN" --backend openvino-genai --backend-config "$RUNNER_TEMP/genai.json" --port 18123 2> endpoint.log &
+          for i in $(seq 1 300); do curl -fs http://127.0.0.1:18123/v1/models >/dev/null && break; sleep 1; done
+          curl -fs http://127.0.0.1:18123/health || { echo "endpoint not ready" >> endpoint.log; false; }
+          curl -fs http://127.0.0.1:18123/identity | python -m json.tool
+          python internal/serving/qualify_server.py --profile ptl-npu-8b --base-url http://127.0.0.1:18123/v1 \
+            --model "$CONFORMANCE_MODEL" --context-probes 1000,4000,7000 --json qualification.json 2>&1 | tee qualification.out
+          cat > "$RUNNER_TEMP/profile.toml" <<EOF
+          name = "ci-openvino-genai-cpu"
+          [endpoint]
+          base_url = "http://127.0.0.1:18123/v1/"
+          model = "$CONFORMANCE_MODEL"
+          [identity]
+          runtime = "openvino-genai"
+          device = "CPU"
+          url = "http://127.0.0.1:18123/identity"
+          model_path = "model.id"
+          runtime_path = "runtime.name"
+          device_path = "device.requested"
+          [telemetry]
+          url = "http://127.0.0.1:18123/telemetry"
+          prefill_time_path = "last_request.backend_prefill_ms"
+          memory_path = "process.rss_bytes"
+          [cancellation]
+          active_requests_url = "http://127.0.0.1:18123/debug/active-requests"
+          active_request_ids_path = "active_request_ids"
+          request_id_header = "x-request-id"
+          EOF
+          python internal/perf/endpoint_harness.py --profile "$RUNNER_TEMP/profile.toml" --cancellation \
+            --context-sizes 1000,4000 --max-tokens 64 --output harness.json 2>&1 | tee harness.out
+          python - <<'PY'
+          import json
+          report = json.load(open("harness.json"))
+          assert report["identity"]["model_verified_by_models_endpoint"], report["identity"]
+          assert report["cancellation"]["supported"], report["cancellation"]
+          print(json.dumps({k: report[k] for k in ("generation", "context_ladder", "cancellation")}, indent=2))
+          g, c = report["generation"], report["cancellation"]
+          # ttft_ms counts answer content only; a thinking model may spend all of
+          # --max-tokens reasoning, which the harness reports as None.
+          fmt = lambda v: "none" if v is None else f"{v:.1f}"
+          print(f"::notice title=real model on CPU::ttft_ms={fmt(g['ttft_ms'])} "
+                f"decode_tok_s={fmt(g['decode_tokens_per_second'])} "
+                f"completion_tokens={g['completion_tokens']} "
+                f"disconnect_to_endpoint_stop_ms={fmt(c['disconnect_to_endpoint_stop_ms'])}")
+          PY
+          kill %1
+          wait %1 || true
+          cat endpoint.log
+      - name: Upload real-model evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-endpoint-openvino-genai-cpu-evidence-attempt-${{ github.run_attempt }}
+          path: |
+            qualification.json
+            qualification.out
+            harness.json
+            harness.out
+            endpoint.log
+          if-no-files-found: ignore

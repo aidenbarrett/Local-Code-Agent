@@ -24,6 +24,7 @@ The Session Hub is a projection of authoritative state, not a place to invent st
 | Session Hub | `internal/local_agent/session/`, `internal/docs/session-hub-design.md` |
 | Endpoint ownership | `internal/local_agent/session/endpoint_lease.py`, `endpoint_runtime.py`, `endpoint_call.py` |
 | Local runtime ownership | `internal/serving/`, `internal/docs/serving.md` |
+| Native C++ endpoint and backend plugin ABI | `internal/native_endpoint/README.md`, `internal/native_endpoint/include/lca/backend_plugin.h` |
 | Endpoint performance | `internal/perf/README.md`, `internal/perf/endpoint_harness.py` |
 | Tools | `internal/local_agent/tools/` |
 | Verification | `internal/local_agent/tools/testing_tools.py`, `internal/docs/verification.md` |

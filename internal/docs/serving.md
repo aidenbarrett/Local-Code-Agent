@@ -31,6 +31,12 @@ A healthy owned process may be reused only when the configured model/device laun
 
 Performance comparisons belong exclusively to `internal/perf/endpoint_harness.py`. Client-boundary timing and endpoint-reported telemetry remain separate there.
 
+## Native endpoint
+
+`internal/native_endpoint/` builds `lca-endpoint`, a C++ OpenAI-compatible server with pluggable backends: a deterministic fixture, the in-process OpenVINO GenAI pipeline, and any runtime packaged as a plugin against the C ABI in `include/lca/backend_plugin.h`. It is the intended home for a direct device runtime: the runtime implements describe, count-tokens and generate; the endpoint keeps the protocol, prompt template, tool-call parsing, cancellation proof, identity and telemetry identical across runtimes.
+
+It is not yet a serving profile. `serve.py` does not launch it and no preset points at it; that wiring follows a measured comparison on the target machine. See `internal/native_endpoint/README.md` for build, run, harness profile and known limits.
+
 ## Runtime state
 
 Managed runtime state lives outside the checkout under the configured runtime root. Process records include ownership facts and launch configuration; model weights and compiled caches also remain outside source control.
