@@ -223,6 +223,30 @@ def render_activity(state: HubViewState) -> str:
         # These lines are deterministic controller output.  Do not rewrite them.
         lines.extend(task.verdict_lines)
 
+    if task.candidate is not None:
+        candidate = task.candidate
+        if candidate.role == "prepared" and candidate.retained:
+            lines.extend(
+                (
+                    "Candidate: READY · NOT APPLIED",
+                    f"Candidate task: {candidate.candidate_task_id}",
+                    f"Candidate base: {candidate.base_commit or 'unknown'}",
+                    f"Candidate patch: {candidate.patch_sha256 or 'unknown'}",
+                    "Proof applies to the isolated candidate tree, not the checkout.",
+                    f"Apply: /apply {candidate.candidate_task_id}",
+                )
+            )
+        elif candidate.role == "applied":
+            lines.append("Candidate: APPLIED · checkout import verified")
+        elif candidate.role == "apply_refused":
+            lines.append("Candidate: NOT APPLIED · apply refused")
+        elif candidate.role == "undone":
+            lines.append("Candidate: UNDONE")
+        elif candidate.role == "committed":
+            lines.append(f"Candidate: COMMITTED · {candidate.commit or 'unknown'}")
+        elif candidate.role == "discarded":
+            lines.append("Candidate: DISCARDED")
+
     if task.result_answer is not None:
         lines.extend(("", "Retained result:", task.result_answer))
         if task.result_verified_at_completion is True:
