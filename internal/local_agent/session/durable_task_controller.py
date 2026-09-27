@@ -103,7 +103,9 @@ class AdmittedDurableTaskController:
             raise TypeError("admitted skill fingerprint must be a string")
         return digest
 
-    def cancel_endpoint_execution(self, task_id: str, execution_epoch: int) -> tuple[str, ...] | None:
+    def cancel_endpoint_execution(
+        self, task_id: str, execution_epoch: int
+    ) -> tuple[str, ...] | None:
         """Delegate Stop to the worker factory endpoint authority when configured."""
         worker_factory = getattr(self.controller, "worker_factory", None)
         cancel = getattr(worker_factory, "cancel_execution", None)
