@@ -81,7 +81,8 @@ class CancelRequest:
     request_id: str
     task_id: str
     execution_epoch: int
-    source: CancellationSource | str
+    # Always a CancellationSource once constructed; a raw value is coerced once here.
+    source: CancellationSource
     reason_code: str = "requested"
 
     def __post_init__(self) -> None:
@@ -92,7 +93,8 @@ class CancelRequest:
                 raise ValueError(f"{name} must be a UUID") from exc
         if not isinstance(self.execution_epoch, int) or isinstance(self.execution_epoch, bool) or self.execution_epoch < 0:
             raise ValueError("cancel request execution epoch must be nonnegative")
-        object.__setattr__(self, "source", CancellationSource(self.source))
+        raw_source: object = self.source
+        object.__setattr__(self, "source", CancellationSource(raw_source))
         if not isinstance(self.reason_code, str) or not self.reason_code.strip():
             raise ValueError("cancel reason code must be nonempty")
         if len(self.reason_code) > 128:
@@ -139,7 +141,7 @@ class CancellationToken:
             request_id=request_id or str(uuid4()),
             task_id=self.task_id,
             execution_epoch=self.execution_epoch,
-            source=source,
+            source=CancellationSource(source),
             reason_code=reason_code,
         )
         with self._lock:

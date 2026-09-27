@@ -32,10 +32,6 @@
     "no-untyped-def": 1,
     "redundant-expr": 1
    },
-   "internal/local_agent/session/cancellable_task_executor.py": {
-    "no-untyped-def": 2,
-    "union-attr": 1
-   },
    "internal/local_agent/session/cancellation.py": {
     "redundant-expr": 8
    },
@@ -264,10 +260,6 @@
    "internal/local_agent/llm/protocol.py": {
     "no-untyped-def": 1,
     "redundant-expr": 1
-   },
-   "internal/local_agent/session/cancellable_task_executor.py": {
-    "no-untyped-def": 2,
-    "union-attr": 1
    },
    "internal/local_agent/session/cancellation.py": {
     "redundant-expr": 8
@@ -588,13 +580,10 @@
     "PLW2901": 1
    },
    "internal/local_agent/session/cancellable_task_executor.py": {
-    "BLE001": 2,
     "FBT001": 2,
     "PLR0912": 1,
     "PLR0913": 2,
-    "PLR0915": 1,
-    "S101": 1,
-    "SIM105": 2
+    "PLR0915": 1
    },
    "internal/local_agent/session/cancellation.py": {
     "E501": 7,
@@ -942,5 +931,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 998
+ "total": 987
 }
