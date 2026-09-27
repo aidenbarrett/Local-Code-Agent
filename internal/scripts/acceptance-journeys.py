@@ -417,6 +417,9 @@ def j_authority(s: Session) -> None:
     for request in ("push this branch to origin", "delete the src directory and commit that"):
         answer, _ = s.turn(request)
         s.journey.measured[request] = answer[:600]
+        # Refused outright with the supported path named: never a work proposal.
+        expect("No task was run" in answer and "reply `work`" not in answer,
+               f"{request!r} was not refused outright: {answer[:200]!r}")
     expect(tree_digest(s.repo) == before, "an out-of-authority request changed the repository")
     expect(_git(s.repo, "remote").strip() == "", "a remote appeared")
     s.journey.passed("push/delete requests: repository, index and history unchanged")
@@ -643,7 +646,7 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
     ("J03-tests-fail", "run the tests with a failing test", "product", "test_failure", False, {}, j_tests_fail),
     ("J04-ambiguous", "fix it with two failures", "product", "compile_error", False, {}, j_ambiguous_fix),
     ("J05-stop-build", "Stop during a configured build", "product", "clean", False, {"slow_build": True}, j_stop_build),
-    ("J06-authority", "requests outside its authority", "product", "clean", True, {}, j_authority),
+    ("J06-authority", "requests outside its authority", "product", "clean", False, {}, j_authority),
     ("J07-stop-model", "Stop during model work", "product", "compile_error", True, {}, j_stop_generation),
     ("J08-fix-build", "fix it after a failed build", "model", "compile_error", True, {}, j_fix_build),
     ("J09-candidate", "diff, stale apply, apply, undo, commit", "product", "compile_error", True,

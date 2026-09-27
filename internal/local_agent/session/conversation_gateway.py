@@ -87,6 +87,22 @@ _CLARIFICATIONS = {
     "empty_input": "Please enter a message. No task was run.",
 }
 
+_REFUSALS = {
+    "push_not_supported": (
+        "Local Code Agent never pushes; nothing was sent anywhere. Push from your own "
+        "terminal when you are ready. No task was run."
+    ),
+    "commit_needs_candidate": (
+        "I only commit a change you have applied, with `/commit <task-id>`. To prepare a "
+        "change, start the request with `change:`. No task was run."
+    ),
+    "change_needs_prefix": (
+        "I do not delete or edit files in your checkout on request. Start the request with "
+        "`change:` to prepare it in an isolated copy, review it with `/diff <task-id>`, and "
+        "only `/apply <task-id>` changes your checkout. No task was run."
+    ),
+}
+
 _PENDING_DECISION = (
     "A repository work proposal is awaiting your decision. Reply `work` to accept it "
     "or `chat` to keep it conversation-only. No new task was run."
@@ -501,7 +517,10 @@ class ConversationGateway:
                 return answer
 
             if decision.action == RouteAction.REFUSE:
-                answer = "Source-mutation work is not available on this product path. No task was run."
+                answer = _REFUSALS.get(
+                    decision.reason_code or "",
+                    "Source-mutation work is not available on this product path. No task was run.",
+                )
                 self._record_exchange(said, answer)
                 return answer
 

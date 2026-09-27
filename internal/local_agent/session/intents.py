@@ -260,6 +260,18 @@ _COMMIT_CANDIDATE = re.compile(
 )
 
 
+# Imperatives the product never carries out on request. They are refused here, with
+# the supported path named, instead of reaching a conversation model that may answer
+# "I cannot interact with your repository" and propose work it cannot do. Matched at
+# the start only, and checked after every candidate command above, so `/commit <id>`
+# and `change: remove ...` keep their meaning.
+_OUT_OF_AUTHORITY: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^(?:please\s+)?(?:git\s+)?push\b", re.IGNORECASE), "push_not_supported"),
+    (re.compile(r"^(?:please\s+)?(?:git\s+)?commit\b", re.IGNORECASE), "commit_needs_candidate"),
+    (re.compile(r"^(?:please\s+)?(?:delete|remove|rm)\s", re.IGNORECASE), "change_needs_prefix"),
+)
+
+
 def _single_referent(pattern: re.Pattern[str], request_text: object) -> str | None:
     if not isinstance(request_text, str):
         return None
@@ -590,6 +602,10 @@ def decide_route(
             skill=skill,
             reference_ids=(task_id,),
         )
+
+    for pattern, reason in _OUT_OF_AUTHORITY:
+        if pattern.match(stripped):
+            return RouteDecision(RouteAction.REFUSE, reason_code=reason)
 
     return RouteDecision(RouteAction.MODEL_FALLBACK, objective=text)
 

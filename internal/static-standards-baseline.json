@@ -607,7 +607,7 @@
     "UP042": 4
    },
    "internal/local_agent/session/conversation_gateway.py": {
-    "E501": 16,
+    "E501": 15,
     "PERF401": 1,
     "PLR0911": 2,
     "PLR0912": 1,
@@ -909,5 +909,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 955
+ "total": 953
 }
