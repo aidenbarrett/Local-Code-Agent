@@ -1,10 +1,13 @@
 # Current state
 
-Reconciled against GitHub `main` at `eedf696f668b4bb7daaa2f1e28309b5cb6a923c2`
+Reconciled against GitHub `main` at `7ea869ab0db90813322eeb97d72e68c8c82579ef`
 on 2026-09-27 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
-#217/#220/#222-#227) and the native C++ endpoint (#214) landed. Live
+#217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
+real-model CI journey (#230), deterministic build/test routes (#233), the acceptance
+journey runner (#234, #239, #243), truthful model-unavailable answers (#241, #242) and
+the context-exhaustion verdict fix (#244) landed. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
@@ -38,7 +41,22 @@ The public/product path now includes:
   unknown effects;
 - deterministic public read-only journeys for repository inspection, symbol lookup and
   branch review, with model fallback remaining advice rather than permission;
-- task-specific build/failure journeys through the public conversation gateway;
+- task-specific build/failure journeys through the public conversation gateway; exact
+  `build it` and `run the tests` / `test it` are configured checks the controller runs
+  with no model client at all (a fixed plan drives the ordinary worker, so verification
+  and the durable facts `fix it` reads keep one owner);
+- `.\local-code-agent.ps1 acceptance --output <dir> [--allow-model] [--repo <path>]` runs
+  the acceptance journeys (build/test truth, ambiguity, authority, Stop during a build and
+  during model work, the full candidate lifecycle, measured model fixes) on the real Session
+  Hub composition and keeps `journeys.json`, a summary, transcripts and durable event logs;
+  the report records the exact product source (`package_identity()`), and with
+  `--allow-model` one call through the product's own client must succeed before any model
+  journey runs, otherwise those journeys are UNKNOWN with the client's error;
+- a task that could not use the model says why in the transport's own words, and a turn
+  after the endpoint is quarantined is answered with the reason and "restart the Hub"
+  instead of raising; a worker that exhausts its context budget ends BLOCKED /
+  `unavailable_capability` with the budget named, and every halt cause projects to a
+  verdict the contract accepts;
 - typed proof binding tying accepted completion to the exact request, proof scope, current
   mutation epoch and current repository tree identity; targeted/partial proof cannot
   certify whole-tree success;
@@ -123,7 +141,11 @@ supports:
   Windows commands run in a kill-on-close Job Object. Complete queued and
   inference interruption, owned descendant process-tree cleanup, endpoint quarantine/
   reconciliation and mutation reconciliation still require effectful proof. Until cleanup
-  is proven, the product says `Stop requested`, not `Stopped`.
+  is proven, the product says `Stop requested`, not `Stopped`. Measured with acceptance
+  J07 against a slow fixture endpoint (about 60 s per generation): Stop during model work
+  reached no terminal within 240 s on `9f2c442`, because nothing fences the worker's model
+  calls (Stop code is unchanged since); against a fast endpoint the task ends on its own
+  budget first. An in-process quarantine is permanent until the Hub restarts.
 - **The native endpoint is not a serving profile yet.** No preset or `serve.py` path
   launches it, and it has no NPU, Panther Lake or OVMS-comparison evidence. Its CI
   real-model check is a small model on a hosted CPU runner.
@@ -133,11 +155,12 @@ supports:
   the last verified GitHub read, `main` was unprotected and no active required-status-check
   ruleset existed. The checker can prove configuration after an owner applies it; it does
   not possess repository-admin authority itself.
-- **Candidate journeys are proven with scripted workers only.** Every source-changing
-  journey is exercised end to end (including one test through the same object graph as
-  `session-hub.py`) with real git, CMake and CTest, but no real model has yet driven one.
-  That evidence, and the Session Hub's "candidate ready, not applied" presentation, are
-  still open. Candidate verification belongs to the candidate tree; `/apply` claims it for
+- **Real-model coding is measured, not yet demonstrated.** Every source-changing journey
+  is exercised end to end with real git, CMake and CTest and scripted workers. CI now also
+  drives `build it -> fix it -> /apply` with a real Qwen3-1.7B on CPU through the native
+  endpoint: the first runs observed the failure and reported the unfixed candidate truthfully
+  as FAILED; no real model has yet produced a verified fix. The Session Hub's "candidate
+  ready, not applied" presentation is still open. Candidate verification belongs to the candidate tree; `/apply` claims it for
   the checkout only when the checkout's source then equals the candidate tree exactly.
 - **Push, Watch creation and richer automation remain later product work.**
 
