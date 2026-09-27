@@ -1,9 +1,10 @@
 # Current state
 
-Reconciled against GitHub `main` at `e20719b86a61e088ed3436ee72815c59c9cbddd7`
-on 2026-09-27 after the isolated candidate-change journeys (#197-#213: build/test fixes,
-`fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, durable candidate facts,
-readiness refusal) and the engineering-standards ratchet (#216) landed. Live
+Reconciled against GitHub `main` at `999dfa3187d7ab5f2f76e19e70dcc295293e9013`
+on 2026-09-27 after the isolated candidate-change journeys (#197-#215: build/test fixes,
+`fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
+facts, readiness refusal) and the engineering-standards ratchet (#216, burn-down #217/#220)
+landed. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
@@ -80,13 +81,16 @@ modifies the user's checkout, index or history:
   `policy.allow_commit`; commits only the applied paths with `--only`, leaves other staged
   work staged, does not run user hooks, never pushes);
 - retained results are `lca.task-result/2`, carrying a typed `candidate` block
-  (prepared/applied/apply_refused/undone/committed) for the Session Hub; `/1` stays readable;
+  (prepared/applied/apply_refused/undone/committed/discarded) for the Session Hub; `/1` stays readable;
 - an observed failing build or test is reported as `FAILED` / `verification_failed` with an
   observed-failure proof scope, not as `NO_VERDICT`;
 - orphaned candidate worktrees from a dead controller are reaped at Session Hub start;
 - a candidate change is refused up front, with reasons and before any workspace exists, when
   the machine cannot run one (git older than 2.25, not a top-level checkout with a commit,
   or an unwritable workspace folder outside the repository);
+- `/discard <id>` drops a retained candidate (its worktree and record) without touching the
+  checkout; a retained candidate keeps its source but not its build or run output, so kept
+  candidates do not hoard disk;
 - the candidate-ready answer shows a diffstat and a bounded preview, and `/diff <id>` shows
   the exact retained patch before anything is applied;
 - `propose_patch` tolerates indentation slips for one unique whole-line block and
