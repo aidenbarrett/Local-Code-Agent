@@ -1,5 +1,7 @@
 #include "plugin_backend.hpp"
+#include "utf8_path.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <filesystem>
@@ -29,10 +31,10 @@ BackendErrorKind kind_of(lca_status status) {
     }
 }
 
-[[noreturn]] void raise(lca_status status, const char* what, const char* detail) {
+[[noreturn]] void raise(lca_status status, const char* what, const std::string& detail) {
     std::string message = std::string("plugin ") + what + " failed (status " +
                           std::to_string(static_cast<int>(status)) + ")";
-    if (detail && *detail) message += ": " + std::string(detail);
+    if (!detail.empty()) message += ": " + detail;
     throw BackendError(kind_of(status), message);
 }
 
@@ -81,7 +83,7 @@ extern "C" int32_t lca_endpoint_plugin_cancel(void* ctx) {
 
 SharedLibrary::SharedLibrary(const std::string& path_utf8) {
 #if defined(_WIN32)
-    const auto path = std::filesystem::u8path(path_utf8);
+    const auto path = path_from_utf8(path_utf8);
     handle_ = reinterpret_cast<void*>(LoadLibraryW(path.wstring().c_str()));
     if (!handle_) {
         throw BackendError(BackendErrorKind::Unavailable,
@@ -89,7 +91,7 @@ SharedLibrary::SharedLibrary(const std::string& path_utf8) {
                                std::to_string(GetLastError()) + ")");
     }
 #else
-    handle_ = dlopen(path_utf8.c_str(), RTLD_NOW | RTLD_LOCAL);
+    handle_ = dlopen(path_utf8.c_str(), RTLD_NOW | RTLD_LOCAL);  // NOLINT(cppcoreguidelines-prefer-member-initializer): set per platform
     if (!handle_) {
         const char* err = dlerror();
         throw BackendError(BackendErrorKind::Unavailable,
@@ -115,11 +117,19 @@ void* SharedLibrary::symbol(const char* name) const {
 #endif
 }
 
+std::string bounded_c_string(const char* data, std::size_t size) {
+    if (data == nullptr) return {};
+    const char* const end = std::find(data, data + size, '\0');  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic): the one bounded read of a C buffer
+    return {data, end};
+}
+
 // ------------------------------------------------------------ plugin backend
 
 PluginBackend::PluginBackend(const std::string& library_path, const std::string& config_json) {
     library_ = std::make_unique<SharedLibrary>(library_path);
-    auto entry = reinterpret_cast<lca_backend_get_api_fn>(library_->symbol(LCA_BACKEND_ENTRY_POINT));
+    // A symbol address becomes a function pointer only here, at the C ABI boundary.
+    auto entry = reinterpret_cast<lca_backend_get_api_fn>(  // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+        library_->symbol(LCA_BACKEND_ENTRY_POINT));
     if (!entry) {
         throw BackendError(BackendErrorKind::Unavailable,
                            library_path + " does not export " LCA_BACKEND_ENTRY_POINT);
@@ -138,11 +148,12 @@ PluginBackend::PluginBackend(const std::string& library_path, const std::string&
     }
 
     const auto started = std::chrono::steady_clock::now();
-    char error[1024] = {0};
-    const lca_status created = api_->create(config_json.c_str(), &backend_, error, sizeof error);
+    PluginErrorBuffer error;
+    const lca_status created =
+        api_->create(config_json.c_str(), &backend_, error.data(), PluginErrorBuffer::size());
     if (created != LCA_STATUS_OK || !backend_) {
         backend_ = nullptr;
-        raise(created == LCA_STATUS_OK ? LCA_STATUS_INTERNAL : created, "create", error);
+        raise(created == LCA_STATUS_OK ? LCA_STATUS_INTERNAL : created, "create", error.text());
     }
     const double create_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -155,7 +166,7 @@ PluginBackend::PluginBackend(const std::string& library_path, const std::string&
             buffer.resize(required);
             described = api_->describe(backend_, buffer.data(), buffer.size(), &required);
         }
-        if (described != LCA_STATUS_OK) raise(described, "describe", nullptr);
+        if (described != LCA_STATUS_OK) raise(described, "describe", std::string());
         buffer.back() = '\0';
         const auto info = nlohmann::json::parse(buffer.data(), nullptr, false);
         if (info.is_discarded() || !info.is_object()) {
@@ -200,11 +211,11 @@ PluginBackend::~PluginBackend() {
 }
 
 std::uint64_t PluginBackend::count_prompt_tokens(const std::string& prompt) {
-    char error[1024] = {0};
+    PluginErrorBuffer error;
     uint64_t count = 0;
-    const lca_status status =
-        api_->count_tokens(backend_, prompt.data(), prompt.size(), &count, error, sizeof error);
-    if (status != LCA_STATUS_OK) raise(status, "count_tokens", error);
+    const lca_status status = api_->count_tokens(backend_, prompt.data(), prompt.size(), &count,
+                                                 error.data(), PluginErrorBuffer::size());
+    if (status != LCA_STATUS_OK) raise(status, "count_tokens", error.text());
     return count;
 }
 
@@ -231,17 +242,17 @@ GenerationOutcome PluginBackend::generate(const GenerationRequest& request, cons
     stats.decode_ms = -1;
 
     CallbackContext ctx{&sink, &cancel, nullptr, 0};
-    char error[1024] = {0};
+    PluginErrorBuffer error;
     const lca_status status = api_->generate(backend_, &params, &lca_endpoint_plugin_sink,
-                                             &lca_endpoint_plugin_cancel, &ctx, &stats, error,
-                                             sizeof error);
+                                             &lca_endpoint_plugin_cancel, &ctx, &stats, error.data(),
+                                             PluginErrorBuffer::size());
     if (ctx.error) std::rethrow_exception(ctx.error);
 
     GenerationOutcome outcome;
     if (status == LCA_STATUS_CANCELLED) {
         outcome.finish = FinishReason::Cancelled;
     } else if (status != LCA_STATUS_OK) {
-        raise(status, "generate", error);
+        raise(status, "generate", error.text());
     } else {
         switch (stats.finish_reason) {
             case LCA_FINISH_LENGTH: outcome.finish = FinishReason::Length; break;

@@ -1,0 +1,26 @@
+# internal/docs/engineering-standards.md owns these rules. CI runs clang-tidy on every
+# endpoint source with warnings as errors. Each disabled check says why; each NOLINT in
+# the source names its check and its reason on the same line.
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  cppcoreguidelines-*,
+  performance-*,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -bugprone-easily-swappable-parameters
+# modernize-use-trailing-return-type: a style preference, not a safety rule.
+# modernize-use-nodiscard: [[nodiscard]] is required by review on results that matter;
+#   the check flags every const getter and would bury the ones that do.
+# cppcoreguidelines-avoid-magic-numbers: flags every unit conversion (1000.0 ms per s).
+# bugprone-easily-swappable-parameters: adjacent std::string parameters in JSON helpers;
+#   the fix is strong types, which is a design change tracked separately, not a lint.
+WarningsAsErrors: '*'
+# include/lca is the C plugin ABI and must stay plain C (macros, typedefs, int-sized
+# enums); C++ modernisation checks do not apply to it. Tests use doctest macros and
+# are checked by the compilers and sanitizers, not by clang-tidy.
+HeaderFilterRegex: '.*/native_endpoint/src/.*'
+FormatStyle: none

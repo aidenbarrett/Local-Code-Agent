@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <thread>
 
@@ -81,4 +83,18 @@ TEST_CASE("plugin load failures are explicit") {
     CHECK_THROWS_AS(PluginBackend("/nonexistent/libnothing.so", "{}"), BackendError);
     CHECK_THROWS_WITH_AS(PluginBackend(LCA_REFERENCE_PLUGIN_PATH, R"({"max_context_tokens": 0})"),
                          doctest::Contains("max_context_tokens must be positive"), BackendError);
+}
+
+TEST_CASE("plugin error text is read back bounded by its buffer, never past it") {
+    // A plugin is not trusted to NUL-terminate the error buffer it fills.
+    const std::array<char, 4> unterminated{'a', 'b', 'c', 'd'};
+    CHECK(bounded_c_string(unterminated.data(), unterminated.size()) == "abcd");
+    const std::array<char, 6> terminated{'o', 'k', '\0', 'x', 'y', 'z'};
+    CHECK(bounded_c_string(terminated.data(), terminated.size()) == "ok");
+    CHECK(bounded_c_string(nullptr, 16).empty());
+
+    PluginErrorBuffer buffer;
+    CHECK(buffer.text().empty());
+    std::fill_n(buffer.data(), PluginErrorBuffer::size(), 'e');
+    CHECK(buffer.text() == std::string(PluginErrorBuffer::size(), 'e'));
 }

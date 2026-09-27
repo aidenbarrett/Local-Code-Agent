@@ -1,6 +1,8 @@
 #include "fixture_backend.hpp"
 
 #include <algorithm>
+#include <array>
+#include <string_view>
 #include <thread>
 
 namespace lca {
@@ -102,7 +104,8 @@ GenerationOutcome FixtureBackend::generate(const GenerationRequest& request, con
     outcome.stats.prompt_tokens = prompt_tokens;
 
     const auto prefill = std::chrono::milliseconds(
-        static_cast<long long>(config_.prefill_ms_per_1k_tokens * prompt_tokens / 1000.0));
+        static_cast<long long>(
+            config_.prefill_ms_per_1k_tokens * static_cast<double>(prompt_tokens) / 1000.0));
     const auto prefill_started = std::chrono::steady_clock::now();
     if (!sleep_unless_cancelled(prefill, cancel)) {
         outcome.finish = FinishReason::Cancelled;
@@ -121,7 +124,8 @@ GenerationOutcome FixtureBackend::generate(const GenerationRequest& request, con
     }
     if (!reply && config_.default_reply) reply = &*config_.default_reply;
 
-    static const char* const kFiller[] = {"lorem ", "ipsum ", "dolor ", "sit ", "amet "};
+    static constexpr std::array<std::string_view, 5> kFiller{"lorem ", "ipsum ", "dolor ", "sit ",
+                                                             "amet "};
     const auto decode_started = std::chrono::steady_clock::now();
     const auto emit = [&](const std::string& piece) -> bool {
         if (!sleep_unless_cancelled(config_.piece_delay, cancel)) {
@@ -157,7 +161,7 @@ GenerationOutcome FixtureBackend::generate(const GenerationRequest& request, con
                 outcome.finish = FinishReason::Length;
                 break;
             }
-            if (!emit(kFiller[k++ % 5])) break;
+            if (!emit(std::string(kFiller.at(k++ % kFiller.size())))) break;
         }
     }
     outcome.stats.decode_ms = std::chrono::duration<double, std::milli>(

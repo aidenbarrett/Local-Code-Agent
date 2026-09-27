@@ -2,11 +2,12 @@ cmake_minimum_required(VERSION 3.20)
 
 project(lca_native_endpoint VERSION 0.1.0 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -14,14 +15,18 @@ endif()
 
 option(LCA_ENDPOINT_TESTS "Build the endpoint test suite" ON)
 option(LCA_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(LCA_HARDENING "Compile and link with the hardening flags in engineering-standards.md" ON)
 set(LCA_OPENVINO_GENAI "AUTO" CACHE STRING "Build the OpenVINO GenAI backend: AUTO, ON or OFF")
 set_property(CACHE LCA_OPENVINO_GENAI PROPERTY STRINGS AUTO ON OFF)
 set(LCA_SANITIZE "" CACHE STRING "Sanitizers for GCC/Clang builds, for example address,undefined")
 
 include(cmake/third_party_headers.cmake)
+include(CheckPIESupported)
+check_pie_supported()
 
 # ---------------------------------------------------------------- warnings
 
+# internal/docs/engineering-standards.md owns these rules; this is where C++ meets them.
 function(lca_warnings target)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
@@ -29,14 +34,44 @@ function(lca_warnings target)
       target_compile_options(${target} PRIVATE /WX)
     endif()
   else()
-    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wshadow)
+    target_compile_options(${target} PRIVATE
+      -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
+      -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wimplicit-fallthrough)
+    target_compile_options(${target} PRIVATE
+      $<$<COMPILE_LANGUAGE:CXX>:-Wold-style-cast -Wnon-virtual-dtor -Woverloaded-virtual>)
     if(LCA_WARNINGS_AS_ERRORS)
       target_compile_options(${target} PRIVATE -Werror)
     endif()
   endif()
+  lca_hardening(${target})
   if(LCA_SANITIZE AND NOT MSVC)
     target_compile_options(${target} PRIVATE -fsanitize=${LCA_SANITIZE} -fno-omit-frame-pointer)
     target_link_options(${target} PRIVATE -fsanitize=${LCA_SANITIZE})
+  endif()
+endfunction()
+
+function(lca_hardening target)
+  if(NOT LCA_HARDENING)
+    return()
+  endif()
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /sdl /guard:cf)
+    target_link_options(${target} PRIVATE /guard:cf /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT)
+    return()
+  endif()
+  target_compile_options(${target} PRIVATE
+    -fstack-protector-strong -fstack-clash-protection
+    $<$<COMPILE_LANGUAGE:CXX>:-D_GLIBCXX_ASSERTIONS>)
+  # FORTIFY needs optimisation and conflicts with ASan's interceptors, so it is
+  # applied to optimised, unsanitised builds only. Undefine first: some toolchains
+  # predefine a weaker level.
+  if(NOT LCA_SANITIZE)
+    target_compile_options(${target} PRIVATE
+      $<$<NOT:$<CONFIG:Debug>>:-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3>)
+  endif()
+  set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(${target} PRIVATE -Wl,-z,relro,-z,now -Wl,-z,noexecstack)
   endif()
 endfunction()
 
@@ -75,9 +110,10 @@ target_include_directories(lca_endpoint_core
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-  SYSTEM PUBLIC
-    ${LCA_THIRD_PARTY_INCLUDE_DIR}
 )
+# SYSTEM must directly follow the target name. Anywhere else CMake reads it as a
+# directory called "SYSTEM", and the third-party headers are warned on like our own.
+target_include_directories(lca_endpoint_core SYSTEM PUBLIC ${LCA_THIRD_PARTY_INCLUDE_DIR})
 target_compile_definitions(lca_endpoint_core PUBLIC
   LCA_ENDPOINT_VERSION="${PROJECT_VERSION}"
   "LCA_BUILD_TYPE=\"$<CONFIG>\""
@@ -125,6 +161,7 @@ if(LCA_ENDPOINT_TESTS)
     tests/test_openai_protocol.cpp
     tests/test_output_parser.cpp
     tests/test_plugin_backend.cpp
+    tests/test_utf8_path.cpp
   )
   target_link_libraries(lca_endpoint_tests PRIVATE lca_endpoint_core)
   target_compile_definitions(lca_endpoint_tests PRIVATE

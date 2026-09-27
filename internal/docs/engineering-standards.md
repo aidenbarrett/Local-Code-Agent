@@ -116,6 +116,18 @@ rules for security.
 Scope: product C++ only. `internal/benchmark_fixture/` holds deliberately broken sample
 projects that the agent is asked to repair; they are test data and exempt.
 
+Where it is enforced today: `internal/native_endpoint/`.
+- `CMakeLists.txt` (`lca_warnings`, `lca_hardening`) sets the flags above.
+- Its CI (`native-endpoint.yml`) builds with warnings as errors, including the sanitizer
+  builds, and runs clang-tidy over every compiled `src/` file with
+  `internal/native_endpoint/.clang-tidy`.
+- Every disabled check and every `NOLINT` names its reason.
+- The C plugin ABI header (`include/lca/`) stays plain C11 and is exempt from the C++
+  modernisation checks.
+- Tests are held to the compiler and sanitizer gates, not clang-tidy.
+- Anything a plugin writes into a buffer the endpoint owns is read back bounded by that
+  buffer's size. A plugin is not trusted to terminate its strings.
+
 ## Rust
 
 There is no Rust in the product yet. The first crate lands with these gates in the same

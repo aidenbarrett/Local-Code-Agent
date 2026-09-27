@@ -1,4 +1,5 @@
 #include "openvino_genai_backend.hpp"
+#include "utf8_path.hpp"
 
 #include <chrono>
 #include <exception>
@@ -40,7 +41,7 @@ public:
         const auto started = std::chrono::steady_clock::now();
         try {
             pipeline_ = std::make_unique<ov::genai::LLMPipeline>(
-                std::filesystem::u8path(config.model_path), config.device, properties);
+                path_from_utf8(config.model_path), config.device, properties);
         } catch (const std::exception& e) {
             throw BackendError(BackendErrorKind::Unavailable,
                                "OpenVINO GenAI could not load " + config.model_path + " on " +
@@ -146,7 +147,8 @@ public:
         // step, and is labelled as backend-reported by the endpoint.
         outcome.stats.prefill_ms = static_cast<double>(metrics.get_ttft().mean);
         if (generated > 1) {
-            outcome.stats.decode_ms = static_cast<double>(metrics.get_tpot().mean) * (generated - 1);
+            outcome.stats.decode_ms =
+                static_cast<double>(metrics.get_tpot().mean) * static_cast<double>(generated - 1);
         }
         if (cancel.requested()) {
             outcome.finish = FinishReason::Cancelled;

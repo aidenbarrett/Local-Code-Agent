@@ -67,7 +67,7 @@ std::mutex& log_mutex() {
 
 void log_line(const ordered_json& record) {
     std::lock_guard<std::mutex> lock(log_mutex());
-    std::cerr << to_wire(record) << std::endl;
+    std::cerr << to_wire(record) << '\n';  // cerr is unbuffered: each line is written at once
 }
 
 void send_json(httplib::Response& res, int status, const ordered_json& body) {
@@ -148,10 +148,13 @@ int EndpointServer::start() {
     started_at_ = std::chrono::steady_clock::now();
     http_ = std::make_unique<httplib::Server>();
     const int threads = options_.http_threads > 0 ? options_.http_threads : 8;
-    http_->new_task_queue = [threads] { return new httplib::ThreadPool(static_cast<std::size_t>(threads)); };
+    // httplib's API takes ownership of a raw pointer here; the server deletes it.
+    http_->new_task_queue = [threads] {
+        return new httplib::ThreadPool(static_cast<std::size_t>(threads));  // NOLINT(cppcoreguidelines-owning-memory)
+    };
     http_->set_read_timeout(std::chrono::seconds(30));
     http_->set_write_timeout(std::chrono::seconds(30));
-    http_->set_payload_max_length(64u * 1024u * 1024u);
+    http_->set_payload_max_length(std::size_t{64} * 1024 * 1024);
     install_routes();
 
     int port = options_.port;

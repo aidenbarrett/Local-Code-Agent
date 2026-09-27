@@ -11,6 +11,8 @@
 // marker, so streamed text is released as early as it safely can be.
 #pragma once
 
+#include <cstdint>
+
 #include <optional>
 #include <string>
 #include <string_view>
@@ -48,7 +50,7 @@ struct ParsedToolCall {
 };
 
 struct ParsedPart {
-    enum class Kind { Content, Reasoning, ToolCall };
+    enum class Kind : std::uint8_t { Content, Reasoning, ToolCall };
     Kind kind = Kind::Content;
     std::string text;       // Content / Reasoning
     ParsedToolCall call;    // ToolCall
@@ -67,7 +69,7 @@ public:
     std::size_t tool_calls_emitted() const { return tool_calls_; }
 
 private:
-    enum class State { Content, Reasoning, ToolCall };
+    enum class State : std::uint8_t { Content, Reasoning, ToolCall };
 
     void emit_content(std::vector<ParsedPart>& out, std::string text);
     void emit_reasoning(std::vector<ParsedPart>& out, std::string text);

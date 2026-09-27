@@ -51,7 +51,7 @@ jobs:
           path: ci-job-evidence.json
           if-no-files-found: error
       - name: Configure
-        run: cmake -S internal/native_endpoint -B build/native-endpoint -DCMAKE_BUILD_TYPE=Release -DLCA_WARNINGS_AS_ERRORS=ON -DLCA_OPENVINO_GENAI=OFF
+        run: cmake -S internal/native_endpoint -B build/native-endpoint -DCMAKE_BUILD_TYPE=Release -DLCA_WARNINGS_AS_ERRORS=ON -DLCA_OPENVINO_GENAI=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - name: Build
         shell: bash
         run: |
@@ -63,6 +63,19 @@ jobs:
           fi
       - name: C++ tests
         run: ctest --test-dir build/native-endpoint -C Release --output-on-failure
+      - name: clang-tidy (Core Guidelines, bugprone, cert, performance, modernize)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # Every endpoint source the build compiled, with the checks in
+          # internal/native_endpoint/.clang-tidy and warnings as errors.
+          sources=$(python3 -c "import json; print('\n'.join(sorted({e['file'] for e in json.load(open('build/native-endpoint/compile_commands.json')) if '/native_endpoint/src/' in e['file']})))")
+          test -n "$sources"
+          status=0
+          for f in $sources; do
+            clang-tidy -p build/native-endpoint --quiet "$f" || status=1
+          done
+          exit $status
       - name: Locate the endpoint binary
         shell: bash
         run: |
@@ -113,7 +126,7 @@ jobs:
             asan-ubsan) flags="address,undefined" ;;
             tsan) flags="thread" ;;
           esac
-          cmake -S internal/native_endpoint -B build/sanitized -DCMAKE_BUILD_TYPE=Debug -DLCA_OPENVINO_GENAI=OFF -DLCA_SANITIZE="$flags"
+          cmake -S internal/native_endpoint -B build/sanitized -DCMAKE_BUILD_TYPE=Debug -DLCA_OPENVINO_GENAI=OFF -DLCA_WARNINGS_AS_ERRORS=ON -DLCA_SANITIZE="$flags"
           cmake --build build/sanitized --parallel
       - name: C++ tests under the sanitizer
         env:

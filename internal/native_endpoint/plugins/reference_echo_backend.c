@@ -12,6 +12,10 @@
  * The parser below is deliberately tiny: it reads flat string and integer
  * fields and ignores everything else. A real backend should use a JSON library.
  */
+/* Strict ISO C11 (no GNU extensions) plus exactly the POSIX surface used: nanosleep. */
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
 #include "lca/backend_plugin.h"
 
 #include <stdio.h>
