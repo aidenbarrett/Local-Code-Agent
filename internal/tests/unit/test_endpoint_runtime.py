@@ -324,3 +324,22 @@ def test_cancel_execution_quarantines_handed_out_active_inference_authority():
     assert runtime.arbiter.quarantined is True
     assert runtime.reconcile_quarantine(lease.lease_id, known_stopped=True) is True
     assert runtime.arbiter.active_lease is None
+
+def test_cancel_execution_fences_a_late_request_for_the_revoked_epoch():
+    endpoint_id = "ovms:npu:8000"
+    runtime = EndpointRuntime(EndpointArbiter(endpoint_id))
+    task_id = str(uuid4())
+
+    assert runtime.cancel_execution(task_id, 11) == ()
+    with pytest.raises(EndpointRequestCancelled, match="before endpoint dispatch"):
+        runtime.acquire(
+            _work_request(endpoint_id, task_id=task_id, execution_epoch=11),
+            timeout=0.1,
+        )
+
+    # A later epoch is a distinct authority and is not silently cancelled.
+    lease = runtime.acquire(
+        _work_request(endpoint_id, task_id=task_id, execution_epoch=12),
+        timeout=0.1,
+    )
+    lease.release()
