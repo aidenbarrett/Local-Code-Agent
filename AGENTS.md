@@ -76,6 +76,8 @@ Native pytest is authoritative:
 python -m pytest -q
 ```
 
+CI runs the same suite with `-n auto` (the `parallel` extra, pytest-xdist). A test that passes only serially has hidden coupling and is a defect.
+
 Linux and Windows CI are required before describing a code change as verified. New behaviour gets regression coverage. Bugs get the smallest test that would have caught them. Contract changes get positive and fail-closed negative cases.
 
 Do not weaken a test to manufacture green.
