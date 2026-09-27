@@ -612,7 +612,9 @@ def test_commit_refuses_drift_and_detached_head_without_committing(sandbox, tmp_
 def test_commit_route_requires_a_full_task_id():
     assert decide_route(f"/commit {uuid4()}", active_repo_count=1).skill == "commit-candidate"
     assert decide_route("/commit abc12345", active_repo_count=1).action is RouteAction.MODEL_FALLBACK
-    assert decide_route("commit everything", active_repo_count=1).action is RouteAction.MODEL_FALLBACK
+    # A bare commit request gains no commit authority: it is refused outright.
+    everything = decide_route("commit everything", active_repo_count=1)
+    assert (everything.action, everything.reason_code) == (RouteAction.REFUSE, "commit_needs_candidate")
 
 
 def test_commit_says_nothing_to_commit_when_the_fix_restores_head(sandbox, tmp_path):

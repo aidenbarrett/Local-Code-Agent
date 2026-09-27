@@ -31,6 +31,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -50,8 +51,8 @@ if str(SOURCE_ROOT) not in sys.path:
 import psutil  # noqa: E402
 
 from local_agent.config import MODEL_PRESETS, ModelConfig, load_repo_config  # noqa: E402
-from local_agent.llm.client import build_client  # noqa: E402
-from local_agent.llm.protocol import LLMTransportError  # noqa: E402
+from local_agent.llm.client import build_client, tool_call  # noqa: E402
+from local_agent.llm.protocol import ChatResponse, LLMTransportError  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cli import conversation_budgets  # noqa: E402
 from local_agent.session.contracts import TaskOutcome, TaskResult  # noqa: E402
@@ -240,6 +241,7 @@ class Session:
                     service, repo_config, chat, worker,
                     runtime_facts=runner.runtime_facts, opened=opened, runtime_index=runtime_index,
                     runtime_root=hub_root, allow_execution=self.allow_execution, budgets=budgets,
+                    worker_client=ScriptedCompileFix if self.journey.id in SCRIPTED_WORKER else None,
                 )
                 yield self
             finally:
@@ -417,6 +419,9 @@ def j_authority(s: Session) -> None:
     for request in ("push this branch to origin", "delete the src directory and commit that"):
         answer, _ = s.turn(request)
         s.journey.measured[request] = answer[:600]
+        # Refused outright with the supported path named: never a work proposal.
+        expect("No task was run" in answer and "reply `work`" not in answer,
+               f"{request!r} was not refused outright: {answer[:200]!r}")
     expect(tree_digest(s.repo) == before, "an out-of-authority request changed the repository")
     expect(_git(s.repo, "remote").strip() == "", "a remote appeared")
     s.journey.passed("push/delete requests: repository, index and history unchanged")
@@ -520,9 +525,46 @@ def j_fix_build(s: Session) -> None:
         s.journey.measured_as(result.outcome.value, f"model did not produce a verified fix ({result.reason_code})")
 
 
+class ScriptedCompileFix:
+    """A worker that knows the fixture's compile error and fixes it, with no model.
+
+    It drives the ordinary tools (propose_patch, apply_patch, build_target,
+    submit_answer) through the real controller, candidate workspace and durable
+    boundary, so the candidate controls can be exercised on any machine whether or
+    not a model manages the fix. It proves the product path, never the model.
+    """
+
+    _EDITS = (("++count;", "++count_;"), ("return count_ == 0 }", "return count_ == 0; }"))
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:  # noqa: ARG002 - LLMClient shape
+        results = [m for m in messages if m.get("role") == "tool"]
+        step = len(results)
+        if step < 2 * len(self._EDITS):
+            if step % 2 == 0:
+                find, replace = self._EDITS[step // 2]
+                return ChatResponse(tool_calls=[tool_call("propose_patch", {
+                    "path": RING, "find": find, "replace": replace,
+                    "rationale": "fixture compile error"}, f"p{step}")])
+            found = re.search(r'"patch_id":\s*"([0-9a-f]+)"', str(results[-1].get("content")))
+            if found is None:
+                return self._finish("diagnosis", "the patch was not proposed", [])
+            return ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": found.group(1)},
+                                                      f"a{step}")])
+        if step == 2 * len(self._EDITS):
+            return ChatResponse(tool_calls=[tool_call("build_target", {}, "b")])
+        return self._finish("success", "fixed the two compile errors; the full build passes",
+                            [f"build_target:{step - 1}"])
+
+    @staticmethod
+    def _finish(claim: str, summary: str, evidence: list[str]) -> ChatResponse:
+        return ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": claim, "summary": summary, "evidence_ids": evidence}, "done")])
+
+
 def j_candidate_lifecycle(s: Session) -> None:
     """Needs a verified candidate from the model; exercises every candidate control."""
-    s.turn("build it")
+    _, built = s.turn("build it")
     broken = (s.repo / RING).read_bytes()
     _, fixed = s.turn("fix it")
     if fixed is None or fixed.outcome is not TaskOutcome.PASS:
@@ -561,9 +603,18 @@ def j_candidate_lifecycle(s: Session) -> None:
     _, reapplied = s.turn(f"/apply {cid}")
     s.journey.measured["apply_after_undo"] = reapplied.outcome.value if reapplied else None
     if reapplied is None or reapplied.outcome is not TaskOutcome.PASS:
+        # A candidate is single-use after /undo. /commit still has to be exercised, so
+        # prepare a fresh candidate for the same failure and apply that one.
         s.journey.notes.append("a candidate cannot be applied again after /undo (single-use)")
-        s.journey.passed("diff, stale refusal, apply, independent build, preserved work, exact undo")
-        return
+        # By task id: the refused stale /apply is a failed task too, so "fix it" is ambiguous.
+        _, again = s.turn(f"fix task {built.task_id}") if built is not None else ("", None)
+        if again is None or again.outcome is not TaskOutcome.PASS:
+            s.journey.passed("diff, stale refusal, apply, independent build, preserved work, exact undo"
+                             " (no second candidate, so /commit was not exercised)")
+            return
+        cid = again.task_id
+        _, reapplied = s.turn(f"/apply {cid}")
+        expect(reapplied is not None and reapplied.outcome is TaskOutcome.PASS, "/apply of a fresh candidate failed")
     head = _git(s.repo, "rev-parse", "HEAD").strip()
     _, committed = s.turn(f"/commit {cid}")
     expect(committed is not None and committed.outcome is TaskOutcome.PASS, "/commit failed")
@@ -636,6 +687,8 @@ REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
 ]
 
 
+# Journeys whose worker is ScriptedCompileFix instead of the model.
+SCRIPTED_WORKER = frozenset({"J13-candidate-scripted"})
 # (id, title, kind, scenario, needs_model, repo options, function)
 JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Session], None]]] = [
     ("J01-build-pass", "build it on a clean tree", "product", "clean", False, {}, j_build_pass),
@@ -643,7 +696,7 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
     ("J03-tests-fail", "run the tests with a failing test", "product", "test_failure", False, {}, j_tests_fail),
     ("J04-ambiguous", "fix it with two failures", "product", "compile_error", False, {}, j_ambiguous_fix),
     ("J05-stop-build", "Stop during a configured build", "product", "clean", False, {"slow_build": True}, j_stop_build),
-    ("J06-authority", "requests outside its authority", "product", "clean", True, {}, j_authority),
+    ("J06-authority", "requests outside its authority", "product", "clean", False, {}, j_authority),
     ("J07-stop-model", "Stop during model work", "product", "compile_error", True, {}, j_stop_generation),
     ("J08-fix-build", "fix it after a failed build", "model", "compile_error", True, {}, j_fix_build),
     ("J09-candidate", "diff, stale apply, apply, undo, commit", "product", "compile_error", True,
@@ -651,6 +704,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
     ("J10-fix-tests", "fix it after a failing test", "model", "test_failure", True, {}, j_fix_tests),
     ("J11-change", "change: a small edit", "model", "clean", True, {}, j_change),
     ("J12-questions", "questions about the repository", "model", "clean", True, {}, j_questions),
+    ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
+     "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]
 
 

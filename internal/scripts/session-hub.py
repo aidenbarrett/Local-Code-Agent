@@ -12,6 +12,7 @@ from dataclasses import replace
 import os
 from pathlib import Path
 import sys
+from collections.abc import Callable
 from typing import NamedTuple
 from uuid import NAMESPACE_URL, uuid5
 
@@ -20,7 +21,7 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from local_agent.config import MODEL_PRESETS, find_repo_root, load_repo_config  # noqa: E402
-from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
+from local_agent.llm.client import LLMClient, OpenAICompatibleClient  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor  # noqa: E402
 from local_agent.session.cli import conversation_budgets, safe_terminal  # noqa: E402
@@ -139,13 +140,17 @@ def compose_session_graph(
     service: DurableSessionService, repo, chat_config, worker_config, *,
     runtime_facts: RuntimeFacts, opened, runtime_index, runtime_root: Path,
     allow_execution: bool, budgets: dict,
+    worker_client: Callable[[], LLMClient] | None = None,
 ) -> SessionGraph:
+    """Compose the Session Hub. ``worker_client`` replaces only the raw worker model
+    client (the acceptance runner's scripted fix); the endpoint authority, controller
+    and every durable boundary are the same objects the product uses."""
     events = EventBuffer(service.stream_id)
     adapters: dict[str, EndpointCallAdapter] = {}
     chat_adapter = _endpoint_adapter(chat_config, adapters)
     worker_adapter = _endpoint_adapter(worker_config, adapters)
     worker_factory = ManagedWorkerClientFactory(
-        lambda: OpenAICompatibleClient(worker_config),
+        worker_client if worker_client is not None else (lambda: OpenAICompatibleClient(worker_config)),
         worker_adapter,
         session_id=service.session_id,
     )
