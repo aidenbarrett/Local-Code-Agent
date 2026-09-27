@@ -846,3 +846,27 @@ def test_an_untracked_source_file_the_user_builds_is_part_of_the_candidate(sandb
     applied = _apply(controller, task_id)
     assert applied.metrics["candidate_import"]["checkout_matches_candidate_tree"] is True
     assert "build proof covers them" in applied.answer
+
+
+def test_an_unready_machine_refuses_before_any_worktree_or_model_call(sandbox, tmp_path, monkeypatch):
+    from local_agent.session.workspaces import WorkspaceReadiness
+
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return ScriptedClient([])
+
+    manager = GitWorkspaceManager(tmp_path / "lca-ws", controller_commit="c" * 40)
+    monkeypatch.setattr(manager, "readiness", lambda root: WorkspaceReadiness(
+        False, "git version 2.20.1", ("git version 2.20.1 is too old; candidate changes need git 2.25 or newer",)))
+    controller = TaskController(load_repo_config(sandbox.root), factory, EventBuffer(uuid4().hex),
+                                allow_execution=True, workspaces=manager)
+
+    result = controller.run("fix the build", task_id=str(uuid4()), skill_name="fix-build-failure")
+
+    assert result.outcome is TaskOutcome.BLOCKED and result.reason_code == "missing_dependency"
+    assert "too old" in result.answer
+    assert calls == [] and _worktrees(sandbox.root) == 1
+    assert list(manager.workspaces_root.glob("*.lease")) == []
+    verdict_block_from_task_result(result)
