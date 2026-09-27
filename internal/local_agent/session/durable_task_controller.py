@@ -8,16 +8,57 @@ part of the already-authorised execution path.
 """
 from __future__ import annotations
 
-from contextlib import nullcontext
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
+from typing import TYPE_CHECKING, Protocol
 
 from ..provenance import source_sha256
+from .contracts import RouteSource
 from .durable_activity import DurableToolActivity
+
+if TYPE_CHECKING:
+    from ..config import RepoConfig
+    from ..tools.process_runner import CancellationProbe
+    from .contracts import TaskResult
+    from .execution_source import TaskExecutionSource
+
+# (task_id, execution_epoch) -> the Stop token for exactly that execution.
+CancellationLookup = Callable[[str, int], "CancellationProbe"]
+
+
+class AdmissibleController(Protocol):
+    """What the adapter needs from the controller it wraps (TaskController satisfies it).
+
+    ``effective_skill_sha256``, ``process_spawning_tools`` and ``worker_factory`` are
+    optional capabilities, looked up by name and checked where they are used.
+    """
+
+    @property
+    def repo(self) -> RepoConfig: ...
+    @property
+    def allow_execution(self) -> bool: ...
+    @property
+    def context_budget_tokens(self) -> int: ...
+
+    def resolve_skill(self, skill_name: str) -> str: ...
+
+    def run(  # noqa: PLR0913 - mirrors TaskController.run, keyword-only
+        self,
+        task: str,
+        *,
+        self_check: bool = ...,
+        route_source: RouteSource | TaskExecutionSource | str = ...,
+        task_id: str | None = ...,
+        durable_activity: DurableToolActivity | None = ...,
+        skill_name: str | None = ...,
+        cancellation_probe: CancellationProbe | None = ...,
+    ) -> TaskResult: ...
 
 
 class AdmittedDurableTaskController:
     """Controller adapter used only after durable task admission."""
 
-    def __init__(self, service, controller) -> None:
+    def __init__(self, service: object, controller: AdmissibleController) -> None:
         if not callable(getattr(controller, "run", None)):
             raise TypeError("admitted durable controller requires a run-capable controller")
         if not callable(getattr(controller, "resolve_skill", None)):
@@ -28,9 +69,9 @@ class AdmittedDurableTaskController:
         self.service = service
         self.controller = controller
         self.source_sha256_at_start = source_sha256()
-        self._cancellation_tokens = None
+        self._cancellation_tokens: CancellationLookup | None = None
 
-    def bind_cancellation_tokens(self, lookup) -> None:
+    def bind_cancellation_tokens(self, lookup: CancellationLookup) -> None:
         """Accept the executor's ``(task_id, execution_epoch) -> token`` lookup once."""
         if not callable(lookup):
             raise TypeError("cancellation token lookup must be callable")
@@ -39,15 +80,15 @@ class AdmittedDurableTaskController:
         self._cancellation_tokens = lookup
 
     @property
-    def repo(self):
+    def repo(self) -> RepoConfig:
         return self.controller.repo
 
     @property
-    def allow_execution(self):
+    def allow_execution(self) -> bool:
         return self.controller.allow_execution
 
     @property
-    def context_budget_tokens(self):
+    def context_budget_tokens(self) -> int:
         return self.controller.context_budget_tokens
 
     def resolve_skill(self, skill_name: str) -> str:
@@ -57,7 +98,10 @@ class AdmittedDurableTaskController:
         fingerprint = getattr(self.controller, "effective_skill_sha256", None)
         if not callable(fingerprint):
             raise TypeError("admitted durable controller cannot fingerprint admitted skills")
-        return fingerprint(skill_name)
+        digest = fingerprint(skill_name)
+        if not isinstance(digest, str):
+            raise TypeError("admitted skill fingerprint must be a string")
+        return digest
 
     def process_spawning_tools(self) -> frozenset[str]:
         resolver = getattr(self.controller, "process_spawning_tools", None)
@@ -70,35 +114,44 @@ class AdmittedDurableTaskController:
         task: str,
         *,
         self_check: bool = False,
-        route_source=None,
+        route_source: RouteSource | TaskExecutionSource | str = RouteSource.MODEL_PROPOSAL,
         task_id: str | None = None,
         skill_name: str | None = None,
-    ):
+    ) -> TaskResult:
         if task_id is None:
             raise ValueError("durable controller execution requires an admitted task id")
         activity = DurableToolActivity.from_task(self.service, task_id)
         worker_factory = getattr(self.controller, "worker_factory", None)
         binder = getattr(worker_factory, "bind_task", None)
-        authority = (
+        authority: AbstractContextManager[object] = (
             binder(task_id, activity.execution_epoch)
             if callable(binder) and not self_check
             else nullcontext()
         )
-        extra = {}
-        if self._cancellation_tokens is not None and not self_check:
-            extra["cancellation_probe"] = self._cancellation_tokens(
-                task_id, activity.execution_epoch
-            )
+        probe = (
+            self._cancellation_tokens(task_id, activity.execution_epoch)
+            if self._cancellation_tokens is not None and not self_check
+            else None
+        )
         with authority:
+            if probe is None:
+                # No Stop runtime is bound: the controller keeps its own default.
+                return self.controller.run(
+                    task, self_check=self_check, route_source=route_source, task_id=task_id,
+                    durable_activity=activity, skill_name=skill_name,
+                )
             return self.controller.run(
-                task,
-                self_check=self_check,
-                route_source=route_source,
-                task_id=task_id,
-                durable_activity=activity,
-                skill_name=skill_name,
-                **extra,
+                task, self_check=self_check, route_source=route_source, task_id=task_id,
+                durable_activity=activity, skill_name=skill_name, cancellation_probe=probe,
             )
 
 
-__all__ = ["AdmittedDurableTaskController"]
+if TYPE_CHECKING:
+    from .task_controller import TaskController
+
+    def _task_controller_is_admissible(controller: TaskController) -> AdmissibleController:
+        """Static assertion, checked by mypy only: the product controller fits the adapter."""
+        return controller
+
+
+__all__ = ["AdmissibleController", "AdmittedDurableTaskController", "CancellationLookup"]
