@@ -155,6 +155,8 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # libopenvino_genai links the OpenCL ICD loader, which hosted runners lack.
+          sudo apt-get update -q && sudo apt-get install -y -q ocl-icd-libopencl1
           url="$(python internal/native_endpoint/ci/find_openvino_genai_archive.py --release "$OPENVINO_GENAI_RELEASE" --platform ubuntu24)"
           echo "archive: $url"
           mkdir -p "$RUNNER_TEMP/ov"
@@ -196,12 +198,16 @@ jobs:
               ForEach-Object { Write-Output ("::error::" + ($_.Line -replace '%', '%25')) }
           }
           try {
-            $setup = Join-Path $env:OV_ROOT 'setupvars.ps1'
-            if (-not (Test-Path $setup)) {
-              throw ("no setupvars.ps1 in " + $env:OV_ROOT + ": " + ((Get-ChildItem $env:OV_ROOT | ForEach-Object Name) -join ', '))
-            }
-            . $setup
-            $cmake = Join-Path $env:OV_ROOT 'runtime/cmake'
+            # The Windows GenAI archive ships no setupvars script: find the CMake
+            # package and put every runtime DLL directory on PATH directly.
+            $config = Get-ChildItem -Path $env:OV_ROOT -Recurse -Filter 'OpenVINOGenAIConfig.cmake' | Select-Object -First 1
+            if (-not $config) { throw ("no OpenVINOGenAIConfig.cmake under " + $env:OV_ROOT) }
+            $cmake = $config.DirectoryName
+            $dllDirs = Get-ChildItem -Path $env:OV_ROOT -Recurse -Filter '*.dll' |
+              Where-Object { $_.DirectoryName -notmatch '\\Debug($|\\)' } |
+              ForEach-Object DirectoryName | Sort-Object -Unique
+            $env:PATH = (($dllDirs -join ';') + ';' + $env:PATH)
+            ($dllDirs -join ';') | Out-File -FilePath runtime-path.txt -Encoding utf8
             cmake -S internal/native_endpoint -B build/genai -DLCA_OPENVINO_GENAI=ON -DLCA_WARNINGS_AS_ERRORS=ON "-DOpenVINOGenAI_DIR=$cmake" "-DOpenVINO_DIR=$cmake" *> configure.log
             $code = $LASTEXITCODE
             Get-Content configure.log
