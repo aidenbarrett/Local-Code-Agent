@@ -134,6 +134,12 @@ switch ($Command.ToLowerInvariant()) {
         & $python (Join-Path $internal 'scripts\run-task-ui.py') @Rest
         exit $LASTEXITCODE
     }
+    'acceptance' {
+        # The Session Hub acceptance journeys, one run, every log kept in --output.
+        Set-ManagedOvmsEnvironment
+        & $python (Join-Path $internal 'scripts\acceptance-journeys.py') @Rest
+        exit $LASTEXITCODE
+    }
     'verification-demo' {
         & $python (Join-Path $internal 'scripts\demo-trust-boundary.py') @Rest
         exit $LASTEXITCODE

@@ -12,6 +12,7 @@ from dataclasses import replace
 import os
 from pathlib import Path
 import sys
+from typing import NamedTuple
 from uuid import NAMESPACE_URL, uuid5
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
@@ -119,6 +120,72 @@ def _endpoint_adapter(config, adapters: dict[str, EndpointCallAdapter]) -> Endpo
     return adapter
 
 
+
+class SessionGraph(NamedTuple):
+    """The composed Session Hub: what the Textual app, --check and the acceptance
+    journey runner all drive. There is one composition, and this is it.
+
+    (A NamedTuple, not a dataclass: this script is also loaded by file path, where
+    dataclasses cannot resolve their defining module.)"""
+
+    gateway: RuntimeFactsGateway
+    task_executor: CancellableDurableTaskExecutor
+    controller: TaskController
+    history: DurableTaskHistory
+    workspaces: GitWorkspaceManager
+
+
+def compose_session_graph(
+    service: DurableSessionService, repo, chat_config, worker_config, *,
+    runtime_facts: RuntimeFacts, opened, runtime_index, runtime_root: Path,
+    allow_execution: bool, budgets: dict,
+) -> SessionGraph:
+    events = EventBuffer(service.stream_id)
+    adapters: dict[str, EndpointCallAdapter] = {}
+    chat_adapter = _endpoint_adapter(chat_config, adapters)
+    worker_adapter = _endpoint_adapter(worker_config, adapters)
+    worker_factory = ManagedWorkerClientFactory(
+        lambda: OpenAICompatibleClient(worker_config),
+        worker_adapter,
+        session_id=service.session_id,
+    )
+    # Short on purpose: MSVC build trees nest deep under a candidate
+    # worktree and Windows MAX_PATH is counted from the drive root.
+    workspaces = GitWorkspaceManager(
+        runtime_root / "ws", controller_commit=_controller_commit(),
+    )
+    # Worktrees left by a controller that died mid-task, with nothing
+    # retained to apply. Live owners (including another Hub) are untouched.
+    workspaces.reap_orphans()
+    controller = TaskController(
+        repo, worker_factory, events,
+        allow_execution=allow_execution,
+        context_budget_tokens=worker_config.context_budget_tokens,
+        workspaces=workspaces,
+    )
+    admitted_controller = AdmittedDurableTaskController(service, controller)
+    task_executor = CancellableDurableTaskExecutor(service, admitted_controller)
+    task_runner = DurableTaskAdmissionRunner(task_executor)
+    chat_client = ManagedLLMClient(
+        OpenAICompatibleClient(chat_config),
+        chat_adapter,
+        role=EndpointRole.CONVERSATION,
+        session_id=service.session_id,
+    )
+    history = DurableTaskHistory(service.store, stream_id=service.stream_id)
+    gateway = RuntimeFactsGateway(
+        chat_client, controller, events,
+        runtime_facts=runtime_facts,
+        conversation=opened,
+        runtime_index=runtime_index,
+        task_runner=task_runner,
+        task_history=history,
+        route_events=DurableRouteEvents(service),
+        **budgets,
+    )
+    return SessionGraph(gateway, task_executor, controller, history, workspaces)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="local-code-agent session")
     parser.add_argument("--repo", default=".", help="repository root or a path inside it")
@@ -162,48 +229,13 @@ def main(argv: list[str] | None = None) -> int:
             service, recovered = _open_durable_service(runtime_root, conversation_id)
             try:
                 _emit_session_opened(service, conversation_id=conversation_id, repo=repo, recovered=bool(recovered))
-                events = EventBuffer(service.stream_id)
-                adapters: dict[str, EndpointCallAdapter] = {}
-                chat_adapter = _endpoint_adapter(chat_config, adapters)
-                worker_adapter = _endpoint_adapter(worker_config, adapters)
-                worker_factory = ManagedWorkerClientFactory(
-                    lambda: OpenAICompatibleClient(worker_config),
-                    worker_adapter,
-                    session_id=service.session_id,
+                graph = compose_session_graph(
+                    service, repo, chat_config, worker_config,
+                    runtime_facts=runtime_facts, opened=opened, runtime_index=runtime_index,
+                    runtime_root=runtime_root, allow_execution=args.allow_execution,
+                    budgets=budgets,
                 )
-                # Short on purpose: MSVC build trees nest deep under a candidate
-                # worktree and Windows MAX_PATH is counted from the drive root.
-                workspaces = GitWorkspaceManager(
-                    runtime_root / "ws", controller_commit=_controller_commit(),
-                )
-                # Worktrees left by a controller that died mid-task, with nothing
-                # retained to apply. Live owners (including another Hub) are untouched.
-                workspaces.reap_orphans()
-                controller = TaskController(
-                    repo, worker_factory, events,
-                    allow_execution=args.allow_execution,
-                    context_budget_tokens=worker_config.context_budget_tokens,
-                    workspaces=workspaces,
-                )
-                admitted_controller = AdmittedDurableTaskController(service, controller)
-                task_executor = CancellableDurableTaskExecutor(service, admitted_controller)
-                task_runner = DurableTaskAdmissionRunner(task_executor)
-                chat_client = ManagedLLMClient(
-                    OpenAICompatibleClient(chat_config),
-                    chat_adapter,
-                    role=EndpointRole.CONVERSATION,
-                    session_id=service.session_id,
-                )
-                gateway = RuntimeFactsGateway(
-                    chat_client, controller, events,
-                    runtime_facts=runtime_facts,
-                    conversation=opened,
-                    runtime_index=runtime_index,
-                    task_runner=task_runner,
-                    task_history=DurableTaskHistory(service.store, stream_id=service.stream_id),
-                    route_events=DurableRouteEvents(service),
-                    **budgets,
-                )
+                gateway, task_executor = graph.gateway, graph.task_executor
 
                 if args.check:
                     answer = gateway.turn("/check")

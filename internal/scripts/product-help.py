@@ -28,6 +28,7 @@ def main() -> int:
     term.field("capabilities", "Show what controlled repository work is available")
     term.field("run-task", "Run one controlled engineering task headlessly")
     term.field("verification-demo", "Show stale passing tests being rejected as invalid evidence")
+    term.field("acceptance", "Run the acceptance journeys against this machine's model and keep every log")
     term.field("advanced", "Pass arguments directly to the underlying developer CLI")
 
     term.line()
@@ -35,6 +36,7 @@ def main() -> int:
     term.line(r"  .\local-code-agent.ps1")
     term.line(r"  .\local-code-agent.ps1 chat qwen3-8b-npu")
     term.line(r"  .\local-code-agent.ps1 capabilities")
+    term.line(r"  .\local-code-agent.ps1 acceptance --output C:\lca-acc --allow-model")
     term.line(r'  .\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation')
     term.line()
     term.footer_note("The Session Hub is the product surface. Lower-level commands remain available for automation and diagnostics.")
