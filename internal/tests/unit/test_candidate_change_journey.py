@@ -870,3 +870,53 @@ def test_an_unready_machine_refuses_before_any_worktree_or_model_call(sandbox, t
     assert calls == [] and _worktrees(sandbox.root) == 1
     assert list(manager.workspaces_root.glob("*.lease")) == []
     verdict_block_from_task_result(result)
+
+
+# ------------------------------------------------------------- /diff <task>
+
+
+def _diff(controller, candidate_task):
+    request = f"User request:\n/diff {candidate_task}\n\nDeterministic route (controller-owned provenance):\nrule_id=diff-candidate/v1"
+    result = controller.run(request, task_id=str(uuid4()), skill_name="diff-candidate")
+    verdict_block_from_task_result(result)
+    return result
+
+
+def test_the_candidate_answer_shows_what_changed_and_diff_shows_all_of_it(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    task_id = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, _fixing_turns())
+    prepared = controller.run("fix the build", task_id=task_id, skill_name="fix-build-failure")
+
+    assert f"  {RING} | +2 -2" in prepared.answer
+    assert "+    ++count_;" in prepared.answer and "-    ++count;" in prepared.answer
+    assert f"Review: /diff {task_id}   Apply: /apply {task_id}" in prepared.answer
+
+    before = (sandbox.root / RING).read_bytes()
+    shown = _diff(controller, task_id)
+    assert shown.outcome is TaskOutcome.PASS, shown.answer
+    _workspace, candidate = manager.load(task_id)
+    assert candidate.sha256 in shown.answer
+    assert candidate.patch.decode() in shown.answer
+    assert (sandbox.root / RING).read_bytes() == before, "/diff must not change anything"
+    assert _diff(controller, task_id).outcome is TaskOutcome.PASS, "/diff is repeatable"
+    manager.load(task_id)  # still retained for /apply
+
+
+def test_diff_refuses_unknown_candidates_and_vague_requests(sandbox, tmp_path):
+    controller, _ = _controller(sandbox.root, tmp_path, [])
+    assert _diff(controller, str(uuid4())).outcome is TaskOutcome.BLOCKED
+    vague = controller.run("User request:\n/diff the last one", task_id=str(uuid4()), skill_name="diff-candidate")
+    assert vague.outcome is TaskOutcome.BLOCKED and vague.reason_code == "invalid_input"
+
+
+def test_readable_patch_hides_binary_payloads_and_bounds_long_text():
+    from local_agent.session.candidate_change import bounded, diffstat, readable_patch
+
+    patch = (b"diff --git a/img.png b/img.png\nGIT binary patch\nliteral 12\nzcmZ?wbhEHb\n\n"
+             b"diff --git a/a.cpp b/a.cpp\n--- a/a.cpp\n+++ b/a.cpp\n@@ -1 +1 @@\n-int a;\n+int b;\n")
+    text = readable_patch(patch)
+    assert "zcmZ" not in text and "(binary content not shown)" in text and "+int b;" in text
+    assert diffstat(patch) == ["  img.png | +0 -0", "  a.cpp | +1 -1"]
+    cut, truncated = bounded("line\n" * 100, 50)
+    assert truncated and len(cut) <= 50 and cut.endswith("\n")

@@ -17,7 +17,8 @@ from typing import Any
 
 from ..config import RepoConfig
 from .contracts import TaskOutcome, TaskResult
-from .intents import candidate_referent, commit_referent, undo_referent
+from .contracts import MAX_MESSAGE_CHARS
+from .intents import candidate_referent, commit_referent, diff_referent, undo_referent
 from .proof_binding import repository_tree_sha256
 from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace, WorkspaceError
 
@@ -61,9 +62,51 @@ def candidate_proof_satisfied(skill: str, run) -> bool:
 APPLY_CANDIDATE_ACTION = "apply-candidate"
 UNDO_CANDIDATE_ACTION = "undo-candidate"
 COMMIT_CANDIDATE_ACTION = "commit-candidate"
+DIFF_CANDIDATE_ACTION = "diff-candidate"
 CONTROLLER_ACTIONS = frozenset({
     APPLY_CANDIDATE_ACTION, UNDO_CANDIDATE_ACTION, COMMIT_CANDIDATE_ACTION,
+    DIFF_CANDIDATE_ACTION,
 })
+
+_PREVIEW_LINES = 40
+
+
+def readable_patch(patch: bytes) -> str:
+    """The patch as text, with binary payloads replaced by a one-line marker."""
+    out: list[str] = []
+    in_binary = False
+    text = patch.decode("utf-8", "replace")
+    for line in text.splitlines():
+        if line.startswith("diff --git "):
+            in_binary = False
+        if line == "GIT binary patch":
+            in_binary = True
+            out.append("(binary content not shown)")
+            continue
+        if not in_binary:
+            out.append(line)
+    return "\n".join(out) + ("\n" if text.endswith("\n") and out else "")
+
+
+def diffstat(patch: bytes) -> list[str]:
+    """One `path | +added -removed` line per file in the patch."""
+    stats: list[list] = []
+    for line in patch.decode("utf-8", "replace").splitlines():
+        if line.startswith("diff --git "):
+            path = line.split(" b/", 1)[-1] if " b/" in line else line[len("diff --git "):]
+            stats.append([path, 0, 0])
+        elif stats and line.startswith("+") and not line.startswith("+++"):
+            stats[-1][1] += 1
+        elif stats and line.startswith("-") and not line.startswith("---"):
+            stats[-1][2] += 1
+    return [f"  {p} | +{a} -{r}" for p, a, r in stats]
+
+
+def bounded(text: str, limit: int) -> tuple[str, bool]:
+    if len(text) <= limit:
+        return text, False
+    cut = text[:limit]
+    return cut[: cut.rfind("\n") + 1 or limit], True
 
 
 def controller_action_sha256(name: str) -> str:
@@ -187,7 +230,16 @@ def settle_candidate(
             "of the candidate, so its proof does not cover them: "
             + ", ".join(workspace.untracked_excluded[:5])
         )
+    lines.append("Diffstat:")
+    lines.extend(diffstat(candidate.patch))
+    preview_lines = readable_patch(candidate.patch).splitlines()
+    preview, cut = bounded("\n".join(preview_lines[:_PREVIEW_LINES]), 2500)
+    lines.append("Preview:")
+    lines.append(preview)
+    if cut or len(preview_lines) > _PREVIEW_LINES:
+        lines.append(f"(preview truncated; full diff: /diff {task_id})")
     lines.append(f"Candidate patch sha256 {candidate.sha256}. Task {task_id}.")
+    lines.append(f"Review: /diff {task_id}   Apply: /apply {task_id}")
     return (
         CandidateOutcome(True, candidate.paths, candidate.sha256, "\n".join(lines)),
         candidate,
@@ -321,6 +373,54 @@ def apply_candidate(
     )
 
 
+def diff_candidate(
+    manager: GitWorkspaceManager | None,
+    declared: RepoConfig,
+    *,
+    task_id: str,
+    request_text: str,
+) -> TaskResult:
+    """Show the exact retained candidate patch. Read-only; changes nothing anywhere."""
+    referent = diff_referent(request_text)
+    if referent is None:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "No diff shown: the request must name one full task ID.",
+                          False, reason_code="invalid_input")
+    if manager is None:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "No diff shown: candidate workspaces are not configured.",
+                          False, reason_code="unavailable_capability")
+    try:
+        workspace, candidate = manager.load(referent)
+    except (WorkspaceError, ValueError, KeyError) as exc:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          f"No diff shown: no retained candidate for task {referent} ({exc}).",
+                          False, reason_code="invalid_input")
+    if workspace.repository_root.resolve() != declared.root.resolve():
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          f"No diff shown: task {referent} prepared a change for another repository.",
+                          False, reason_code="invalid_input")
+    header = [
+        f"Candidate from task {referent}: exactly what /apply {referent} would write.",
+        f"Patch sha256 {candidate.sha256} (checked against the retained record).",
+        *diffstat(candidate.patch),
+        "",
+    ]
+    body, cut = bounded(readable_patch(candidate.patch), MAX_MESSAGE_CHARS - 1200)
+    answer = "\n".join(header) + body + (
+        "\n(diff truncated for display; the patch applied is the full reviewed patch)" if cut else ""
+    )
+    return TaskResult(
+        task_id, TaskOutcome.PASS, answer, True,
+        metrics={"candidate_diff": {
+            "candidate_task_id": referent, "patch_sha256": candidate.sha256,
+            "paths": list(candidate.paths), "truncated": cut,
+        }},
+        verification_ran=True,
+        reason_code="verification_passed",
+    )
+
+
 def commit_candidate(
     manager: GitWorkspaceManager | None,
     declared: RepoConfig,
@@ -446,6 +546,8 @@ def undo_candidate(
 
 
 __all__ = [
+    "DIFF_CANDIDATE_ACTION",
+    "diff_candidate",
     "COMMIT_CANDIDATE_ACTION",
     "commit_candidate",
     "UNDO_CANDIDATE_ACTION",
