@@ -94,7 +94,8 @@ def validate_terminal_completion(
 ) -> None:
     """Reject a semantically contradictory terminal bundle before enqueue/commit."""
     typed, retained = _retained_result(task_id, result_bytes)
-    assert result_bytes is not None
+    if result_bytes is None:
+        raise ValueError("terminal completion requires retained result bytes")
 
     verdict_root = _mapping(verdict_payload, "task.verdict payload")
     if set(verdict_root) != {"completion"}:

@@ -124,7 +124,9 @@ _LOCUS: dict[Reason, Locus] = {
     Reason.PROTECTED_PATH: Locus.MODEL,
     Reason.COMMAND_CANCELLED: Locus.USER,
 }
-assert set(_LOCUS) == set(Reason), "every Reason needs a Locus"
+if set(_LOCUS) != set(Reason):
+    # An import-time invariant, so it must not disappear under `python -O`.
+    raise ImportError("every Reason needs a Locus")
 
 
 class ToolError(RuntimeError):

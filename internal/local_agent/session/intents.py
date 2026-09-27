@@ -242,7 +242,7 @@ _COMMIT_CANDIDATE = re.compile(
 )
 
 
-def _single_referent(pattern: re.Pattern[str], request_text: str) -> str | None:
+def _single_referent(pattern: re.Pattern[str], request_text: object) -> str | None:
     if not isinstance(request_text, str):
         return None
     found = [

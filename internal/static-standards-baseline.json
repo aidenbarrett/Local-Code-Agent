@@ -102,8 +102,7 @@
     "unreachable": 1
    },
    "internal/local_agent/session/intents.py": {
-    "redundant-expr": 6,
-    "unreachable": 1
+    "redundant-expr": 6
    },
    "internal/local_agent/session/process_stop.py": {
     "arg-type": 1,
@@ -327,8 +326,7 @@
     "unreachable": 1
    },
    "internal/local_agent/session/intents.py": {
-    "redundant-expr": 6,
-    "unreachable": 1
+    "redundant-expr": 6
    },
    "internal/local_agent/session/process_stop.py": {
     "arg-type": 1,
@@ -533,7 +531,6 @@
     "BLE001": 2,
     "E501": 3,
     "RUF059": 2,
-    "S101": 1,
     "T201": 25
    },
    "internal/local_agent/config.py": {
@@ -657,7 +654,6 @@
    "internal/local_agent/session/endpoint_lease.py": {
     "E501": 3,
     "N818": 3,
-    "S101": 1,
     "UP042": 2
    },
    "internal/local_agent/session/endpoint_runtime.py": {
@@ -758,8 +754,7 @@
    },
    "internal/local_agent/session/terminal_completion.py": {
     "E501": 1,
-    "PLR0912": 1,
-    "S101": 1
+    "PLR0912": 1
    },
    "internal/local_agent/session/terminal_truth.py": {
     "N818": 2,
@@ -772,8 +767,7 @@
    },
    "internal/local_agent/session/textual_feed.py": {
     "E501": 1,
-    "PLR0913": 1,
-    "S101": 1
+    "PLR0913": 1
    },
    "internal/local_agent/session/textual_hub.py": {
     "E501": 3,
@@ -875,7 +869,6 @@
     "W292": 1
    },
    "internal/local_agent/tools/tool_primitives.py": {
-    "S101": 1,
     "S105": 1,
     "UP035": 1,
     "UP037": 2,
@@ -923,5 +916,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 979
+ "total": 972
 }
