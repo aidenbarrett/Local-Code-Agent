@@ -109,11 +109,7 @@ class ManagedWorkerClientFactory:
     def cancel_execution(self, task_id: str, execution_epoch: int) -> tuple[str, ...]:
         """Fence endpoint dispatch for one exact durable task execution."""
         UUID(task_id)
-        if (
-            not isinstance(execution_epoch, int)
-            or isinstance(execution_epoch, bool)
-            or execution_epoch < 0
-        ):
+        if not isinstance(execution_epoch, int) or execution_epoch < 0:
             raise ValueError("worker endpoint cancellation requires a nonnegative execution epoch")
         return self._adapter.runtime.cancel_execution(task_id, execution_epoch)
 
