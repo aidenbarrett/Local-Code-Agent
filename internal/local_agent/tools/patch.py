@@ -73,6 +73,80 @@ class PatchStore:
         return len(self._pending)
 
 
+def _indent(line: str) -> str:
+    return line[: len(line) - len(line.lstrip(" \t"))]
+
+
+def _tolerant_replace(original: str, find: str, replace: str) -> tuple[str | None, int]:
+    """Replace the one block of whole lines matching `find` up to per-line whitespace.
+
+    Used only after an exact match failed. Lines are compared with leading and
+    trailing whitespace stripped; blank lines at either end of `find` are ignored.
+    Returns (updated text or None, number of matching blocks). The replacement is
+    re-indented by the difference between the model's indentation and the file's.
+    """
+    wanted = find.splitlines()
+    while wanted and not wanted[0].strip():
+        wanted.pop(0)
+    while wanted and not wanted[-1].strip():
+        wanted.pop()
+    if not wanted:
+        return None, 0
+    key = [line.strip() for line in wanted]
+    lines = original.splitlines(keepends=True)
+    starts = [
+        i for i in range(len(lines) - len(key) + 1)
+        if [lines[i + k].strip() for k in range(len(key))] == key
+    ]
+    if len(starts) != 1:
+        return None, len(starts)
+    start = starts[0]
+    model_indent = _indent(wanted[0])
+    file_indent = _indent(lines[start])
+    # Nesting inside the block: the file may use a different indent width than the
+    # model (4 vs 2 spaces). Learn one consistent ratio from the matched lines; with
+    # tabs or an inconsistent ratio, only the base indent is shifted.
+    ratio = 1.0
+    spaces_only = "\t" not in model_indent + file_indent + "".join(
+        _indent(line) for line in wanted + lines[start:start + len(key)]
+    )
+    if spaces_only:
+        seen = {
+            (len(_indent(lines[start + k])) - len(file_indent))
+            / (len(_indent(wanted[k])) - len(model_indent))
+            for k in range(len(key))
+            if wanted[k].strip() and len(_indent(wanted[k])) > len(model_indent)
+        }
+        if len(seen) == 1 and next(iter(seen)) > 0:
+            ratio = next(iter(seen))
+    file_block = [_indent(line) for line in lines[start:start + len(key)]]
+    file_uses_tabs = all(not i.strip("\t") for i in file_block) and any("\t" in i for i in file_block)
+    model_depths = [
+        len(_indent(w)) - len(model_indent) for w in wanted
+        if w.strip() and not _indent(w).strip(" ") and len(_indent(w)) > len(model_indent)
+    ]
+    tab_unit = min(model_depths) if file_uses_tabs and model_depths else None
+    body = []
+    for line in replace.splitlines():
+        extra = _indent(line)[len(model_indent):] if line.startswith(model_indent) else None
+        if tab_unit and line.strip() and extra is not None and not extra.strip(" "):
+            line = file_indent + "\t" * round(len(extra) / tab_unit) + line.lstrip(" \t")
+            body.append(line)
+            continue
+        if line.startswith(model_indent) and line.strip():
+            extra = _indent(line)[len(model_indent):]
+            depth = len(extra) if spaces_only and not extra.strip(" ") else None
+            if depth is not None:
+                line = file_indent + " " * round(depth * ratio) + line.lstrip(" ")
+            else:
+                line = file_indent + line[len(model_indent):]
+        body.append(line)
+    last = lines[start + len(key) - 1]
+    ending = "\n" if last.endswith("\n") else ""
+    replacement = "\n".join(body) + (ending if body else "")
+    return "".join(lines[:start]) + replacement + "".join(lines[start + len(key):]), 1
+
+
 def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
     @reg.add(
         "propose_patch",
@@ -106,17 +180,28 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
 
         original = target.read_text(encoding="utf-8")
         occurrences = original.count(find)
-        if occurrences == 0:
-            raise ToolError(
-                "`find` text does not appear in the file. Read the exact lines first."
-            )
+        match = "exact"
         if occurrences > 1:
             raise ToolError(
                 f"`find` text appears {occurrences} times. Widen it with surrounding "
                 "lines until it is unique."
             )
-
-        updated = original.replace(find, replace, 1)
+        if occurrences == 1:
+            updated = original.replace(find, replace, 1)
+        else:
+            tolerant, blocks = _tolerant_replace(original, find, replace)
+            if blocks > 1:
+                raise ToolError(
+                    f"`find` matches {blocks} places once whitespace is ignored. Widen it "
+                    "with surrounding lines until it is unique."
+                )
+            if tolerant is None:
+                raise ToolError(
+                    "`find` text does not appear in the file, even ignoring indentation "
+                    "and trailing spaces. Read the exact lines first."
+                )
+            updated = tolerant
+            match = "whitespace_tolerant"
         rel = relpath(ctx.root, target)
         diff = "".join(
             difflib.unified_diff(
@@ -130,14 +215,19 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
         patch_id = uuid.uuid4().hex[:8]
         store.put(PendingPatch(patch_id, target, original, updated, diff))
 
+        note = (
+            "" if match == "exact"
+            else "; matched ignoring indentation/trailing spaces, check the diff"
+        )
         return ToolResult(
             ok=True,
-            summary=f"patch {patch_id} proposed for {rel} (nothing written yet)",
+            summary=f"patch {patch_id} proposed for {rel} (nothing written yet{note})",
             data={
                 "patch_id": patch_id,
                 "path": rel,
                 "rationale": rationale,
                 "diff": diff,
+                "match": match,
             },
         )
 
