@@ -8,7 +8,7 @@ from local_agent.session.durable_task_controller import AdmittedDurableTaskContr
 from local_agent.session.endpoint_call import EndpointCallAdapter
 from local_agent.session.endpoint_client import ManagedWorkerClientFactory
 from local_agent.session.endpoint_lease import EndpointArbiter
-from local_agent.session.endpoint_runtime import EndpointRuntime
+from local_agent.session.endpoint_runtime import EndpointRequestCancelled, EndpointRuntime
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
 
@@ -87,3 +87,24 @@ def test_durable_bridge_binds_worker_factory_to_exact_admitted_epoch(tmp_path):
             raise AssertionError("worker authority leaked beyond durable execution scope")
     finally:
         service.close()
+
+def test_worker_factory_stop_fences_late_endpoint_dispatch_for_exact_epoch():
+    endpoint = EndpointRuntime(EndpointArbiter("http://127.0.0.1:8000/v1"))
+    factory = ManagedWorkerClientFactory(
+        _RawClient,
+        EndpointCallAdapter(endpoint),
+        session_id="session-1",
+    )
+    task_id = str(uuid4())
+
+    assert factory.cancel_execution(task_id, 3) == ()
+    with factory.bind_task(task_id, 3):
+        try:
+            factory().chat([])
+        except EndpointRequestCancelled:
+            pass
+        else:
+            raise AssertionError("revoked task epoch reached endpoint dispatch")
+
+    with factory.bind_task(task_id, 4):
+        assert factory().chat([]) == "owned"
