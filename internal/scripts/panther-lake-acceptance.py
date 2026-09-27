@@ -275,7 +275,7 @@ def render_summary(acceptance_path: Path) -> str:
         f"Restart         {UNKNOWN}",
         "",
         f"Evidence bundle {_sha256(acceptance_path)}",
-        f"Overall         {'INCOMPLETE — HUMAN REVIEW REQUIRED' if captured else 'INCOMPLETE — PREFLIGHT ONLY'}",
+        f"Overall         {'INCOMPLETE - HUMAN REVIEW REQUIRED' if captured else 'INCOMPLETE - PREFLIGHT ONLY'}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -314,10 +314,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "finalize":
             finalize(args.preflight, args.output, args.evidence, args.cold_latency_ms, args.warm_latency_ms)
         else:
-            summary = render_summary(args.acceptance)
-            if args.output:
-                args.output.parent.mkdir(parents=True, exist_ok=True)
-                args.output.write_text(summary, encoding="utf-8")
+            summary = write_summary(args.acceptance, args.output) if args.output else render_summary(args.acceptance)
             print(summary, end="")
     except (AcceptanceCaptureError, OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
