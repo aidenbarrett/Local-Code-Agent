@@ -183,6 +183,9 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
             execution_epoch=execution_epoch,
             worker_artifact_is_result=True,
         )
+        # The executor still reports that the worker's own result did not commit; the
+        # durable terminal it did commit is the answer the user is owed.
+        handle.result = result
         handle.error = CancelUnreconciled(str(exc))
 
     def submit(
