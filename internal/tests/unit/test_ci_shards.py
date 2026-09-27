@@ -36,6 +36,13 @@ def test_unknown_files_get_the_median_and_one_shard_is_everything():
     assert sorted(f for s in plan for f in s) == ["new.py", "x.py", "y.py"]
 
 
+def test_files_recorded_at_zero_seconds_still_spread_across_shards():
+    # The CI bug: three files, one recorded at 0.0 s, median 0 -> every file weightless
+    # and all of them on shard 1, leaving shard 2 empty.
+    plan = shards.plan(["a.py", "b.py", "c.py"], {"a.py": 0.0}, 2)
+    assert all(plan) and sorted(f for s in plan for f in s) == ["a.py", "b.py", "c.py"]
+
+
 @pytest.mark.parametrize("spec", ["0/2", "3/2", "a/b", "1", "1/0"])
 def test_malformed_shard_specs_are_refused(spec):
     with pytest.raises(ValueError):

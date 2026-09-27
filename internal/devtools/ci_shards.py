@@ -23,6 +23,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+MIN_WEIGHT = 0.05
 WEIGHTS = Path(__file__).resolve().parents[1] / "tests" / "shard-weights.json"
 
 
@@ -43,13 +44,19 @@ def plan(files: Sequence[str], weights: Mapping[str, float], count: int) -> list
     if count < 1:
         raise ValueError("shard count must be positive")
     known = [weights[f] for f in files if f in weights]
-    default = statistics.median(known) if known else 1.0
+    default = max(statistics.median(known), MIN_WEIGHT) if known else 1.0
+
+    def weight(name: str) -> float:
+        # A file recorded at 0 s still costs collection and setup; never weightless,
+        # or every such file would pile onto the first shard.
+        return max(weights.get(name, default), MIN_WEIGHT)
+
     shards: list[list[str]] = [[] for _ in range(count)]
     loads = [0.0] * count
-    for name in sorted(set(files), key=lambda f: (-weights.get(f, default), f)):
-        target = min(range(count), key=lambda k: (loads[k], k))
+    for name in sorted(set(files), key=lambda f: (-weight(f), f)):
+        target = min(range(count), key=lambda k: (loads[k], len(shards[k]), k))
         shards[target].append(name)
-        loads[target] += weights.get(name, default)
+        loads[target] += weight(name)
     return shards
 
 
