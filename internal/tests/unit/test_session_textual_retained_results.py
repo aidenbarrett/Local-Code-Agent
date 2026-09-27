@@ -198,3 +198,72 @@ def test_contradictory_retained_result_is_rejected_before_durable_commit(tmp_pat
         assert [event["kind"] for event in service.replay()] == ["task.admitted"]
     finally:
         service.close()
+
+
+def test_live_hub_labels_prepared_candidate_as_not_applied(tmp_path):
+    service = _service(tmp_path)
+    try:
+        task_id = _admit(service, request_id="candidate-ready")
+        candidate = {
+            "role": "prepared",
+            "candidate_task_id": task_id,
+            "retained": True,
+            "paths": ["src/widget.cpp"],
+            "patch_sha256": "e" * 64,
+            "base_commit": "f" * 40,
+            "commit": None,
+        }
+        payload = json.dumps(
+            {
+                "schema": "lca.task-result/2",
+                "task_id": task_id,
+                "outcome": "success",
+                "terminal_state": "succeeded",
+                "verdict": "VERIFIED",
+                "verification_ran": True,
+                "verified_at_completion": True,
+                "evidence_ids": ["candidate-proof:0"],
+                "answer": "Candidate prepared and verified.",
+                "candidate": candidate,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        ref = {
+            "artifact_id": str(uuid4()),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "media_type": "application/vnd.lca.task-result+json",
+            "size_bytes": len(payload),
+            "availability": "retained",
+        }
+        service.finalize_task(
+            task_id,
+            verdict_payload={
+                "completion": {
+                    "task_id": task_id,
+                    "status": "succeeded",
+                    "verdict_block": {
+                        "verdict": "VERIFIED",
+                        "reason_code": "verification_passed",
+                        "scope": "full_test",
+                        "evidence_ids": ["candidate-proof:0"],
+                        "tree_sha256": None,
+                        "rendered_lines": ["VERIFIED: candidate checks passed."],
+                    },
+                    "worker_artifact_ref": None,
+                    "result_ref": ref,
+                }
+            },
+            closed_payload={"status": "succeeded", "result_ref": ref, "cleanup": "not_needed"},
+            result_bytes=payload,
+        ).wait(5)
+
+        state = DurableHubFeed(service).start()
+        rendered = render_activity(state)
+
+        assert state.tasks[0].candidate is not None
+        assert "Candidate: READY · NOT APPLIED" in rendered
+        assert "isolated candidate tree, not the checkout" in rendered
+        assert f"Apply: /apply {task_id}" in rendered
+    finally:
+        service.close()
