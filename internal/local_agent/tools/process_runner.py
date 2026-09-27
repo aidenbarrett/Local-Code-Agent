@@ -24,6 +24,7 @@ nor mutate the evidence files after ``run_command`` returns.
 
 from __future__ import annotations
 
+import contextlib
 import mmap
 import os
 import shutil
@@ -101,28 +102,24 @@ def _best_effort_windows_tree_kill(proc: subprocess.Popen[bytes]) -> None:
         parent = None
 
     targets = descendants + ([parent] if parent is not None else [])
+    # Each step is best effort by design: a process may exit between enumeration and
+    # signal. The caller never treats this path as proof of cleanup.
     for target in reversed(targets):
-        try:
+        with contextlib.suppress(psutil.Error):
             target.terminate()
-        except psutil.Error:
-            pass
-    _, alive = psutil.wait_procs([p for p in targets if p is not None], timeout=1.0)
+    _, alive = psutil.wait_procs(targets, timeout=1.0)
     for target in alive:
-        try:
+        with contextlib.suppress(psutil.Error):
             target.kill()
-        except psutil.Error:
-            pass
     if alive:
         psutil.wait_procs(alive, timeout=1.0)
     if proc.poll() is None:
-        try:
+        with contextlib.suppress(OSError):
             proc.kill()
-        except OSError:
-            pass
 
 
 def _kill_process_tree_best_effort(
-    proc: subprocess.Popen[bytes], job: "windows_job.ProcessTreeJob | None" = None
+    proc: subprocess.Popen[bytes], job: windows_job.ProcessTreeJob | None = None
 ) -> bool:
     """Best-effort cleanup; return whether whole-tree cleanup is proven."""
     if job is not None:
@@ -138,10 +135,9 @@ def _kill_process_tree_best_effort(
         # this runner may return True here.
         return False
     else:
-        try:
+        # The group may already be gone; that is not a cleanup failure.
+        with contextlib.suppress(ProcessLookupError):
             os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
         # start_new_session=True makes the direct child the process-group leader, so
         # killpg reliably kills processes that stayed in that group. It cannot prove
         # that a descendant did not call setsid()/setpgid() first and escape. A cgroup
@@ -154,20 +150,17 @@ def _bounded_reap(proc: subprocess.Popen[bytes]) -> None:
     """Reap the direct child without ever turning cleanup into a hang."""
     try:
         proc.wait(timeout=_POST_KILL_WAIT_S)
+    except subprocess.TimeoutExpired:
+        pass
+    else:
         return
-    except subprocess.TimeoutExpired:
-        pass
 
-    try:
+    with contextlib.suppress(OSError):
         proc.kill()
-    except OSError:
-        pass
-    try:
+    # The timeout/cancellation result remains fail-closed. Returning is preferable to
+    # hanging the controller while pretending the process tree was owned.
+    with contextlib.suppress(subprocess.TimeoutExpired):
         proc.wait(timeout=_POST_KILL_FORCE_WAIT_S)
-    except subprocess.TimeoutExpired:
-        # The timeout/cancellation result remains fail-closed. Returning is preferable
-        # to hanging the controller while pretending the process tree was owned.
-        pass
 
 
 def _snapshot_capture(capture: IO[bytes]) -> str:

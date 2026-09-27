@@ -142,14 +142,17 @@ def controller_action_sha256(name: str) -> str:
     """Admission fingerprint for a controller action; changes only with its contract."""
     if name not in CONTROLLER_ACTIONS:
         raise ValueError(f"not a controller action: {name}")
-    return hashlib.sha256(f"lca-controller-action:{name}:v1".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"lca-controller-action:{name}:v1".encode()).hexdigest()
 
 # The only approval-gated tool a candidate run may use. Staging and committing remain
 # denied even inside the candidate: history changes are separate capabilities.
 _CANDIDATE_APPROVED_TOOLS = frozenset({"apply_patch"})
 
 
-def candidate_workspace_approval(tool: Tool, arguments: dict[str, Any], decision: Decision) -> bool:
+def candidate_workspace_approval(
+    tool: Tool, _arguments: dict[str, Any], _decision: Decision,
+) -> bool:
+    """ApprovalFn for a candidate worktree: approval depends on the tool alone."""
     return tool.name in _CANDIDATE_APPROVED_TOOLS
 
 
@@ -182,7 +185,9 @@ def excluded_dirs(repo: RepoConfig) -> tuple[str, ...]:
     return tuple(sorted(dirs))
 
 
-def candidate_repo(declared: RepoConfig, workspace: Workspace, *, allow_execution: bool) -> RepoConfig:
+def candidate_repo(
+    declared: RepoConfig, workspace: Workspace, *, allow_execution: bool,
+) -> RepoConfig:
     """The declared repository configuration rooted at the candidate worktree.
 
     Patch authority comes from the repository's declared policy, not the product-v0
@@ -234,7 +239,8 @@ def settle_candidate(
     candidate = manager.candidate_patch(workspace)
     if not candidate.paths:
         manager.discard(workspace)
-        return CandidateOutcome(False, (), None, "No source change was produced; nothing to apply."), None
+        nothing = "No source change was produced; nothing to apply."
+        return CandidateOutcome(False, (), None, nothing), None
 
     manager.retain(workspace, candidate)
     # The proof is recorded; the candidate's build output is now only disk use.
@@ -310,7 +316,8 @@ def apply_candidate(
                       f"No change was applied: no usable candidate for task {referent} ({exc}).")
     if workspace.repository_root.resolve() != declared.root.resolve():
         return refuse(TaskOutcome.BLOCKED, "invalid_input",
-                      f"No change was applied: task {referent} prepared a change for another repository.")
+                      f"No change was applied: task {referent} prepared a change "
+                      "for another repository.")
 
     imported = manager.import_patch(workspace, candidate)
     facts = {
@@ -475,7 +482,8 @@ def diff_candidate(
                           False, reason_code="invalid_input")
     if workspace.repository_root.resolve() != declared.root.resolve():
         return TaskResult(task_id, TaskOutcome.BLOCKED,
-                          f"No diff shown: task {referent} prepared a change for another repository.",
+                          f"No diff shown: task {referent} prepared a change "
+                          "for another repository.",
                           False, reason_code="invalid_input")
     header = [
         f"Candidate from task {referent}: exactly what /apply {referent} would write.",
@@ -484,9 +492,8 @@ def diff_candidate(
         "",
     ]
     body, cut = bounded(readable_patch(candidate.patch), MAX_MESSAGE_CHARS - 1200)
-    answer = "\n".join(header) + body + (
-        "\n(diff truncated for display; the patch applied is the full reviewed patch)" if cut else ""
-    )
+    truncated = "\n(diff truncated for display; the patch applied is the full reviewed patch)"
+    answer = "\n".join(header) + body + (truncated if cut else "")
     return TaskResult(
         task_id, TaskOutcome.PASS, answer, True,
         metrics={"candidate_diff": {
@@ -567,7 +574,10 @@ def commit_candidate(
 def _commit_facts(referent: str, done: CommitResult) -> dict[str, object]:
     """The typed commit facts the retained result projects; unchanged wire shape."""
     match done:
-        case Committed(commit=commit, branch=branch) | CommitMismatched(commit=commit, branch=branch):
+        case (
+            Committed(commit=commit, branch=branch)
+            | CommitMismatched(commit=commit, branch=branch)
+        ):
             known_commit: str | None = commit
             known_branch: str | None = branch
             drifted: tuple[str, ...] = ()
@@ -644,25 +654,25 @@ def undo_candidate(
 
 
 __all__ = [
-    "DISCARD_CANDIDATE_ACTION",
-    "discard_candidate",
-    "DIFF_CANDIDATE_ACTION",
-    "diff_candidate",
-    "COMMIT_CANDIDATE_ACTION",
-    "commit_candidate",
-    "UNDO_CANDIDATE_ACTION",
-    "undo_candidate",
     "APPLY_CANDIDATE_ACTION",
-    "CONTROLLER_ACTIONS",
-    "apply_candidate",
-    "controller_action_sha256",
     "CANDIDATE_CHANGE_SKILLS",
     "CANDIDATE_PROOF",
-    "candidate_proof_satisfied",
+    "COMMIT_CANDIDATE_ACTION",
+    "CONTROLLER_ACTIONS",
+    "DIFF_CANDIDATE_ACTION",
+    "DISCARD_CANDIDATE_ACTION",
+    "UNDO_CANDIDATE_ACTION",
     "CandidateOutcome",
+    "apply_candidate",
     "candidate_blocker",
+    "candidate_proof_satisfied",
     "candidate_repo",
     "candidate_workspace_approval",
+    "commit_candidate",
+    "controller_action_sha256",
+    "diff_candidate",
+    "discard_candidate",
     "excluded_dirs",
     "settle_candidate",
+    "undo_candidate",
 ]
