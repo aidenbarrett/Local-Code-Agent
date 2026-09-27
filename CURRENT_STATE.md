@@ -1,10 +1,10 @@
 # Current state
 
-Reconciled against GitHub `main` at `999dfa3187d7ab5f2f76e19e70dcc295293e9013`
+Reconciled against GitHub `main` at `694f4a6b84ff8b229bfbc4273e375ddaffb527d0`
 on 2026-09-27 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
-facts, readiness refusal) and the engineering-standards ratchet (#216, burn-down #217/#220)
-landed. Live
+facts, readiness refusal) and the engineering-standards ratchet (#216, burn-down
+#217/#220/#222-#224) landed. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
