@@ -57,7 +57,7 @@ jobs:
           set -o pipefail
           if ! cmake --build build/native-endpoint --config Release --parallel 2>&1 | tee build.log; then
             # Surface compiler errors as annotations so they are readable without the raw log.
-            grep -E "error|Error" build.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done
+            grep -E "error|Error|undefined reference" build.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done
             exit 1
           fi
       - name: C++ tests
@@ -182,31 +182,44 @@ jobs:
           cmake -S internal/native_endpoint -B build/genai -DCMAKE_BUILD_TYPE=Release -DLCA_OPENVINO_GENAI=ON -DLCA_WARNINGS_AS_ERRORS=ON -DOpenVINOGenAI_DIR="$OV_ROOT/runtime/cmake" -DOpenVINO_DIR="$OV_ROOT/runtime/cmake" 2>&1 | tee configure.log || {
             grep -iE "error|not found|could not" configure.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done; exit 1; }
           cmake --build build/genai --parallel 2>&1 | tee build.log || {
-            grep -E "error|Error" build.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done; exit 1; }
+            grep -E "error|Error|undefined reference" build.log | head -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done; exit 1; }
           ctest --test-dir build/genai --output-on-failure
           echo "LCA_GENAI_ENDPOINT_BIN=$GITHUB_WORKSPACE/build/genai/lca-endpoint" >> "$GITHUB_ENV"
       - name: Build with the OpenVINO GenAI backend (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          . (Join-Path $env:OV_ROOT 'setupvars.ps1')
-          $cmake = Join-Path $env:OV_ROOT 'runtime/cmake'
+          $ErrorActionPreference = 'Stop'
           function Show-Errors($log) {
             # Surface errors as annotations so they are readable without the raw log.
-            Select-String -Path $log -Pattern 'error|not found|could not' | Select-Object -First 40 |
+            Select-String -Path $log -Pattern 'error|not found|could not|unresolved' | Select-Object -First 40 |
               ForEach-Object { Write-Output ("::error::" + ($_.Line -replace '%', '%25')) }
           }
-          cmake -S internal/native_endpoint -B build/genai -DLCA_OPENVINO_GENAI=ON -DLCA_WARNINGS_AS_ERRORS=ON "-DOpenVINOGenAI_DIR=$cmake" "-DOpenVINO_DIR=$cmake" *> configure.log
-          $code = $LASTEXITCODE
-          Get-Content configure.log
-          if ($code -ne 0) { Show-Errors configure.log; throw "configure failed" }
-          cmake --build build/genai --config Release --parallel *> build.log
-          $code = $LASTEXITCODE
-          Get-Content build.log
-          if ($code -ne 0) { Show-Errors build.log; throw "build failed" }
-          ctest --test-dir build/genai -C Release --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw "tests failed" }
-          "LCA_GENAI_ENDPOINT_BIN=$env:GITHUB_WORKSPACE\build\genai\Release\lca-endpoint.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          try {
+            $setup = Join-Path $env:OV_ROOT 'setupvars.ps1'
+            if (-not (Test-Path $setup)) {
+              throw ("no setupvars.ps1 in " + $env:OV_ROOT + ": " + ((Get-ChildItem $env:OV_ROOT | ForEach-Object Name) -join ', '))
+            }
+            . $setup
+            $cmake = Join-Path $env:OV_ROOT 'runtime/cmake'
+            cmake -S internal/native_endpoint -B build/genai -DLCA_OPENVINO_GENAI=ON -DLCA_WARNINGS_AS_ERRORS=ON "-DOpenVINOGenAI_DIR=$cmake" "-DOpenVINO_DIR=$cmake" *> configure.log
+            $code = $LASTEXITCODE
+            Get-Content configure.log
+            if ($code -ne 0) { Show-Errors configure.log; throw "configure failed" }
+            cmake --build build/genai --config Release --parallel *> build.log
+            $code = $LASTEXITCODE
+            Get-Content build.log
+            if ($code -ne 0) { Show-Errors build.log; throw "build failed" }
+            ctest --test-dir build/genai -C Release --output-on-failure
+            if ($LASTEXITCODE -ne 0) { throw "tests failed" }
+            $bin = Join-Path $env:GITHUB_WORKSPACE 'build\genai\Release\lca-endpoint.exe'
+            & $bin --version
+            if ($LASTEXITCODE -ne 0) { throw "lca-endpoint --version failed" }
+            "LCA_GENAI_ENDPOINT_BIN=$bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } catch {
+            Write-Output ("::error::" + ($_.Exception.Message -replace '%', '%25'))
+            throw
+          }
 
       - name: A missing model is a clean load failure (Linux)
         if: runner.os == 'Linux'

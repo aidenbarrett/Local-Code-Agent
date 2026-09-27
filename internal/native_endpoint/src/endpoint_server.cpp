@@ -438,7 +438,7 @@ void EndpointServer::install_routes() {
         ctx.model = identity.model_id;
         ctx.system_fingerprint = system_fingerprint_;
         ctx.created = static_cast<std::int64_t>(std::time(nullptr));
-        const bool log = options_.log_requests;
+        const bool log_requests = options_.log_requests;
 
         if (parsed.stream) {
             auto session = std::make_shared<StreamSession>();
@@ -449,7 +449,7 @@ void EndpointServer::install_routes() {
             session->include_usage = parsed.include_usage;
             session->admitted_prompt_tokens = admitted_prompt_tokens;
             session->started = started;
-            session->log = log;
+            session->log = log_requests;
             res.set_header("Cache-Control", "no-cache");
             res.set_header("X-Accel-Buffering", "no");
             res.set_chunked_content_provider(
@@ -584,7 +584,7 @@ void EndpointServer::install_routes() {
                 TimingFacts timings{f.outcome.stats.prefill_ms, f.outcome.stats.decode_ms,
                                     f.outcome.stats.cached_prompt_tokens};
                 send_json(res, 200, completion_response(ctx, content, reasoning, calls, finish, usage, timings));
-                if (log) {
+                if (log_requests) {
                     log_line({{"event", "request"}, {"id", request_id}, {"stream", false},
                               {"outcome", "completed"}, {"finish_reason", finish},
                               {"prompt_tokens", usage.prompt_tokens},

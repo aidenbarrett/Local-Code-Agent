@@ -50,6 +50,8 @@ if(NOT LCA_OPENVINO_GENAI STREQUAL "OFF")
     find_package(OpenVINOGenAI QUIET)
   endif()
   if(OpenVINOGenAI_FOUND)
+    # The backend also calls the runtime API directly (device name, version).
+    find_package(OpenVINO REQUIRED COMPONENTS Runtime)
     set(LCA_HAVE_OPENVINO_GENAI ON)
   endif()
 endif()
@@ -82,13 +84,15 @@ target_compile_definitions(lca_endpoint_core PUBLIC
 )
 target_link_libraries(lca_endpoint_core PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 if(WIN32)
-  target_compile_definitions(lca_endpoint_core PUBLIC _WIN32_WINNT=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN)
+  # _CRT_SECURE_NO_WARNINGS: std::getenv is used read-only at startup.
+  target_compile_definitions(lca_endpoint_core PUBLIC _WIN32_WINNT=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN
+                                                      _CRT_SECURE_NO_WARNINGS)
   target_link_libraries(lca_endpoint_core PUBLIC ws2_32 psapi)
 endif()
 if(LCA_HAVE_OPENVINO_GENAI)
   target_sources(lca_endpoint_core PRIVATE src/openvino_genai_backend.cpp)
   target_compile_definitions(lca_endpoint_core PUBLIC LCA_WITH_OPENVINO_GENAI)
-  target_link_libraries(lca_endpoint_core PUBLIC openvino::genai)
+  target_link_libraries(lca_endpoint_core PUBLIC openvino::genai openvino::runtime)
 endif()
 lca_warnings(lca_endpoint_core)
 
