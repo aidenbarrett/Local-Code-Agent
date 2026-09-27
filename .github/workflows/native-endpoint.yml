@@ -200,8 +200,13 @@ jobs:
           try {
             # The Windows GenAI archive ships no setupvars script: find the CMake
             # package and put every runtime DLL directory on PATH directly.
-            $config = Get-ChildItem -Path $env:OV_ROOT -Recurse -Filter 'OpenVINOGenAIConfig.cmake' | Select-Object -First 1
-            if (-not $config) { throw ("no OpenVINOGenAIConfig.cmake under " + $env:OV_ROOT) }
+            $config = Get-ChildItem -Path $env:OV_ROOT -Recurse -File |
+              Where-Object { $_.Name -match '^(OpenVINOGenAI|openvinogenai)(Config|-config)\.cmake$' } | Select-Object -First 1
+            if (-not $config) {
+              $found = Get-ChildItem -Path $env:OV_ROOT -Recurse -Filter '*.cmake' | Select-Object -First 30 |
+                ForEach-Object { $_.FullName.Substring($env:OV_ROOT.Length) }
+              throw ("no OpenVINO GenAI CMake package under " + $env:OV_ROOT + "; .cmake files: " + ($found -join ', '))
+            }
             $cmake = $config.DirectoryName
             $dllDirs = Get-ChildItem -Path $env:OV_ROOT -Recurse -Filter '*.dll' |
               Where-Object { $_.DirectoryName -notmatch '\\Debug($|\\)' } |
@@ -245,6 +250,16 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # On failure, surface the tail of each log as annotations.
+          report() {
+            code=$?
+            for f in qualification.out harness.out endpoint.log; do
+              [ -s "$f" ] && tail -n 3 "$f" | while IFS= read -r l; do echo "::error title=$f::${l//%/%25}"; done
+            done
+            exit $code
+          }
+          trap report ERR
+          set -eEo pipefail
           python -m pip install -e ".[dev]" huggingface_hub
           model_dir="$RUNNER_TEMP/model"
           python -c "from huggingface_hub import snapshot_download as d; print(d('$CONFORMANCE_MODEL', local_dir='$model_dir'))"
@@ -254,9 +269,10 @@ jobs:
           EOF
           "$LCA_GENAI_ENDPOINT_BIN" --backend openvino-genai --backend-config "$RUNNER_TEMP/genai.json" --port 18123 2> endpoint.log &
           for i in $(seq 1 300); do curl -fs http://127.0.0.1:18123/v1/models >/dev/null && break; sleep 1; done
+          curl -fs http://127.0.0.1:18123/health || { echo "endpoint not ready" >> endpoint.log; false; }
           curl -fs http://127.0.0.1:18123/identity | python -m json.tool
           python internal/serving/qualify_server.py --profile ptl-npu-8b --base-url http://127.0.0.1:18123/v1 \
-            --model "$CONFORMANCE_MODEL" --context-probes 1000,4000,7000 --json qualification.json
+            --model "$CONFORMANCE_MODEL" --context-probes 1000,4000,7000 --json qualification.json 2>&1 | tee qualification.out
           cat > "$RUNNER_TEMP/profile.toml" <<EOF
           name = "ci-openvino-genai-cpu"
           [endpoint]
@@ -279,7 +295,7 @@ jobs:
           request_id_header = "x-request-id"
           EOF
           python internal/perf/endpoint_harness.py --profile "$RUNNER_TEMP/profile.toml" --cancellation \
-            --context-sizes 1000,4000 --max-tokens 64 --output harness.json
+            --context-sizes 1000,4000 --max-tokens 64 --output harness.json 2>&1 | tee harness.out
           python - <<'PY'
           import json
           report = json.load(open("harness.json"))
@@ -297,6 +313,8 @@ jobs:
           name: native-endpoint-openvino-genai-cpu-evidence-attempt-${{ github.run_attempt }}
           path: |
             qualification.json
+            qualification.out
             harness.json
+            harness.out
             endpoint.log
           if-no-files-found: ignore
