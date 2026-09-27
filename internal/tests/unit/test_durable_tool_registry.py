@@ -159,3 +159,25 @@ def test_invalid_tool_return_is_recorded_as_internal_error():
     assert activity.finished[0]["execution"] == "error"
     assert activity.finished[0]["domain"] == "unknown"
     assert activity.finished[0]["reason"] == "internal_error"
+
+
+def test_a_result_the_contract_rejects_closes_its_call_instead_of_jamming_the_task():
+    # The real durable writer refuses the typed finish; the wrapper must still close
+    # this exact call, or every later tool fails with "a previous tool call is still open".
+    from local_agent.session.durable_activity import DurableActivityError
+
+    class _Refuses(_Activity):
+        def finish_tool(self, **payload):
+            if payload["execution"] == "ok":
+                raise DurableActivityError("contract rejects this finish")
+            super().finish_tool(**payload)
+
+    activity = _Refuses()
+
+    def handler(value):
+        return ToolResult(ok=True, summary="ran", reason=Reason.POLICY_DENIED)
+
+    wrapped = wrap_registry_with_durable_activity(_registry(handler), activity)
+    with pytest.raises(DurableActivityError):
+        wrapped.get("demo").handler(value=1)
+    assert [(f["execution"], f["reason"]) for f in activity.finished] == [("error", "internal_error")]
