@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from threading import Event, Thread
 from uuid import uuid4
 
 import pytest
@@ -106,3 +107,46 @@ def test_reconcile_before_quarantine_is_refused():
             handle.reconcile(known_stopped=True)
     finally:
         handle.release_without_call()
+
+
+def test_stop_quarantine_is_reconciled_when_exact_active_call_returns_normally():
+    endpoint_id, runtime, adapter = _adapter()
+    request = _request(endpoint_id)
+    entered = Event()
+    finish = Event()
+    box = {}
+
+    def inference():
+        entered.set()
+        assert finish.wait(1)
+        return "done"
+
+    def invoke():
+        try:
+            box["result"] = adapter.call(request, inference, timeout=0.1)
+        except BaseException as exc:
+            box["error"] = exc
+
+    thread = Thread(target=invoke)
+    thread.start()
+    assert entered.wait(1)
+
+    assert runtime.cancel_execution(request.task_id, request.execution_epoch) == ()
+    assert runtime.arbiter.quarantined is True
+    assert runtime.arbiter.active_lease is not None
+
+    finish.set()
+    thread.join(1)
+
+    assert thread.is_alive() is False
+    assert "error" not in box
+    assert box["result"].value == "done"
+    assert runtime.arbiter.quarantined is False
+    assert runtime.arbiter.active_lease is None
+
+    # The revoked execution stays fenced even though its completed call supplied
+    # enough evidence to make the physical endpoint reusable.
+    with pytest.raises(Exception, match="cancelled before endpoint dispatch"):
+        adapter.begin(request, timeout=0.1)
+    survivor = adapter.begin(_request(endpoint_id), timeout=0.1)
+    survivor.release_without_call()
