@@ -229,6 +229,16 @@ class EndpointRuntime:
             self._condition.notify_all()
             return released
 
+    def owns_quarantined_lease(self, lease_id: str) -> bool:
+        """Report whether Stop already fenced this exact active lease."""
+        with self._condition:
+            active = self.arbiter.active_lease
+            return bool(
+                self.arbiter.quarantined
+                and active is not None
+                and active.lease_id == lease_id
+            )
+
     def quarantine(self, lease_id: str, reason: str) -> None:
         """Fence an uncertain active request without freeing the physical endpoint."""
         with self._condition:
@@ -293,6 +303,16 @@ class ManagedEndpointLease:
             released = self.runtime.release(self.lease_id)
             self._state = "released"
             return released
+
+    def adopt_existing_quarantine(self) -> bool:
+        """Join a quarantine established externally for this exact active lease."""
+        with self._lock:
+            if self._state != "open":
+                return self._state == "quarantined"
+            if not self.runtime.owns_quarantined_lease(self.lease_id):
+                return False
+            self._state = "quarantined"
+            return True
 
     def quarantine(self, reason: str) -> None:
         with self._lock:
