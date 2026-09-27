@@ -170,6 +170,7 @@ class DurableHubFeed:
         task.result_answer = _RETAINED_RESULT_UNAVAILABLE
         task.result_verification_ran = None
         task.result_verified_at_completion = None
+        task.candidate = None
 
     def _hydrate_retained_results(self, state: HubViewState) -> HubViewState:
         history = DurableTaskHistory(self.service.store, stream_id=self.service.stream_id)
@@ -205,6 +206,7 @@ class DurableHubFeed:
             task.result_answer = result.answer
             task.result_verification_ran = result.verification_ran
             task.result_verified_at_completion = result.verified_at_completion
+            task.candidate = result.candidate
         return state
 
     def state(self, *, status: str | None = None) -> HubViewState:
