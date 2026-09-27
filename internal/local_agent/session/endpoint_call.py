@@ -67,6 +67,12 @@ class ManagedEndpointCall:
         except BaseException:
             try:
                 self.lease.quarantine(self._CALL_EXCEPTION_REASON)
+            except EndpointLeaseConflict:
+                # Stop may already have fenced this exact in-flight lease with its
+                # stronger authority-specific reason. Preserve that fence and the
+                # original client exception rather than replacing either one.
+                if not self.lease.adopt_existing_quarantine():
+                    raise
             finally:
                 with self._lock:
                     self._state = "quarantined"
