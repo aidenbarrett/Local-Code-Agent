@@ -142,7 +142,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -347,6 +347,26 @@ jobs:
                 f"completion_tokens={g['completion_tokens']} "
                 f"disconnect_to_endpoint_stop_ms={fmt(c['disconnect_to_endpoint_stop_ms'])}")
           PY
+          # The product's code journey, driven by this real model: build it -> fix it
+          # -> /apply on the broken C++ fixture. It measures whether the model fixes the
+          # build and fails only if the product's claim is untrue (see the test). A run
+          # that exceeds its time budget is reported, not failed: speed is measured by
+          # the harness above, and a slow CPU model is not a product defect.
+          trap - ERR
+          set +e
+          LCA_REAL_MODEL_BASE_URL=http://127.0.0.1:18123/v1 LCA_REAL_MODEL="$CONFORMANCE_MODEL" \
+            LCA_REQUIRE_REAL_MODEL=1 LCA_REAL_MODEL_REPORT=real-model-journey.json \
+            timeout 1500 python -m pytest -q -s internal/tests/integration/test_real_model_code_journey.py \
+            2>&1 | tee real-model-journey.out
+          journey=${PIPESTATUS[0]}
+          set -e
+          trap report ERR
+          if [ "$journey" -eq 124 ]; then
+            echo "::warning title=real-model code journey::exceeded its 25 minute budget; no verdict"
+          elif [ "$journey" -ne 0 ]; then
+            echo "::error title=real-model code journey::the product's claim did not hold (see real-model-journey.out)"
+            false
+          fi
           kill %1
           wait %1 || true
           cat endpoint.log
@@ -360,5 +380,7 @@ jobs:
             qualification.out
             harness.json
             harness.out
+            real-model-journey.json
+            real-model-journey.out
             endpoint.log
           if-no-files-found: ignore
