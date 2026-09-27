@@ -24,6 +24,7 @@ the caller's approval authority before ``import_patch`` is called.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -735,6 +736,29 @@ class GitWorkspaceManager:
     def _record_path(self, task_id: str) -> Path:
         UUID(task_id)
         return self.workspaces_root / f"{task_id}.candidate.json"
+
+    def prune_instrument_dirs(self, workspace: Workspace) -> int:
+        """Delete build/run output inside a retained candidate; return bytes freed.
+
+        After the proof is recorded, nothing reads it: /apply, /diff and the proof
+        comparison use the retained record and the candidate's index. Only real
+        directories inside the candidate worktree are removed; symlinks are left alone.
+        """
+        root = workspace.root.resolve()
+        freed = 0
+        for name in workspace.excluded_dirs:
+            target = workspace.root / name
+            if target.is_symlink() or not target.is_dir():
+                continue
+            if not target.resolve().is_relative_to(root):
+                continue
+            for dirpath, _dirs, files in os.walk(target):
+                for f in files:
+                    # A file that vanished or cannot be stat'ed is simply not counted.
+                    with contextlib.suppress(OSError):
+                        freed += (Path(dirpath) / f).lstat().st_size
+            shutil.rmtree(target, ignore_errors=True)
+        return freed
 
     def retain(self, workspace: Workspace, candidate: CandidatePatch) -> Path:
         """Persist a reviewed candidate so a later, separate import can find it."""

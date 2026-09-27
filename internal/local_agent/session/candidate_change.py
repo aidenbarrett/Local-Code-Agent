@@ -11,6 +11,7 @@ builds; nothing has been applied to it.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 from dataclasses import dataclass, replace
 from typing import Any
@@ -18,7 +19,13 @@ from typing import Any
 from ..config import RepoConfig
 from .contracts import TaskOutcome, TaskResult
 from .contracts import MAX_MESSAGE_CHARS
-from .intents import candidate_referent, commit_referent, diff_referent, undo_referent
+from .intents import (
+    candidate_referent,
+    commit_referent,
+    diff_referent,
+    discard_referent,
+    undo_referent,
+)
 from .proof_binding import repository_tree_sha256
 from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace, WorkspaceError
 
@@ -63,9 +70,10 @@ APPLY_CANDIDATE_ACTION = "apply-candidate"
 UNDO_CANDIDATE_ACTION = "undo-candidate"
 COMMIT_CANDIDATE_ACTION = "commit-candidate"
 DIFF_CANDIDATE_ACTION = "diff-candidate"
+DISCARD_CANDIDATE_ACTION = "discard-candidate"
 CONTROLLER_ACTIONS = frozenset({
     APPLY_CANDIDATE_ACTION, UNDO_CANDIDATE_ACTION, COMMIT_CANDIDATE_ACTION,
-    DIFF_CANDIDATE_ACTION,
+    DIFF_CANDIDATE_ACTION, DISCARD_CANDIDATE_ACTION,
 })
 
 _PREVIEW_LINES = 40
@@ -208,6 +216,8 @@ def settle_candidate(
         return CandidateOutcome(False, (), None, "No source change was produced; nothing to apply."), None
 
     manager.retain(workspace, candidate)
+    # The proof is recorded; the candidate's build output is now only disk use.
+    manager.prune_instrument_dirs(workspace)
     listed = ", ".join(candidate.paths[:8]) + (" …" if len(candidate.paths) > 8 else "")
     proof_line = (
         f"A {proof} of the candidate passed."
@@ -368,6 +378,52 @@ def apply_candidate(
             "candidate_import": facts,
             "tree_sha256": repository_tree_sha256(declared.root),
         },
+        verification_ran=True,
+        reason_code="verification_passed",
+    )
+
+
+def discard_candidate(
+    manager: GitWorkspaceManager | None,
+    declared: RepoConfig,
+    *,
+    task_id: str,
+    request_text: str,
+) -> TaskResult:
+    """Throw away one retained, unapplied candidate. Never touches the user's checkout."""
+    referent = discard_referent(request_text)
+    if referent is None:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was discarded: the request must name one full task ID.",
+                          False, reason_code="invalid_input")
+    if manager is None:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was discarded: candidate workspaces are not configured.",
+                          False, reason_code="unavailable_capability")
+    try:
+        workspace, candidate = manager.load(referent)
+    except (WorkspaceError, ValueError, KeyError) as exc:
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          "Nothing was discarded: no retained candidate for task "
+                          f"{referent} ({exc}).",
+                          False, reason_code="invalid_input")
+    if workspace.repository_root.resolve() != declared.root.resolve():
+        return TaskResult(task_id, TaskOutcome.BLOCKED,
+                          f"Nothing was discarded: task {referent} belongs to another repository.",
+                          False, reason_code="invalid_input")
+    # discard always removes the retained record, so /apply is impossible afterwards; a
+    # worktree that would not delete is reaped as an orphan at the next Session Hub start.
+    with contextlib.suppress(WorkspaceError):
+        manager.discard(workspace)
+    return TaskResult(
+        task_id, TaskOutcome.PASS,
+        f"Discarded the candidate from task {referent}. Your checkout was not touched; "
+        f"/apply {referent} is no longer possible.",
+        True,
+        metrics={"candidate_discard": {
+            "candidate_task_id": referent, "patch_sha256": candidate.sha256,
+            "paths": list(candidate.paths),
+        }},
         verification_ran=True,
         reason_code="verification_passed",
     )
@@ -546,6 +602,8 @@ def undo_candidate(
 
 
 __all__ = [
+    "DISCARD_CANDIDATE_ACTION",
+    "discard_candidate",
     "DIFF_CANDIDATE_ACTION",
     "diff_candidate",
     "COMMIT_CANDIDATE_ACTION",

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 from uuid import UUID
 
-ROLES = frozenset({"prepared", "applied", "apply_refused", "undone", "committed"})
+ROLES = frozenset({"prepared", "applied", "apply_refused", "undone", "committed", "discarded"})
 _KEYS = frozenset({
     "role", "candidate_task_id", "retained", "paths", "patch_sha256", "base_commit", "commit",
 })
@@ -114,6 +114,7 @@ def project_candidate(task_id: str, succeeded: bool, metrics: Mapping[str, Any])
         ("candidate_import", "applied", "apply_refused"),
         ("candidate_undo", "undone", None),
         ("candidate_commit", "committed", None),
+        ("candidate_discard", "discarded", None),
     ):
         action = metrics.get(key)
         if not isinstance(action, Mapping) or not action.get("candidate_task_id"):

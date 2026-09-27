@@ -920,3 +920,42 @@ def test_readable_patch_hides_binary_payloads_and_bounds_long_text():
     assert diffstat(patch) == ["  img.png | +0 -0", "  a.cpp | +1 -1"]
     cut, truncated = bounded("line\n" * 100, 50)
     assert truncated and len(cut) <= 50 and cut.endswith("\n")
+
+
+# ------------------------------------------------ disk use and /discard <task>
+
+
+def test_a_retained_candidate_keeps_no_build_output_and_still_applies(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    task_id = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, _fixing_turns())
+    prepared = controller.run("fix the build", task_id=task_id, skill_name="fix-build-failure")
+    assert prepared.verified_at_completion is True
+    workspace, _candidate = manager.load(task_id)
+    assert workspace.root.is_dir()
+    assert not (workspace.root / "build").exists(), "proven candidate kept its build directory"
+    assert _diff(controller, task_id).outcome is TaskOutcome.PASS
+    applied = _apply(controller, task_id)
+    assert applied.outcome is TaskOutcome.PASS, applied.answer
+    assert "build proof covers them" in applied.answer
+
+
+def test_discard_removes_an_unapplied_candidate_and_is_durable(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    task_id = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, _fixing_turns())
+    controller.run("fix the build", task_id=task_id, skill_name="fix-build-failure")
+    before = (sandbox.root / RING).read_bytes()
+
+    request = f"User request:\n/discard {task_id}"
+    discarded = controller.run(request, task_id=str(uuid4()), skill_name="discard-candidate")
+
+    assert discarded.outcome is TaskOutcome.PASS, discarded.answer
+    assert (sandbox.root / RING).read_bytes() == before
+    assert _worktrees(sandbox.root) == 1
+    assert _apply(controller, task_id).outcome is TaskOutcome.BLOCKED
+    facts = _round_trip(discarded)
+    assert (facts["role"], facts["candidate_task_id"], facts["retained"]) == ("discarded", task_id, False)
+    again = controller.run(request, task_id=str(uuid4()), skill_name="discard-candidate")
+    assert again.outcome is TaskOutcome.BLOCKED
+    assert decide_route(f"/discard {task_id}", active_repo_count=1).skill == "discard-candidate"
