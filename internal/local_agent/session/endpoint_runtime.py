@@ -144,6 +144,46 @@ class EndpointRuntime:
             self._condition.notify_all()
             return removed
 
+    def cancel_execution(self, task_id: str, execution_epoch: int) -> tuple[str, ...]:
+        """Fence endpoint work owned by one exact task execution.
+
+        Still-queued requests are removed and their waiters are woken. A grant that has
+        not yet escaped acquire is released because no caller can have started
+        inference. An already handed-out active lease is quarantined instead: fencing
+        reuse is safe, but this method does not claim the underlying inference stopped.
+
+        Returns request IDs removed before dispatch. An empty tuple with a matching
+        active lease therefore means quarantine, not successful endpoint cancellation.
+        """
+        with self._condition:
+            active = self.arbiter.active_lease
+            if (
+                active is not None
+                and active.request.task_id == task_id
+                and active.request.execution_epoch == execution_epoch
+            ):
+                pending_grant = self._granted.pop(active.request.request_id, None)
+                if pending_grant is not None:
+                    self.arbiter.release(active.lease_id)
+                    self._cancelled.add(active.request.request_id)
+                    self._pump_locked()
+                    self._condition.notify_all()
+                    return (active.request.request_id,)
+                self.arbiter.quarantine(
+                    "task execution stopped without proof underlying inference stopped",
+                    lease_id=active.lease_id,
+                )
+                self._condition.notify_all()
+                return ()
+
+            removed = self.arbiter.remove_queued_execution(task_id, execution_epoch)
+            for request in removed:
+                self._cancelled.add(request.request_id)
+            if removed:
+                self._pump_locked()
+                self._condition.notify_all()
+            return tuple(request.request_id for request in removed)
+
     def release(self, lease_id: str) -> EndpointLease:
         """Release a known-clean active lease, then grant the next eligible request."""
         with self._condition:
