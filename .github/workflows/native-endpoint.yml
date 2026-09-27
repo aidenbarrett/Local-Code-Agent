@@ -203,9 +203,9 @@ jobs:
             $config = Get-ChildItem -Path $env:OV_ROOT -Recurse -File |
               Where-Object { $_.Name -match '^(OpenVINOGenAI|openvinogenai)(Config|-config)\.cmake$' } | Select-Object -First 1
             if (-not $config) {
-              $found = Get-ChildItem -Path $env:OV_ROOT -Recurse -Filter '*.cmake' | Select-Object -First 30 |
-                ForEach-Object { $_.FullName.Substring($env:OV_ROOT.Length) }
-              throw ("no OpenVINO GenAI CMake package under " + $env:OV_ROOT + "; .cmake files: " + ($found -join ', '))
+              $dirs = Get-ChildItem -Path (Join-Path $env:OV_ROOT 'runtime') -Directory -Recurse -Depth 2 |
+                Select-Object -First 40 | ForEach-Object { $_.FullName.Substring($env:OV_ROOT.Length) }
+              throw ("no OpenVINO GenAI CMake package under " + $env:OV_ROOT + "; runtime holds: " + ($dirs -join ', '))
             }
             $cmake = $config.DirectoryName
             $dllDirs = Get-ChildItem -Path $env:OV_ROOT -Recurse -Filter '*.dll' |
@@ -253,7 +253,8 @@ jobs:
           # On failure, surface the tail of each log as annotations.
           report() {
             code=$?
-            for f in qualification.out harness.out endpoint.log; do
+            grep -E "^FAIL" qualification.out 2>/dev/null | head -5 | while IFS= read -r l; do echo "::error title=qualification::${l//%/%25}"; done
+            for f in harness.out endpoint.log; do
               [ -s "$f" ] && tail -n 3 "$f" | while IFS= read -r l; do echo "::error title=$f::${l//%/%25}"; done
             done
             exit $code
