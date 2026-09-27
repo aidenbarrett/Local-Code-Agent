@@ -49,16 +49,6 @@ def _patch_id(messages):
     raise AssertionError("no patch_id")
 
 
-def _build_turns():
-    return [
-        ChatResponse(tool_calls=[tool_call("build_target", {}, "b1")]),
-        ChatResponse(tool_calls=[tool_call("submit_answer", {
-            "claim": "failure", "summary": "compile errors in ring_buffer.cpp",
-            "evidence_ids": ["build_target:0"]}, "b2")]),
-        ChatResponse(content="The build fails: two compile errors in src/ring_buffer.cpp."),
-    ]
-
-
 def _fix_turns():
     return [
         ChatResponse(tool_calls=[tool_call("propose_patch", {"path": RING, "find": "++count;", "replace": "++count_;"}, "f1")]),
@@ -86,7 +76,8 @@ def test_build_fails_then_fix_it_apply_and_commit_through_the_public_path(sandbo
     _git(sandbox.root, "config", "user.name", "Dev")
     broken = (sandbox.root / RING).read_bytes()
 
-    scripts = iter([_build_turns(), _fix_turns()])
+    # "build it" is a configured check: no model runs it, so only the fix is scripted.
+    scripts = iter([_fix_turns()])
     service = DurableSessionService(SQLiteSessionStore(tmp_path / "session.db"),
                                     stream_id=str(uuid4()), session_id=str(uuid4()))
     try:

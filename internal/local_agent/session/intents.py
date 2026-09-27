@@ -12,12 +12,14 @@ import re
 from typing import Mapping, Sequence
 from uuid import UUID
 
+from .configured_checks import RUN_BUILD_CHECK, RUN_TEST_CHECK
 from .contracts import MAX_MESSAGE_CHARS, RouteSource
 
 
 RULE_GIT_REVIEW = "git-review/v1"
 RULE_REPO_NAVIGATION = "repo-navigation/v1"
 RULE_BUILD_AND_TEST = "build-and-test/v1"
+RULE_RUN_TESTS = "run-tests/v1"
 RULE_TASK_DIAGNOSTIC = "task-diagnostic/v1"
 RULE_FIX_REFERENT = "fix-referent/v1"
 RULE_FIX_BUILD = "fix-build-failure/v1"
@@ -179,6 +181,9 @@ _SYMBOL_LOOKUP = re.compile(
     re.IGNORECASE,
 )
 _BUILD = re.compile(r"^build (?:it|this|the repo|the repository)[.!]?$", re.IGNORECASE)
+_RUN_TESTS = re.compile(
+    r"^(?:run (?:the )?tests|test it|test this|run the test suite)[.!]?$", re.IGNORECASE,
+)
 _DIAGNOSTIC = re.compile(r"^why did that fail\??$", re.IGNORECASE)
 _EXPLICIT_DIAGNOSTIC = re.compile(r"^why did task (?P<task_id>\S+) fail\??$", re.IGNORECASE)
 _FIX = re.compile(r"^fix (?:it|that)[.!]?$", re.IGNORECASE)
@@ -420,7 +425,19 @@ def decide_route(
             objective=text,
             source=RouteSource.RULE,
             rule_id=RULE_BUILD_AND_TEST,
-            skill="build-and-test",
+            skill=RUN_BUILD_CHECK,
+        )
+
+    if _RUN_TESTS.fullmatch(stripped):
+        reason = _repository_target_reason(active_repo_count)
+        if reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_RUN_TESTS,
+            skill=RUN_TEST_CHECK,
         )
 
     explicit_diagnostic = _EXPLICIT_DIAGNOSTIC.fullmatch(stripped)
