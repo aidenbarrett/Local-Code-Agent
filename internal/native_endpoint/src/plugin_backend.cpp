@@ -1,4 +1,5 @@
 #include "plugin_backend.hpp"
+#include "utf8_path.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -82,7 +83,7 @@ extern "C" int32_t lca_endpoint_plugin_cancel(void* ctx) {
 
 SharedLibrary::SharedLibrary(const std::string& path_utf8) {
 #if defined(_WIN32)
-    const auto path = std::filesystem::u8path(path_utf8);
+    const auto path = path_from_utf8(path_utf8);
     handle_ = reinterpret_cast<void*>(LoadLibraryW(path.wstring().c_str()));
     if (!handle_) {
         throw BackendError(BackendErrorKind::Unavailable,

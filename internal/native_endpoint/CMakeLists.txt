@@ -161,6 +161,7 @@ if(LCA_ENDPOINT_TESTS)
     tests/test_openai_protocol.cpp
     tests/test_output_parser.cpp
     tests/test_plugin_backend.cpp
+    tests/test_utf8_path.cpp
   )
   target_link_libraries(lca_endpoint_tests PRIVATE lca_endpoint_core)
   target_compile_definitions(lca_endpoint_tests PRIVATE
