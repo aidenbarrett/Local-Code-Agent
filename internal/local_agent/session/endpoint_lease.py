@@ -214,11 +214,7 @@ class EndpointArbiter:
             UUID(task_id)
         except (TypeError, ValueError) as exc:
             raise ValueError("task id must be a UUID") from exc
-        if (
-            not isinstance(execution_epoch, int)
-            or isinstance(execution_epoch, bool)
-            or execution_epoch < 0
-        ):
+        if type(execution_epoch) is not int or execution_epoch < 0:
             raise ValueError("execution epoch must be a nonnegative integer")
         with self._lock:
             removed = tuple(
