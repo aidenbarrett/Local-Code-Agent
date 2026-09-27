@@ -40,6 +40,16 @@ def render_result_summary(task: TaskSnapshot) -> str:
         return "Result: IN PROGRESS — no durable verdict yet."
 
     if verdict == "VERIFIED":
+        if task.candidate is not None and task.candidate.role == "prepared":
+            if task.candidate.retained:
+                detail = scope or "controller verification passed"
+                detail = detail.replace("current-tree", "isolated candidate-tree")
+                return (
+                    f"Result: CANDIDATE READY — {detail}; not applied to your checkout. "
+                    f"Review with /diff {task.candidate.candidate_task_id}; "
+                    f"apply with /apply {task.candidate.candidate_task_id}."
+                )
+            return "Result: VERIFIED — candidate work completed without a retained change."
         detail = scope or "controller verification passed"
         return f"Result: VERIFIED — {detail}."
 
@@ -73,6 +83,8 @@ def render_result_evidence(task: TaskSnapshot) -> str:
         raise TypeError("result evidence requires TaskSnapshot")
 
     scope = _scope_text(task.verdict_scope) or "not established"
+    if task.candidate is not None and task.candidate.role == "prepared":
+        scope = scope.replace("current-tree", "isolated candidate-tree")
     evidence = ", ".join(task.evidence_ids) if task.evidence_ids else "none"
     verification = "not established"
     if task.result_verified_at_completion is True:
@@ -88,6 +100,17 @@ def render_result_evidence(task: TaskSnapshot) -> str:
         f"  Evidence IDs: {evidence}",
         f"  Verification: {verification}",
     ]
+    if task.candidate is not None:
+        candidate = task.candidate
+        lines.extend([
+            f"  Candidate state: {candidate.role}",
+            f"  Candidate task: {candidate.candidate_task_id}",
+            f"  Applied to checkout: {'no' if candidate.role == 'prepared' else 'candidate action recorded'}",
+        ])
+        if candidate.base_commit is not None:
+            lines.append(f"  Candidate base: {candidate.base_commit}")
+        if candidate.patch_sha256 is not None:
+            lines.append(f"  Candidate patch SHA-256: {candidate.patch_sha256}")
     if task.last_tool is not None:
         tool = task.last_tool
         execution = tool.execution or "finished"
