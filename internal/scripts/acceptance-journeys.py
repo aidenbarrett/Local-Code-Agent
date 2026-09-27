@@ -279,16 +279,19 @@ class Session:
             self.journey.tasks.append({"said": text, "seconds": round(seconds, 1), **_task_facts(result)})
         return str(box.get("answer", "")), result
 
-    def turn_async(self, text: str) -> threading.Thread:
+    def turn_async(self, text: str) -> AsyncTurn:
+        turn = AsyncTurn()
+
         def run() -> None:
             try:
                 answer = self.graph.gateway.turn(text)
                 self._write(text, answer)
             except BaseException as exc:  # noqa: BLE001 - recorded in the transcript
+                turn.error = exc
                 self._write(text, "ERROR: " + repr(exc))
-        thread = threading.Thread(target=run, name=f"journey-{self.journey.id}-async", daemon=True)
-        thread.start()
-        return thread
+        turn.thread = threading.Thread(target=run, name=f"journey-{self.journey.id}-async", daemon=True)
+        turn.thread.start()
+        return turn
 
     # -- durable facts
 
@@ -435,6 +438,7 @@ def j_stop_build(s: Session) -> None:
     s.journey.measured["stop_to_terminal_s"] = None if seconds == float("inf") else round(seconds, 2)
     expect(seconds != float("inf"), f"no terminal state within {s.runner.stop_budget:.0f}s of Stop")
     thread.join(30)
+    expect(thread.error is None, f"the stopped build turn raised {thread.error!r}"[:300])
     retained = s.graph.history.result_for_task(task_id)
     s.journey.measured["terminal"] = (
         {"status": retained.status, "verdict": retained.verdict} if retained else None
@@ -447,6 +451,18 @@ def j_stop_build(s: Session) -> None:
     s.journey.measured["surviving_processes"] = alive
     expect(not alive, f"{len(alive)} process(es) still running after Stop")
     s.journey.passed(f"Stop during a 10-minute build: terminal in {seconds:.1f}s, no surviving processes")
+
+
+@dataclass
+class AsyncTurn:
+    """A user turn running in the background, and what it raised, if anything."""
+
+    thread: threading.Thread | None = None
+    error: BaseException | None = None
+
+    def join(self, timeout: float) -> None:
+        if self.thread is not None:
+            self.thread.join(timeout)
 
 
 def j_stop_generation(s: Session) -> None:
@@ -465,6 +481,7 @@ def j_stop_generation(s: Session) -> None:
     s.journey.measured["stop_to_terminal_s"] = None if seconds == float("inf") else round(seconds, 2)
     expect(seconds != float("inf"), f"no terminal state within {s.runner.stop_budget:.0f}s of Stop")
     thread.join(30)
+    expect(thread.error is None, f"the stopped fix turn raised {thread.error!r}"[:300])
     result = s.graph.history.result_for_task(task_id)
     expect(result is not None, "the stopped fix has no retained terminal result")
     assert result is not None

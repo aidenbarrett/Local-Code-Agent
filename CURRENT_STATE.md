@@ -148,8 +148,8 @@ supports:
   J07 against a slow fixture endpoint (about 60 s per generation) on the #246 tree: Stop
   during model work reached a durable terminal in 128.6 s (on `ce32594` it reached none
   within 240 s), and the next turn was answered after the in-flight generation completed.
-  Stop is therefore bounded by one in-flight generation, not interrupted; the stopped turn
-  itself still raises `CancelUnreconciled` out of the gateway.
+  Stop is therefore bounded by one in-flight generation, not interrupted. The stopped turn
+  is answered with its durable `NO_VERDICT` / `cancel_unreconciled` terminal.
 - **The native endpoint is not a serving profile yet.** No preset or `serve.py` path
   launches it, and it has no NPU, Panther Lake or OVMS-comparison evidence. Its CI
   real-model check is a small model on a hosted CPU runner.
