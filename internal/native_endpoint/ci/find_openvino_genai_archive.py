@@ -31,12 +31,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release", required=True, help="for example 2026.3")
     parser.add_argument("--platform", required=True, choices=["ubuntu24", "windows"])
+    parser.add_argument("--list", action="store_true", help="print every file in the release folder")
     args = parser.parse_args(argv)
 
     with urlopen(f"{STORAGE}/filetree.json", timeout=120) as response:  # noqa: S310 - fixed public URL
         tree = json.load(response)
 
     folder = f"/repositories/openvino_genai/packages/{args.release}/"
+    if args.list:
+        for p in sorted(p for p in walk(tree) if folder in p):
+            print(p[p.index("/repositories/"):])
+        return 0
     suffix = r"\.tar\.gz" if args.platform == "ubuntu24" else r"\.zip"
     pattern = re.compile(
         rf"openvino_genai_{args.platform}_{re.escape(args.release)}(\.\d+)*_x86_64{suffix}$")
