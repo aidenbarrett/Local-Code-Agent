@@ -493,7 +493,7 @@ def j_stop_generation(s: Session) -> None:
     # The user carries on after a Stop. Whatever the endpoint state, the next turn must
     # get an answer (even "restart the Hub"), never a crash.
     try:
-        answer, _ = s.turn("what does this repository do?", timeout=s.runner.stop_budget * 5)
+        answer, _ = s.turn("thanks. what should I try next?", timeout=s.runner.stop_budget * 5)
     except TimeoutError:
         raise
     except Exception as exc:  # noqa: BLE001 - this is the observation, recorded below

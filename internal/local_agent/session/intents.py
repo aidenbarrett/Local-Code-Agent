@@ -177,7 +177,20 @@ class RouteCorrection:
 _GIT_REVIEW = re.compile(r"^what changed on my branch\??$", re.IGNORECASE)
 _REPO_INSPECT = re.compile(r"^inspect (?:this|the) (?:repo|repository)[.!]?$", re.IGNORECASE)
 _SYMBOL_LOOKUP = re.compile(
-    r"^where is (?P<symbol>[A-Za-z_~][A-Za-z0-9_:.<>~]*) defined\??$",
+    r"^where is (?P<symbol>[A-Za-z_~][A-Za-z0-9_:.<>~]*) (?:defined|declared|implemented)\??$",
+    re.IGNORECASE,
+)
+# Read-only questions about the active repository, in the shapes people actually ask.
+# Anchored like every rule here: a sentence merely containing these words keeps no
+# authority. They route to the read-only navigation skill, so the answer comes from
+# the repository's files and never from a conversation model that cannot see them.
+_REPO_QUESTION = re.compile(
+    r"^(?:what does (?:this|the) (?:repo|repository|project|codebase) do"
+    r"|what is (?:this|the) (?:repo|repository|project|codebase)(?: for)?"
+    r"|(?:describe|summari[sz]e|explain) (?:this|the) (?:repo|repository|project|codebase)"
+    r"|how is (?:this|the) (?:repo|repository|project|codebase) (?:built|tested|built and tested)"
+    r"|where is the (?:[a-z][a-z0-9_]*)(?: [a-z][a-z0-9_]*){0,3} implemented"
+    r")[?.!]?$",
     re.IGNORECASE,
 )
 _BUILD = re.compile(r"^build (?:it|this|the repo|the repository)[.!]?$", re.IGNORECASE)
@@ -392,7 +405,11 @@ def decide_route(
             skill="self-check",
         )
 
-    if _REPO_INSPECT.fullmatch(stripped) or _SYMBOL_LOOKUP.fullmatch(stripped):
+    if (
+        _REPO_INSPECT.fullmatch(stripped)
+        or _SYMBOL_LOOKUP.fullmatch(stripped)
+        or _REPO_QUESTION.fullmatch(stripped)
+    ):
         reason = _repository_target_reason(active_repo_count)
         if reason is not None:
             return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
