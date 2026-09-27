@@ -20,6 +20,7 @@ from typing import Any, Iterable
 
 PROFILE = "ptl-npu-8b"
 SCHEMA = "lca.panther-lake-acceptance/1"
+UNKNOWN = "UNKNOWN"
 
 
 class AcceptanceCaptureError(RuntimeError):
@@ -215,6 +216,77 @@ def finalize(preflight_path: Path, output: Path, evidence: list[Path], cold_ms: 
     return payload
 
 
+
+def render_summary(acceptance_path: Path) -> str:
+    """Render a compact, photographable projection of captured evidence.
+
+    This deliberately does not grade manual journeys or infer physical execution.
+    UNKNOWN is the only value for a fact the bundle does not establish.
+    """
+    payload = _load_json(acceptance_path, "acceptance evidence")
+    if payload.get("schema") != SCHEMA:
+        raise AcceptanceCaptureError("acceptance evidence schema is not the current contract")
+
+    repository = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
+    offline = payload.get("offline_gate") if isinstance(payload.get("offline_gate"), dict) else {}
+    runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+    model = payload.get("model_manifest_summary") if isinstance(payload.get("model_manifest_summary"), dict) else {}
+    qualification = payload.get("qualification_summary") if isinstance(payload.get("qualification_summary"), dict) else {}
+    latency = payload.get("latency_ms") if isinstance(payload.get("latency_ms"), dict) else {}
+
+    def shown(value: Any) -> str:
+        if value is None or value == "":
+            return UNKNOWN
+        if isinstance(value, bool):
+            return "VERIFIED" if value else "FAILED"
+        return str(value)
+
+    # Runtime profile schemas may evolve; only project fields that are actually
+    # present. A configured/requested device is not physical execution proof.
+    runtime_name = runtime.get("runtime") or runtime.get("name")
+    configured_device = runtime.get("device") or runtime.get("requested_device")
+    source_model = model.get("source_model")
+    head = repository.get("head")
+    short_head = head[:12] if isinstance(head, str) and head else UNKNOWN
+    phase = payload.get("phase")
+    captured = phase == "captured"
+
+    lines = [
+        "PANTHER LAKE OFFLINE ACCEPTANCE",
+        "",
+        f"Checkout        {short_head}",
+        f"Clean checkout  {shown(repository.get('clean'))}",
+        f"Offline gate    {shown(offline.get('passed'))}",
+        f"Profile         {shown(payload.get('profile'))}",
+        f"Model           {shown(source_model)}",
+        f"Runtime         {shown(runtime_name)}",
+        f"Device config   {shown(configured_device)}",
+        f"Device observed {UNKNOWN}",
+        f"Qualification   {shown(qualification.get('ok'))}",
+        f"Cold latency ms {shown(latency.get('cold')) if captured else UNKNOWN}",
+        f"Warm latency ms {shown(latency.get('warm')) if captured else UNKNOWN}",
+        "",
+        "MANUAL JOURNEYS (review required)",
+        f"Build journey   {UNKNOWN}",
+        f"Test journey    {UNKNOWN}",
+        f"Candidate       {UNKNOWN}",
+        f"Dirty checkout  {UNKNOWN}",
+        f"Stop            {UNKNOWN}",
+        f"Restart         {UNKNOWN}",
+        "",
+        f"Evidence bundle {_sha256(acceptance_path)}",
+        f"Overall         {'INCOMPLETE - HUMAN REVIEW REQUIRED' if captured else 'INCOMPLETE - PREFLIGHT ONLY'}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def write_summary(acceptance_path: Path, output: Path) -> str:
+    summary = render_summary(acceptance_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(summary, encoding="utf-8")
+    return summary
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
@@ -228,6 +300,9 @@ def parser() -> argparse.ArgumentParser:
     fin.add_argument("--cold-latency-ms", type=int, required=True)
     fin.add_argument("--warm-latency-ms", type=int, required=True)
     fin.add_argument("--evidence", type=Path, action="append", default=[], required=True)
+    summary = sub.add_parser("summary")
+    summary.add_argument("--acceptance", type=Path, required=True)
+    summary.add_argument("--output", type=Path)
     return p
 
 
@@ -236,8 +311,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "preflight":
             capture_preflight(args.repo, args.runtime_root, args.output)
-        else:
+        elif args.command == "finalize":
             finalize(args.preflight, args.output, args.evidence, args.cold_latency_ms, args.warm_latency_ms)
+        else:
+            summary = write_summary(args.acceptance, args.output) if args.output else render_summary(args.acceptance)
+            print(summary, end="")
     except (AcceptanceCaptureError, OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2
