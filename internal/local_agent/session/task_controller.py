@@ -237,6 +237,21 @@ class TaskController:
         return outcome
 
     @staticmethod
+    def _answer_with_model_failure(answer: str, run: RunResult) -> str:
+        """Say why the model could not be used, not only that it could not.
+
+        ``endpoint_unavailable`` alone does not tell anyone whether the server was
+        down, refused the connection, or the client could not even be built. The
+        orchestrator already recorded the transport's own words in the halt reason.
+        """
+        if run.state.halt_cause not in (HaltCause.SERVER_UNAVAILABLE, HaltCause.INFERENCE_STALLED):
+            return answer
+        detail = run.state.halt_reason or ""
+        if not detail or detail in answer:
+            return answer
+        return f"{answer}\n\n{detail}" if answer else detail
+
+    @staticmethod
     def _reason_code(run: RunResult, outcome: TaskOutcome) -> str:
         """Project typed worker facts into the product reason vocabulary."""
         if run.state.halt_cause is HaltCause.SERVER_UNAVAILABLE:
@@ -299,7 +314,7 @@ class TaskController:
         metrics = run.state.metrics.as_dict()
         metrics["proof_binding"] = binding_from_run(task, run, self.repo.root).as_dict()
         return TaskResult(
-            task_id, task_outcome, run.answer,
+            task_id, task_outcome, self._answer_with_model_failure(run.answer, run),
             verified,
             tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
             metrics,
@@ -397,7 +412,9 @@ class TaskController:
             )
             settled = True
             metrics["candidate"] = outcome.as_metrics(workspace)
-            answer = outcome.summary + ("\n\n" + run.answer if run.answer else "")
+            answer = self._answer_with_model_failure(
+                outcome.summary + ("\n\n" + run.answer if run.answer else ""), run,
+            )
             return TaskResult(
                 task_id, task_outcome, answer, verified,
                 tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
