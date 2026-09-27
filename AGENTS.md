@@ -29,6 +29,7 @@ The Session Hub is a projection of authoritative state, not a place to invent st
 | Verification | `internal/local_agent/tools/testing_tools.py`, `internal/docs/verification.md` |
 | Model profiles | `internal/local_agent/config.py` |
 | Product source identity | `internal/local_agent/provenance.py` |
+| Language standards (Python, C++, Rust) | `internal/docs/engineering-standards.md` |
 
 ## Provenance
 
@@ -51,6 +52,10 @@ Historical research is archived off the active branch. Do not recreate experimen
 Audit the old name/path everywhere, not only Python imports: dynamic imports, PowerShell, workflows, docs, config, packaging and tests. Search current callers first, move the owning implementation once, then make the old path disappear completely unless there is a real supported compatibility contract.
 
 A clean rename still needs imports/tests/CI. Text search alone does not prove behaviour.
+
+## Language standards
+
+All Python, C++ and Rust meets `internal/docs/engineering-standards.md`: static and compile-time guarantees first, validation once at each trust boundary. The fast gates enforce it as a ratchet: no file may gain a finding and new files start clean.
 
 ## Tests and CI
 

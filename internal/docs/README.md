@@ -5,6 +5,7 @@ Current source and CI own implementation truth. These documents describe contrac
 ## Normative contracts
 
 - `session-contract/v1/events.schema.json`: supported Session Hub event shape loaded by the runtime
+- `engineering-standards.md`: Python, C++ and Rust standards and the static ratchet that enforces them
 - `verification.md`: what counts as build/test proof and when it goes stale
 - `provenance/session-contract-source-identity.md`: why the event schema participates in source identity
 - `architecture/process-containment.md`: cancellation and cleanup claim boundaries

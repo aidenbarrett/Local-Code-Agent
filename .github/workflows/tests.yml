@@ -39,7 +39,9 @@ jobs:
           path: ci-job-evidence.json
           if-no-files-found: error
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,lint]"
+      - name: Static standards ratchet (strict mypy on linux and win32, ruff)
+        run: python internal/devtools/check_static_standards.py
       - name: CURRENT_STATE drift guard
         run: python internal/devtools/check_current_state_drift.py --max-behind 5
       - name: Session Hub acceptance gates
