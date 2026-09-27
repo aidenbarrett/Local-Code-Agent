@@ -470,7 +470,18 @@ def j_stop_generation(s: Session) -> None:
     expect(not (result.candidate and result.candidate.retained), "a stopped fix left an appliable candidate")
     alive = processes_under(s.repo)
     expect(not alive, f"{len(alive)} process(es) still running after Stop")
-    s.journey.passed(f"Stop during model work: terminal in {seconds:.1f}s, nothing retained, no processes")
+    # The user carries on after a Stop. Whatever the endpoint state, the next turn must
+    # get an answer (even "restart the Hub"), never a crash.
+    try:
+        answer, _ = s.turn("what does this repository do?", timeout=s.runner.stop_budget * 5)
+    except TimeoutError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - this is the observation, recorded below
+        s.journey.measured["next_turn_after_stop"] = f"raised {type(exc).__name__}: {exc}"[:400]
+        raise JourneyFailed(f"the turn after Stop crashed with {type(exc).__name__}: {exc}"[:300]) from exc
+    s.journey.measured["next_turn_after_stop"] = answer[:400]
+    s.journey.passed(f"Stop during model work: terminal in {seconds:.1f}s, nothing retained, no processes,"
+                     " and the next turn was answered")
 
 
 def j_fix_build(s: Session) -> None:
