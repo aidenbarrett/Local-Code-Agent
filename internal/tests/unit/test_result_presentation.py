@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from local_agent.session.candidate_facts import CandidateFacts
 from local_agent.session.result_presentation import render_result_evidence, render_result_summary
 from local_agent.session.task_read_model import TaskSnapshot
 from local_agent.session.textual_hub import HubViewState
@@ -135,3 +136,47 @@ def test_live_activity_keeps_evidence_separate_from_retained_worker_answer():
     assert rendered.index("Evidence:") < rendered.index("Retained result:")
     assert "Evidence IDs: ev-1" in rendered
     assert "Worker prose that is not verification authority." in rendered
+
+
+def test_retained_prepared_candidate_is_ready_not_checkout_verified():
+    task = _task(
+        verdict="VERIFIED",
+        reason="verification_passed",
+        scope="full_test; request_sha256=" + "f" * 64,
+    )
+    candidate_id = str(uuid4())
+    task.candidate = CandidateFacts(
+        role="prepared",
+        candidate_task_id=candidate_id,
+        retained=True,
+        paths=("src/widget.cpp",),
+        patch_sha256="1" * 64,
+        base_commit="2" * 40,
+        commit=None,
+    )
+    task.result_verification_ran = True
+    task.result_verified_at_completion = True
+
+    summary = render_result_summary(task)
+    evidence = render_result_evidence(task)
+
+    assert summary.startswith("Result: CANDIDATE READY")
+    assert "isolated candidate-tree test proof" in summary
+    assert "not applied to your checkout" in summary
+    assert f"/diff {candidate_id}" in summary
+    assert f"/apply {candidate_id}" in summary
+    assert "full current-tree test proof" not in summary
+    assert "Proof scope: full isolated candidate-tree test proof" in evidence
+    assert "Applied to checkout: no" in evidence
+    assert f"Candidate task: {candidate_id}" in evidence
+    assert "Candidate patch SHA-256: " + "1" * 64 in evidence
+
+
+def test_non_candidate_verified_result_keeps_current_tree_semantics():
+    task = _task(
+        verdict="VERIFIED",
+        reason="verification_passed",
+        scope="full_build; request_sha256=" + "a" * 64,
+    )
+    assert render_result_summary(task) == "Result: VERIFIED — full current-tree build proof."
+    assert "Proof scope: full current-tree build proof" in render_result_evidence(task)
