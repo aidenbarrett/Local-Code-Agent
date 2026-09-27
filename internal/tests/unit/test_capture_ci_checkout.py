@@ -129,6 +129,14 @@ def test_every_workflow_job_defines_unique_matrix_evidence_and_scope():
             "ci-job-serving-serving-${{ runner.os }}-${{ runner.arch }}-"
             "attempt-${{ github.run_attempt }}": "serving",
         },
+        root / ".github/workflows/native-endpoint.yml": {
+            "ci-job-native-endpoint-build-test-${{ runner.os }}-${{ runner.arch }}-"
+            "attempt-${{ github.run_attempt }}": "native-endpoint-build-conformance",
+            "ci-job-native-endpoint-sanitizers-${{ matrix.sanitizer }}-${{ runner.os }}-"
+            "${{ runner.arch }}-attempt-${{ github.run_attempt }}": "native-endpoint-sanitizers",
+            "ci-job-native-endpoint-openvino-genai-${{ runner.os }}-${{ runner.arch }}-"
+            "attempt-${{ github.run_attempt }}": "native-endpoint-openvino-genai",
+        },
     }
     for path, jobs in workflows.items():
         text = path.read_text(encoding="utf-8")
