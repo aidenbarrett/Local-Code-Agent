@@ -42,6 +42,7 @@ class EndpointRuntime:
         self._condition = Condition()
         self._granted: dict[str, EndpointLease] = {}
         self._cancelled: set[str] = set()
+        self._cancelled_executions: set[tuple[str, int]] = set()
 
     @property
     def endpoint_id(self) -> str:
@@ -84,6 +85,14 @@ class EndpointRuntime:
 
         started = monotonic()
         with self._condition:
+            if (
+                request.task_id is not None
+                and request.execution_epoch is not None
+                and (request.task_id, request.execution_epoch) in self._cancelled_executions
+            ):
+                raise EndpointRequestCancelled(
+                    "task execution was cancelled before endpoint dispatch"
+                )
             self.arbiter.enqueue(request)
             self._pump_locked()
             while True:
@@ -156,6 +165,7 @@ class EndpointRuntime:
         active lease therefore means quarantine, not successful endpoint cancellation.
         """
         with self._condition:
+            self._cancelled_executions.add((task_id, execution_epoch))
             active = self.arbiter.active_lease
             if (
                 active is not None
