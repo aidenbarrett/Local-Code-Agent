@@ -254,7 +254,7 @@ def test_live_hub_labels_prepared_candidate_as_not_applied(tmp_path):
                     "result_ref": ref,
                 }
             },
-            closed_payload={"status": "succeeded", "result_ref": ref, "cleanup": "not_needed"},
+            closed_payload={"status": "completed", "result_ref": ref, "cleanup": "not_needed"},
             result_bytes=payload,
         ).wait(5)
 
