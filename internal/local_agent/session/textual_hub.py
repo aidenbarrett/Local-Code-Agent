@@ -188,13 +188,23 @@ def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
     if candidate is None:
         return ()
     if candidate.role == "prepared" and candidate.retained:
+        paths = tuple(candidate.paths)
+        visible_paths = paths[:5]
+        path_lines = tuple(f"  {path}" for path in visible_paths)
+        hidden = len(paths) - len(visible_paths)
+        if hidden:
+            path_lines += (f"  … and {hidden} more",)
         return (
             "Candidate: READY · NOT APPLIED",
             f"Candidate task: {candidate.candidate_task_id}",
             f"Candidate base: {candidate.base_commit or 'unknown'}",
             f"Candidate patch: {candidate.patch_sha256 or 'unknown'}",
+            f"Changed files ({len(paths)}):",
+            *path_lines,
             "Proof applies to the isolated candidate tree, not the checkout.",
+            f"Review: /diff {candidate.candidate_task_id}",
             f"Apply: /apply {candidate.candidate_task_id}",
+            f"Discard: /discard {candidate.candidate_task_id}",
         )
     labels = {
         "applied": "Candidate: APPLIED · checkout import verified",
