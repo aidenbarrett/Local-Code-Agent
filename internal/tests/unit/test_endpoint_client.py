@@ -5,7 +5,12 @@ from uuid import uuid4
 import pytest
 
 from local_agent.session.endpoint_call import EndpointCallAdapter
-from local_agent.session.endpoint_client import ManagedLLMClient, ManagedWorkerClientFactory
+from local_agent.llm.protocol import LLMTransportError
+from local_agent.session.endpoint_client import (
+    ManagedLLMClient,
+    ManagedWorkerClientFactory,
+    ModelEndpointQuarantinedError,
+)
 from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRole, EndpointUnavailable
 from local_agent.session.endpoint_runtime import EndpointRuntime
 
@@ -72,10 +77,37 @@ def test_transport_exception_quarantines_endpoint_instead_of_freeing_it():
         client.chat([])
     assert runtime.arbiter.quarantined is True
     assert runtime.arbiter.active_lease is not None
-    with pytest.raises(EndpointUnavailable):
-        ManagedLLMClient(
-            RecordingClient(), adapter, role=EndpointRole.CONVERSATION, session_id=str(uuid4())
-        ).chat([])
+    after = RecordingClient()
+    with pytest.raises(ModelEndpointQuarantinedError, match="endpoint is quarantined") as refused:
+        ManagedLLMClient(after, adapter, role=EndpointRole.CONVERSATION, session_id=str(uuid4())).chat([])
+    # Nothing was sent, and the refusal is a transport failure every caller handles.
+    assert after.calls == []
+    assert isinstance(refused.value, LLMTransportError) and refused.value.kind == "unavailable"
+    assert isinstance(refused.value.__cause__, EndpointUnavailable)
+
+
+def test_a_worker_refused_by_a_quarantined_endpoint_sees_an_unavailable_model():
+    runtime, adapter = _adapter()
+    runtime.arbiter.quarantine("task execution stopped without proof underlying inference stopped")
+    raw = RecordingClient()
+    client = ManagedLLMClient(
+        raw, adapter, role=EndpointRole.WORKER, session_id=str(uuid4()),
+        task_id=str(uuid4()), execution_epoch=0,
+    )
+    with pytest.raises(LLMTransportError, match="without proof underlying inference stopped"):
+        client.chat([], [{"type": "function"}])
+    assert raw.calls == []
+
+
+def test_a_model_client_error_is_not_mistaken_for_a_quarantine_refusal():
+    _runtime, adapter = _adapter()
+    client = ManagedLLMClient(
+        RecordingClient(failure=EndpointUnavailable("raised by the model client itself")), adapter,
+        role=EndpointRole.CONVERSATION, session_id=str(uuid4()),
+    )
+    with pytest.raises(EndpointUnavailable) as raised:
+        client.chat([])
+    assert not isinstance(raised.value, LLMTransportError)
 
 
 def test_conversation_client_refuses_task_execution_authority():

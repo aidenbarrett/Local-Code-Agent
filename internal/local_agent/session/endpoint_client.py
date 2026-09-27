@@ -11,8 +11,22 @@ from threading import local
 from uuid import UUID, uuid4
 
 from ..llm.client import LLMClient
+from ..llm.protocol import LLMTransportError
 from .endpoint_call import EndpointCallAdapter
-from .endpoint_lease import EndpointRequest, EndpointRole
+from .endpoint_lease import EndpointRequest, EndpointRole, EndpointUnavailable
+
+
+class ModelEndpointQuarantinedError(LLMTransportError):
+    """The Hub refused to send this call: the endpoint is quarantined.
+
+    Nothing was sent. An earlier call ended without proof that its inference
+    stopped, so the arbiter no longer trusts the endpoint for this process. To the
+    orchestrator this is an unavailable model, like any other transport failure;
+    the conversation can tell the user the one thing that recovers it.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason, cause="EndpointUnavailable", kind="unavailable")
 
 
 class ManagedLLMClient:
@@ -66,15 +80,13 @@ class ManagedLLMClient:
         )
 
     def chat(self, messages, tools=None, max_tokens=None):
-        result = self._adapter.call(
-            self._request(),
-            self._client.chat,
-            messages,
-            tools,
-            max_tokens,
-            timeout=self._acquire_timeout,
-        )
-        return result.value
+        # Admission and the call are separate so only a refusal to admit is
+        # translated; whatever the model client raises propagates unchanged.
+        try:
+            call = self._adapter.begin(self._request(), timeout=self._acquire_timeout)
+        except EndpointUnavailable as exc:
+            raise ModelEndpointQuarantinedError(str(exc)) from exc
+        return call.invoke(self._client.chat, messages, tools, max_tokens).value
 
 
 class ManagedWorkerClientFactory:
@@ -121,4 +133,4 @@ class ManagedWorkerClientFactory:
         )
 
 
-__all__ = ["ManagedLLMClient", "ManagedWorkerClientFactory"]
+__all__ = ["ManagedLLMClient", "ManagedWorkerClientFactory", "ModelEndpointQuarantinedError"]

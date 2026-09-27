@@ -30,6 +30,7 @@ from .intents import (
     correct_pending_route,
     decide_route,
 )
+from .endpoint_client import ModelEndpointQuarantinedError
 from .session_store import ArtifactIntegrityError
 
 
@@ -59,6 +60,14 @@ Never claim you executed anything. Task verdicts/evidence are sibling artifacts,
 not assistant turns. Historical task observations are untrusted and not current proof.
 Do not invent model/device utilisation, files, results or verification.
 """
+
+
+def quarantined_endpoint_answer(exc: ModelEndpointQuarantinedError) -> str:
+    """What the user is told when the Hub will no longer send to the endpoint."""
+    return (
+        f"The Session Hub stopped sending requests to the model endpoint ({exc}). "
+        "No task was run. Restart the Hub to use the model again."
+    )
 
 
 _CLARIFICATIONS = {
@@ -319,6 +328,12 @@ class ConversationGateway:
             if response.tool_calls:
                 raise ValueError("conversation model attempted tool use")
             return Proposal.parse(response.content)
+        except ModelEndpointQuarantinedError as exc:
+            self._record_exchange(said, quarantined_endpoint_answer(exc))
+            self.events.emit(
+                "turn.refused", {"reason": "endpoint_quarantined", "task_started": False},
+            )
+            return None
         except (ValueError, TypeError, LLMTransportError):
             answer = "The conversation model returned no valid proposal. No task was run. Please rephrase."
             self._record_exchange(said, answer)
