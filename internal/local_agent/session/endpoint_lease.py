@@ -199,6 +199,41 @@ class EndpointArbiter:
         alternate = self._work if self._next_class == QueueClass.CHAT else self._chat
         return preferred if preferred else alternate if alternate else None
 
+    def remove_queued_execution(
+        self,
+        task_id: str,
+        execution_epoch: int,
+    ) -> tuple[EndpointRequest, ...]:
+        """Remove every queued worker request for one exact task execution.
+
+        Conversation requests never carry task authority and are therefore untouched.
+        The task/epoch pair is the cancellation identity; callers must not guess a
+        request UUID from presentation state.
+        """
+        try:
+            UUID(task_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("task id must be a UUID") from exc
+        if (
+            not isinstance(execution_epoch, int)
+            or isinstance(execution_epoch, bool)
+            or execution_epoch < 0
+        ):
+            raise ValueError("execution epoch must be a nonnegative integer")
+        with self._lock:
+            removed = tuple(
+                request
+                for request in self._work
+                if request.task_id == task_id and request.execution_epoch == execution_epoch
+            )
+            if not removed:
+                return ()
+            removed_ids = {request.request_id for request in removed}
+            self._work = deque(
+                request for request in self._work if request.request_id not in removed_ids
+            )
+            return removed
+
     def acquire_next(self) -> EndpointLease | None:
         """Acquire at most one request; never queue work inside the endpoint server."""
         with self._lock:
