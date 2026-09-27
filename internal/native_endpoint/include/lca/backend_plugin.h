@@ -33,6 +33,11 @@
  *   and returns LCA_STATUS_CANCELLED. The endpoint only reports a request as
  *   finished once generate() has actually returned, so the time a backend
  *   takes to honour cancellation is measured, not assumed.
+ * - Stream the model's text with special tokens kept (do not skip them):
+ *   markers such as <think> and <tool_call> are single tokens in some
+ *   vocabularies and the endpoint parses them. The chat template's
+ *   end-of-turn markers are stop strings at the endpoint, so emitting them is
+ *   harmless.
  * - The sink may ask the backend to stop (LCA_SINK_STOP), for example because
  *   a stop string matched. That is a normal finish, not a cancellation:
  *   return LCA_STATUS_OK with finish_reason LCA_FINISH_STOPPED_BY_SINK.

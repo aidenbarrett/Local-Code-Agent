@@ -46,7 +46,7 @@ Implement `lca_backend_get_api()` returning an `lca_backend_api` table:
 | `create(config_json, …)` | Load and compile the model. The JSON is operator-supplied and passed through untouched. |
 | `describe(…)` | Runtime name/version, requested and **observed** device, model id, context limit, `load_ms`, `compile_ms`. Report `null` for anything the runtime did not actually measure or observe. |
 | `count_tokens(text, …)` | Token count without special tokens. Used for context admission. |
-| `generate(params, sink, cancel_requested, …)` | Stream UTF-8 pieces into `sink`, poll `cancel_requested` at least once per token (and during prefill where possible), stop when the sink says so, fill `lca_generation_stats` (unknown values negative). |
+| `generate(params, sink, cancel_requested, …)` | Stream UTF-8 pieces into `sink` with special tokens kept (`<think>` and `<tool_call>` are single tokens in the Qwen3 vocabulary; the template's end-of-turn markers are stop strings at the endpoint), poll `cancel_requested` at least once per token (and during prefill where possible), stop when the sink says so, fill `lca_generation_stats` (unknown values negative). |
 
 The header documents the full contract: threading (one thread, one call at a time),
 struct versioning via `struct_size`, error buffers and finish reasons. Build it as a

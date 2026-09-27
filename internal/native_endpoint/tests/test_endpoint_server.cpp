@@ -22,6 +22,9 @@ FixtureConfig qualification_fixture() {
                        "<tool_call>\n{\"name\": \"echo_value\", \"arguments\": {\"value\": \"READY\"}}\n</tool_call>"});
     c.rules.push_back({"Think first", "<think>\nweighing it\n</think>\n\nDecided."});
     c.rules.push_back({"Reply with exactly READY", "READY"});
+    // A backend that streams special tokens verbatim, as the GenAI one does.
+    c.rules.push_back({"Stream special tokens", "<tool_call>\n{\"name\": \"echo_value\", \"arguments\": {}}\n</tool_call><|im_end|>\nleaked"});
+    c.rules.push_back({"End the turn", "done<|im_end|>\nnot part of the answer"});
     return c;  // no default reply: endless filler
 }
 
@@ -205,6 +208,28 @@ TEST_CASE("tool calls are structured when tools are offered") {
         }
     }
     CHECK(saw_call);
+}
+
+TEST_CASE("the template's end-of-turn marker ends the answer and is never emitted") {
+    RunningServer s;
+    auto cli = s.client();
+    auto res = cli.Post("/v1/chat/completions", chat_body("End the turn", false), "application/json");
+    REQUIRE(res);
+    const auto body = ordered_json::parse(res->body);
+    CHECK(body["choices"][0]["message"]["content"] == "done");
+    CHECK(body["choices"][0]["finish_reason"] == "stop");
+
+    const auto streamed = stream_chat(s, chat_body("End the turn", true));
+    CHECK(streamed.done);
+    CHECK(streamed_content(streamed) == "done");
+
+    const std::string tools = R"(, "tools": [{"type": "function", "function": {"name": "echo_value"}}])";
+    auto call = cli.Post("/v1/chat/completions", chat_body("Stream special tokens", false, tools), "application/json");
+    REQUIRE(call);
+    const auto call_body = ordered_json::parse(call->body);
+    CHECK(call_body["choices"][0]["finish_reason"] == "tool_calls");
+    CHECK(call_body["choices"][0]["message"]["content"].is_null());
+    CHECK(call_body["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "echo_value");
 }
 
 TEST_CASE("reasoning is separated from the answer") {

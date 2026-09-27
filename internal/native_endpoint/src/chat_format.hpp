@@ -36,6 +36,9 @@ struct RenderedPrompt {
     // True when the prompt ends inside an open <think> block, so the first
     // generated text is reasoning rather than answer.
     bool opens_in_reasoning = false;
+    // Text that ends the assistant turn in this template. The endpoint treats
+    // these as stop strings, so a backend may stream special tokens verbatim.
+    std::vector<std::string> end_of_turn_markers;
 };
 
 // Python json.dumps(value, ensure_ascii=False) with default separators and

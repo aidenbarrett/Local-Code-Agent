@@ -187,6 +187,7 @@ RenderedPrompt render_chatml_hermes_prompt(const std::vector<ChatMessage>& messa
     }
     rendered.text = std::move(out);
     rendered.opens_in_reasoning = false;
+    rendered.end_of_turn_markers = {"<|im_end|>", "<|endoftext|>"};
     return rendered;
 }
 

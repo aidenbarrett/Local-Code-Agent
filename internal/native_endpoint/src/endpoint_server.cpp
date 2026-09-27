@@ -391,6 +391,8 @@ void EndpointServer::install_routes() {
         job.request.sampling = parsed.sampling;
         job.requested_max_tokens = parsed.max_tokens;
         job.stop_strings = parsed.stop;
+        job.stop_strings.insert(job.stop_strings.end(), prompt.end_of_turn_markers.begin(),
+                                prompt.end_of_turn_markers.end());
         job.parse_tool_calls = parsed.tools_enabled;
         job.opens_in_reasoning = prompt.opens_in_reasoning;
         job.channel = channel;

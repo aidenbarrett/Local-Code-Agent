@@ -34,6 +34,7 @@ TEST_CASE("plain conversation renders as ChatML with a generation prompt") {
           "<|im_start|>user\nHi<|im_end|>\n"
           "<|im_start|>assistant\n");
     CHECK_FALSE(p.opens_in_reasoning);
+    CHECK(p.end_of_turn_markers == std::vector<std::string>{"<|im_end|>", "<|endoftext|>"});
 }
 
 TEST_CASE("enable_thinking=false closes an empty think block") {

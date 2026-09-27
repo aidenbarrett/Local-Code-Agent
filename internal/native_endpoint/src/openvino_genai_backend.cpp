@@ -7,6 +7,7 @@
 #include <limits>
 
 #include <openvino/genai/llm_pipeline.hpp>
+#include <openvino/genai/text_streamer.hpp>
 #include <openvino/genai/version.hpp>
 #include <openvino/runtime/core.hpp>
 
@@ -103,8 +104,8 @@ public:
 
         bool sink_stopped = false;
         std::exception_ptr sink_error;
-        std::function<ov::genai::StreamingStatus(std::string)> on_text =
-            [&](std::string piece) -> ov::genai::StreamingStatus {
+        std::function<ov::genai::CallbackTypeVariant(std::string)> on_text =
+            [&](std::string piece) -> ov::genai::CallbackTypeVariant {
             if (cancel.requested()) return ov::genai::StreamingStatus::CANCEL;
             try {
                 if (sink(piece) == SinkAction::Stop) {
@@ -119,9 +120,17 @@ public:
             return ov::genai::StreamingStatus::RUNNING;
         };
 
+        // Keep special tokens in the text: <tool_call> and <think> are tokens in
+        // the Qwen3 vocabulary and the endpoint's parser needs to see them. The
+        // chat template's end-of-turn markers are stop strings at the endpoint.
+        auto streamer = std::make_shared<ov::genai::TextStreamer>(
+            *tokenizer_, on_text, ov::AnyMap{{"skip_special_tokens", false}});
+
         ov::genai::DecodedResults results;
         try {
-            results = pipeline_->generate(request.prompt, config, ov::genai::StreamerVariant{on_text});
+            results = pipeline_->generate(request.prompt, config,
+                                          ov::genai::StreamerVariant{
+                                              std::static_pointer_cast<ov::genai::StreamerBase>(streamer)});
         } catch (const std::exception& e) {
             if (sink_error) std::rethrow_exception(sink_error);
             throw BackendError(BackendErrorKind::Internal, std::string("generation failed: ") + e.what());

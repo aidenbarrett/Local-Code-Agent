@@ -169,10 +169,16 @@ jobs:
           $url = python internal/native_endpoint/ci/find_openvino_genai_archive.py --release $env:OPENVINO_GENAI_RELEASE --platform windows
           if ($LASTEXITCODE -ne 0) { throw "archive lookup failed" }
           Write-Host "archive: $url"
+          $ErrorActionPreference = 'Stop'
           $zip = Join-Path $env:RUNNER_TEMP 'ov.zip'
           Invoke-WebRequest -Uri $url -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'ov-unpacked')
-          $root = (Get-ChildItem (Join-Path $env:RUNNER_TEMP 'ov-unpacked') -Directory | Select-Object -First 1).FullName
+          $dest = Join-Path $env:RUNNER_TEMP 'ov-unpacked'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          # 7-Zip, not Expand-Archive: the latter reports some entry failures as
+          # non-terminating errors and leaves a partial tree behind.
+          7z x $zip "-o$dest" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "extracting $zip failed with $LASTEXITCODE" }
+          $root = (Get-ChildItem $dest -Directory | Select-Object -First 1).FullName
           "OV_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build with the OpenVINO GenAI backend (Linux)
