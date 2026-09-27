@@ -14,7 +14,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any, assert_never
 
 from ..config import RepoConfig
 from .contracts import TaskOutcome, TaskResult
@@ -27,7 +27,22 @@ from .intents import (
     undo_referent,
 )
 from .proof_binding import repository_tree_sha256
-from .workspaces import CandidatePatch, GitWorkspaceManager, Workspace, WorkspaceError
+from .workspaces import (
+    CandidatePatch,
+    CommitDrifted,
+    CommitMismatched,
+    CommitRefused,
+    CommitResult,
+    Committed,
+    GitWorkspaceManager,
+    Workspace,
+    WorkspaceError,
+)
+
+if TYPE_CHECKING:
+    from ..agent.orchestrator import RunResult
+    from ..agent.policy import Decision
+    from ..tools.tool_primitives import Tool
 
 # Skills whose purpose is to change source. They never run against the user's checkout.
 # Each maps to the full proof its candidate must pass, in the skill's own terms.
@@ -50,7 +65,7 @@ _REQUIRED_PROOF_KINDS = {
 }
 
 
-def candidate_proof_satisfied(skill: str, run) -> bool:
+def candidate_proof_satisfied(skill: str, run: RunResult) -> bool:
     """Whether the worker's current-epoch history holds the proof this skill requires.
 
     Requires the orchestrator's own `verified` (no later contradiction on the current
@@ -59,10 +74,9 @@ def candidate_proof_satisfied(skill: str, run) -> bool:
     if not run.state.verified:
         return False
     required = _REQUIRED_PROOF_KINDS[skill]
-    epoch = int(run.state.mutation_epoch)
+    epoch = run.state.mutation_epoch
     return any(
-        int(getattr(record, "epoch", -1)) == epoch and getattr(record, "proof", None) in required
-        for record in run.state.history
+        record.epoch == epoch and record.proof in required for record in run.state.history
     )
 
 # Controller-owned actions admitted like skills but executed without a model or tools.
@@ -96,18 +110,25 @@ def readable_patch(patch: bytes) -> str:
     return "\n".join(out) + ("\n" if text.endswith("\n") and out else "")
 
 
+@dataclass(slots=True)
+class _FileStat:
+    path: str
+    added: int = 0
+    removed: int = 0
+
+
 def diffstat(patch: bytes) -> list[str]:
     """One `path | +added -removed` line per file in the patch."""
-    stats: list[list] = []
+    stats: list[_FileStat] = []
     for line in patch.decode("utf-8", "replace").splitlines():
         if line.startswith("diff --git "):
             path = line.split(" b/", 1)[-1] if " b/" in line else line[len("diff --git "):]
-            stats.append([path, 0, 0])
+            stats.append(_FileStat(path))
         elif stats and line.startswith("+") and not line.startswith("+++"):
-            stats[-1][1] += 1
+            stats[-1].added += 1
         elif stats and line.startswith("-") and not line.startswith("---"):
-            stats[-1][2] += 1
-    return [f"  {p} | +{a} -{r}" for p, a, r in stats]
+            stats[-1].removed += 1
+    return [f"  {s.path} | +{s.added} -{s.removed}" for s in stats]
 
 
 def bounded(text: str, limit: int) -> tuple[str, bool]:
@@ -128,7 +149,7 @@ def controller_action_sha256(name: str) -> str:
 _CANDIDATE_APPROVED_TOOLS = frozenset({"apply_patch"})
 
 
-def candidate_workspace_approval(tool, arguments: dict[str, Any], decision) -> bool:
+def candidate_workspace_approval(tool: Tool, arguments: dict[str, Any], decision: Decision) -> bool:
     return tool.name in _CANDIDATE_APPROVED_TOOLS
 
 
@@ -504,44 +525,65 @@ def commit_candidate(
         f"LCA-Task: {referent}\n"
     )
     done = manager.commit_applied(referent, declared.root, message)
-    facts = {
+    facts = _commit_facts(referent, done)
+    match done:
+        case Committed(commit=commit, branch=branch, paths=paths):
+            return TaskResult(
+                task_id, TaskOutcome.PASS,
+                f"Committed the change from task {referent} as {commit[:12]} on "
+                f"{branch}: " + ", ".join(paths) + ".\n"
+                "Only those files were committed; anything else you had staged is still "
+                "staged. Your git hooks were not run. Nothing was pushed.",
+                True,
+                metrics={"candidate_commit": facts,
+                         "tree_sha256": repository_tree_sha256(declared.root)},
+                verification_ran=True,
+                reason_code="verification_passed",
+            )
+        case CommitMismatched(commit=commit):
+            return TaskResult(
+                task_id, TaskOutcome.FAIL,
+                f"A commit {commit[:12]} was created but does not contain exactly the applied "
+                "change. Inspect it before doing anything else.",
+                False, metrics={"candidate_commit": facts}, reason_code="verification_failed",
+            )
+        case CommitDrifted(drifted=drifted):
+            return TaskResult(
+                task_id, TaskOutcome.FAIL,
+                "Nothing was committed. These files changed after the change was applied: "
+                + ", ".join(drifted) + ".",
+                False, metrics={"candidate_commit": facts}, reason_code="scope_changed",
+            )
+        case CommitRefused(reason=reason):
+            return TaskResult(
+                task_id, TaskOutcome.BLOCKED,
+                f"Nothing was committed: {reason}.",
+                False, metrics={"candidate_commit": facts}, reason_code="invalid_input",
+            )
+        case _:
+            assert_never(done)
+
+
+def _commit_facts(referent: str, done: CommitResult) -> dict[str, object]:
+    """The typed commit facts the retained result projects; unchanged wire shape."""
+    match done:
+        case Committed(commit=commit, branch=branch) | CommitMismatched(commit=commit, branch=branch):
+            known_commit: str | None = commit
+            known_branch: str | None = branch
+            drifted: tuple[str, ...] = ()
+        case CommitDrifted(branch=branch, drifted=drifted):
+            known_commit, known_branch = None, branch
+        case CommitRefused(branch=branch, existing_commit=existing):
+            known_commit, known_branch, drifted = existing, branch, ()
+        case _:
+            assert_never(done)
+    return {
         "candidate_task_id": referent,
-        "commit": done.commit,
-        "branch": done.branch,
+        "commit": known_commit,
+        "branch": known_branch,
         "paths": list(done.paths),
-        "drifted": list(done.drifted),
+        "drifted": list(drifted),
     }
-    if done.committed:
-        return TaskResult(
-            task_id, TaskOutcome.PASS,
-            f"Committed the change from task {referent} as {done.commit[:12]} on "
-            f"{done.branch}: " + ", ".join(done.paths) + ".\n"
-            "Only those files were committed; anything else you had staged is still "
-            "staged. Your git hooks were not run. Nothing was pushed.",
-            True,
-            metrics={"candidate_commit": facts, "tree_sha256": repository_tree_sha256(declared.root)},
-            verification_ran=True,
-            reason_code="verification_passed",
-        )
-    if done.mismatched:
-        return TaskResult(
-            task_id, TaskOutcome.FAIL,
-            f"A commit {done.commit[:12]} was created but does not contain exactly the applied "
-            "change. Inspect it before doing anything else.",
-            False, metrics={"candidate_commit": facts}, reason_code="verification_failed",
-        )
-    if done.drifted:
-        return TaskResult(
-            task_id, TaskOutcome.FAIL,
-            "Nothing was committed. These files changed after the change was applied: "
-            + ", ".join(done.drifted) + ".",
-            False, metrics={"candidate_commit": facts}, reason_code="scope_changed",
-        )
-    return TaskResult(
-        task_id, TaskOutcome.BLOCKED,
-        "Nothing was committed: " + (done.refused_reason or "refused") + ".",
-        False, metrics={"candidate_commit": facts}, reason_code="invalid_input",
-    )
 
 
 def undo_candidate(

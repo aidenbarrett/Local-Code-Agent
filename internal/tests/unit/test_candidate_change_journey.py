@@ -569,7 +569,12 @@ def test_commit_records_exactly_the_applied_change_and_leaves_other_staging_alon
     assert _git_out(sandbox.root, "diff", "--cached", "--name-only").split() == ["NOTES.md"]
     assert "Nothing was pushed" in result.answer
 
-    assert _commit(controller, candidate_task).outcome is TaskOutcome.BLOCKED, "commit is single-use"
+    again = _commit(controller, candidate_task)
+    assert again.outcome is TaskOutcome.BLOCKED, "commit is single-use"
+    # The refusal names the existing commit and never reports a new one as made.
+    assert commit[:12] in again.answer
+    assert again.metrics["candidate_commit"]["commit"] == commit
+    assert _git_out(sandbox.root, "rev-parse", "HEAD").strip() == commit
     undo = _undo(controller, candidate_task)
     assert undo.outcome is TaskOutcome.BLOCKED and "committed" in undo.answer
     assert "++count_;" in (sandbox.root / RING).read_text(encoding="utf-8")
@@ -595,6 +600,8 @@ def test_commit_refuses_drift_and_detached_head_without_committing(sandbox, tmp_
                                      encoding="utf-8")
     drifted = _commit(controller, candidate_task)
     assert drifted.outcome is TaskOutcome.FAIL and drifted.reason_code == "scope_changed"
+    assert drifted.metrics["candidate_commit"]["drifted"] == [RING]
+    assert drifted.metrics["candidate_commit"]["commit"] is None
 
     subprocess.run(["git", "checkout", "-q", "--detach"], cwd=sandbox.root, check=True)
     detached = _commit(controller, candidate_task)

@@ -29,12 +29,13 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Protocol
+from typing import IO, Protocol
 
 import psutil
 
@@ -90,7 +91,7 @@ def new_run_dir(run_root: Path) -> tuple[str, Path]:
     return run_id, path
 
 
-def _best_effort_windows_tree_kill(proc: subprocess.Popen) -> None:
+def _best_effort_windows_tree_kill(proc: subprocess.Popen[bytes]) -> None:
     """Reconcile the visible tree, without claiming Job-Object containment."""
     try:
         parent = psutil.Process(proc.pid)
@@ -121,7 +122,7 @@ def _best_effort_windows_tree_kill(proc: subprocess.Popen) -> None:
 
 
 def _kill_process_tree_best_effort(
-    proc: subprocess.Popen, job: "windows_job.ProcessTreeJob | None" = None
+    proc: subprocess.Popen[bytes], job: "windows_job.ProcessTreeJob | None" = None
 ) -> bool:
     """Best-effort cleanup; return whether whole-tree cleanup is proven."""
     if job is not None:
@@ -131,25 +132,25 @@ def _kill_process_tree_best_effort(
             # answer stays unconfirmed: only job accounting may say the tree is gone.
             _best_effort_windows_tree_kill(proc)
         return confirmed
-    if os.name == "nt":
+    if sys.platform == "win32":
         _best_effort_windows_tree_kill(proc)
         # Enumeration is not containment. A Windows Job Object is required before
         # this runner may return True here.
         return False
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        # start_new_session=True makes the direct child the process-group leader, so
+        # killpg reliably kills processes that stayed in that group. It cannot prove
+        # that a descendant did not call setsid()/setpgid() first and escape. A cgroup
+        # (or equivalent containment primitive) is required before POSIX may return
+        # True here.
+        return False
 
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    # start_new_session=True makes the direct child the process-group leader, so
-    # killpg reliably kills processes that stayed in that group. It cannot prove
-    # that a descendant did not call setsid()/setpgid() first and escape. A cgroup
-    # (or equivalent containment primitive) is required before POSIX may return
-    # True here.
-    return False
 
-
-def _bounded_reap(proc: subprocess.Popen) -> None:
+def _bounded_reap(proc: subprocess.Popen[bytes]) -> None:
     """Reap the direct child without ever turning cleanup into a hang."""
     try:
         proc.wait(timeout=_POST_KILL_WAIT_S)
@@ -169,7 +170,7 @@ def _bounded_reap(proc: subprocess.Popen) -> None:
         pass
 
 
-def _snapshot_capture(capture: BinaryIO) -> str:
+def _snapshot_capture(capture: IO[bytes]) -> str:
     """Read a fixed-length snapshot without moving an inherited file offset."""
     size = os.fstat(capture.fileno()).st_size
     if size == 0:
@@ -248,7 +249,7 @@ def run_command(
             tempfile.TemporaryFile(mode="w+b") as stdout_capture,
             tempfile.TemporaryFile(mode="w+b") as stderr_capture,
         ):
-            def spawn(suspended: bool) -> subprocess.Popen:
+            def spawn(suspended: bool) -> subprocess.Popen[bytes]:
                 return subprocess.Popen(
                     [exe, *command[1:]],
                     cwd=str(cwd),

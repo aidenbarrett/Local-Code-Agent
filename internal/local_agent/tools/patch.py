@@ -35,7 +35,6 @@ def _protected(ctx: ToolContext) -> tuple[str, ...]:
     holds the history the evaluator reads. None of the three is the project.
     """
     return (ctx.repo.build_dir, ctx.repo.run_dir, ".local-agent", ".git")
-from .tool_context import ToolContext
 
 
 @dataclass
@@ -120,27 +119,29 @@ def _tolerant_replace(original: str, find: str, replace: str) -> tuple[str | Non
         if len(seen) == 1 and next(iter(seen)) > 0:
             ratio = next(iter(seen))
     file_block = [_indent(line) for line in lines[start:start + len(key)]]
-    file_uses_tabs = all(not i.strip("\t") for i in file_block) and any("\t" in i for i in file_block)
+    file_uses_tabs = (
+        all(not i.strip("\t") for i in file_block) and any("\t" in i for i in file_block)
+    )
     model_depths = [
         len(_indent(w)) - len(model_indent) for w in wanted
         if w.strip() and not _indent(w).strip(" ") and len(_indent(w)) > len(model_indent)
     ]
     tab_unit = min(model_depths) if file_uses_tabs and model_depths else None
-    body = []
-    for line in replace.splitlines():
-        extra = _indent(line)[len(model_indent):] if line.startswith(model_indent) else None
-        if tab_unit and line.strip() and extra is not None and not extra.strip(" "):
-            line = file_indent + "\t" * round(len(extra) / tab_unit) + line.lstrip(" \t")
-            body.append(line)
-            continue
-        if line.startswith(model_indent) and line.strip():
-            extra = _indent(line)[len(model_indent):]
-            depth = len(extra) if spaces_only and not extra.strip(" ") else None
-            if depth is not None:
-                line = file_indent + " " * round(depth * ratio) + line.lstrip(" ")
-            else:
-                line = file_indent + line[len(model_indent):]
-        body.append(line)
+
+    def reindent(line: str) -> str:
+        """One replacement line moved from the model's indentation onto the file's."""
+        if not line.startswith(model_indent):
+            return line
+        extra = _indent(line)[len(model_indent):]
+        if tab_unit and line.strip() and not extra.strip(" "):
+            return file_indent + "\t" * round(len(extra) / tab_unit) + line.lstrip(" \t")
+        if not line.strip():
+            return line
+        if spaces_only and not extra.strip(" "):
+            return file_indent + " " * round(len(extra) * ratio) + line.lstrip(" ")
+        return file_indent + line[len(model_indent):]
+
+    body = [reindent(line) for line in replace.splitlines()]
     last = lines[start + len(key) - 1]
     ending = "\n" if last.endswith("\n") else ""
     replacement = "\n".join(body) + (ending if body else "")

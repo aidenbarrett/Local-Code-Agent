@@ -39,11 +39,6 @@
    "internal/local_agent/session/cancellation.py": {
     "redundant-expr": 8
    },
-   "internal/local_agent/session/candidate_change.py": {
-    "index": 2,
-    "no-untyped-def": 2,
-    "type-arg": 1
-   },
    "internal/local_agent/session/cli.py": {
     "arg-type": 1,
     "no-untyped-def": 2
@@ -224,15 +219,8 @@
    "internal/local_agent/tools/logs.py": {
     "assignment": 1
    },
-   "internal/local_agent/tools/process_runner.py": {
-    "type-arg": 4
-   },
    "internal/local_agent/tools/tool_primitives.py": {
     "union-attr": 1
-   },
-   "internal/local_agent/tools/windows_job.py": {
-    "no-untyped-call": 2,
-    "no-untyped-def": 2
    },
    "internal/local_agent/verification.py": {
     "no-untyped-def": 1
@@ -299,11 +287,6 @@
    },
    "internal/local_agent/session/cancellation.py": {
     "redundant-expr": 8
-   },
-   "internal/local_agent/session/candidate_change.py": {
-    "index": 2,
-    "no-untyped-def": 2,
-    "type-arg": 1
    },
    "internal/local_agent/session/cli.py": {
     "arg-type": 1,
@@ -484,18 +467,8 @@
    "internal/local_agent/tools/logs.py": {
     "assignment": 1
    },
-   "internal/local_agent/tools/process_runner.py": {
-    "arg-type": 2,
-    "attr-defined": 2,
-    "type-arg": 4
-   },
    "internal/local_agent/tools/tool_primitives.py": {
     "union-attr": 1
-   },
-   "internal/local_agent/tools/windows_job.py": {
-    "no-untyped-call": 2,
-    "no-untyped-def": 2,
-    "unused-ignore": 4
    },
    "internal/local_agent/verification.py": {
     "no-untyped-def": 1
@@ -898,7 +871,6 @@
    },
    "internal/local_agent/session/workspaces.py": {
     "C416": 3,
-    "E501": 13,
     "PLR0911": 1,
     "RUF022": 1,
     "S603": 1
@@ -929,11 +901,7 @@
     "UP035": 1
    },
    "internal/local_agent/tools/patch.py": {
-    "E402": 1,
-    "E501": 1,
-    "F811": 1,
-    "PLR0915": 1,
-    "PLW2901": 3
+    "PLR0915": 1
    },
    "internal/local_agent/tools/process_runner.py": {
     "FBT001": 1,
@@ -1010,5 +978,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1121
+ "total": 1068
 }
