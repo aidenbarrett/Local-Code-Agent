@@ -74,6 +74,27 @@ Pass the actual journey evidence plus measured cold/warm latency values required
 
 Finalization ties the supplied evidence to the checkout and offline preflight. It must not self-certify whether screenshots/logs prove physical device utilisation or whether every user journey met its contract. That judgement remains an explicit acceptance review against `TRICKS.md`.
 
+
+## 7. Render the photographable summary
+
+After finalization, render a compact projection for the one-way test machine:
+
+```powershell
+.\.venv-workstation\Scripts\python.exe internal\scripts\panther-lake-acceptance.py summary `
+  --acceptance "$env:LOCALAPPDATA\LocalCodeAgent\reports\panther-lake-acceptance.json" `
+  --output "$env:LOCALAPPDATA\LocalCodeAgent\reports\panther-lake-summary.txt"
+```
+
+The summary is deliberately not another acceptance authority. It shows only facts present in
+the captured bundle, prints `UNKNOWN` for unreviewed journeys and observed-device execution,
+and includes the SHA-256 of the full acceptance JSON. That JSON contains the hashes of the
+detailed evidence files which remain on the test machine. A configured NPU profile is never
+promoted into observed NPU execution.
+
+The text is intentionally compact enough to photograph when evidence cannot leave the
+machine electronically.
+
+
 ## What remains manual
 
 - interacting with the real Textual Session Hub
