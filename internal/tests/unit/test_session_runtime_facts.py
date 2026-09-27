@@ -4,6 +4,15 @@ from dataclasses import replace
 
 from local_agent.config import MODEL_PRESETS
 from local_agent.llm.protocol import LLMTransportError
+from uuid import uuid4
+
+import pytest
+
+from local_agent.session.conversation_gateway import ConversationGateway
+from local_agent.session.endpoint_call import EndpointCallAdapter
+from local_agent.session.endpoint_client import ManagedLLMClient
+from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRole
+from local_agent.session.endpoint_runtime import EndpointRuntime
 from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.runtime_facts import RuntimeFacts
 from local_agent.session.runtime_facts_gateway import RuntimeFactsGateway
@@ -72,6 +81,30 @@ def test_transport_failure_names_the_endpoint_and_never_says_rephrase():
         "Reason: endpoint_unavailable. No task was run."
     )
     assert "rephrase" not in answer.lower()
+
+
+@pytest.mark.parametrize("hub", ["base", "runtime_facts"])
+def test_turns_after_a_quarantine_are_answered_and_say_how_to_recover(hub):
+    runtime = EndpointRuntime(EndpointArbiter("http://127.0.0.1:18010/v3"))
+    runtime.arbiter.quarantine("task execution stopped without proof underlying inference stopped")
+    model = _NoModelClient()
+    client = ManagedLLMClient(model, EndpointCallAdapter(runtime),
+                              role=EndpointRole.CONVERSATION, session_id=str(uuid4()))
+    events = EventBuffer("quarantined")
+    if hub == "base":
+        gateway = ConversationGateway(client, _Controller(), events)
+    else:
+        gateway = RuntimeFactsGateway(client, _Controller(), events, runtime_facts=_facts())
+
+    # Every later turn is answered; none raises out of the gateway.
+    for said in ("did the stop work?", "hello there"):
+        answer = gateway.turn(said)
+        assert "without proof underlying inference stopped" in answer
+        assert "Restart the Hub" in answer and "No task was run." in answer
+        assert "rephrase" not in answer.lower()
+    assert model.calls == 0
+    refused = [e for e in events.after(0) if e.kind == "turn.refused"]
+    assert [e.payload["reason"] for e in refused] == ["endpoint_quarantined"] * 2
 
 
 def test_runtime_header_uses_observed_models_response_and_marks_device_declared():

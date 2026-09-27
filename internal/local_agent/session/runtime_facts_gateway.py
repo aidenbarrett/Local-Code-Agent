@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from ..llm.protocol import LLMTransportError
 from .contracts import MAX_MESSAGE_CHARS, Proposal
-from .conversation_gateway import ConversationGateway
+from .conversation_gateway import ConversationGateway, quarantined_endpoint_answer
+from .endpoint_client import ModelEndpointQuarantinedError
 from .runtime_facts import RuntimeFacts
 
 
@@ -73,6 +74,12 @@ class RuntimeFactsGateway(ConversationGateway):
             if response.tool_calls:
                 raise ValueError("conversation model attempted tool use")
             return Proposal.parse(response.content)
+        except ModelEndpointQuarantinedError as exc:
+            self._record_exchange(said, quarantined_endpoint_answer(exc))
+            self.events.emit(
+                "turn.refused", {"reason": "endpoint_quarantined", "task_started": False},
+            )
+            return None
         except LLMTransportError:
             answer = (
                 f"Model endpoint unreachable at {self.runtime_facts.endpoint}. "
