@@ -29,13 +29,18 @@ def _conversation_request(endpoint_id: str, session_id: str = "session-a") -> En
     )
 
 
-def _work_request(endpoint_id: str) -> EndpointRequest:
+def _work_request(
+    endpoint_id: str,
+    *,
+    task_id: str | None = None,
+    execution_epoch: int = 0,
+) -> EndpointRequest:
     return EndpointRequest(
         request_id=str(uuid4()),
         endpoint_id=endpoint_id,
         role=EndpointRole.WORKER,
-        task_id=str(uuid4()),
-        execution_epoch=0,
+        task_id=task_id or str(uuid4()),
+        execution_epoch=execution_epoch,
     )
 
 
@@ -257,3 +262,84 @@ def test_managed_lease_cannot_be_released_after_it_is_quarantined():
     with pytest.raises(EndpointLeaseConflict, match="cannot release"):
         lease.release()
     assert lease.reconcile(known_stopped=True) is True
+def test_cancel_execution_removes_only_exact_queued_task_epoch_and_wakes_waiter():
+    endpoint_id = "ovms:npu:8000"
+    runtime = EndpointRuntime(EndpointArbiter(endpoint_id))
+    blocker = runtime.acquire(_conversation_request(endpoint_id), timeout=0.1)
+    task_id = str(uuid4())
+    target = _work_request(endpoint_id, task_id=task_id, execution_epoch=4)
+    other_epoch = _work_request(endpoint_id, task_id=task_id, execution_epoch=5)
+    errors = {}
+
+    def wait_target():
+        try:
+            runtime.acquire(target, timeout=None)
+        except BaseException as exc:
+            errors["target"] = exc
+
+    def wait_other():
+        try:
+            lease = runtime.acquire(other_epoch, timeout=2)
+            lease.release()
+        except BaseException as exc:
+            errors["other"] = exc
+
+    target_thread = threading.Thread(target=wait_target)
+    other_thread = threading.Thread(target=wait_other)
+    target_thread.start()
+    _wait_until_queued(runtime, target.request_id)
+    other_thread.start()
+    _wait_until_queued(runtime, other_epoch.request_id)
+
+    assert runtime.cancel_execution(task_id, 4) == (target.request_id,)
+    target_thread.join(1)
+    assert isinstance(errors.get("target"), EndpointRequestCancelled)
+    assert runtime.arbiter.pending_position(target.request_id) is None
+    assert runtime.arbiter.pending_position(other_epoch.request_id) is not None
+
+    blocker.release()
+    other_thread.join(1)
+    assert "other" not in errors
+
+
+def test_cancel_execution_quarantines_handed_out_active_inference_authority():
+    endpoint_id = "ovms:npu:8000"
+    runtime = EndpointRuntime(EndpointArbiter(endpoint_id))
+    task_id = str(uuid4())
+    lease = runtime.acquire(
+        _work_request(endpoint_id, task_id=task_id, execution_epoch=7),
+        timeout=0.1,
+    )
+
+    assert runtime.cancel_execution(task_id, 7) == ()
+    assert runtime.arbiter.quarantined is True
+    assert runtime.arbiter.active_lease is not None
+    assert runtime.arbiter.active_lease.lease_id == lease.lease_id
+    with pytest.raises(EndpointUnavailable):
+        runtime.acquire(_conversation_request(endpoint_id), timeout=0.1)
+
+    assert lease.state == "open"
+    # Runtime quarantine is an ownership fence, not proof that inference stopped.
+    assert runtime.reconcile_quarantine(lease.lease_id, known_stopped=False) is False
+    assert runtime.arbiter.quarantined is True
+    assert runtime.reconcile_quarantine(lease.lease_id, known_stopped=True) is True
+    assert runtime.arbiter.active_lease is None
+
+def test_cancel_execution_fences_a_late_request_for_the_revoked_epoch():
+    endpoint_id = "ovms:npu:8000"
+    runtime = EndpointRuntime(EndpointArbiter(endpoint_id))
+    task_id = str(uuid4())
+
+    assert runtime.cancel_execution(task_id, 11) == ()
+    with pytest.raises(EndpointRequestCancelled, match="before endpoint dispatch"):
+        runtime.acquire(
+            _work_request(endpoint_id, task_id=task_id, execution_epoch=11),
+            timeout=0.1,
+        )
+
+    # A later epoch is a distinct authority and is not silently cancelled.
+    lease = runtime.acquire(
+        _work_request(endpoint_id, task_id=task_id, execution_epoch=12),
+        timeout=0.1,
+    )
+    lease.release()

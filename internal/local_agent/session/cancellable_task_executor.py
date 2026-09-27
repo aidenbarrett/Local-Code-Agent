@@ -250,6 +250,9 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 task_id=task_id,
             )
             receipt.wait(30)
+            cancel_endpoint = getattr(self.controller, "cancel_endpoint_execution", None)
+            if callable(cancel_endpoint):
+                cancel_endpoint(task_id, execution_epoch)
             return decision
 
     def _run_fenced(

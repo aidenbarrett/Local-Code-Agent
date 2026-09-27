@@ -73,13 +73,13 @@ class ManagedEndpointCall:
             raise
 
         try:
-            self.lease.release()
+            self.lease.complete_call()
         except BaseException:
             with self._lock:
                 self._state = "release_failed"
             raise
         with self._lock:
-            self._state = "released"
+            self._state = self.lease.state
         return EndpointCallResult(value=value, wait_ms=self.wait_ms, lease_id=self.lease_id)
 
     def release_without_call(self) -> None:
