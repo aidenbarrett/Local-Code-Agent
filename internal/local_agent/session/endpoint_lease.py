@@ -177,7 +177,9 @@ class EndpointArbiter:
             if request.request_id in self._all_request_ids():
                 raise EndpointLeaseConflict("endpoint request id is already active or queued")
             if request.queue_class == QueueClass.CHAT:
-                assert request.session_id is not None
+                if request.session_id is None:
+                    # Construction already requires it; refuse rather than assert (-O).
+                    raise ValueError("a chat lease request must carry a session id")
                 pending_for_session = sum(
                     item.session_id == request.session_id for item in self._chat
                 )

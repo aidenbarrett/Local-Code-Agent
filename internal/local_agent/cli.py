@@ -75,7 +75,8 @@ def cmd_skills(args: argparse.Namespace) -> int:
         return 1
     for name in skills.names():
         skill = skills.get(name)
-        assert skill is not None
+        if skill is None:
+            raise RuntimeError(f"skill {name!r} is listed but cannot be loaded")
         print(f"{name}")
         print(f"  {skill.description}")
         print(f"  body: {len(skill.body.splitlines())} lines, "

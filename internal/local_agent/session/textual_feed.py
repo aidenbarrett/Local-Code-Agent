@@ -150,9 +150,10 @@ class DurableHubFeed:
         changed = False
         try:
             batch = self._handoff.live.drain(limit=limit)
-        except SubscriptionGap:
+        except SubscriptionGap as gap:
             changed = bool(self._recover_gap())
-            assert self._handoff is not None
+            if self._handoff is None:
+                raise RuntimeError("feed gap recovery produced no live handoff") from gap
             batch = self._handoff.live.drain(limit=limit)
         if batch:
             self._accept(batch)
