@@ -47,7 +47,7 @@ def test_summary_projects_only_observed_bundle_facts(tmp_path: Path) -> None:
     assert "Cold latency ms 1200" in summary
     assert "Build journey   UNKNOWN" in summary
     assert "Stop            UNKNOWN" in summary
-    assert "Overall         INCOMPLETE — HUMAN REVIEW REQUIRED" in summary
+    assert "Overall         INCOMPLETE - HUMAN REVIEW REQUIRED" in summary
     assert hashlib.sha256(path.read_bytes()).hexdigest() in summary
 
 
@@ -71,7 +71,7 @@ def test_summary_does_not_promote_preflight_to_acceptance(tmp_path: Path) -> Non
     assert "Cold latency ms UNKNOWN" in summary
     assert "Warm latency ms UNKNOWN" in summary
     assert "Device observed UNKNOWN" in summary
-    assert "Overall         INCOMPLETE — PREFLIGHT ONLY" in summary
+    assert "Overall         INCOMPLETE - PREFLIGHT ONLY" in summary
 
 
 def test_summary_refuses_wrong_schema(tmp_path: Path) -> None:
