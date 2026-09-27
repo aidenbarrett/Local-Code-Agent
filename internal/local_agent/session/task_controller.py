@@ -227,6 +227,10 @@ class TaskController:
         outcome = TaskOutcome(run.outcome.value)
         if run.state.halt_cause in (HaltCause.SERVER_UNAVAILABLE, HaltCause.INFERENCE_STALLED):
             return TaskOutcome.NO_VERDICT
+        if run.state.halt_cause is HaltCause.CONTEXT_BUDGET_EXHAUSTED:
+            # The profile could not hold the task. Nothing about the code was decided,
+            # so this is not a FAILED verdict, whatever the worker's own outcome was.
+            return TaskOutcome.BLOCKED
         if outcome.succeeded and not run.state.verified:
             # The worker completed its job, but the tree is not proven. If the last
             # current-epoch proof is an observed build or test failure, the honest
@@ -244,7 +248,10 @@ class TaskController:
         down, refused the connection, or the client could not even be built. The
         orchestrator already recorded the transport's own words in the halt reason.
         """
-        if run.state.halt_cause not in (HaltCause.SERVER_UNAVAILABLE, HaltCause.INFERENCE_STALLED):
+        if run.state.halt_cause not in (
+            HaltCause.SERVER_UNAVAILABLE, HaltCause.INFERENCE_STALLED,
+            HaltCause.CONTEXT_BUDGET_EXHAUSTED,
+        ):
             return answer
         detail = run.state.halt_reason or ""
         if not detail or detail in answer:
