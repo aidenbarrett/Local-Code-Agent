@@ -903,7 +903,7 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
         "",
     ]
     for journey in journeys:
-        lines.append(f"{journey.id:<16} {journey.status:<18} {journey.seconds:>7.1f}s  {journey.reason}"[:160])
+        lines.append(f"{journey.id:<22} {journey.status:<18} {journey.seconds:>7.1f}s  {journey.reason}"[:160])
     lines += ["", f"Report SHA-256 {report_sha}"]
     return "\n".join(lines) + "\n"
 
