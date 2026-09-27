@@ -22,6 +22,12 @@ coverage = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
 ]
+# Static standards gate (internal/docs/engineering-standards.md). Exact pins: a
+# different checker version reports different findings, which would move the ratchet.
+lint = [
+    "mypy==1.20.2",
+    "ruff==0.15.11",
+]
 parallel = [
     "pytest>=8.0",
     "pytest-xdist>=3.6",
@@ -41,3 +47,56 @@ include = ["local_agent*"]
 [tool.pytest.ini_options]
 testpaths = ["internal/tests"]
 addopts = "-q"
+
+# Static standards: internal/docs/engineering-standards.md is the owner of these rules.
+# internal/devtools/check_static_standards.py enforces them as a ratchet against
+# internal/static-standards-baseline.json: no file may gain a finding, new files start clean.
+[tool.mypy]
+python_version = "3.11"
+files = ["internal/local_agent", "internal/devtools"]
+mypy_path = "internal"
+explicit_package_bases = true
+strict = true
+warn_unreachable = true
+extra_checks = true
+enable_error_code = [
+    "ignore-without-code",
+    "redundant-expr",
+    "truthy-bool",
+    "possibly-undefined",
+    "unused-awaitable",
+]
+
+# Third-party packages are treated as opaque (Any) whether or not they are installed, so
+# the finding set is identical on every machine. Values from them must be validated at the
+# boundary where they enter our code, which is where the typing starts to bind.
+[[tool.mypy.overrides]]
+module = ["openai", "openai.*", "textual", "textual.*", "psutil", "psutil.*", "jsonschema", "jsonschema.*"]
+follow_imports = "skip"
+follow_untyped_imports = false
+ignore_missing_imports = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["internal"]
+include = ["internal/local_agent/**/*.py", "internal/devtools/**/*.py"]
+
+[tool.ruff.lint]
+select = [
+    "F",      # pyflakes: undefined names, unused imports
+    "E", "W", # pycodestyle
+    "B",      # bugbear: mutable defaults, loop-variable capture, silent misuse
+    "S",      # bandit: shell injection, unsafe deserialisation, weak crypto, asserts as checks
+    "BLE",    # blind except: no swallowing BaseException/Exception without re-raise
+    "DTZ",    # naive datetimes
+    "ASYNC",  # blocking calls in async code
+    "UP",     # modern syntax for the supported Python
+    "C4", "PERF", "SIM", "PIE", "RUF",
+    "ARG",    # unused arguments
+    "N",      # naming
+    "T20",    # print in product code
+    "FBT001", "FBT002", # boolean positional parameters (make interfaces hard to misuse)
+    "PLE", "PLW",
+    "PLR0911", "PLR0912", "PLR0913", "PLR0915", # size/complexity budgets
+]

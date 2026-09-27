@@ -1,0 +1,1014 @@
+{
+ "findings": {
+  "mypy-linux": {
+   "internal/devtools/check_merge_enforcement.py": {
+    "unreachable": 1
+   },
+   "internal/devtools/check_test_import_boundaries.py": {
+    "union-attr": 1
+   },
+   "internal/local_agent/agent/contracts.py": {
+    "no-untyped-def": 5,
+    "unreachable": 1
+   },
+   "internal/local_agent/agent/orchestrator.py": {
+    "assignment": 3,
+    "no-untyped-def": 1,
+    "operator": 1,
+    "possibly-undefined": 3,
+    "union-attr": 5
+   },
+   "internal/local_agent/cli.py": {
+    "no-untyped-def": 3,
+    "type-arg": 1
+   },
+   "internal/local_agent/llm/client.py": {
+    "no-untyped-call": 3
+   },
+   "internal/local_agent/llm/model_tiers.py": {
+    "call-arg": 1
+   },
+   "internal/local_agent/llm/protocol.py": {
+    "no-untyped-def": 1,
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/cancellable_task_executor.py": {
+    "no-untyped-def": 2,
+    "union-attr": 1
+   },
+   "internal/local_agent/session/cancellation.py": {
+    "redundant-expr": 8
+   },
+   "internal/local_agent/session/candidate_change.py": {
+    "index": 2,
+    "no-untyped-def": 2,
+    "type-arg": 1
+   },
+   "internal/local_agent/session/cli.py": {
+    "arg-type": 1,
+    "no-untyped-def": 2
+   },
+   "internal/local_agent/session/contracts.py": {
+    "index": 1,
+    "no-untyped-def": 1,
+    "redundant-expr": 1,
+    "union-attr": 1
+   },
+   "internal/local_agent/session/conversation_gateway.py": {
+    "attr-defined": 1,
+    "no-any-return": 3,
+    "no-untyped-def": 3,
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/conversation_store.py": {
+    "assignment": 1,
+    "attr-defined": 4,
+    "no-untyped-call": 2,
+    "redundant-expr": 1,
+    "return-value": 1,
+    "type-arg": 1
+   },
+   "internal/local_agent/session/durable_activity.py": {
+    "no-untyped-def": 2,
+    "redundant-expr": 4
+   },
+   "internal/local_agent/session/durable_routes.py": {
+    "arg-type": 2,
+    "assignment": 1,
+    "call-overload": 1,
+    "no-untyped-def": 1,
+    "redundant-expr": 4
+   },
+   "internal/local_agent/session/durable_task_controller.py": {
+    "no-any-return": 2,
+    "no-untyped-def": 7,
+    "unreachable": 3,
+    "var-annotated": 1
+   },
+   "internal/local_agent/session/durable_tool_registry.py": {
+    "misc": 3,
+    "no-untyped-def": 3,
+    "union-attr": 1
+   },
+   "internal/local_agent/session/durable_watch.py": {
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/session/endpoint_call.py": {
+    "exit-return": 1,
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/session/endpoint_client.py": {
+    "no-untyped-def": 3,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/endpoint_lease.py": {
+    "redundant-expr": 6
+   },
+   "internal/local_agent/session/endpoint_runtime.py": {
+    "exit-return": 1,
+    "no-untyped-def": 1,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/event_buffer.py": {
+    "no-any-return": 1,
+    "type-arg": 2
+   },
+   "internal/local_agent/session/event_contract.py": {
+    "assignment": 1,
+    "no-any-return": 1,
+    "unreachable": 1
+   },
+   "internal/local_agent/session/intents.py": {
+    "redundant-expr": 6,
+    "unreachable": 1
+   },
+   "internal/local_agent/session/process_stop.py": {
+    "arg-type": 1,
+    "misc": 2
+   },
+   "internal/local_agent/session/proof_binding.py": {
+    "no-untyped-def": 2,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/results.py": {
+    "assignment": 1,
+    "redundant-expr": 4,
+    "union-attr": 3
+   },
+   "internal/local_agent/session/runtime_facts.py": {
+    "no-any-return": 1
+   },
+   "internal/local_agent/session/runtime_facts_gateway.py": {
+    "no-untyped-def": 2,
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/self_check.py": {
+    "no-untyped-call": 2,
+    "no-untyped-def": 2
+   },
+   "internal/local_agent/session/session_event_service.py": {
+    "no-untyped-def": 1,
+    "union-attr": 2
+   },
+   "internal/local_agent/session/session_store.py": {
+    "no-any-return": 2,
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/session/task_admission.py": {
+    "no-untyped-def": 4,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/task_controller.py": {
+    "arg-type": 1,
+    "no-any-return": 1,
+    "no-untyped-def": 8,
+    "redundant-expr": 1,
+    "union-attr": 2
+   },
+   "internal/local_agent/session/task_read_model.py": {
+    "type-arg": 4
+   },
+   "internal/local_agent/session/terminal_truth.py": {
+    "no-untyped-def": 1,
+    "type-arg": 1
+   },
+   "internal/local_agent/session/textual_dispatch.py": {
+    "exit-return": 1,
+    "no-untyped-def": 3
+   },
+   "internal/local_agent/session/textual_feed.py": {
+    "no-untyped-def": 1,
+    "type-arg": 3
+   },
+   "internal/local_agent/session/textual_hub.py": {
+    "misc": 2,
+    "redundant-expr": 2,
+    "type-arg": 1
+   },
+   "internal/local_agent/session/textual_live_app.py": {
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/textual_route_read_model.py": {
+    "type-arg": 4
+   },
+   "internal/local_agent/session/textual_runtime.py": {
+    "exit-return": 1,
+    "no-untyped-def": 2
+   },
+   "internal/local_agent/session/textual_session_app.py": {
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/textual_turn_app.py": {
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/watch_read_model.py": {
+    "redundant-expr": 1,
+    "type-arg": 6
+   },
+   "internal/local_agent/session/watch_task_admission.py": {
+    "no-untyped-def": 1,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/watch_task_lifecycle.py": {
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/tools/__init__.py": {
+    "arg-type": 1
+   },
+   "internal/local_agent/tools/files.py": {
+    "redundant-expr": 1
+   },
+   "internal/local_agent/tools/git.py": {
+    "attr-defined": 1
+   },
+   "internal/local_agent/tools/logs.py": {
+    "assignment": 1
+   },
+   "internal/local_agent/tools/process_runner.py": {
+    "type-arg": 4
+   },
+   "internal/local_agent/tools/tool_primitives.py": {
+    "union-attr": 1
+   },
+   "internal/local_agent/tools/windows_job.py": {
+    "no-untyped-call": 2,
+    "no-untyped-def": 2
+   },
+   "internal/local_agent/verification.py": {
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/watch/delta.py": {
+    "redundant-expr": 3
+   },
+   "internal/local_agent/watch/fixed_watch_runner.py": {
+    "redundant-expr": 4
+   },
+   "internal/local_agent/watch/job_store.py": {
+    "no-untyped-def": 1,
+    "redundant-expr": 2,
+    "union-attr": 2
+   },
+   "internal/local_agent/watch/jobs.py": {
+    "redundant-expr": 5,
+    "union-attr": 2
+   },
+   "internal/local_agent/watch/service.py": {
+    "no-untyped-def": 2
+   },
+   "internal/local_agent/watch/watch_run_store.py": {
+    "arg-type": 1,
+    "no-untyped-def": 1,
+    "redundant-expr": 1
+   }
+  },
+  "mypy-win32": {
+   "internal/devtools/check_merge_enforcement.py": {
+    "unreachable": 1
+   },
+   "internal/devtools/check_test_import_boundaries.py": {
+    "union-attr": 1
+   },
+   "internal/local_agent/agent/contracts.py": {
+    "no-untyped-def": 5,
+    "unreachable": 1
+   },
+   "internal/local_agent/agent/orchestrator.py": {
+    "assignment": 3,
+    "no-untyped-def": 1,
+    "operator": 1,
+    "possibly-undefined": 3,
+    "union-attr": 5
+   },
+   "internal/local_agent/cli.py": {
+    "no-untyped-def": 3,
+    "type-arg": 1
+   },
+   "internal/local_agent/llm/client.py": {
+    "no-untyped-call": 3
+   },
+   "internal/local_agent/llm/model_tiers.py": {
+    "call-arg": 1
+   },
+   "internal/local_agent/llm/protocol.py": {
+    "no-untyped-def": 1,
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/cancellable_task_executor.py": {
+    "no-untyped-def": 2,
+    "union-attr": 1
+   },
+   "internal/local_agent/session/cancellation.py": {
+    "redundant-expr": 8
+   },
+   "internal/local_agent/session/candidate_change.py": {
+    "index": 2,
+    "no-untyped-def": 2,
+    "type-arg": 1
+   },
+   "internal/local_agent/session/cli.py": {
+    "arg-type": 1,
+    "no-untyped-def": 2
+   },
+   "internal/local_agent/session/contracts.py": {
+    "index": 1,
+    "no-untyped-def": 1,
+    "redundant-expr": 1,
+    "union-attr": 1
+   },
+   "internal/local_agent/session/conversation_gateway.py": {
+    "attr-defined": 1,
+    "no-any-return": 3,
+    "no-untyped-def": 3,
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/conversation_store.py": {
+    "attr-defined": 5,
+    "func-returns-value": 1,
+    "no-untyped-call": 2,
+    "redundant-expr": 1,
+    "type-arg": 1
+   },
+   "internal/local_agent/session/durable_activity.py": {
+    "no-untyped-def": 2,
+    "redundant-expr": 4
+   },
+   "internal/local_agent/session/durable_routes.py": {
+    "arg-type": 2,
+    "assignment": 1,
+    "call-overload": 1,
+    "no-untyped-def": 1,
+    "redundant-expr": 4
+   },
+   "internal/local_agent/session/durable_task_controller.py": {
+    "no-any-return": 2,
+    "no-untyped-def": 7,
+    "unreachable": 3,
+    "var-annotated": 1
+   },
+   "internal/local_agent/session/durable_tool_registry.py": {
+    "misc": 3,
+    "no-untyped-def": 3,
+    "union-attr": 1
+   },
+   "internal/local_agent/session/durable_watch.py": {
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/session/endpoint_call.py": {
+    "exit-return": 1,
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/session/endpoint_client.py": {
+    "no-untyped-def": 3,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/endpoint_lease.py": {
+    "redundant-expr": 6
+   },
+   "internal/local_agent/session/endpoint_runtime.py": {
+    "exit-return": 1,
+    "no-untyped-def": 1,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/event_buffer.py": {
+    "no-any-return": 1,
+    "type-arg": 2
+   },
+   "internal/local_agent/session/event_contract.py": {
+    "assignment": 1,
+    "no-any-return": 1,
+    "unreachable": 1
+   },
+   "internal/local_agent/session/intents.py": {
+    "redundant-expr": 6,
+    "unreachable": 1
+   },
+   "internal/local_agent/session/process_stop.py": {
+    "arg-type": 1,
+    "misc": 2
+   },
+   "internal/local_agent/session/proof_binding.py": {
+    "no-untyped-def": 2,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/results.py": {
+    "assignment": 1,
+    "redundant-expr": 4,
+    "union-attr": 3
+   },
+   "internal/local_agent/session/runtime_facts.py": {
+    "no-any-return": 1
+   },
+   "internal/local_agent/session/runtime_facts_gateway.py": {
+    "no-untyped-def": 2,
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/self_check.py": {
+    "no-untyped-call": 2,
+    "no-untyped-def": 2
+   },
+   "internal/local_agent/session/session_event_service.py": {
+    "no-untyped-def": 1,
+    "union-attr": 2
+   },
+   "internal/local_agent/session/session_store.py": {
+    "no-any-return": 2,
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/session/task_admission.py": {
+    "no-untyped-def": 4,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/task_controller.py": {
+    "arg-type": 1,
+    "no-any-return": 1,
+    "no-untyped-def": 8,
+    "redundant-expr": 1,
+    "union-attr": 2
+   },
+   "internal/local_agent/session/task_read_model.py": {
+    "type-arg": 4
+   },
+   "internal/local_agent/session/terminal_truth.py": {
+    "no-untyped-def": 1,
+    "type-arg": 1
+   },
+   "internal/local_agent/session/textual_dispatch.py": {
+    "exit-return": 1,
+    "no-untyped-def": 3
+   },
+   "internal/local_agent/session/textual_feed.py": {
+    "no-untyped-def": 1,
+    "type-arg": 3
+   },
+   "internal/local_agent/session/textual_hub.py": {
+    "misc": 2,
+    "redundant-expr": 2,
+    "type-arg": 1
+   },
+   "internal/local_agent/session/textual_live_app.py": {
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/textual_route_read_model.py": {
+    "type-arg": 4
+   },
+   "internal/local_agent/session/textual_runtime.py": {
+    "exit-return": 1,
+    "no-untyped-def": 2
+   },
+   "internal/local_agent/session/textual_session_app.py": {
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/textual_turn_app.py": {
+    "redundant-expr": 1
+   },
+   "internal/local_agent/session/watch_read_model.py": {
+    "redundant-expr": 1,
+    "type-arg": 6
+   },
+   "internal/local_agent/session/watch_task_admission.py": {
+    "no-untyped-def": 1,
+    "redundant-expr": 2
+   },
+   "internal/local_agent/session/watch_task_lifecycle.py": {
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/tools/__init__.py": {
+    "arg-type": 1
+   },
+   "internal/local_agent/tools/files.py": {
+    "redundant-expr": 1
+   },
+   "internal/local_agent/tools/git.py": {
+    "attr-defined": 1
+   },
+   "internal/local_agent/tools/logs.py": {
+    "assignment": 1
+   },
+   "internal/local_agent/tools/process_runner.py": {
+    "arg-type": 2,
+    "attr-defined": 2,
+    "type-arg": 4
+   },
+   "internal/local_agent/tools/tool_primitives.py": {
+    "union-attr": 1
+   },
+   "internal/local_agent/tools/windows_job.py": {
+    "no-untyped-call": 2,
+    "no-untyped-def": 2,
+    "unused-ignore": 4
+   },
+   "internal/local_agent/verification.py": {
+    "no-untyped-def": 1
+   },
+   "internal/local_agent/watch/delta.py": {
+    "redundant-expr": 3
+   },
+   "internal/local_agent/watch/fixed_watch_runner.py": {
+    "redundant-expr": 4
+   },
+   "internal/local_agent/watch/job_store.py": {
+    "no-untyped-def": 1,
+    "redundant-expr": 2,
+    "union-attr": 2
+   },
+   "internal/local_agent/watch/jobs.py": {
+    "redundant-expr": 5,
+    "union-attr": 2
+   },
+   "internal/local_agent/watch/service.py": {
+    "no-untyped-def": 2
+   },
+   "internal/local_agent/watch/watch_run_store.py": {
+    "arg-type": 1,
+    "no-untyped-def": 1,
+    "redundant-expr": 1
+   }
+  },
+  "ruff": {
+   "internal/devtools/capture_ci_checkout.py": {
+    "PLW1510": 1,
+    "S603": 1,
+    "S607": 1,
+    "T201": 2
+   },
+   "internal/devtools/check_current_state_drift.py": {
+    "E501": 5,
+    "S603": 2,
+    "S607": 2,
+    "T201": 1
+   },
+   "internal/devtools/check_integration_base.py": {
+    "T201": 5
+   },
+   "internal/devtools/check_merge_enforcement.py": {
+    "E501": 1,
+    "S310": 2,
+    "T201": 1
+   },
+   "internal/devtools/check_test_import_boundaries.py": {
+    "E501": 2,
+    "PERF401": 1,
+    "T201": 5
+   },
+   "internal/local_agent/agent/__init__.py": {
+    "RUF022": 1
+   },
+   "internal/local_agent/agent/contracts.py": {
+    "FBT001": 5,
+    "FBT002": 4,
+    "PLR0913": 1
+   },
+   "internal/local_agent/agent/journal.py": {
+    "E501": 1,
+    "PLW1510": 1,
+    "S603": 1,
+    "S607": 1,
+    "SIM201": 1,
+    "UP037": 2
+   },
+   "internal/local_agent/agent/orchestrator.py": {
+    "ARG002": 1,
+    "ARG005": 2,
+    "BLE001": 2,
+    "FBT001": 12,
+    "FBT002": 9,
+    "PERF401": 2,
+    "PLR0912": 3,
+    "PLR0913": 3,
+    "PLR0915": 3,
+    "S110": 2,
+    "SIM105": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/agent/outcome.py": {
+    "S105": 2,
+    "UP042": 1
+   },
+   "internal/local_agent/agent/policy.py": {
+    "ARG001": 3,
+    "ARG002": 1,
+    "FBT001": 1,
+    "FBT002": 1,
+    "PLR0911": 1,
+    "T201": 3,
+    "UP035": 1,
+    "UP042": 1
+   },
+   "internal/local_agent/agent/skills.py": {
+    "E501": 1,
+    "PERF401": 1,
+    "UP037": 2
+   },
+   "internal/local_agent/agent/state.py": {
+    "UP042": 3
+   },
+   "internal/local_agent/cli.py": {
+    "BLE001": 2,
+    "E501": 3,
+    "RUF059": 2,
+    "S101": 1,
+    "T201": 25
+   },
+   "internal/local_agent/config.py": {
+    "UP037": 1,
+    "W292": 1
+   },
+   "internal/local_agent/llm/__init__.py": {
+    "RUF022": 1
+   },
+   "internal/local_agent/llm/client.py": {
+    "ARG002": 1,
+    "BLE001": 1,
+    "E501": 4,
+    "PLR0912": 1,
+    "PLR0915": 1,
+    "PLW0108": 2,
+    "S110": 1,
+    "UP035": 1,
+    "UP037": 1
+   },
+   "internal/local_agent/llm/protocol.py": {
+    "UP037": 2
+   },
+   "internal/local_agent/persistence.py": {
+    "UP035": 1
+   },
+   "internal/local_agent/provenance.py": {
+    "BLE001": 2,
+    "E501": 2,
+    "PLW1510": 2,
+    "S110": 1,
+    "S607": 2
+   },
+   "internal/local_agent/rpc/stdio.py": {
+    "BLE001": 1,
+    "FBT001": 1,
+    "FBT002": 1,
+    "PLW2901": 1
+   },
+   "internal/local_agent/session/cancellable_task_executor.py": {
+    "BLE001": 2,
+    "FBT001": 2,
+    "PLR0912": 1,
+    "PLR0913": 2,
+    "PLR0915": 1,
+    "S101": 1,
+    "SIM105": 2
+   },
+   "internal/local_agent/session/cancellation.py": {
+    "E501": 7,
+    "N818": 1,
+    "UP042": 3
+   },
+   "internal/local_agent/session/cancellation_runtime.py": {
+    "E501": 2,
+    "PLR0913": 1
+   },
+   "internal/local_agent/session/candidate_change.py": {
+    "ARG001": 2,
+    "E501": 6,
+    "PLR0911": 3,
+    "PLR0912": 1,
+    "RUF022": 1,
+    "UP012": 1
+   },
+   "internal/local_agent/session/candidate_facts.py": {
+    "E501": 1,
+    "FBT001": 1,
+    "RUF022": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/session/cli.py": {
+    "E501": 3,
+    "T201": 10,
+    "W292": 1
+   },
+   "internal/local_agent/session/contracts.py": {
+    "E501": 4,
+    "S105": 2,
+    "UP037": 1,
+    "UP042": 4
+   },
+   "internal/local_agent/session/conversation_gateway.py": {
+    "E501": 16,
+    "PERF401": 1,
+    "PLR0911": 2,
+    "PLR0912": 1,
+    "PLR0913": 2,
+    "PLR0915": 1
+   },
+   "internal/local_agent/session/conversation_store.py": {
+    "E731": 4,
+    "N818": 1,
+    "PLR0912": 1,
+    "UP017": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/session/durable_activity.py": {
+    "E501": 1,
+    "PLR0913": 1,
+    "UP037": 1
+   },
+   "internal/local_agent/session/durable_routes.py": {
+    "E501": 3,
+    "PLR0912": 1,
+    "PLR0915": 1,
+    "W292": 1
+   },
+   "internal/local_agent/session/durable_tool_registry.py": {
+    "W292": 1
+   },
+   "internal/local_agent/session/durable_watch.py": {
+    "PLR0912": 1,
+    "PLR0913": 1
+   },
+   "internal/local_agent/session/endpoint_call.py": {
+    "F401": 1,
+    "UP035": 1,
+    "UP037": 1
+   },
+   "internal/local_agent/session/endpoint_client.py": {
+    "PLR0913": 1
+   },
+   "internal/local_agent/session/endpoint_lease.py": {
+    "E501": 3,
+    "N818": 3,
+    "S101": 1,
+    "UP042": 2
+   },
+   "internal/local_agent/session/endpoint_runtime.py": {
+    "F401": 1,
+    "N818": 2,
+    "UP037": 2,
+    "W292": 1
+   },
+   "internal/local_agent/session/event_buffer.py": {
+    "BLE001": 1,
+    "UP017": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/session/event_contract.py": {
+    "E501": 3,
+    "PLR0913": 1,
+    "UP017": 1
+   },
+   "internal/local_agent/session/execution_source.py": {
+    "UP037": 2,
+    "UP042": 1
+   },
+   "internal/local_agent/session/intents.py": {
+    "E501": 3,
+    "PLR0911": 1,
+    "PLR0912": 2,
+    "PLR0915": 1,
+    "UP035": 1,
+    "UP042": 3
+   },
+   "internal/local_agent/session/process_stop.py": {
+    "E501": 1,
+    "PLR0911": 1,
+    "PLR0913": 2,
+    "UP035": 1
+   },
+   "internal/local_agent/session/proof_binding.py": {
+    "E501": 1,
+    "S603": 1,
+    "S607": 1,
+    "UP022": 1,
+    "UP035": 1,
+    "UP042": 1
+   },
+   "internal/local_agent/session/result_presentation.py": {
+    "E501": 2,
+    "PLR0911": 1
+   },
+   "internal/local_agent/session/results.py": {
+    "UP035": 1,
+    "UP042": 1
+   },
+   "internal/local_agent/session/runtime_facts.py": {
+    "UP035": 1,
+    "UP037": 1
+   },
+   "internal/local_agent/session/runtime_facts_gateway.py": {
+    "E501": 4
+   },
+   "internal/local_agent/session/self_check.py": {
+    "C420": 1,
+    "E501": 5,
+    "S314": 1,
+    "S603": 1,
+    "S607": 1,
+    "UP022": 1
+   },
+   "internal/local_agent/session/session_event_service.py": {
+    "BLE001": 2,
+    "E501": 5,
+    "FBT001": 1,
+    "N818": 2,
+    "PLR0913": 2,
+    "S101": 1
+   },
+   "internal/local_agent/session/session_store.py": {
+    "E501": 14,
+    "N818": 3,
+    "PLR0912": 1,
+    "PLR0915": 1
+   },
+   "internal/local_agent/session/task_admission.py": {
+    "E501": 1,
+    "PLR0913": 1,
+    "UP017": 1
+   },
+   "internal/local_agent/session/task_controller.py": {
+    "ARG002": 1,
+    "BLE001": 1,
+    "E501": 2,
+    "PLR0911": 1,
+    "PLR0912": 1,
+    "PLR0913": 3,
+    "PLR0915": 1
+   },
+   "internal/local_agent/session/task_history.py": {
+    "E501": 3
+   },
+   "internal/local_agent/session/task_read_model.py": {
+    "PLR0911": 1,
+    "PLR0912": 1,
+    "PLR0915": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/session/terminal_completion.py": {
+    "E501": 1,
+    "PLR0912": 1,
+    "S101": 1
+   },
+   "internal/local_agent/session/terminal_truth.py": {
+    "N818": 2,
+    "PLR0912": 1,
+    "SIM114": 1
+   },
+   "internal/local_agent/session/textual_dispatch.py": {
+    "N818": 2,
+    "UP037": 1
+   },
+   "internal/local_agent/session/textual_feed.py": {
+    "E501": 1,
+    "PLR0913": 1,
+    "S101": 1
+   },
+   "internal/local_agent/session/textual_hub.py": {
+    "E501": 3,
+    "PERF401": 1,
+    "PLR0912": 1,
+    "SIM108": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/session/textual_route_read_model.py": {
+    "UP035": 1
+   },
+   "internal/local_agent/session/textual_runtime.py": {
+    "PLR0913": 1,
+    "UP037": 1
+   },
+   "internal/local_agent/session/textual_session_app.py": {
+    "BLE001": 2,
+    "E501": 1,
+    "PLR0911": 1,
+    "PLR0913": 1
+   },
+   "internal/local_agent/session/textual_turn_app.py": {
+    "BLE001": 1
+   },
+   "internal/local_agent/session/watch_read_model.py": {
+    "E501": 4,
+    "PLR0912": 1,
+    "PLR0915": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/session/watch_task_admission.py": {
+    "E501": 1,
+    "UP017": 1
+   },
+   "internal/local_agent/session/watch_task_lifecycle.py": {
+    "ARG002": 2,
+    "BLE001": 1,
+    "UP017": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/session/workspaces.py": {
+    "C416": 3,
+    "E501": 13,
+    "PLR0911": 1,
+    "RUF022": 1,
+    "S603": 1
+   },
+   "internal/local_agent/tools/__init__.py": {
+    "RUF022": 1
+   },
+   "internal/local_agent/tools/build.py": {
+    "PLR0912": 1
+   },
+   "internal/local_agent/tools/files.py": {
+    "E501": 4,
+    "FBT001": 1,
+    "FBT002": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/tools/git.py": {
+    "FBT001": 3,
+    "FBT002": 3,
+    "PIE810": 1,
+    "PLR0915": 1,
+    "PLW1510": 1,
+    "S603": 1,
+    "S607": 1
+   },
+   "internal/local_agent/tools/logs.py": {
+    "PIE810": 1,
+    "UP035": 1
+   },
+   "internal/local_agent/tools/patch.py": {
+    "E402": 1,
+    "E501": 1,
+    "F811": 1,
+    "PLR0915": 1,
+    "PLW2901": 3
+   },
+   "internal/local_agent/tools/process_runner.py": {
+    "FBT001": 1,
+    "N818": 1,
+    "PLR0912": 1,
+    "PLR0913": 1,
+    "PLR0915": 1,
+    "S603": 1,
+    "SIM105": 6,
+    "UP037": 1
+   },
+   "internal/local_agent/tools/search.py": {
+    "E501": 2,
+    "FBT001": 1,
+    "FBT002": 1,
+    "PLW1510": 2,
+    "RUF059": 1,
+    "S603": 2,
+    "S607": 2
+   },
+   "internal/local_agent/tools/testing_tools.py": {
+    "FBT001": 1,
+    "FBT002": 1,
+    "PLR0912": 1,
+    "PLR0915": 1,
+    "W292": 1
+   },
+   "internal/local_agent/tools/tool_primitives.py": {
+    "S101": 1,
+    "S105": 1,
+    "UP035": 1,
+    "UP037": 2,
+    "UP042": 5
+   },
+   "internal/local_agent/tools/windows_job.py": {
+    "N801": 4,
+    "UP037": 1
+   },
+   "internal/local_agent/verification.py": {
+    "PLR0911": 1,
+    "S105": 4,
+    "UP035": 1,
+    "UP042": 1
+   },
+   "internal/local_agent/watch/delta.py": {
+    "E501": 1,
+    "UP042": 1
+   },
+   "internal/local_agent/watch/fixed_watch_runner.py": {
+    "UP035": 1
+   },
+   "internal/local_agent/watch/job_store.py": {
+    "E501": 7,
+    "FBT001": 1,
+    "N818": 2
+   },
+   "internal/local_agent/watch/jobs.py": {
+    "E501": 1,
+    "UP042": 2
+   },
+   "internal/local_agent/watch/service.py": {
+    "BLE001": 1,
+    "E501": 1,
+    "N818": 2,
+    "PLR0912": 1,
+    "SIM105": 1,
+    "UP035": 1,
+    "UP042": 1
+   },
+   "internal/local_agent/watch/watch_run_store.py": {
+    "E501": 2,
+    "N818": 1
+   }
+  }
+ },
+ "schema": "lca.static-standards-baseline/1",
+ "total": 1121
+}
