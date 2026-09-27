@@ -326,9 +326,13 @@ jobs:
           assert report["cancellation"]["supported"], report["cancellation"]
           print(json.dumps({k: report[k] for k in ("generation", "context_ladder", "cancellation")}, indent=2))
           g, c = report["generation"], report["cancellation"]
-          print(f"::notice title=real model on CPU::ttft_ms={g['ttft_ms']:.0f} "
-                f"decode_tok_s={g['decode_tokens_per_second'] or 0:.1f} "
-                f"disconnect_to_endpoint_stop_ms={c['disconnect_to_endpoint_stop_ms']:.0f}")
+          # ttft_ms counts answer content only; a thinking model may spend all of
+          # --max-tokens reasoning, which the harness reports as None.
+          fmt = lambda v: "none" if v is None else f"{v:.1f}"
+          print(f"::notice title=real model on CPU::ttft_ms={fmt(g['ttft_ms'])} "
+                f"decode_tok_s={fmt(g['decode_tokens_per_second'])} "
+                f"completion_tokens={g['completion_tokens']} "
+                f"disconnect_to_endpoint_stop_ms={fmt(c['disconnect_to_endpoint_stop_ms'])}")
           PY
           kill %1
           wait %1 || true
