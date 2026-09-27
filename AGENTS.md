@@ -6,6 +6,14 @@ Read `PROJECT_OVERVIEW.md` and `CURRENT_STATE.md` before substantial work. Use `
 
 The destination is a dependable offline worker for finding, moving, Git and coding work. Deep-reasoning competition is not a goal. Roadmap items are not implemented features and do not replace source-derived product status.
 
+## Quality floor
+
+We do not optimise for feature count. We optimise until architecture, engineering quality, capability, truthfulness, UX, lifecycle control, robustness and target-hardware operation are all independently strong. That is the minimum acceptable standard, not an aspiration to trade away for pace.
+
+Speed never justifies technical debt, duplicate authority, weaker verification, misleading UX or a compatibility shim without an active contract. Fast work must still be work we would be willing to maintain. When a deprecated or legacy path is encountered, establish whether the capability still has a real caller and product purpose before changing it: preserve and modernise live behaviour; delete obsolete behaviour completely instead of cosmetically updating dead code.
+
+A green build is evidence, not the goal. Fix the underlying defect rather than suppressing a warning, weakening a test, broadening an exception or converting an unknown into a default. If the correct repair exposes a deeper design problem, fix or explicitly bound that problem rather than hiding it.
+
 ## The rule that decides most arguments
 
 Recorded evidence does not count merely because it exists. A fact has to be enforced or consumed at the next trust boundary before it can affect a result.
