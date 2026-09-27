@@ -3,11 +3,12 @@
 One writable worktree per task, under an exclusive lease, checked out detached at an
 explicit commit. The user's checkout is never the place LCA edits:
 
-- The base is the user's exact tracked state. A clean checkout bases on ``HEAD``. A dirty
-  one bases on ``git stash create``, a commit object that records the dirty tracked
-  state without touching the user's index, working files, stash list or refs.
-  Untracked files are not copied (secrets, scratch, ignored build output) and are
-  listed so a result can say what it did not see.
+- The base is the user's exact working state: ``HEAD`` plus tracked changes plus
+  untracked, non-ignored files up to a size bound, snapshotted through a private
+  temporary index (``GIT_INDEX_FILE``) so the user's index, working files, stash list
+  and refs are never touched. Ignored files (secrets, build output) are never copied;
+  oversized untracked files are left out and listed so a result can say what it did
+  not see.
 - The candidate worktree lives outside the user's checkout and never receives the
   build or run directories.
 - The user's hooks never run: every controller git call pins ``core.hooksPath`` to an
@@ -99,16 +100,48 @@ class ImportResult:
     pre_contents: tuple[tuple[str, bytes | None], ...] = ()
 
 
-@dataclass(frozen=True)
-class CommitResult:
-    committed: bool
-    commit: str | None
-    branch: str | None
+# The outcome of committing one applied candidate is one of four distinct states. Each is
+# its own type, so a caller cannot read a commit id that does not exist or treat a refusal
+# as a commit: the type checker makes it match every case (see commit_candidate).
+@dataclass(frozen=True, slots=True)
+class Committed:
+    """A commit exists on ``branch`` and contains exactly the applied change."""
+
+    commit: str
+    branch: str
+    paths: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CommitMismatched:
+    """A commit was created but does not contain exactly the applied change."""
+
+    commit: str
+    branch: str
+    paths: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CommitDrifted:
+    """Nothing was committed: these applied paths changed after the import."""
+
+    branch: str
     paths: tuple[str, ...]
     drifted: tuple[str, ...]
-    refused_reason: str | None
-    # True when a commit was created but its content is not exactly the applied change.
-    mismatched: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CommitRefused:
+    """Nothing was committed, for ``reason``. ``existing_commit`` names an earlier commit
+    of the same change when that is why it was refused."""
+
+    reason: str
+    paths: tuple[str, ...] = ()
+    branch: str | None = None
+    existing_commit: str | None = None
+
+
+CommitResult = Committed | CommitMismatched | CommitDrifted | CommitRefused
 
 
 @dataclass(frozen=True)
@@ -285,7 +318,8 @@ class GitWorkspaceManager:
         """
         problems: list[str] = []
         version_text: str | None = None
-        done = self._git(Path(repository_root), "version", check=False) if Path(repository_root).is_dir() else None
+        root_dir = Path(repository_root)
+        done = self._git(root_dir, "version", check=False) if root_dir.is_dir() else None
         if done is None or done.returncode != 0:
             problems.append("git is not runnable here")
         else:
@@ -299,12 +333,16 @@ class GitWorkspaceManager:
                     f"{MIN_GIT_VERSION[0]}.{MIN_GIT_VERSION[1]} or newer"
                 )
         root = Path(repository_root).resolve()
-        top = self._git(root, "rev-parse", "--show-toplevel", check=False) if root.is_dir() else None
+        top = (
+            self._git(root, "rev-parse", "--show-toplevel", check=False) if root.is_dir() else None
+        )
         if top is None or top.returncode != 0:
             problems.append(f"{root} is not a git checkout")
         elif Path(top.stdout.decode().strip()).resolve() != root:
             problems.append(f"{root} is not the top of its git checkout")
-        elif self._git(root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", check=False).returncode != 0:
+        elif self._git(
+            root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", check=False,
+        ).returncode != 0:
             problems.append("the repository has no commit yet")
         if self.workspaces_root == root or self.workspaces_root.is_relative_to(root):
             problems.append("the candidate workspaces folder is inside the repository")
@@ -313,7 +351,9 @@ class GitWorkspaceManager:
             probe.write_bytes(b"")
             probe.unlink()
         except OSError as exc:
-            problems.append(f"the candidate workspaces folder is not writable: {exc.strerror or exc}")
+            problems.append(
+                f"the candidate workspaces folder is not writable: {exc.strerror or exc}"
+            )
         return WorkspaceReadiness(not problems, version_text, tuple(problems))
 
     # -- lifecycle ----------------------------------------------------------
@@ -448,7 +488,9 @@ class GitWorkspaceManager:
         ).stdout
         post = []
         for path in paths:
-            done = self._git(workspace.root, "rev-parse", "--verify", "--quiet", f":{path}", check=False)
+            done = self._git(
+                workspace.root, "rev-parse", "--verify", "--quiet", f":{path}", check=False,
+            )
             post.append((path, done.stdout.decode().strip() if done.returncode == 0 else None))
         return CandidatePatch(
             workspace_id=workspace.workspace_id,
@@ -485,7 +527,10 @@ class GitWorkspaceManager:
                 "files changed in your checkout since the candidate's base", False, tuple(pre),
             )
 
-        check = self._git(user, "apply", "--check", "--whitespace=nowarn", "-", stdin=candidate.patch, check=False)
+        check = self._git(
+            user, "apply", "--check", "--whitespace=nowarn", "-",
+            stdin=candidate.patch, check=False,
+        )
         if check.returncode != 0:
             return ImportResult(
                 False, candidate.paths, (),
@@ -626,35 +671,40 @@ class GitWorkspaceManager:
         """
         path = self._applied_path(task_id)
         if not path.is_file():
-            return CommitResult(False, None, None, (), (), f"no applied change recorded for task {task_id}")
+            return CommitRefused(f"no applied change recorded for task {task_id}")
         record = json.loads(path.read_text(encoding="utf-8"))
         user = Path(repository_root).resolve()
         paths = tuple(record["paths"])
         if Path(record["repository_root"]) != user:
-            return CommitResult(False, None, None, paths, (), "that change was applied to another repository")
+            return CommitRefused("that change was applied to another repository", paths)
         if record.get("committed"):
-            return CommitResult(False, record["committed"], None, paths, (),
-                                f"that change is already committed as {record['committed'][:12]}")
+            existing = str(record["committed"])
+            return CommitRefused(f"that change is already committed as {existing[:12]}", paths,
+                                 existing_commit=existing)
         branch = self._git(user, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
         if branch.returncode != 0:
-            return CommitResult(False, None, None, paths, (), "HEAD is detached; check out a branch first")
+            return CommitRefused("HEAD is detached; check out a branch first", paths)
         branch_name = branch.stdout.decode().strip()
-        for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"):
+        in_progress = (
+            "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply",
+        )
+        for marker in in_progress:
             marker_path = Path(self._out(user, "rev-parse", "--git-path", marker))
             if not marker_path.is_absolute():
                 marker_path = user / marker_path
             if marker_path.exists():
-                return CommitResult(False, None, branch_name, paths, (),
-                                    "a merge, rebase, cherry-pick or revert is in progress")
+                return CommitRefused("a merge, rebase, cherry-pick or revert is in progress",
+                                     paths, branch_name)
         post = {p: b for p, b in record["post_blobs"]}
         drifted = tuple(p for p in paths if self._worktree_blob(user, p) != post.get(p))
         if drifted:
-            return CommitResult(False, None, branch_name, paths, drifted,
-                                "files changed since the change was applied")
+            return CommitDrifted(branch_name, paths, drifted)
         parent = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
         if all(self._blob_at(user, parent, p) == post.get(p) for p in paths):
-            return CommitResult(False, None, branch_name, paths, (),
-                                "the applied change is already what HEAD contains; nothing to commit")
+            return CommitRefused(
+                "the applied change is already what HEAD contains; nothing to commit",
+                paths, branch_name,
+            )
         # Paths the candidate created are untracked, and `commit --only` accepts only
         # paths git knows. Stage exactly those; every other index entry is left alone.
         created = [p for p, b in record["pre_blobs"] if b is None and (user / p).exists()]
@@ -665,20 +715,18 @@ class GitWorkspaceManager:
             stdin=message.encode("utf-8"), check=False,
         )
         if done.returncode != 0:
-            return CommitResult(False, None, branch_name, paths, (),
-                                "git commit failed: " + (done.stderr or done.stdout).decode("utf-8", "replace").strip()[:500])
+            detail = (done.stderr or done.stdout).decode("utf-8", "replace").strip()[:500]
+            return CommitRefused("git commit failed: " + detail, paths, branch_name)
         commit = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
         parents = self._out(user, "rev-parse", f"{commit}^@").split()
         in_tree = {p: self._blob_at(user, commit, p) for p in paths}
         if parents != [parent] or any(in_tree[p] != post.get(p) for p in paths):
-            return CommitResult(False, commit, branch_name, paths, (),
-                                "the new commit does not contain exactly the applied change",
-                                mismatched=True)
+            return CommitMismatched(commit, branch_name, paths)
         record["committed"] = commit
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
         os.replace(tmp, path)
-        return CommitResult(True, commit, branch_name, paths, (), None)
+        return Committed(commit, branch_name, paths)
 
     def undo_applied(self, task_id: str, repository_root: Path) -> UndoResult:
         """Undo one applied candidate, only where files still hold exactly what it wrote.
@@ -839,7 +887,9 @@ class GitWorkspaceManager:
         """Remove the candidate worktree and release the task's lease."""
         try:
             if workspace.root.exists():
-                self._git(workspace.repository_root, "worktree", "remove", "--force", str(workspace.root))
+                self._git(
+                    workspace.repository_root, "worktree", "remove", "--force", str(workspace.root),
+                )
         finally:
             self._git(workspace.repository_root, "worktree", "prune", check=False)
             if workspace.root.exists():
@@ -850,7 +900,11 @@ class GitWorkspaceManager:
 __all__ = [
     "MIN_GIT_VERSION",
     "WorkspaceReadiness",
+    "CommitDrifted",
+    "CommitMismatched",
+    "CommitRefused",
     "CommitResult",
+    "Committed",
     "UndoResult",
     "CandidatePatch",
     "GitWorkspaceManager",

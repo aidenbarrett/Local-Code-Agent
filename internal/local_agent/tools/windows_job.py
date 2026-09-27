@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import ctypes
 import os
+import sys
 import time
 from ctypes import wintypes
+from typing import Any
 
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_CLASS = 1
@@ -88,13 +90,30 @@ class JobContainmentError(OSError):
     """The OS refused a step that containment depends on."""
 
 
+def _last_error() -> int:
+    if sys.platform == "win32":
+        return ctypes.get_last_error()
+    else:
+        raise JobContainmentError(0, "Windows Job Objects exist only on Windows")
+
+
 def _raise_last_error(step: str) -> None:
-    code = ctypes.get_last_error()  # type: ignore[attr-defined]
+    code = _last_error()
     raise JobContainmentError(code, f"{step} failed with Windows error {code}")
 
 
-def _kernel32():
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+# The loaded DLLs are returned as Any on purpose: ctypes resolves exported functions by
+# attribute at runtime, so no static type exists for them. Every function used is given
+# explicit argtypes/restype below, which is where ctypes checks the calls.
+def _load_dll(name: str, *, use_last_error: bool) -> Any:
+    if sys.platform == "win32":
+        return ctypes.WinDLL(name, use_last_error=use_last_error)
+    else:
+        raise JobContainmentError(0, "Windows Job Objects exist only on Windows")
+
+
+def _kernel32() -> Any:
+    kernel32 = _load_dll("kernel32", use_last_error=True)
     kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
     kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     kernel32.SetInformationJobObject.argtypes = [
@@ -119,8 +138,8 @@ def _kernel32():
     return kernel32
 
 
-def _ntdll():
-    ntdll = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined]
+def _ntdll() -> Any:
+    ntdll = _load_dll("ntdll", use_last_error=False)
     # NtResumeProcess resumes every thread of a process. subprocess.Popen closes the
     # primary thread handle, so this is the only way to resume a CREATE_SUSPENDED
     # child without enumerating threads.
@@ -178,7 +197,7 @@ class ProcessTreeJob:
             _raise_last_error("OpenProcess")
         try:
             if not self._k32.AssignProcessToJobObject(self._handle, process):
-                code = ctypes.get_last_error()  # type: ignore[attr-defined]
+                code = _last_error()
                 self._k32.TerminateProcess(process, _TERMINATED_EXIT_CODE)
                 raise JobContainmentError(
                     code, f"AssignProcessToJobObject failed with Windows error {code}"
