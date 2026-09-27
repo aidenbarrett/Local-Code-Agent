@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `8b9aa968d10f8c853034b1ae7e14959005f2fe55`
+Reconciled against `324404a3231a53078ccf613c7f8ebda9b77a521d` (the #249 head `main` takes)
 on 2026-09-27 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -9,7 +9,8 @@ real-model CI journey (#230), deterministic build/test routes (#233), the accept
 journey runner (#234, #239, #243), truthful model-unavailable answers (#241, #242) and
 the context-exhaustion verdict fix (#244), the quality floor (#231), the Panther Lake
 acceptance summary (#232), candidate-ready truth (#236) and Stop endpoint fencing with
-natural-completion reconciliation (#237, #238, #240, integrated by #246) landed. Live
+natural-completion reconciliation (#237, #238, #240, integrated by #246 and #247), the
+answered stopped turn (#248) and durable unproven test runs (#249) landed. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
@@ -136,7 +137,15 @@ supports:
   required evidence is still a fresh disconnected run on the physical Windows Panther
   Lake machine using the current Session Hub with exact checkout, model/runtime/device
   identity, cold/warm latency and retained logs/screenshots/failures. No hardware claim is
-  complete until that run exists.
+  complete until that run exists. First measured run, 2026-09-27, on the physical Panther
+  Lake machine: acceptance journeys on source `8b9aa96` (the checkout reported uncommitted
+  changes), `OpenVINO/Qwen3-8B-int4-cw-ov` through the managed OVMS endpoint with device NPU
+  declared (Task Manager showed the NPU busy during model journeys). Product journeys PASS 7 /
+  FAIL 0 / UNKNOWN 1 (J09, no verified candidate to exercise); Stop during model work reached
+  a terminal in 0.3 s. Model journeys: no verified fix or change (J08 build fix spent its
+  budget on repeated `search_text`; J10 was blocked by the durable-finish defect fixed in
+  #249); questions were routed to a work proposal instead of answered. It was not a
+  disconnected run and recorded no cold/warm latency, so this item stays open.
 - **Stop remains bounded, not complete cancellation.** Public Stop, epoch fencing and
   durable `UNKNOWN` / `NO_VERDICT` terminal reconciliation exist. Stop now reaches running
   configured commands (including candidate builds, whose candidate is then discarded), and
