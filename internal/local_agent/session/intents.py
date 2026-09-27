@@ -24,6 +24,7 @@ RULE_FIX_BUILD = "fix-build-failure/v1"
 RULE_APPLY_CANDIDATE = "apply-candidate/v1"
 RULE_UNDO_CANDIDATE = "undo-candidate/v1"
 RULE_COMMIT_CANDIDATE = "commit-candidate/v1"
+RULE_DIFF_CANDIDATE = "diff-candidate/v1"
 RULE_IMPLEMENT_CHANGE = "implement-change/v1"
 RULE_FIX_TESTS = "fix-test-failure/v1"
 RULE_SELF_CHECK = "self-check/v1"
@@ -221,6 +222,12 @@ _UNDO_CANDIDATE = re.compile(
 # the user's description and is passed to the worker as data.
 _IMPLEMENT_CHANGE = re.compile(r"^(?:/change|change:)\s+(?P<request>\S.*)$", re.IGNORECASE | re.DOTALL)
 
+_DIFF_CANDIDATE = re.compile(
+    r"^/?(?:diff|show)(?:\s+(?:candidate|task))?\s+"
+    r"(?P<task_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
+    re.IGNORECASE,
+)
+
 _COMMIT_CANDIDATE = re.compile(
     r"^/?commit(?:\s+(?:candidate|task))?\s+"
     r"(?P<task_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
@@ -237,6 +244,11 @@ def _single_referent(pattern: re.Pattern[str], request_text: str) -> str | None:
         if (match := pattern.fullmatch(line.strip())) is not None
     ]
     return found[0] if len(set(found)) == 1 else None
+
+
+def diff_referent(request_text: str) -> str | None:
+    """The single candidate task UUID a diff request names."""
+    return _single_referent(_DIFF_CANDIDATE, request_text)
 
 
 def commit_referent(request_text: str) -> str | None:
@@ -439,6 +451,15 @@ def decide_route(
             source=RouteSource.RULE,
             rule_id=RULE_IMPLEMENT_CHANGE,
             skill="implement-change",
+        )
+
+    if _DIFF_CANDIDATE.fullmatch(stripped):
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_DIFF_CANDIDATE,
+            skill="diff-candidate",
         )
 
     if _COMMIT_CANDIDATE.fullmatch(stripped):

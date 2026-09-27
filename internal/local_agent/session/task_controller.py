@@ -23,6 +23,8 @@ from .candidate_change import (
     undo_candidate,
     COMMIT_CANDIDATE_ACTION,
     commit_candidate,
+    DIFF_CANDIDATE_ACTION,
+    diff_candidate,
     CANDIDATE_CHANGE_SKILLS,
     CANDIDATE_PROOF,
     candidate_proof_satisfied,
@@ -327,6 +329,10 @@ class TaskController:
             if self_check:
                 from .self_check import run_self_check
                 result = run_self_check(self.repo, task_id, self.events)
+            elif resolved_skill == DIFF_CANDIDATE_ACTION:
+                result = diff_candidate(
+                    self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
+                )
             elif resolved_skill == COMMIT_CANDIDATE_ACTION:
                 result = commit_candidate(
                     self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
