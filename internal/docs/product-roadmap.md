@@ -46,6 +46,118 @@ Produce a complete installable package and integrity-checked offline provisionin
 
 Exit gate: a fresh installed product completes supported journeys with WAN access unavailable and attempted egress observed.
 
+
+## Engineering expertise pillars
+
+Routine engineering expertise belongs in the product, not in the luck of what the current
+model happens to remember. A qualified small local model should receive the mechanical
+facts, bounded specialist guidance and safe capabilities needed to behave systematically.
+The model is used for judgement; deterministic code owns state discovery, effects, safety
+policy and proof.
+
+### Git Expert
+
+Git is a first-class engineering subsystem, not arbitrary shell access and not a bag of
+prompt recipes. The target user experience is outcome-oriented: requests such as
+`sort out this branch`, `where did my commit go?`, `resolve these conflicts` or
+`get me safely onto current main` should begin with deterministic inspection rather than
+requiring the user to name Git commands.
+
+The Git authority should provide a structured repository-state model covering, where
+relevant:
+
+- HEAD, branch, upstream, ahead/behind and merge-base identity;
+- committed, staged, unstaged, untracked and ignored state without conflating them;
+- merge, rebase, cherry-pick, revert, bisect and other interrupted-operation state;
+- conflicts with base/ours/theirs identity where Git can establish it;
+- refs, reflog, stash, worktrees, submodules and remote-tracking facts needed by the task;
+- recoverability facts before any destructive or history-changing proposal.
+
+Problem classification selects bounded procedure and reference knowledge; it does not grant
+authority. The model may explain ambiguity, choose among semantically valid conflict
+resolutions and propose a recovery plan. Deterministic policy still separates read-only,
+worktree mutation, index mutation, commit, ref/history mutation and push authority.
+
+Initial expert acceptance families include:
+
+1. ordinary and add/add merge conflicts;
+2. rebase/cherry-pick conflicts and interrupted operations;
+3. branch divergence and upstream/tracking mistakes;
+4. detached HEAD and worktree confusion;
+5. lost/deleted commits recovered through reflog or reachable refs;
+6. stash conflicts and staged-versus-working-tree confusion;
+7. ref namespace/lock failures and stale lock diagnosis;
+8. submodule/worktree state where the repository actually uses them;
+9. safe branch cleanup with recoverability established first;
+10. refusal of destructive recovery when preconditions or authorization are absent.
+
+Every recovery ends by re-inspecting Git state and, when source changed, invoking the
+appropriate independent build/test verification. A plausible model explanation is never
+proof that Git was repaired.
+
+### Build -> Run -> Debug -> Repair -> Verify
+
+Build/test support grows into one reusable engineering loop rather than repository-specific
+scripts embedded in prompts.
+
+1. **Discover.** Establish the repository's declared/configured build, test and run
+   capabilities, environment/toolchain requirements and relevant targets.
+2. **Execute.** Deterministic controller actions run configured mechanical operations.
+   A model is not asked to remember to call a build or test tool.
+3. **Observe.** Capture command identity, exit status, bounded logs, artifacts and exact
+   repository/tree identity.
+4. **Classify.** Deterministic signatures identify known classes such as configure,
+   compile, link, test, launch, timeout, dependency, environment and infrastructure
+   failures. Unknown remains a valid class.
+5. **Retrieve.** Supply only relevant repository instructions, specialist references and
+   known failure guidance. Retrieved text is untrusted data and cannot authorize effects.
+6. **Diagnose.** The model reasons over observed facts and retrieved guidance, requesting
+   further bounded inspection when necessary.
+7. **Repair.** Prepare source/configuration changes through the existing isolated-candidate
+   authority. Environment or repository-state changes use their own explicit capability.
+8. **Verify.** Re-run the exact failed operation and the task-appropriate wider checks.
+   Proof is bound to the resulting tree and declared scope.
+9. **Present.** State what failed, what changed, what passed, what remains unknown and what
+   authority is needed next.
+
+This loop must handle compiler/linker diagnostics, failing tests, launch/runtime failures,
+logs and hung/failed processes without becoming an unrestricted shell agent.
+
+### Project knowledge and progressive disclosure
+
+Repository-specific know-how is a layer over the generic engines. A project may describe
+how to configure targets, build firmware, run tests/simulators, locate useful logs and
+recognise project-specific success/failure evidence. The controller exposes only the
+relevant slice for the current task.
+
+The NPU firmware repository is a proving ground for this design, not a special-case product
+dependency. Lessons that generalise become generic Git/build/run/debug capabilities.
+Intel-proprietary source, logs and artifacts remain on the authorized machine; product
+improvements are driven by non-sensitive behavioural findings rather than copied IP.
+
+Do not create one skill per command or failure signature. Prefer a small number of owning
+engines with typed observations, progressively disclosed knowledge and explicit
+capabilities.
+
+### Qualification
+
+Expertise is measured adversarially. Maintain synthetic/public torture fixtures for dirty
+worktrees, conflicts, interrupted operations, lost commits, broken configure/build/link/test
+runs, hung processes, stale evidence and failed repairs. Score at least:
+
+- diagnosis/classification correctness;
+- preservation of unrelated user state;
+- authorization correctness;
+- successful recovery where a supported recovery exists;
+- refusal/UNKNOWN correctness where proof or authority is absent;
+- independent post-repair verification;
+- unnecessary model/tool work and elapsed time.
+
+A larger model getting lucky on a fixture does not replace a deterministic product
+capability. A smaller model passing because LCA supplied better facts and procedure is the
+intended architecture.
+
+
 ## Runtime and model qualification
 
 Support is a property of an exact configuration: model/artifact revision, runtime/version, device, effective context/output limits and relevant parser/template behavior. A model name or HTTP-compatible endpoint alone is not enough.
