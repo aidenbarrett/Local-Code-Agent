@@ -119,6 +119,30 @@ class UndoResult:
     refused_reason: str | None
 
 
+# `git add --pathspec-from-file` (used to build the candidate base) arrived in 2.25.
+MIN_GIT_VERSION = (2, 25)
+
+
+@dataclass(frozen=True)
+class WorkspaceReadiness:
+    """Whether isolated candidate changes can work for one repository on this machine."""
+
+    ready: bool
+    git_version: str | None
+    problems: tuple[str, ...]
+
+
+def _parse_git_version(text: str) -> tuple[int, int] | None:
+    parts = text.strip().split()
+    if len(parts) < 3 or parts[0] != "git" or parts[1] != "version":
+        return None
+    numbers = parts[2].split(".")
+    try:
+        return int(numbers[0]), int(numbers[1])
+    except (IndexError, ValueError):
+        return None
+
+
 def _split_z(raw: bytes) -> tuple[str, ...]:
     return tuple(item.decode("utf-8", "surrogateescape") for item in raw.split(b"\0") if item)
 
@@ -250,6 +274,46 @@ class GitWorkspaceManager:
             },
         ).stdout.decode().strip()
         return commit, tuple(included), tuple(oversized)
+
+    def readiness(self, repository_root: Path) -> WorkspaceReadiness:
+        """Cheap, side-effect-free checks that candidate changes can work here.
+
+        Checks: git runs and is new enough, the path is the top of a git checkout
+        with a commit, and the workspaces root is writable and outside it. Nothing
+        in the repository is written.
+        """
+        problems: list[str] = []
+        version_text: str | None = None
+        done = self._git(Path(repository_root), "version", check=False) if Path(repository_root).is_dir() else None
+        if done is None or done.returncode != 0:
+            problems.append("git is not runnable here")
+        else:
+            version_text = done.stdout.decode("utf-8", "replace").strip()
+            parsed = _parse_git_version(version_text)
+            if parsed is None:
+                problems.append(f"cannot read the git version from {version_text!r}")
+            elif parsed < MIN_GIT_VERSION:
+                problems.append(
+                    f"{version_text} is too old; candidate changes need git "
+                    f"{MIN_GIT_VERSION[0]}.{MIN_GIT_VERSION[1]} or newer"
+                )
+        root = Path(repository_root).resolve()
+        top = self._git(root, "rev-parse", "--show-toplevel", check=False) if root.is_dir() else None
+        if top is None or top.returncode != 0:
+            problems.append(f"{root} is not a git checkout")
+        elif Path(top.stdout.decode().strip()).resolve() != root:
+            problems.append(f"{root} is not the top of its git checkout")
+        elif self._git(root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", check=False).returncode != 0:
+            problems.append("the repository has no commit yet")
+        if self.workspaces_root == root or self.workspaces_root.is_relative_to(root):
+            problems.append("the candidate workspaces folder is inside the repository")
+        probe = self.workspaces_root / f".write-probe-{os.getpid()}"
+        try:
+            probe.write_bytes(b"")
+            probe.unlink()
+        except OSError as exc:
+            problems.append(f"the candidate workspaces folder is not writable: {exc.strerror or exc}")
+        return WorkspaceReadiness(not problems, version_text, tuple(problems))
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -760,6 +824,8 @@ class GitWorkspaceManager:
 
 
 __all__ = [
+    "MIN_GIT_VERSION",
+    "WorkspaceReadiness",
     "CommitResult",
     "UndoResult",
     "CandidatePatch",

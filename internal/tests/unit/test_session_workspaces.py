@@ -490,3 +490,42 @@ def test_undo_removes_a_created_file_and_restores_a_modified_one(tmp_path):
     assert not (user / "src" / "made.cpp").exists()
     assert _git(user, "diff", "--cached") == before_undo_index
     assert manager.undo_applied(task_id, user).undone is False
+
+
+# ------------------------------------------------------------------ readiness
+
+
+def test_readiness_passes_for_a_normal_checkout(tmp_path):
+    user = _user_repo(tmp_path)
+    readiness = _manager(tmp_path).readiness(user)
+    assert readiness.ready, readiness.problems
+    assert readiness.git_version.startswith("git version")
+
+
+def test_readiness_names_every_problem_without_writing_anything(tmp_path, monkeypatch):
+    user = _user_repo(tmp_path)
+    manager = _manager(tmp_path)
+    real = manager._git
+
+    def old_git(cwd, *args, **kwargs):
+        if args and args[0] == "version":
+            return subprocess.CompletedProcess(["git", "version"], 0, b"git version 2.20.1\n", b"")
+        return real(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(manager, "_git", old_git)
+    before = _state(user)
+    readiness = manager.readiness(user / "src")
+    assert readiness.ready is False
+    assert any("too old" in p for p in readiness.problems)
+    assert any("not the top" in p for p in readiness.problems)
+    assert _state(user) == before
+
+
+def test_readiness_refuses_an_empty_repository_and_a_workspace_inside_it(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    _git(empty, "init", "-q")
+    inside = GitWorkspaceManager(empty / ".lca", controller_commit="c" * 40)
+    problems = inside.readiness(empty).problems
+    assert any("no commit" in p for p in problems)
+    assert any("inside the repository" in p for p in problems)

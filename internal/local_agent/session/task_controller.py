@@ -212,6 +212,20 @@ class TaskController:
                 f"No change was prepared: {blocker}.", False,
                 reason_code="policy_denied",
             )
+        readiness = self.workspaces.readiness(self.declared_repo.root)
+        if not readiness.ready:
+            # An environment limit, reported before any worktree or model call exists.
+            return TaskResult(
+                task_id, TaskOutcome.BLOCKED,
+                "No change was prepared: candidate changes cannot work here ("
+                + "; ".join(readiness.problems) + ").",
+                False,
+                metrics={"candidate_readiness": {
+                    "ready": False, "git_version": readiness.git_version,
+                    "problems": list(readiness.problems),
+                }},
+                reason_code="missing_dependency",
+            )
         workspace = self.workspaces.create(
             self.declared_repo.root, task_id, excluded_dirs=excluded_dirs(self.declared_repo),
         )
