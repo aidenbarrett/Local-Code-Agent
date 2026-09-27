@@ -194,6 +194,33 @@ class EndpointRuntime:
                 self._condition.notify_all()
             return tuple(request.request_id for request in removed)
 
+    def complete_call(self, lease_id: str) -> tuple[EndpointLease, bool]:
+        """Finish a synchronous call using its normal return as stop proof.
+
+        Stop may quarantine a handed-out lease while its client call is still running.
+        If that exact synchronous call later returns normally, the call itself is no
+        longer in flight. Reconcile only that exact quarantined lease; otherwise use the
+        ordinary clean-release path. The boolean reports whether quarantine was cleared.
+        """
+        with self._condition:
+            active = self.arbiter.active_lease
+            if active is None or active.lease_id != lease_id:
+                raise EndpointLeaseConflict("completed call is not the active endpoint lease")
+            reconciled = self.arbiter.quarantined
+            if reconciled:
+                cleared = self.arbiter.reconcile_quarantine(
+                    known_stopped=True,
+                    lease_id=lease_id,
+                )
+                if not cleared:
+                    raise EndpointLeaseConflict("completed call could not reconcile quarantine")
+                released = active
+            else:
+                released = self.arbiter.release(lease_id)
+            self._pump_locked()
+            self._condition.notify_all()
+            return released, reconciled
+
     def release(self, lease_id: str) -> EndpointLease:
         """Release a known-clean active lease, then grant the next eligible request."""
         with self._condition:
@@ -245,6 +272,17 @@ class ManagedEndpointLease:
     def state(self) -> str:
         with self._lock:
             return self._state
+
+    def complete_call(self) -> EndpointLease:
+        """Finish a normally-returned client call, reconciling an exact Stop fence."""
+        with self._lock:
+            if self._state != "open":
+                raise EndpointLeaseConflict(
+                    f"managed endpoint lease cannot complete from state {self._state!r}"
+                )
+            released, reconciled = self.runtime.complete_call(self.lease_id)
+            self._state = "reconciled" if reconciled else "released"
+            return released
 
     def release(self) -> EndpointLease:
         with self._lock:
