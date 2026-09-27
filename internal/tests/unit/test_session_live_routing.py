@@ -56,7 +56,7 @@ def test_exact_build_rule_bypasses_conversation_model():
     assert "rule_id=build-and-test/v1" in task
     assert kwargs["route_source"] == RouteSource.RULE
     assert kwargs["rule_id"] == RULE_BUILD_AND_TEST
-    assert kwargs["skill"] == "build-and-test"
+    assert kwargs["skill"] == "run-build"
 
 
 def test_unmatched_request_still_uses_model_fallback():

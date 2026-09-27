@@ -46,7 +46,7 @@ def _run(tmp_path, result):
         assert "User request:\nBuild it." in task
         assert f"rule_id={RULE_BUILD_AND_TEST}" in task
         assert kwargs["route_source"] == RouteSource.RULE
-        assert kwargs["skill"] == "build-and-test"
+        assert kwargs["skill"] == "run-build"
         return rendered
     finally:
         service.close()

@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final, Protocol
 from uuid import UUID, uuid4
 
@@ -40,6 +40,12 @@ from .candidate_change import (
     candidate_workspace_approval,
     excluded_dirs,
     settle_candidate,
+)
+from .configured_checks import (
+    CONFIGURED_CHECK_SKILL,
+    CONFIGURED_CHECKS,
+    ConfiguredCheckPlan,
+    configured_check_sha256,
 )
 from .proof_binding import binding_from_run
 
@@ -88,6 +94,15 @@ _BLOCKED_REASON_CODES: Final[Mapping[str, str]] = {
     "unknown_tool": "unavailable_capability",
     "tool_not_allowed": "unavailable_capability",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutionScope:
+    """The one admitted execution a worker runs inside: its identity and its controls."""
+
+    task_id: str
+    durable_activity: DurableToolActivity | None
+    cancellation_probe: CancellationProbe | None
 
 
 def _current_tree_observed_failure(run: RunResult) -> bool:
@@ -140,6 +155,10 @@ class TaskController:
     def resolve_skill(self, skill_name: str) -> str:
         if skill_name in CONTROLLER_ACTIONS:
             return skill_name
+        if skill_name in CONFIGURED_CHECKS:
+            # The check runs under the build-and-test procedure, which must exist.
+            self._resolve_worker_skill(CONFIGURED_CHECK_SKILL)
+            return skill_name
         return self._resolve_worker_skill(skill_name)
 
     def _resolve_worker_skill(self, skill_name: str) -> str:
@@ -163,6 +182,10 @@ class TaskController:
         """
         if skill_name in CONTROLLER_ACTIONS:
             return controller_action_sha256(skill_name)
+        if skill_name in CONFIGURED_CHECKS:
+            return configured_check_sha256(
+                skill_name, self.effective_skill_sha256(CONFIGURED_CHECK_SKILL),
+            )
         skill = self._resolved_skill(skill_name)
         root = skill.path.resolve()
         manifest: list[dict[str, object]] = []
@@ -235,6 +258,54 @@ class TaskController:
             return ("missing_evidence" if not run.state.verification_attempted
                     else "cleanup_unknown")
         return "cleanup_unknown"
+
+    def _run_worker(
+        self, task: str, skill_name: str | None, client: LLMClient, scope: _ExecutionScope,
+    ) -> TaskResult:
+        """Run one skill in the hardened orchestrator against the user's checkout."""
+        task_id, durable_activity = scope.task_id, scope.durable_activity
+        registry, _ctx, _store = build_registry(
+            self.repo, cancellation_probe=scope.cancellation_probe,
+        )
+        if durable_activity is not None:
+            # The wrapper commits tool.started before entering an effectful handler
+            # and typed tool.finished afterwards. Policy still lives in the
+            # orchestrator; durable activity is evidence, not authority.
+            registry = wrap_registry_with_durable_activity(registry, durable_activity)
+
+        def observe(kind: str, payload: Mapping[str, object]) -> None:
+            fields = {
+                "route": ("skill", "tier"), "tool": ("name",),
+                "observe": ("ok",),
+                "llm": ("total_s", "ttft_s", "prompt_tokens", "completion_tokens"),
+                "escalate": ("from", "to"), "blocked": ("reason", "skill"),
+                "router_uncertain": ("skill", "score"),
+            }
+            if kind in fields:
+                self.events.emit(
+                    "worker." + kind,
+                    {k: payload[k] for k in fields[kind] if k in payload}, task_id,
+                )
+
+        worker = Orchestrator(
+            repo=self.repo, registry=registry, client=client, skills=self._skill_library(),
+            approval=deny_all_approvals, observer=observe,
+            context_budget_tokens=self.context_budget_tokens,
+            allow_escalation=False,
+        )
+        run = worker.run(task, skill_name=skill_name)
+        task_outcome = self._product_outcome(run)
+        verified = bool(task_outcome.succeeded and run.state.verified)
+        metrics = run.state.metrics.as_dict()
+        metrics["proof_binding"] = binding_from_run(task, run, self.repo.root).as_dict()
+        return TaskResult(
+            task_id, task_outcome, run.answer,
+            verified,
+            tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
+            metrics,
+            verification_ran=bool(run.state.verification_attempted),
+            reason_code=self._reason_code(run, task_outcome),
+        )
 
     def _run_candidate_change(
         self, task: str, task_id: str, resolved_skill: str,
@@ -380,49 +451,17 @@ class TaskController:
                     task, task_id, resolved_skill, durable_activity,
                     cancellation_probe=cancellation_probe,
                 )
+            elif resolved_skill in CONFIGURED_CHECKS:
+                # No judgement is needed to run the configured build or tests, so no
+                # model decides whether they run: a fixed plan drives the same worker.
+                result = self._run_worker(
+                    task, CONFIGURED_CHECK_SKILL, ConfiguredCheckPlan(resolved_skill),
+                    _ExecutionScope(task_id, durable_activity, cancellation_probe),
+                )
             else:
-                registry, _ctx, _store = build_registry(
-                    self.repo, cancellation_probe=cancellation_probe
-                )
-                if durable_activity is not None:
-                    # The wrapper commits tool.started before entering an effectful
-                    # handler and typed tool.finished afterwards. Policy still lives
-                    # in the orchestrator; durable activity is evidence, not authority.
-                    registry = wrap_registry_with_durable_activity(registry, durable_activity)
-                skills = self._skill_library()
-
-                def observe(kind: str, payload: Mapping[str, object]) -> None:
-                    fields = {
-                        "route": ("skill", "tier"), "tool": ("name",),
-                        "observe": ("ok",),
-                        "llm": ("total_s", "ttft_s", "prompt_tokens", "completion_tokens"),
-                        "escalate": ("from", "to"), "blocked": ("reason", "skill"),
-                        "router_uncertain": ("skill", "score"),
-                    }
-                    if kind in fields:
-                        self.events.emit(
-                            "worker." + kind,
-                            {k: payload[k] for k in fields[kind] if k in payload}, task_id,
-                        )
-
-                worker = Orchestrator(
-                    repo=self.repo, registry=registry, client=self.worker_factory(), skills=skills,
-                    approval=deny_all_approvals, observer=observe,
-                    context_budget_tokens=self.context_budget_tokens,
-                    allow_escalation=False,
-                )
-                run = worker.run(task, skill_name=resolved_skill)
-                task_outcome = self._product_outcome(run)
-                verified = bool(task_outcome.succeeded and run.state.verified)
-                metrics = run.state.metrics.as_dict()
-                metrics["proof_binding"] = binding_from_run(task, run, self.repo.root).as_dict()
-                result = TaskResult(
-                    task_id, task_outcome, run.answer,
-                    verified,
-                    tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
-                    metrics,
-                    verification_ran=bool(run.state.verification_attempted),
-                    reason_code=self._reason_code(run, task_outcome),
+                result = self._run_worker(
+                    task, resolved_skill, self.worker_factory(),
+                    _ExecutionScope(task_id, durable_activity, cancellation_probe),
                 )
         except KeyboardInterrupt:
             self.events.emit("task.interrupted", {
