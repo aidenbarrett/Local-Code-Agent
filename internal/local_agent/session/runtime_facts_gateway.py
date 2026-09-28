@@ -5,6 +5,9 @@ call or let a transport outage turn into advice to rephrase the user's question.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
 from ..llm.protocol import LLMTransportError
 from .contracts import MAX_MESSAGE_CHARS, Proposal
 from .conversation_gateway import ConversationGateway, quarantined_endpoint_answer
@@ -13,6 +16,36 @@ from .runtime_facts import RuntimeFacts
 
 
 _HELP_INPUTS = frozenset({"help", "/help", "what can you do", "what can you do?"})
+_REPOSITORY_INPUTS = frozenset({
+    "where are you working",
+    "where are you working?",
+    "what repository are you working on",
+    "what repository are you working on?",
+    "what repo are you working on",
+    "what repo are you working on?",
+    "what can you access",
+    "what can you access?",
+})
+
+
+@dataclass(frozen=True)
+class RepositoryFacts:
+    name: str
+    root: Path
+    branch: str
+    execution_enabled: bool
+
+    def answer(self) -> str:
+        execution = "enabled" if self.execution_enabled else "disabled"
+        return (
+            f"Active repository: {self.name}. Root: {self.root}. "
+            f"Observed branch: {self.branch}. My repository access is restricted to "
+            "this root; "
+            f"configured build/test execution is {execution}. I will not substitute paths "
+            "outside it."
+        )
+
+
 _RUNTIME_INPUTS = frozenset({
     "what are you running on",
     "what are you running on?",
@@ -26,10 +59,21 @@ _RUNTIME_INPUTS = frozenset({
 class RuntimeFactsGateway(ConversationGateway):
     """Public gateway with deterministic help/runtime truth before model fallback."""
 
-    def __init__(self, *args, runtime_facts: RuntimeFacts, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        runtime_facts: RuntimeFacts,
+        repository_facts: RepositoryFacts | None = None,
+        **kwargs,
+    ) -> None:
         if not isinstance(runtime_facts, RuntimeFacts):
             raise TypeError("runtime-aware gateway requires RuntimeFacts")
+        if repository_facts is not None and not isinstance(
+            repository_facts, RepositoryFacts
+        ):
+            raise TypeError("repository_facts must be RepositoryFacts when supplied")
         self.runtime_facts = runtime_facts
+        self.repository_facts = repository_facts
         super().__init__(*args, **kwargs)
 
     def _deterministic_answer(self, said: str) -> str | None:
@@ -43,6 +87,13 @@ class RuntimeFactsGateway(ConversationGateway):
             )
         if normalized in _RUNTIME_INPUTS:
             return self.runtime_facts.answer()
+        if normalized in _REPOSITORY_INPUTS:
+            if self.repository_facts is None:
+                return (
+                    "I cannot establish the active repository authority for this session. "
+                    "No task was run."
+                )
+            return self.repository_facts.answer()
         return None
 
     def turn(self, said: str, *, explicit_mode=None) -> str:
@@ -93,4 +144,4 @@ class RuntimeFactsGateway(ConversationGateway):
             return None
 
 
-__all__ = ["RuntimeFactsGateway"]
+__all__ = ["RepositoryFacts", "RuntimeFactsGateway"]

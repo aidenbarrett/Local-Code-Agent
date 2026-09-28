@@ -37,7 +37,7 @@ from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRole  # 
 from local_agent.session.endpoint_runtime import EndpointRuntime  # noqa: E402
 from local_agent.session.event_buffer import EventBuffer  # noqa: E402
 from local_agent.session.runtime_facts import RuntimeFacts  # noqa: E402
-from local_agent.session.runtime_facts_gateway import RuntimeFactsGateway  # noqa: E402
+from local_agent.session.runtime_facts_gateway import RepositoryFacts, RuntimeFactsGateway  # noqa: E402
 from local_agent.session.session_event_service import DurableSessionService  # noqa: E402
 from local_agent.session.session_store import SQLiteSessionStore  # noqa: E402
 from local_agent.session.task_admission import DurableTaskAdmissionRunner, repository_id  # noqa: E402
@@ -197,9 +197,24 @@ def compose_session_graph(
         session_id=service.session_id,
     )
     history = DurableTaskHistory(service.store, stream_id=service.stream_id)
+    branch = ""
+    try:
+        branch = subprocess.run(
+            ["git", "-C", str(repo.root), "branch", "--show-current"],
+            check=True, capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    repository_facts = RepositoryFacts(
+        name=repo.name,
+        root=repo.root.resolve(),
+        branch=branch or "detached/unknown",
+        execution_enabled=allow_execution,
+    )
     gateway = RuntimeFactsGateway(
         chat_client, controller, events,
         runtime_facts=runtime_facts,
+        repository_facts=repository_facts,
         conversation=opened,
         runtime_index=runtime_index,
         task_runner=task_runner,

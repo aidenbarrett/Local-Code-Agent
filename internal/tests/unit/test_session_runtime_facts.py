@@ -15,7 +15,7 @@ from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRole
 from local_agent.session.endpoint_runtime import EndpointRuntime
 from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.runtime_facts import RuntimeFacts
-from local_agent.session.runtime_facts_gateway import RuntimeFactsGateway
+from local_agent.session.runtime_facts_gateway import RepositoryFacts, RuntimeFactsGateway
 
 
 class _NoModelClient:
@@ -132,4 +132,54 @@ def test_runtime_header_uses_observed_models_response_and_marks_device_declared(
     assert facts.header() == (
         "model actually-served-model (observed) · device NPU (declared) · "
         "endpoint http://127.0.0.1:9999/v3 · execution enabled"
+    )
+
+
+@pytest.mark.parametrize("question", [
+    "where are you working?",
+    "what repository are you working on?",
+    "what repo are you working on?",
+    "what can you access?",
+])
+def test_repository_authority_questions_are_deterministic_without_model_calls(tmp_path, question):
+    client = _NoModelClient()
+    root = (tmp_path / "repo").resolve()
+    root.mkdir()
+    gateway = RuntimeFactsGateway(
+        client,
+        _Controller(),
+        EventBuffer("repository-facts"),
+        runtime_facts=_facts(),
+        repository_facts=RepositoryFacts(
+            name="Local-Code-Agent",
+            root=root,
+            branch="feature/trust",
+            execution_enabled=False,
+        ),
+    )
+
+    answer = gateway.turn(question)
+
+    assert client.calls == 0
+    assert "Active repository: Local-Code-Agent" in answer
+    assert f"Root: {root}" in answer
+    assert "Observed branch: feature/trust" in answer
+    assert "restricted to this root" in answer
+    assert "execution is disabled" in answer
+
+
+def test_repository_question_fails_closed_when_authority_facts_are_missing():
+    client = _NoModelClient()
+    gateway = RuntimeFactsGateway(
+        client,
+        _Controller(),
+        EventBuffer("repository-facts-missing"),
+        runtime_facts=_facts(),
+    )
+
+    answer = gateway.turn("where are you working?")
+
+    assert client.calls == 0
+    assert answer == (
+        "I cannot establish the active repository authority for this session. No task was run."
     )
