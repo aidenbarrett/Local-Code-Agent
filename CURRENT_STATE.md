@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `141aa625c5a4729da2e25afc29e3d2714238fcee`
+Reconciled against GitHub `main` at `92308f630cd23ce5048d5feb869860363c41745a`
 on 2026-09-27 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -15,7 +15,9 @@ from the repository and the search-streak nudge (#250), deterministic push/commi
 refusals and the scripted candidate journey (#252, #253), failed-test CI annotations
 (#254) and duration-balanced CI test shards (#256, #257) landed. In-job parallel tests
 (#251) were measured and not adopted; the parallel probe exposed an unconfirmed
-abandoned-descendant cleanup on Windows, fixed with this reconciliation. Live
+abandoned-descendant cleanup on Windows, fixed in #258. Small-model tool-use
+robustness from the Panther Lake run landed in #259 (read_file line numbers echoed into a
+patch are removed) and #260 (an invented tool is answered with the active skill's tools). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
@@ -69,6 +71,9 @@ The public/product path now includes:
 - CI runs the authoritative suite as duration-balanced shards that partition what pytest
   collects (Linux one, Windows five, about nine minutes on Windows instead of 37), names
   failed tests in check annotations and reports each shard's slowest files;
+- a worker that echoes read_file's `N: ` line numbers into a patch's `find` text has them
+  removed (flagged "check the diff", uniqueness still required); a worker that invents a
+  tool is told the active skill's tools, and a skill name is named as a skill;
 - a command that exits normally but abandons descendants in its Windows job is reported
   with `process_cleanup_confirmed` from the job's own accounting, never assumed clean;
 - a task that could not use the model says why in the transport's own words, and a turn
