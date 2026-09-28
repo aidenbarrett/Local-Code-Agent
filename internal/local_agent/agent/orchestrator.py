@@ -62,6 +62,40 @@ _SEARCH_TOOLS = frozenset({"search_text", "find_definition"})
 SEARCH_STREAK_NUDGE = 4
 
 
+_PROPOSING_TOOLS = frozenset({"propose_patch", "propose_file"})
+
+
+def _unapplied_proposal(history: list[Any]) -> str | None:
+    """The id of the latest successful proposal that no later apply_patch applied.
+
+    Read from recorded tool state, never from the model's prose. The Panther Lake
+    J11 run proposed the requested edit, never applied it and finished, so the
+    candidate was unchanged and nothing could be proven.
+    """
+    for index in range(len(history) - 1, -1, -1):
+        record = history[index]
+        if record.name not in _PROPOSING_TOOLS or not record.ok:
+            continue
+        patch_id = (record.evidence or {}).get("patch_id")
+        if not isinstance(patch_id, str) or not patch_id:
+            return None
+        applied = any(
+            later.name == "apply_patch" and later.ok
+            and (later.arguments or {}).get("patch_id") == patch_id
+            for later in history[index + 1:]
+        )
+        return None if applied else patch_id
+    return None
+
+
+def _unapplied_proposal_message(patch_id: str) -> str:
+    return (
+        f"You proposed patch {patch_id} but never applied it, so nothing has changed. "
+        f"Call apply_patch with patch_id {patch_id!r} and then verify, or say in "
+        "submit_answer why it should not be applied."
+    )
+
+
 def _search_streak(history: list[Any]) -> int:
     streak = 0
     for record in reversed(history):
@@ -565,6 +599,7 @@ class Orchestrator:
 
         answer = ""
         nudged = False
+        proposal_nudged = False
         search_nudges = 0
         task_lower = task.lower()
         build_summary_mode = (
@@ -655,8 +690,20 @@ class Orchestrator:
             self.observer("llm", response.stats.as_dict())
             ctx.append(response.as_assistant_message())
 
+            can_apply = not state.toolset or "apply_patch" in state.toolset
             if not response.wants_tools:
                 answer = response.content or ""
+                pending_patch = _unapplied_proposal(state.history)
+                if pending_patch is not None and can_apply and not proposal_nudged:
+                    # One reminder, from recorded tool state: finishing with an
+                    # unapplied proposal leaves the tree exactly as it was.
+                    proposal_nudged = True
+                    state.warnings.append(f"finished with patch {pending_patch} unapplied")
+                    self.observer("unapplied_proposal", {"patch_id": pending_patch})
+                    ctx.append({"role": "user",
+                                "content": _unapplied_proposal_message(pending_patch)})
+                    state.phase = Phase.VERIFY
+                    continue
                 # A model that answers in prose instead of calling submit_answer
                 # gets one nudge to state its claim in a checkable form. Nothing
                 # here inspects what the prose says: that was phrase matching and
@@ -682,8 +729,24 @@ class Orchestrator:
             state.phase = Phase.ACT
             halt = False
             submitted = False
-            for call in response.tool_calls:
+            for position, call in enumerate(response.tool_calls):
                 if call.name == "submit_answer":
+                    pending_patch = _unapplied_proposal(state.history)
+                    if (pending_patch is not None and can_apply and not proposal_nudged
+                            and position == len(response.tool_calls) - 1):
+                        # Not accepted yet: the answer would describe an edit that
+                        # was never made. Answered as the call's own tool result so
+                        # the conversation stays well formed; asked once only.
+                        proposal_nudged = True
+                        state.warnings.append(
+                            f"submitted with patch {pending_patch} unapplied")
+                        self.observer("unapplied_proposal", {"patch_id": pending_patch})
+                        ctx.append(ctxmod.tool_result_message(
+                            call.id, call.name, json.dumps({
+                                "ok": False, "accepted": False,
+                                "summary": _unapplied_proposal_message(pending_patch),
+                            })))
+                        break
                     answer, submitted = self._accept_answer(call, state)
                     break
                 outcome, stop = self._execute(call, state, speculative=speculative)

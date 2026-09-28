@@ -1145,3 +1145,149 @@ def test_stop_during_the_controller_check_discards_the_candidate(sandbox, tmp_pa
     assert _worktrees(sandbox.root) == 1
     with pytest.raises(WorkspaceError):
         manager.load(task_id)
+
+
+# ----------------------------------------- a proposal that was never applied (PTL J11)
+
+
+TEXT_UTIL = "src/text_util.cpp"
+_TOP = '#include "sandbox/text_util.hpp"'
+
+
+def _propose_top_comment(call_id="j1"):
+    return ChatResponse(tool_calls=[tool_call("propose_patch", {
+        "path": TEXT_UTIL, "find": _TOP,
+        "replace": "// String helpers used by the sandbox.\n" + _TOP}, call_id)])
+
+
+def _apply_latest(call_id):
+    return lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, call_id)])
+
+
+def test_a_submitted_answer_with_an_unapplied_proposal_is_sent_back_once(sandbox, tmp_path):
+    """PTL J11: read, propose, submit. The edit is applied after one reminder and
+    the controller's own full build and test run proves it."""
+    seen = {}
+
+    def record_then_apply(m):
+        seen["reminder"] = next(
+            (x.get("content") or "" for x in reversed(m) if x.get("role") == "tool"), "")
+        return _apply_latest("j3")(m)
+
+    turns = [
+        ChatResponse(tool_calls=[tool_call("read_file", {"path": TEXT_UTIL}, "j0")]),
+        _propose_top_comment("j1"),
+        ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "added the comment", "evidence_ids": []}, "j2")]),
+        record_then_apply,
+        ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "added the comment", "evidence_ids": []}, "j4")]),
+        ChatResponse(content="Added the comment."),
+    ]
+    task_id = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run(
+        "change: add a one-line comment at the top of src/text_util.cpp saying what the file contains",
+        task_id=task_id, skill_name="implement-change")
+
+    assert "never applied it" in seen["reminder"] and '"accepted": false' in seen["reminder"]
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert result.metrics["candidate"]["paths"] == [TEXT_UTIL]
+    assert result.metrics["controller_check"] == {"check": "run-tests", "decided": True}
+    verdict_block_from_task_result(result)
+    manager.discard(manager.load(task_id)[0])
+
+
+def test_a_prose_finish_with_an_unapplied_proposal_gets_the_reminder(sandbox, tmp_path):
+    seen = {}
+
+    def record_then_apply(m):
+        seen["reminder"] = m[-1].get("content") or ""
+        return _apply_latest("k2")(m)
+
+    turns = [
+        _propose_top_comment("k1"),
+        ChatResponse(content="Done, I added the comment."),
+        record_then_apply,
+        ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "added the comment", "evidence_ids": []}, "k3")]),
+        ChatResponse(content="Added the comment."),
+    ]
+    task_id = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("change: add a comment at the top of src/text_util.cpp",
+                            task_id=task_id, skill_name="implement-change")
+
+    assert "never applied it" in seen["reminder"]
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    manager.discard(manager.load(task_id)[0])
+
+
+def test_the_unapplied_proposal_reminder_is_given_once_and_never_applies_anything(sandbox, tmp_path):
+    turns = [
+        _propose_top_comment("u1"),
+        ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "added it", "evidence_ids": []}, "u2")]),
+        ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "added it", "evidence_ids": []}, "u3")]),
+        ChatResponse(content="Added it."),
+    ]
+    controller, _ = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("change: add a comment at the top of src/text_util.cpp",
+                            task_id=str(uuid4()), skill_name="implement-change")
+
+    # The second submission is accepted as it stands: the product never applies the
+    # model's proposal on its behalf, and an unchanged candidate proves nothing.
+    assert result.outcome is not TaskOutcome.PASS
+    assert result.verified_at_completion is False
+    assert result.metrics["candidate"]["retained"] is False
+    assert "controller_check" not in result.metrics
+
+
+def test_an_applied_proposal_gets_no_reminder(sandbox, tmp_path):
+    turns = [
+        _propose_top_comment("a1"),
+        _apply_latest("a2"),
+        ChatResponse(content="Added it."),
+        ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "added it", "evidence_ids": []}, "a3")]),
+        ChatResponse(content="Added it."),
+    ]
+    client_messages = []
+
+    def spy(m):
+        client_messages.extend(m)
+        return turns[3]
+
+    turns_with_spy = turns[:3] + [spy] + turns[4:]
+    task_id = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, turns_with_spy)
+
+    result = controller.run("change: add a comment at the top of src/text_util.cpp",
+                            task_id=task_id, skill_name="implement-change")
+
+    assert not any("never applied it" in (m.get("content") or "") for m in client_messages)
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    manager.discard(manager.load(task_id)[0])
+
+
+def test_an_empty_find_says_how_to_insert_at_the_start(sandbox, tmp_path):
+    seen = {}
+
+    def record(m):
+        seen["result"] = next(x.get("content") or "" for x in reversed(m) if x.get("role") == "tool")
+        return ChatResponse(content="stopping")
+
+    turns = [
+        ChatResponse(tool_calls=[tool_call("propose_patch", {
+            "path": TEXT_UTIL, "find": "", "replace": "// comment\n"}, "e1")]),
+        record,
+        ChatResponse(content="stopping"),
+    ]
+    controller, _ = _controller(sandbox.root, tmp_path, turns)
+    controller.run("change: add a comment at the top of src/text_util.cpp",
+                   task_id=str(uuid4()), skill_name="implement-change")
+    assert "`find` is empty" in seen["result"] and "appears" not in seen["result"]

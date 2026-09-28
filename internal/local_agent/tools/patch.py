@@ -199,6 +199,13 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
             raise ToolError(f"{path!r} is not a file")
 
         original = target.read_text(encoding="utf-8")
+        if not find.strip():
+            # An empty find matches everywhere, and "appears N times" would send a
+            # small model hunting for a problem it does not have.
+            raise ToolError(
+                "`find` is empty. To add lines at the start of a file, use its first "
+                "line as `find` and put the new lines before it in `replace`."
+            )
         numbered: str | None = None
         if original.count(find) == 0 and _without_read_file_numbers(original) is None:
             numbered = _without_read_file_numbers(find)

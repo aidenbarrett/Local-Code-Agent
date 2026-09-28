@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `806e70aed45e5de6353cf69e3527c10021723e9e`
+Reconciled against GitHub `main` at `604c0e38d98c6eca702e853595ae3ad2d5afb85b`
 on 2026-09-28 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -19,7 +19,11 @@ abandoned-descendant cleanup on Windows, fixed in #258. Small-model tool-use
 robustness from the Panther Lake run landed in #259 (read_file line numbers echoed into a
 patch are removed) and #260 (an invented tool is answered with the active skill's tools).
 Main also includes controller-run configured verification for otherwise unproven
-candidates (#264) and launcher command tab completion (#265). Live
+candidates (#264), launcher command tab completion (#265), natural file-change routing
+with active-repository path, push, commit and Git refusals (#263), no skill catalogue for a
+worker whose skill is already chosen (#269, the cause of skill names called as tools on
+Panther Lake), the active repository shown in the Session Hub header (#266) and a
+collapsed empty Watches pane (#268). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
