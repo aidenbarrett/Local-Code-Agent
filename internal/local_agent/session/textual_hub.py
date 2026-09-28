@@ -448,6 +448,13 @@ def _css(palette: Mapping[str, str]) -> str:
         border: round {palette['warn']};
         overflow-y: auto;
     }}
+    #result-detail {{
+        height: 1fr;
+        min-height: 8;
+        padding: 1 2;
+        border: round {palette['verified']};
+        overflow-y: auto;
+    }}
     #activity {{
         height: 1fr;
         min-height: 8;

@@ -9,6 +9,7 @@ import pytest
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
 from local_agent.session.textual_feed import DurableHubFeed
+from local_agent.session.task_read_model import TaskSnapshot
 from local_agent.session.textual_hub import HubViewState, render_activity, render_result_detail
 from local_agent.session.textual_live_app import HubLiveBinding
 
@@ -270,8 +271,6 @@ def test_live_hub_labels_prepared_candidate_as_not_applied(tmp_path):
 
 
 def test_result_detail_separates_durable_result_evidence_and_provenance() -> None:
-    from local_agent.session.task_read_model import TaskSnapshot
-
     task = TaskSnapshot(
         task_id=str(uuid4()),
         admitted_sequence=1,
@@ -307,8 +306,6 @@ def test_result_detail_separates_durable_result_evidence_and_provenance() -> Non
 
 
 def test_result_detail_does_not_invent_missing_proof() -> None:
-    from local_agent.session.task_read_model import TaskSnapshot
-
     task = TaskSnapshot(
         task_id=str(uuid4()),
         admitted_sequence=1,
