@@ -418,6 +418,7 @@ class SessionHubApp(App):
 
     def on_mount(self) -> None:
         self._apply_layout(self.size.width)
+        self._apply_watch_visibility()
 
     def on_resize(self, event: events.Resize) -> None:
         self._apply_layout(event.size.width)
@@ -429,6 +430,10 @@ class SessionHubApp(App):
         warning = self.query_one("#layout-warning")
         warning.display = mode == "compact"
 
+    def _apply_watch_visibility(self) -> None:
+        watch = self.query_one("#watch", Static)
+        watch.display = bool(self.view_state.watches)
+
     def replace_state(self, state: HubViewState) -> None:
         """Replace already-derived presentation state on the Textual thread."""
         if not isinstance(state, HubViewState):
@@ -437,6 +442,7 @@ class SessionHubApp(App):
         self.query_one("#conversation", Static).update(render_conversation(state.conversation))
         self.query_one("#activity", Static).update(render_activity(state))
         self.query_one("#watch", Static).update(render_watches(state.watches))
+        self._apply_watch_visibility()
         self.query_one("#status", Static).update(state.status)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
