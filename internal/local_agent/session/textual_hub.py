@@ -21,6 +21,7 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import Input, Static
 
+from .attention_presentation import render_attention
 from .task_read_model import TaskSnapshot, project_tasks
 from .watch_read_model import WatchSnapshot, project_watches
 
@@ -413,6 +414,7 @@ class SessionHubApp(App):
                 yield Input(placeholder="Message Local Code Agent…", id="composer")
             with Vertical(id="side-column"):
                 yield Static(render_activity(self.view_state), id="activity", markup=False)
+                yield Static(render_attention(self.view_state.tasks), id="attention", markup=False)
                 yield Static(render_watches(self.view_state.watches), id="watch", markup=False)
         yield Static(self.view_state.status, id="status", markup=False)
 
@@ -436,6 +438,7 @@ class SessionHubApp(App):
         self.view_state = state
         self.query_one("#conversation", Static).update(render_conversation(state.conversation))
         self.query_one("#activity", Static).update(render_activity(state))
+        self.query_one("#attention", Static).update(render_attention(state.tasks))
         self.query_one("#watch", Static).update(render_watches(state.watches))
         self.query_one("#status", Static).update(state.status)
 
