@@ -810,16 +810,24 @@ class Orchestrator:
                 )
         except ToolError as exc:
             reason = exc.reason
-            result = ToolResult.errored(reason, str(exc))
+            message = str(exc)
+            if reason is Reason.UNKNOWN_TOOL:
+                # The registry lists every tool it holds; the model can only use the
+                # active skill's. A skill name is the commonest invented tool name.
+                usable = sorted(state.toolset) if state.toolset else self.registry.names()
+                hint = (f"{call.name!r} is a skill, not a tool. " if self.skills.get(call.name)
+                        else "")
+                message = f"unknown tool {call.name!r}. {hint}Call one of: {usable}"
+            result = ToolResult.errored(reason, message)
             state.record(
                 ToolCallRecord(
-                    call.name, call.arguments, "unknown", False, str(exc),
+                    call.name, call.arguments, "unknown", False, message,
                     execution=result.execution_status.value,
                     domain=result.domain_status.value,
                     reason=reason.value,
                 )
             )
-            state.errors.append(str(exc))
+            state.errors.append(message)
             if self._too_many_unknown(state):
                 state.halt(
                     HaltCause.UNKNOWN_TOOLS,
