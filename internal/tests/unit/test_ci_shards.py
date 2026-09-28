@@ -71,3 +71,16 @@ def test_the_pytest_option_selects_disjoint_shards_whose_union_is_the_suite():
     assert first and second
     assert first.isdisjoint(second)
     assert first | second == everything
+
+
+def test_the_time_report_is_one_notice_with_the_slowest_files_first():
+    line = shards.report_line({"b.py": 2.0, "a.py": 30.0, "c.py": 0.5})
+    assert line.startswith("::notice title=test time 32s (slowest files)::")
+    assert "\n" not in line
+    body = line.split("::", 2)[2].split("%0A")
+    assert [entry.split()[-1] for entry in body] == ["a.py", "b.py", "c.py"]
+
+
+def test_report_without_a_junit_file_says_nothing_and_succeeds(tmp_path, capsys):
+    assert shards.main(["report", str(tmp_path / "absent.xml")]) == 0
+    assert capsys.readouterr().out == ""

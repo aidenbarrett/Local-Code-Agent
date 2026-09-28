@@ -12,7 +12,12 @@ recorded from a real run. A file with no recorded time is given the median.
 
     python internal/devtools/ci_shards.py update pytest-junit.xml [more.xml ...]
 
-rewrites ``internal/tests/shard-weights.json`` from JUnit reports.
+rewrites ``internal/tests/shard-weights.json`` from JUnit reports, and
+
+    python internal/devtools/ci_shards.py report pytest-junit.xml
+
+prints one ``::notice`` with the run's test time and its slowest files, so a CI
+run's time profile is readable from the checks API on every platform.
 """
 from __future__ import annotations
 
@@ -86,10 +91,25 @@ def weights_from_junit(reports: Sequence[Path]) -> dict[str, float]:
     return {k: round(v, 2) for k, v in sorted(totals.items())}
 
 
+REPORT_FILES = 15
+
+
+def report_line(weights: Mapping[str, float]) -> str:
+    """One ::notice with this run's total and its slowest files, for the checks API."""
+    slowest = sorted(weights.items(), key=lambda kv: (-kv[1], kv[0]))[:REPORT_FILES]
+    body = "%0A".join(f"{seconds:7.1f}s  {name}" for name, seconds in slowest)
+    return f"::notice title=test time {sum(weights.values()):.0f}s (slowest files)::{body}"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    if len(args) >= 2 and args[0] == "report":
+        reports = [Path(a) for a in args[1:] if Path(a).is_file()]
+        if reports:
+            sys.stdout.write(report_line(weights_from_junit(reports)) + "\n")
+        return 0
     if len(args) < 2 or args[0] != "update":
-        sys.stderr.write("usage: ci_shards.py update <junit.xml> [...]\n")
+        sys.stderr.write("usage: ci_shards.py update|report <junit.xml> [...]\n")
         return 2
     weights = weights_from_junit([Path(a) for a in args[1:]])
     WEIGHTS.write_text(json.dumps(weights, indent=1, sort_keys=True) + "\n", encoding="utf-8")

@@ -104,6 +104,9 @@ jobs:
         # API always returns annotations. One error annotation per failed test.
         if: failure()
         run: python internal/devtools/annotate_test_failures.py pytest-junit.xml
+      - name: Report where the time went
+        if: always()
+        run: python internal/devtools/ci_shards.py report pytest-junit.xml
 
   pytest:
     # One result per platform, named as before, green only if every shard passed.
