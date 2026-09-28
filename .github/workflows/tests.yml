@@ -55,13 +55,21 @@ jobs:
       - name: Syntax scan
         run: python -m pytest -q internal/tests/unit/test_no_syntax_warnings.py
 
-  pytest:
-    name: pytest (${{ matrix.os }})
+  pytest-shard:
+    # The authoritative suite, split into whole-file shards balanced by recorded time
+    # (internal/devtools/ci_shards.py). The shards partition what pytest collects, so
+    # every test still runs on both platforms; only wall-clock time changes. Windows
+    # is the slow platform, so it gets three runners.
+    name: pytest ${{ matrix.shard }} (${{ matrix.os }})
     needs: gates
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - {os: ubuntu-latest, shard: "1/1", shard_id: "1of1"}
+          - {os: windows-latest, shard: "1/3", shard_id: "1of3"}
+          - {os: windows-latest, shard: "2/3", shard_id: "2of3"}
+          - {os: windows-latest, shard: "3/3", shard_id: "3of3"}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -73,7 +81,7 @@ jobs:
           cache-dependency-path: pyproject.toml
       - name: Capture declared CI job scope and checkout identity
         env:
-          LCA_ARTIFACT_NAME: ci-job-tests-pytest-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          LCA_ARTIFACT_NAME: ci-job-tests-pytest-${{ matrix.shard_id }}-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
           LCA_COMMAND_SCOPE: authoritative-pytest
           LCA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           LCA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -82,7 +90,7 @@ jobs:
       - name: Upload declared CI job scope and checkout identity
         uses: actions/upload-artifact@v4
         with:
-          name: ci-job-tests-pytest-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
+          name: ci-job-tests-pytest-${{ matrix.shard_id }}-${{ runner.os }}-${{ runner.arch }}-attempt-${{ github.run_attempt }}
           path: ci-job-evidence.json
           if-no-files-found: error
       - name: Install
@@ -90,12 +98,26 @@ jobs:
       - name: Authoritative test suite
         # The slowest tests are listed so a suite drifting toward the job timeout is
         # visible before it goes red (Windows runs near 35 of its 45 minutes).
-        run: python -m pytest -q --durations=30 --durations-min=5 --junitxml=pytest-junit.xml
+        run: python -m pytest -q --shard ${{ matrix.shard }} --durations=30 --durations-min=5 --junitxml=pytest-junit.xml
       - name: Annotate failed tests
         # The job log is not always readable by whoever fixes the failure; the checks
         # API always returns annotations. One error annotation per failed test.
         if: failure()
         run: python internal/devtools/annotate_test_failures.py pytest-junit.xml
+
+  pytest:
+    # One result per platform, named as before, green only if every shard passed.
+    name: pytest (${{ matrix.os }})
+    needs: pytest-shard
+    if: always()
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every shard passed
+        run: test "${{ needs.pytest-shard.result }}" = "success"
 
   coverage:
     name: coverage (report only)

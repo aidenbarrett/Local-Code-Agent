@@ -120,7 +120,7 @@ def test_every_workflow_job_defines_unique_matrix_evidence_and_scope():
         root / ".github/workflows/tests.yml": {
             "ci-job-tests-gates-${{ runner.os }}-${{ runner.arch }}-"
             "attempt-${{ github.run_attempt }}": "fast-gates",
-            "ci-job-tests-pytest-${{ runner.os }}-${{ runner.arch }}-"
+            "ci-job-tests-pytest-${{ matrix.shard_id }}-${{ runner.os }}-${{ runner.arch }}-"
             "attempt-${{ github.run_attempt }}": "authoritative-pytest",
             "ci-job-tests-coverage-${{ runner.os }}-${{ runner.arch }}-"
             "attempt-${{ github.run_attempt }}": "coverage-report",
