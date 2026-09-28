@@ -41,7 +41,8 @@ class RepositoryFacts:
             f"Active repository: {self.name}. Root: {self.root}. "
             f"Observed branch: {self.branch}. My repository access is restricted to "
             "this root; "
-            f"configured build/test execution is {execution}. I will not substitute paths outside it."
+            f"configured build/test execution is {execution}. I will not substitute paths "
+            "outside it."
         )
 
 
