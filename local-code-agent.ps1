@@ -8,6 +8,15 @@
   explicit subcommands behind the same product entrypoint.
 #>
 param(
+    # Tab completes the product commands. The list must name exactly the commands the
+    # switch below dispatches (a test enforces that); unknown words still reach the
+    # switch, which prints help.
+    [ArgumentCompleter({
+        param($commandName, $parameterName, $wordToComplete)
+        @('session', 'chat', 'help', 'capabilities', 'run-task', 'acceptance', 'verification-demo', 'advanced') |
+            Where-Object { $_ -like "$wordToComplete*" } |
+            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+    })]
     [string]$Command = 'session',
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
 )
