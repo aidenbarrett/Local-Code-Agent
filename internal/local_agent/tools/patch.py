@@ -9,6 +9,7 @@ a byte to the worktree that a human has not already seen as a diff.
 from __future__ import annotations
 
 import difflib
+import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +75,24 @@ class PatchStore:
 
 def _indent(line: str) -> str:
     return line[: len(line) - len(line.lstrip(" \t"))]
+
+
+_READ_FILE_NUMBER = re.compile(r"^\d+: ?")
+
+
+def _without_read_file_numbers(text: str) -> str | None:
+    """`text` with read_file's `N: ` line prefixes removed, if every nonblank line has one.
+
+    read_file shows lines as `13:     ++count;`. Small models copy that display back
+    into `find`, which then matches nothing. Only the display format read_file itself
+    produces is recognised, and only when every nonblank line carries it.
+    """
+    lines = text.split("\n")
+    nonblank = [line for line in lines if line.strip()]
+    if not nonblank or not all(_READ_FILE_NUMBER.match(line) for line in nonblank):
+        return None
+    return "\n".join(_READ_FILE_NUMBER.sub("", line, count=1) if line.strip() else line
+                     for line in lines)
 
 
 def _tolerant_replace(original: str, find: str, replace: str) -> tuple[str | None, int]:
@@ -180,6 +199,14 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
             raise ToolError(f"{path!r} is not a file")
 
         original = target.read_text(encoding="utf-8")
+        numbered: str | None = None
+        if original.count(find) == 0 and _without_read_file_numbers(original) is None:
+            numbered = _without_read_file_numbers(find)
+        if numbered is not None:
+            # The model echoed read_file's line numbers. Match the lines it meant; a
+            # replacement written in the same display format loses its numbers too.
+            find = numbered
+            replace = _without_read_file_numbers(replace) or replace
         occurrences = original.count(find)
         match = "exact"
         if occurrences > 1:
@@ -216,10 +243,13 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
         patch_id = uuid.uuid4().hex[:8]
         store.put(PendingPatch(patch_id, target, original, updated, diff))
 
-        note = (
-            "" if match == "exact"
-            else "; matched ignoring indentation/trailing spaces, check the diff"
-        )
+        if numbered is not None:
+            match = ("line_numbers_stripped" if match == "exact"
+                     else "line_numbers_stripped_whitespace_tolerant")
+        note = {
+            "exact": "",
+            "whitespace_tolerant": "; matched ignoring indentation/trailing spaces, check the diff",
+        }.get(match, "; matched after removing read_file line numbers from find, check the diff")
         return ToolResult(
             ok=True,
             summary=f"patch {patch_id} proposed for {rel} (nothing written yet{note})",
