@@ -241,6 +241,50 @@ def render_attention(state: HubViewState) -> str:
     return "\n\n".join(items[:3])
 
 
+def render_result_detail(state: HubViewState) -> str:
+    """Render labelled result, evidence and provenance layers from durable facts only."""
+    task = _active_task(state.tasks)
+    if task is None:
+        return "No task result selected."
+
+    verdict = task.verdict or "pending"
+    reason = task.verdict_reason or "none"
+    scope = task.verdict_scope or "not established"
+    evidence = ", ".join(task.evidence_ids) if task.evidence_ids else "none"
+    answer = task.result_answer or "unavailable"
+    lines = [
+        "RESULT",
+        f"Task: {task.task_id}",
+        f"Lifecycle: {task.state}",
+        f"Verdict: {verdict} · {reason}",
+        "",
+        "REQUEST / VERIFICATION SCOPE",
+        f"Repository: {task.repository_id}",
+        f"Skill: {task.skill or 'none'}",
+        f"Scope: {scope}",
+        "",
+        "RETAINED WORKER ANSWER",
+        answer,
+        "",
+        "EVIDENCE",
+        evidence,
+        "",
+        "PROVENANCE",
+        f"Origin: {task.origin_kind}",
+        f"Execution epoch: {task.execution_epoch}",
+    ]
+    candidate = task.candidate
+    if candidate is not None:
+        lines.extend(
+            (
+                f"Candidate role: {candidate.role}",
+                f"Candidate base: {candidate.base_commit or 'unknown'}",
+                f"Candidate patch: {candidate.patch_sha256 or 'unknown'}",
+            )
+        )
+    return "\n".join(lines)
+
+
 def render_activity(state: HubViewState) -> str:
     task = _active_task(state.tasks)
     lines: list[str] = []
@@ -455,6 +499,7 @@ class SessionHubApp(App):
             with Vertical(id="side-column"):
                 yield Static(render_attention(self.view_state), id="attention", markup=False)
                 yield Static(render_activity(self.view_state), id="activity", markup=False)
+                yield Static(render_result_detail(self.view_state), id="result-detail", markup=False)
                 yield Static(render_watches(self.view_state.watches), id="watch", markup=False)
         yield Static(self.view_state.status, id="status", markup=False)
 
@@ -479,6 +524,7 @@ class SessionHubApp(App):
         self.query_one("#conversation", Static).update(render_conversation(state.conversation))
         self.query_one("#attention", Static).update(render_attention(state))
         self.query_one("#activity", Static).update(render_activity(state))
+        self.query_one("#result-detail", Static).update(render_result_detail(state))
         self.query_one("#watch", Static).update(render_watches(state.watches))
         self.query_one("#status", Static).update(state.status)
 
@@ -501,5 +547,6 @@ __all__ = [
     "render_activity",
     "render_attention",
     "render_conversation",
+    "render_result_detail",
     "render_watches",
 ]

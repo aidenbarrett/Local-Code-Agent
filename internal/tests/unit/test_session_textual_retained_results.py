@@ -9,7 +9,7 @@ import pytest
 from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
 from local_agent.session.textual_feed import DurableHubFeed
-from local_agent.session.textual_hub import render_activity
+from local_agent.session.textual_hub import HubViewState, render_activity, render_result_detail
 from local_agent.session.textual_live_app import HubLiveBinding
 
 
@@ -267,3 +267,63 @@ def test_live_hub_labels_prepared_candidate_as_not_applied(tmp_path):
         assert f"Apply: /apply {task_id}" in rendered
     finally:
         service.close()
+
+
+def test_result_detail_separates_durable_result_evidence_and_provenance() -> None:
+    from local_agent.session.task_read_model import TaskSnapshot
+
+    task = TaskSnapshot(
+        task_id=str(uuid4()),
+        admitted_sequence=1,
+        last_sequence=4,
+        state="failed",
+        execution_epoch=7,
+        origin_kind="user_direct",
+        repository_id="repo-1",
+        skill="fix-build",
+        deadline_utc="2030-01-01T00:00:00Z",
+        verdict="FAILED",
+        verdict_reason="verification_failed",
+        verdict_scope="full_build",
+        evidence_ids=("build:0", "stderr:0"),
+        closed_sequence=4,
+        result_answer="Compiler failed in src/widget.cpp.",
+        result_verification_ran=True,
+        result_verified_at_completion=False,
+    )
+
+    rendered = render_result_detail(HubViewState(tasks=(task,)))
+
+    assert "RESULT" in rendered
+    assert f"Task: {task.task_id}" in rendered
+    assert "Verdict: FAILED · verification_failed" in rendered
+    assert "REQUEST / VERIFICATION SCOPE" in rendered
+    assert "Scope: full_build" in rendered
+    assert "RETAINED WORKER ANSWER\nCompiler failed in src/widget.cpp." in rendered
+    assert "EVIDENCE\nbuild:0, stderr:0" in rendered
+    assert "PROVENANCE" in rendered
+    assert "Repository: repo-1" in rendered
+    assert "Execution epoch: 7" in rendered
+
+
+def test_result_detail_does_not_invent_missing_proof() -> None:
+    from local_agent.session.task_read_model import TaskSnapshot
+
+    task = TaskSnapshot(
+        task_id=str(uuid4()),
+        admitted_sequence=1,
+        last_sequence=1,
+        state="running",
+        execution_epoch=2,
+        origin_kind="user_direct",
+        repository_id="repo-1",
+        skill=None,
+        deadline_utc="2030-01-01T00:00:00Z",
+    )
+
+    rendered = render_result_detail(HubViewState(tasks=(task,)))
+
+    assert "Verdict: pending · none" in rendered
+    assert "Scope: not established" in rendered
+    assert "RETAINED WORKER ANSWER\nunavailable" in rendered
+    assert "EVIDENCE\nnone" in rendered
