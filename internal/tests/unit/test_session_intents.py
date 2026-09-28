@@ -13,6 +13,7 @@ from local_agent.session.intents import (
     RULE_BUILD_AND_TEST,
     RULE_RUN_TESTS,
     RULE_GIT_REVIEW,
+    RULE_IMPLEMENT_CHANGE,
     RULE_SELF_CHECK,
     RULE_TASK_DIAGNOSTIC,
     TaskIntent,
@@ -72,6 +73,43 @@ def test_anchored_named_rules_route_without_model(text, rule_id, skill, kwargs):
     assert decision.source == RouteSource.RULE
     assert decision.rule_id == rule_id
     assert decision.skill == skill
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Can you create a C++ file called aiden101.cpp and add a print inside it?",
+        "please create a new file called src/widget.cpp",
+        "add a header file called src/widget.h",
+        "edit src/widget.cpp to return 42",
+        "modify the file README.md to add setup notes",
+        "update README.md with the new command",
+    ],
+)
+def test_natural_file_change_routes_to_isolated_implement_change(text):
+    decision = decide_route(text, active_repo_count=1)
+    assert decision.action == RouteAction.WORK
+    assert decision.source == RouteSource.RULE
+    assert decision.rule_id == RULE_IMPLEMENT_CHANGE
+    assert decision.skill == "implement-change"
+    assert decision.objective == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "don't create a file",
+        "do not edit README.md",
+        '"create a file called demo.cpp"',
+        "explain how to create a file",
+        "if I ask you to update README.md, what happens?",
+        "create a playlist",
+    ],
+)
+def test_natural_change_words_do_not_gain_mutation_authority_without_direct_file_request(text):
+    decision = decide_route(text, active_repo_count=1)
+    assert decision.action == RouteAction.MODEL_FALLBACK
+    assert decision.source is None
 
 
 @pytest.mark.parametrize(
@@ -216,9 +254,19 @@ def test_one_word_route_decision_targets_current_pending_revision(mode):
     assert correction.mode == ExplicitMode(mode)
 
 
-def test_route_correction_never_guesses_across_multiple_pending_routes():
+@pytest.mark.parametrize("answer", ["yes", "Yes.", "go ahead", "Go ahead!", "do it", "Do it."])
+def test_natural_affirmation_accepts_exactly_one_pending_work_proposal(answer):
+    correction = correct_pending_route(answer, (PendingRouteRef("route-1", 4),))
+    assert correction.status == CorrectionStatus.APPLIED
+    assert correction.route_id == "route-1"
+    assert correction.revision == 4
+    assert correction.mode == ExplicitMode.WORK
+
+
+@pytest.mark.parametrize("answer", ["chat", "yes", "go ahead", "do it"])
+def test_route_correction_never_guesses_across_multiple_pending_routes(answer):
     correction = correct_pending_route(
-        "chat",
+        answer,
         (PendingRouteRef("route-1", 0), PendingRouteRef("route-2", 2)),
     )
     assert correction.status == CorrectionStatus.CLARIFY

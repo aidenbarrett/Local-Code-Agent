@@ -8,9 +8,11 @@ proposals remain advice and never manufacture execution authority.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from threading import Lock
 
 from ..llm.protocol import LLMTransportError
+from .change_requests import change_path_refusal
 from .contracts import MAX_MESSAGE_CHARS, Proposal, RouteSource, TaskResult
 from .conversation_store import (
     ContextRefusal,
@@ -88,6 +90,18 @@ _CLARIFICATIONS = {
 }
 
 _REFUSALS = {
+    "outside_active_repository": (
+        "I only work inside the active repository. I will not write to that outside path "
+        "or substitute a different destination. No task was run."
+    ),
+    "unresolved_change_path": "I cannot safely resolve that file path. No task was run.",
+    "active_repository_unknown": (
+        "I cannot establish the active repository for that file change. No task was run."
+    ),
+    "git_change_not_supported": (
+        "That request includes a Git operation outside this file-change capability. "
+        "No task was run."
+    ),
     "push_not_supported": (
         "Local Code Agent never pushes; nothing was sent anywhere. Push from your own "
         "terminal when you are ready. No task was run."
@@ -409,8 +423,42 @@ class ConversationGateway:
             raise ArtifactIntegrityError("accepted route does not reference a user turn")
         return "User request:\n" + turn.content
 
+    def _active_repo_root(self) -> Path | None:
+        repo = getattr(self.controller, "declared_repo", None)
+        if repo is None:
+            repo = getattr(self.controller, "repo", None)
+        root = getattr(repo, "root", None)
+        return root if isinstance(root, Path) else None
+
+    def _refusal(self, decision: RouteDecision) -> str:
+        answer = _REFUSALS.get(
+            decision.reason_code or "",
+            "Source-mutation work is not available on this product path. No task was run.",
+        )
+        if decision.reason_code == "outside_active_repository":
+            answer = f"Active repository: {self._active_repo_root()}\n" + answer
+        return answer
+
+    def _route_boundary_refusal(self, text: str) -> RouteDecision | None:
+        decision = decide_route(text, active_repo_count=1)
+        if decision.action == RouteAction.REFUSE:
+            return decision
+        reason = change_path_refusal(text, self._active_repo_root())
+        return RouteDecision(RouteAction.REFUSE, reason_code=reason) if reason else None
+
     def _run_model_route(self, route) -> str:
         task = self._model_route_task(route)
+        # Revalidate canonical user text at acceptance/recovery, never model prose.
+        refusal = self._route_boundary_refusal(
+            self.session.turns[int(route.turn_ref["turn_index"])].content,
+        )
+        if refusal is not None:
+            answer = (
+                self._refusal(refusal)
+                + " This previously accepted proposal cannot resume; start a new session."
+            )
+            self._record_assistant(answer)
+            return answer
         result = self._run_task(
             task,
             turn_ref=route.turn_ref,
@@ -478,6 +526,13 @@ class ConversationGateway:
             raise RuntimeError("unsupported pending-route correction mode")
         self._model_route_task(route)
         self._record_user(said)
+        refusal = self._route_boundary_refusal(
+            self.session.turns[int(route.turn_ref["turn_index"])].content,
+        )
+        if refusal is not None:
+            answer = self._refusal(refusal) + " Reply `chat` to dismiss this proposal."
+            self._record_assistant(answer)
+            return answer
         accepted_route = self.route_events.resolve(
             route,
             resolution="accepted",
@@ -499,6 +554,13 @@ class ConversationGateway:
             if durable_decision is not None:
                 return durable_decision
 
+            if explicit_mode != ExplicitMode.CHAT:
+                refusal = self._route_boundary_refusal(said)
+                if refusal is not None:
+                    answer = self._refusal(refusal)
+                    self._record_exchange(said, answer)
+                    return answer
+
             failure_observations = self._failure_observations()
             decision = decide_route(
                 said,
@@ -517,10 +579,7 @@ class ConversationGateway:
                 return answer
 
             if decision.action == RouteAction.REFUSE:
-                answer = _REFUSALS.get(
-                    decision.reason_code or "",
-                    "Source-mutation work is not available on this product path. No task was run.",
-                )
+                answer = self._refusal(decision)
                 self._record_exchange(said, answer)
                 return answer
 

@@ -12,6 +12,7 @@ import re
 from typing import Mapping, Sequence
 from uuid import UUID
 
+from .change_requests import change_request_refusal, natural_change_target
 from .configured_checks import RUN_BUILD_CHECK, RUN_TEST_CHECK
 from .contracts import MAX_MESSAGE_CHARS, RouteSource
 
@@ -405,6 +406,9 @@ def decide_route(
     mode = None if explicit_mode is None else ExplicitMode(explicit_mode)
     if mode == ExplicitMode.CHAT:
         return RouteDecision(RouteAction.CHAT, objective=text)
+    refusal = change_request_refusal(text)
+    if refusal is not None:
+        return RouteDecision(RouteAction.REFUSE, reason_code=refusal)
     if mode == ExplicitMode.WORK:
         return RouteDecision(RouteAction.WORK, objective=text, source=RouteSource.USER_DIRECT)
 
@@ -499,7 +503,7 @@ def decide_route(
             reference_ids=(task_id,),
         )
 
-    if _IMPLEMENT_CHANGE.fullmatch(stripped):
+    if _IMPLEMENT_CHANGE.fullmatch(stripped) or natural_change_target(stripped) is not None:
         reason = _repository_target_reason(active_repo_count)
         if reason is not None:
             return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
@@ -626,8 +630,14 @@ def correct_pending_route(text: str, pending: Sequence[PendingRouteRef]) -> Rout
     """Target one pending revision with an explicit one-word work/chat decision."""
     if not isinstance(text, str):
         raise TypeError("route correction must be text")
-    normalized = text.strip().lower()
-    if normalized not in {ExplicitMode.WORK.value, ExplicitMode.CHAT.value}:
+    normalized = text.strip().lower().rstrip(".!")
+    work_answers = {ExplicitMode.WORK.value, "yes", "go ahead", "do it"}
+    chat_answers = {ExplicitMode.CHAT.value}
+    if normalized in work_answers:
+        mode = ExplicitMode.WORK
+    elif normalized in chat_answers:
+        mode = ExplicitMode.CHAT
+    else:
         return RouteCorrection(CorrectionStatus.NOT_A_CORRECTION)
     candidates = tuple(pending)
     if any(not isinstance(candidate, PendingRouteRef) for candidate in candidates):
@@ -641,5 +651,5 @@ def correct_pending_route(text: str, pending: Sequence[PendingRouteRef]) -> Rout
         CorrectionStatus.APPLIED,
         route_id=current.route_id,
         revision=current.revision,
-        mode=ExplicitMode(normalized),
+        mode=mode,
     )

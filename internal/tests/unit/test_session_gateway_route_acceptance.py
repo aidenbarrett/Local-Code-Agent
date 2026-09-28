@@ -165,3 +165,49 @@ def test_public_session_wires_durable_route_events_into_gateway():
     source = Path("internal/scripts/session-hub.py").read_text(encoding="utf-8")
     assert "from local_agent.session.durable_routes import DurableRouteEvents" in source
     assert "route_events=DurableRouteEvents(service)" in source
+
+
+def test_old_external_proposal_cannot_gain_authority_from_yes(tmp_path):
+    service = _service(tmp_path)
+    runner = Runner()
+    chat = Chat()
+    gateway = _gateway(service, chat, runner)
+    gateway.controller.repo = SimpleNamespace(root=tmp_path)
+    try:
+        # Emulate a proposal persisted by the old, over-broad router.
+        saved = gateway._record_user('create a file called ../../outside.cpp')
+        gateway.route_events.propose(TaskIntent(
+            turn_ref=saved, objective='create a file called ../../outside.cpp',
+            proposed_reference_ids=(), origin=RouteSource.MODEL_PROPOSAL,
+        ))
+        answer = gateway.turn('yes')
+        assert 'outside path' in answer
+        assert 'Reply `chat`' in answer
+        assert runner.calls == []
+        assert chat.calls == 0
+        assert gateway.route_events.accepted_unadmitted() == ()
+        assert len(gateway.route_events.pending_acceptance()) == 1
+        assert 'conversation-only' in gateway.turn('chat')
+        assert gateway.route_events.pending_acceptance() == ()
+    finally:
+        service.close()
+
+
+def test_old_accepted_external_proposal_cannot_resume_work(tmp_path):
+    service = _service(tmp_path)
+    runner = Runner()
+    chat = Chat()
+    gateway = _gateway(service, chat, runner)
+    gateway.controller.repo = SimpleNamespace(root=tmp_path)
+    try:
+        saved = gateway._record_user('create ../../outside.cpp')
+        route = gateway.route_events.propose(TaskIntent(
+            turn_ref=saved, objective='create ../../outside.cpp',
+            proposed_reference_ids=(), origin=RouteSource.MODEL_PROPOSAL,
+        ))
+        gateway.route_events.resolve(route, source='user')
+        assert 'outside path' in gateway.turn('work')
+        assert runner.calls == []
+        assert chat.calls == 0
+    finally:
+        service.close()
