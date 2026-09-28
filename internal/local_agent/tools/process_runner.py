@@ -44,6 +44,9 @@ from . import windows_job
 
 
 _POST_KILL_WAIT_S = 2.0
+# Descendants a normally exiting command abandoned: long enough for a loaded machine's
+# kernel accounting to drain, and bounded.
+_STRAY_DRAIN_S = 10.0
 _POST_KILL_FORCE_WAIT_S = 1.0
 _CANCEL_POLL_S = 0.05
 
@@ -67,10 +70,10 @@ class RunOutcome:
     stdout_path: Path
     stderr_path: Path
     combined_path: Path
-    # None means no timeout/cancellation cleanup was required. False means best-effort
-    # cleanup ran but the runner cannot prove whole-tree containment. True is reserved
-    # for a future implementation that owns the process tree with a primitive such as a
-    # Linux cgroup or Windows Job Object.
+    # None means no cleanup was required. False means cleanup ran but the runner cannot
+    # prove the whole tree ended. True means the tree's owner (a Windows Job Object)
+    # accounted for every process ending: after a timeout or Stop, or after a normally
+    # exiting command left descendants behind in its job.
     process_cleanup_confirmed: bool | None = None
     cancel_requested: bool = False
     # Whole-tree ownership held for this run: "job_object" (Windows Job Object),
@@ -223,6 +226,7 @@ def run_command(
     cancel_requested = False
     cleanup_confirmed: bool | None = None
     stray_descendants: int | None = None
+    stray_note = ""
     job: windows_job.ProcessTreeJob | None = None
     if windows_job.supported():
         try:
@@ -302,7 +306,17 @@ def run_command(
                 except windows_job.JobContainmentError:
                     stray_descendants = None
                 if stray_descendants != 0:
-                    job.terminate_and_confirm(_POST_KILL_WAIT_S)
+                    # Confirmed only by the job's own accounting reaching zero. On a
+                    # loaded machine that can take longer than a kill after a timeout
+                    # is allowed, and the result used to be ignored: the run then
+                    # reported job containment with the descendant still running.
+                    cleanup_confirmed = job.terminate_and_confirm(_STRAY_DRAIN_S)
+                    if not cleanup_confirmed:
+                        stray_note = (
+                            "\n[local-agent] the command exited but left descendant "
+                            f"process(es) in its job; termination was not confirmed "
+                            f"within {_STRAY_DRAIN_S:.0f}s\n"
+                        )
 
             stdout = _snapshot_capture(stdout_capture)
             stderr = _snapshot_capture(stderr_capture)
@@ -314,6 +328,7 @@ def run_command(
         if job is not None:
             job.close()
 
+    stderr += stray_note
     if timed_out:
         stderr += (
             f"\n[local-agent] command exceeded {timeout_s}s; "

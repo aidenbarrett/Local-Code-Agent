@@ -177,6 +177,10 @@ def test_normal_exit_terminates_and_counts_abandoned_descendant(tmp_path):
     assert out.exit_code == 0
     assert out.containment == "job_object"
     assert out.stray_descendants_at_exit is not None and out.stray_descendants_at_exit >= 1
+    # The job's own accounting confirmed the abandoned descendant ended before the run
+    # returned. Under parallel load this used to time out silently (found by the xdist
+    # probe on Windows CI): the run claimed containment with the descendant alive.
+    assert out.process_cleanup_confirmed is True
     assert not _alive(grandchild), "a finished command left an owned descendant running"
     size = marker.stat().st_size
     time.sleep(0.4)
