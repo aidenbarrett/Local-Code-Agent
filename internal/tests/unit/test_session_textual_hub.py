@@ -195,6 +195,6 @@ def test_watch_pane_appears_when_a_watch_arrives_after_mount():
             await pilot.pause()
 
             assert watch_widget.display is True
-            assert _watch is not None
+            assert "enabled" in str(watch_widget.render())
 
     asyncio.run(scenario())
