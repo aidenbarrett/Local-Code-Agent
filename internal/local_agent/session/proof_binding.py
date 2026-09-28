@@ -103,8 +103,13 @@ class ProofBinding:
         }
 
 
-def binding_from_run(task: str, run, repo_root: Path) -> ProofBinding:
-    """Project current-epoch worker proof into one immutable product fact."""
+def binding_from_run(task: str, run, repo_root: Path, *, evidence_offset: int = 0) -> ProofBinding:
+    """Project current-epoch worker proof into one immutable product fact.
+
+    ``evidence_offset`` is where this run's history starts in the task result's
+    evidence ids, when the result carries more than one run (a controller check
+    after the worker), so the binding cites the id the result actually lists.
+    """
     request_sha256 = hashlib.sha256(task.encode("utf-8")).hexdigest()
     current_epoch = int(run.state.mutation_epoch)
     candidates: list[tuple[int, ProofKind]] = []
@@ -128,7 +133,9 @@ def binding_from_run(task: str, run, repo_root: Path) -> ProofBinding:
     else:
         proof_index, proof_kind = -1, ProofKind.NO_CURRENT_PROOF
 
-    evidence_ids = () if proof_index < 0 else (f"{run.state.history[proof_index].name}:{proof_index}",)
+    evidence_ids = () if proof_index < 0 else (
+        f"{run.state.history[proof_index].name}:{evidence_offset + proof_index}",
+    )
     return ProofBinding(
         request_sha256=request_sha256,
         scope=_SCOPE_BY_KIND[proof_kind],
