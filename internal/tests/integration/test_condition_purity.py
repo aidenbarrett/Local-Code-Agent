@@ -482,7 +482,15 @@ def test_a_case_that_cannot_start_reports_why(tmp_path, monkeypatch):
     assert "PreconditionError" in message, message
 
 
-def test_control_is_never_offered_a_tool_that_cannot_work_in_control(tmp_path):
+def _case_names() -> list[str]:
+    from task_contracts import CASES
+    return [c.name for c in CASES]
+
+
+# One test per case, not one loop over all of them: the same check on the same cases,
+# and each case (two real CMake worktrees) can run on a different CI shard.
+@pytest.mark.parametrize("case_name", _case_names())
+def test_control_is_never_offered_a_tool_that_cannot_work_in_control(tmp_path, case_name):
     """The defect the fifth round closed, found again in a new place.
 
     `read_skill_reference` was registered unconditionally, and control's toolset
@@ -499,24 +507,16 @@ def test_control_is_never_offered_a_tool_that_cannot_work_in_control(tmp_path):
     that can only fail is a thumb on the primary contrast.
     """
     from local_agent.agent.contracts import REFERENCE_TOOL
-    from task_contracts import CASES
 
-    offending = []
-    for index, case in enumerate(CASES):
-        # Numbered rather than named. Twenty worktrees need twenty distinct
-        # directories and nothing more; `c-test-failure-diagnose` spent
-        # twenty-three characters of a Windows path budget on something the
-        # failure message already carries.
-        _, control_tools = _opening_request(case.name, "control", tmp_path / f"c{index}")
-        _, narrow_tools = _opening_request(case.name, "narrow", tmp_path / f"n{index}")
-        control_names = {t["function"]["name"] for t in control_tools}
-        narrow_names = {t["function"]["name"] for t in narrow_tools}
-        if REFERENCE_TOOL in control_names:
-            offending.append((case.name, sorted(control_names - narrow_names)))
-
-    assert not offending, (
+    # Short directory names: the case name would spend a Windows path budget on
+    # something the failure message already carries.
+    _, control_tools = _opening_request(case_name, "control", tmp_path / "c")
+    _, narrow_tools = _opening_request(case_name, "narrow", tmp_path / "n")
+    control_names = {t["function"]["name"] for t in control_tools}
+    narrow_names = {t["function"]["name"] for t in narrow_tools}
+    assert REFERENCE_TOOL not in control_names, (
         "control was offered the skill-reference tool, which can never succeed "
-        f"without an active skill: {offending}"
+        f"without an active skill: {case_name}: {sorted(control_names - narrow_names)}"
     )
 
 
