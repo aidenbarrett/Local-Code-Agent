@@ -29,7 +29,30 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 MIN_WEIGHT = 0.05
-WEIGHTS = Path(__file__).resolve().parents[1] / "tests" / "shard-weights.json"
+TESTS = Path(__file__).resolve().parents[1] / "tests"
+WEIGHTS = TESTS / "shard-weights.json"
+# Windows builds the C++ fixtures about eight times slower than Linux, and not evenly
+# across files, so it balances on its own recorded times when they exist.
+PLATFORM_WEIGHTS = {"win32": TESTS / "shard-weights-win32.json"}
+# Heavy files whose tests share no module, class or session fixture: each test is its
+# own unit, so one long file cannot hold a whole shard. Every other file moves whole,
+# exactly as it runs serially.
+SPLIT_FILES = frozenset({
+    "internal/tests/integration/test_condition_purity.py",
+    "internal/tests/integration/test_oracle_isolation.py",
+    "internal/tests/integration/test_endpoint_row_contract.py",
+    "internal/tests/integration/test_build_and_diagnose.py",
+    "internal/tests/unit/test_candidate_change_journey.py",
+    "internal/tests/unit/test_acceptance_journeys.py",
+    "internal/tests/unit/test_session_textual_retained_results.py",
+    "internal/tests/unit/test_audit_fixes.py",
+})
+
+
+def unit_of(nodeid: str) -> str:
+    """The shard unit a collected test belongs to: its file, or itself in a split file."""
+    path = nodeid.split("::", 1)[0]
+    return nodeid if path in SPLIT_FILES else path
 
 
 def parse_shard(spec: str) -> tuple[int, int]:
@@ -65,7 +88,13 @@ def plan(files: Sequence[str], weights: Mapping[str, float], count: int) -> list
     return shards
 
 
-def load_weights(path: Path = WEIGHTS) -> dict[str, float]:
+def weights_path(platform: str = sys.platform) -> Path:
+    candidate = PLATFORM_WEIGHTS.get(platform)
+    return candidate if candidate is not None and candidate.is_file() else WEIGHTS
+
+
+def load_weights(path: Path | None = None) -> dict[str, float]:
+    path = weights_path() if path is None else path
     if not path.is_file():
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -81,13 +110,25 @@ def file_of(classname: str) -> str:
     return "/".join(parts) + ".py"
 
 
-def weights_from_junit(reports: Sequence[Path]) -> dict[str, float]:
+def nodeid_of(classname: str, name: str) -> str:
+    """JUnit classname and name back to the pytest node id."""
+    path = file_of(classname)
+    module = path[:-3].replace("/", ".")
+    inner = classname[len(module):].lstrip(".")
+    return "::".join([path, *inner.split(".")] if inner else [path]) + f"::{name}"
+
+
+def weights_from_junit(reports: Sequence[Path], *, by_unit: bool = False) -> dict[str, float]:
+    """Seconds per file, or per shard unit (split files by test) when ``by_unit``."""
     totals: dict[str, float] = {}
     for report in reports:
         # Our own pytest's report, not untrusted input.
         for case in ET.parse(report).getroot().iter("testcase"):  # noqa: S314
-            name = file_of(case.get("classname", ""))
-            totals[name] = totals.get(name, 0.0) + float(case.get("time") or 0.0)
+            classname = case.get("classname", "")
+            key = file_of(classname)
+            if by_unit:
+                key = unit_of(nodeid_of(classname, case.get("name", "")))
+            totals[key] = totals.get(key, 0.0) + float(case.get("time") or 0.0)
     return {k: round(v, 2) for k, v in sorted(totals.items())}
 
 
@@ -111,9 +152,9 @@ def main(argv: list[str] | None = None) -> int:
     if len(args) < 2 or args[0] != "update":
         sys.stderr.write("usage: ci_shards.py update|report <junit.xml> [...]\n")
         return 2
-    weights = weights_from_junit([Path(a) for a in args[1:]])
+    weights = weights_from_junit([Path(a) for a in args[1:]], by_unit=True)
     WEIGHTS.write_text(json.dumps(weights, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-    sys.stdout.write(f"{len(weights)} files, {sum(weights.values()):.0f}s recorded\n")
+    sys.stdout.write(f"{len(weights)} shard units, {sum(weights.values()):.0f}s recorded\n")
     return 0
 
 

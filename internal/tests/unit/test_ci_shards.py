@@ -55,8 +55,9 @@ def test_junit_classnames_map_to_test_files():
 
 
 def _collected(*extra: str) -> set[str]:
+    # One split file (placed test by test) among whole files.
     targets = ["internal/tests/unit/test_ci_shards.py", "internal/tests/unit/test_annotate_test_failures.py",
-               "internal/tests/unit/test_capture_ci_checkout.py"]
+               "internal/tests/unit/test_capture_ci_checkout.py", "internal/tests/unit/test_audit_fixes.py"]
     out = subprocess.run(
         [sys.executable, "-m", "pytest", "-o", "addopts=", "--collect-only", "-q", "-p", "no:cacheprovider",
          *targets, *extra],
@@ -84,3 +85,21 @@ def test_the_time_report_is_one_notice_with_the_slowest_files_first():
 def test_report_without_a_junit_file_says_nothing_and_succeeds(tmp_path, capsys):
     assert shards.main(["report", str(tmp_path / "absent.xml")]) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_split_files_are_placed_test_by_test_and_other_files_whole():
+    split = "internal/tests/unit/test_audit_fixes.py::test_x[1]"
+    assert shards.unit_of(split) == split
+    assert shards.unit_of("internal/tests/unit/test_routing.py::test_y") == "internal/tests/unit/test_routing.py"
+
+
+def test_junit_names_map_back_to_node_ids():
+    assert shards.nodeid_of("internal.tests.unit.test_x", "test_a[1]") == "internal/tests/unit/test_x.py::test_a[1]"
+    assert shards.nodeid_of("internal.tests.unit.test_x.TestY", "test_b") == (
+        "internal/tests/unit/test_x.py::TestY::test_b")
+
+
+def test_each_platform_balances_on_its_own_weights_when_it_has_them():
+    assert shards.weights_path("linux") == shards.WEIGHTS
+    windows = shards.PLATFORM_WEIGHTS["win32"]
+    assert shards.weights_path("win32") == (windows if windows.is_file() else shards.WEIGHTS)
