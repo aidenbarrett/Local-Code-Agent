@@ -12,6 +12,7 @@ from dataclasses import replace
 import os
 from pathlib import Path
 import sys
+import subprocess
 from collections.abc import Callable
 from typing import NamedTuple
 from uuid import NAMESPACE_URL, uuid5
@@ -60,6 +61,24 @@ def _durable_ids(conversation_id: str) -> tuple[str, str]:
     stream_id = uuid5(NAMESPACE_URL, f"urn:lca:session-hub:stream:{conversation_id}")
     session_id = uuid5(NAMESPACE_URL, f"urn:lca:session-hub:session:{conversation_id}")
     return str(stream_id), str(session_id)
+
+
+def _repository_summary(root: Path, *, execution_enabled: bool) -> str:
+    """Render observed repository authority for the always-visible Hub header."""
+    canonical = root.resolve()
+    try:
+        branch = subprocess.run(
+            ["git", "-C", str(canonical), "branch", "--show-current"],
+            check=True, capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        branch = ""
+    branch_label = branch or "detached/unknown"
+    execution = "enabled" if execution_enabled else "disabled"
+    return (
+        f"repo {canonical.name} · root {canonical} · branch {branch_label} (observed) "
+        f"· scope repository only · execution {execution}"
+    )
 
 
 def _controller_commit() -> str:
@@ -255,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
                         task_id,
                         execution_epoch=execution_epoch,
                     ),
-                    runtime_summary=runtime_facts.header(),
+                    runtime_summary=f"{runtime_facts.header()} · {_repository_summary(root, execution_enabled=args.allow_execution)}",
                 ) as textual:
                     textual.app.run()
                 return 0

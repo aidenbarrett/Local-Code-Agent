@@ -140,3 +140,25 @@ def test_different_conversation_does_not_recover_another_stream(tmp_path):
         assert other.store.task_record(task_id)["terminal"] is False
     finally:
         other.close()
+
+
+def test_repository_summary_exposes_canonical_authority_boundary(tmp_path):
+    hub = _load_hub()
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    import subprocess
+    subprocess.run(["git", "init", "-b", "trust-branch", str(repo)], check=True, capture_output=True)
+
+    summary = hub._repository_summary(repo / ".", execution_enabled=False)
+
+    assert f"repo {repo.name}" in summary
+    assert f"root {repo.resolve()}" in summary
+    assert "branch trust-branch (observed)" in summary
+    assert "scope repository only" in summary
+    assert "execution disabled" in summary
+
+
+def test_product_session_wires_repository_authority_into_visible_runtime_summary():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "_repository_summary(root, execution_enabled=args.allow_execution)" in source
+    assert "runtime_summary=f" in source
