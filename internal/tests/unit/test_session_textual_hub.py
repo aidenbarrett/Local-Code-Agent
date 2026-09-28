@@ -177,7 +177,24 @@ def test_compact_layout_keeps_activity_watch_and_composer_present():
             assert workspace.has_class("compact")
             assert app.query_one("#layout-warning", Static).display is True
             assert app.query_one("#activity", Static).display is True
-            assert app.query_one("#watch", Static).display is True
+            assert app.query_one("#watch", Static).display is False
             assert app.query_one("#composer", Input).display is True
+
+    asyncio.run(scenario())
+
+
+def test_watch_pane_appears_when_a_watch_arrives_after_mount():
+    async def scenario() -> None:
+        app = SessionHubApp(HubViewState())
+        async with app.run_test(size=(130, 40)) as pilot:
+            await pilot.pause()
+            watch_widget = app.query_one("#watch", Static)
+            assert watch_widget.display is False
+
+            app.replace_state(HubViewState(watches=(_watch(),)))
+            await pilot.pause()
+
+            assert watch_widget.display is True
+            assert _watch is not None
 
     asyncio.run(scenario())
