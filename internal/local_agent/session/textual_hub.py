@@ -208,6 +208,39 @@ def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
     return () if label is None else (label,)
 
 
+def render_attention(state: HubViewState) -> str:
+    """Render only durable facts that need the user's attention.
+
+    Worker prose is deliberately ignored. A retained prepared candidate is actionable
+    only when the durable verdict and retained completion proof both establish success.
+    """
+    items: list[str] = []
+    for task in reversed(state.tasks):
+        candidate = task.candidate
+        if (
+            candidate is not None
+            and candidate.role == "prepared"
+            and candidate.retained
+            and task.verdict == "VERIFIED"
+            and task.result_verified_at_completion is True
+        ):
+            items.append(
+                f"Verified candidate ready · {task.task_id}\n"
+                f"Review: /diff {task.task_id} · Apply: /apply {task.task_id}"
+            )
+            continue
+        if task.faults:
+            reason, message = task.faults[-1]
+            items.append(f"Fault · {task.task_id}\n{reason}: {message}")
+            continue
+        if task.terminal and task.verdict in {"FAILED", "NO_VERDICT"}:
+            reason = task.verdict_reason or "reason unavailable"
+            items.append(f"{task.verdict} · {task.task_id}\n{reason}")
+    if not items:
+        return "Nothing needs attention."
+    return "\n\n".join(items[:3])
+
+
 def render_activity(state: HubViewState) -> str:
     task = _active_task(state.tasks)
     lines: list[str] = []
@@ -363,6 +396,14 @@ def _css(palette: Mapping[str, str]) -> str:
         background: {palette['surface']};
         color: {palette['foreground']};
     }}
+    #attention {{
+        height: auto;
+        max-height: 10;
+        min-height: 3;
+        padding: 1 2;
+        border: round {palette['warn']};
+        overflow-y: auto;
+    }}
     #activity {{
         height: 1fr;
         min-height: 8;
@@ -412,6 +453,7 @@ class SessionHubApp(App):
                 yield Static(render_conversation(self.view_state.conversation), id="conversation", markup=False)
                 yield Input(placeholder="Message Local Code Agent…", id="composer")
             with Vertical(id="side-column"):
+                yield Static(render_attention(self.view_state), id="attention", markup=False)
                 yield Static(render_activity(self.view_state), id="activity", markup=False)
                 yield Static(render_watches(self.view_state.watches), id="watch", markup=False)
         yield Static(self.view_state.status, id="status", markup=False)
@@ -435,6 +477,7 @@ class SessionHubApp(App):
             raise TypeError("Session Hub state must be HubViewState")
         self.view_state = state
         self.query_one("#conversation", Static).update(render_conversation(state.conversation))
+        self.query_one("#attention", Static).update(render_attention(state))
         self.query_one("#activity", Static).update(render_activity(state))
         self.query_one("#watch", Static).update(render_watches(state.watches))
         self.query_one("#status", Static).update(state.status)
@@ -456,6 +499,7 @@ __all__ = [
     "layout_mode",
     "load_palette",
     "render_activity",
+    "render_attention",
     "render_conversation",
     "render_watches",
 ]
