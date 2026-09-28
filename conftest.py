@@ -26,13 +26,14 @@ def pytest_addoption(parser):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Keep only this shard's files. The N shards partition the collected suite."""
+    """Keep only this shard's units (whole files, or single tests of split files).
+    The N shards partition the collected suite."""
     spec = config.getoption("--shard")
     if not spec:
         return
     shards = _ci_shards()
     index, count = shards.parse_shard(spec)
-    files = [item.nodeid.split("::", 1)[0] for item in items]
+    files = [shards.unit_of(item.nodeid) for item in items]
     keep = set(shards.plan(files, shards.load_weights(), count)[index - 1])
     selected = [item for item, name in zip(items, files) if name in keep]
     deselected = [item for item, name in zip(items, files) if name not in keep]

@@ -59,7 +59,7 @@ jobs:
     # The authoritative suite, split into whole-file shards balanced by recorded time
     # (internal/devtools/ci_shards.py). The shards partition what pytest collects, so
     # every test still runs on both platforms; only wall-clock time changes. Windows
-    # is the slow platform, so it gets three runners.
+    # is the slow platform, so it gets five runners, balanced on its own recorded times.
     name: pytest ${{ matrix.shard }} (${{ matrix.os }})
     needs: gates
     strategy:
@@ -67,9 +67,11 @@ jobs:
       matrix:
         include:
           - {os: ubuntu-latest, shard: "1/1", shard_id: "1of1"}
-          - {os: windows-latest, shard: "1/3", shard_id: "1of3"}
-          - {os: windows-latest, shard: "2/3", shard_id: "2of3"}
-          - {os: windows-latest, shard: "3/3", shard_id: "3of3"}
+          - {os: windows-latest, shard: "1/5", shard_id: "1of5"}
+          - {os: windows-latest, shard: "2/5", shard_id: "2of5"}
+          - {os: windows-latest, shard: "3/5", shard_id: "3of5"}
+          - {os: windows-latest, shard: "4/5", shard_id: "4of5"}
+          - {os: windows-latest, shard: "5/5", shard_id: "5of5"}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -104,6 +106,9 @@ jobs:
         # API always returns annotations. One error annotation per failed test.
         if: failure()
         run: python internal/devtools/annotate_test_failures.py pytest-junit.xml
+      - name: Report where the time went
+        if: always()
+        run: python internal/devtools/ci_shards.py report pytest-junit.xml
 
   pytest:
     # One result per platform, named as before, green only if every shard passed.
