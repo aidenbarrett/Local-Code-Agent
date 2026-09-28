@@ -686,7 +686,6 @@
     "UP035": 1
    },
    "internal/local_agent/session/proof_binding.py": {
-    "E501": 1,
     "S603": 1,
     "S607": 1,
     "UP022": 1,
@@ -909,5 +908,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 953
+ "total": 952
 }

@@ -13,7 +13,7 @@ from ..agent.policy import deny_all_approvals
 from ..agent.state import HaltCause
 from ..config import RepoConfig
 from ..tools import build_registry
-from ..tools.tool_primitives import Risk
+from ..tools.tool_primitives import Risk, ToolRegistry
 from ..verification import CONTRADICTS_CURRENT_TREE, ProofKind
 from .contracts import RouteSource, TaskOutcome, TaskResult
 from .durable_tool_registry import wrap_registry_with_durable_activity
@@ -44,6 +44,8 @@ from .candidate_change import (
 from .configured_checks import (
     CONFIGURED_CHECK_SKILL,
     CONFIGURED_CHECKS,
+    RUN_BUILD_CHECK,
+    RUN_TEST_CHECK,
     ConfiguredCheckPlan,
     configured_check_sha256,
 )
@@ -103,6 +105,53 @@ class _ExecutionScope:
     task_id: str
     durable_activity: DurableToolActivity | None
     cancellation_probe: CancellationProbe | None
+
+
+# The configured check that proves each candidate skill when its worker did not:
+# a build fix needs a full build, and a test fix or a change needs a full test run
+# (run_test refuses stale binaries, so the plan builds first).
+_CONTROLLER_CHECK = {
+    "fix-build-failure": RUN_BUILD_CHECK,
+    "fix-test-failure": RUN_TEST_CHECK,
+    "implement-change": RUN_TEST_CHECK,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _CandidateProof:
+    outcome: TaskOutcome
+    verified: bool
+    reason_code: str
+    proof_run: RunResult
+    check: RunResult | None
+
+
+def _controller_check_line(skill: str, check: RunResult, *, verified: bool) -> str:
+    what = ("full build" if _CONTROLLER_CHECK[skill] == RUN_BUILD_CHECK
+            else "full build and test run")
+    if verified:
+        return f"The controller ran the configured {what} on the candidate: it passed."
+    if _current_tree_observed_failure(check):
+        return f"The controller ran the configured {what} on the candidate: it failed."
+    return (f"The controller could not complete the configured {what} on the candidate, "
+            "so the change is not proven.")
+
+
+def _needs_controller_check(run: RunResult) -> bool:
+    """Whether an unproven candidate is the controller's to check.
+
+    Only an edited candidate whose worker ran to completion and did not report a
+    failure, a diagnosis or a needed action qualifies. A worker that observed the
+    current tree fail has already produced the verdict, and one that halted on an
+    outage or budget may have left a half-made change nobody should certify.
+    """
+    state = run.state
+    return (
+        state.mutation_epoch > 0
+        and state.halt_cause is None
+        and state.claim in (None, "success")
+        and not _current_tree_observed_failure(run)
+    )
 
 
 def _current_tree_observed_failure(run: RunResult) -> bool:
@@ -388,11 +437,11 @@ class TaskController:
                 context_budget_tokens=self.context_budget_tokens, allow_escalation=False,
             )
             run = worker.run(task, skill_name=resolved_skill)
-            if cancellation_probe is not None and cancellation_probe.requested:
+
+            def stopped() -> TaskResult:
                 # A stopped task never leaves a reviewable change behind, whatever the
                 # worker did after the Stop landed. The candidate is discarded unseen.
                 manager.discard(workspace)
-                settled = True
                 return TaskResult(
                     task_id, TaskOutcome.BLOCKED,
                     "Stopped. The isolated candidate was discarded; nothing is available "
@@ -401,38 +450,96 @@ class TaskController:
                     metrics={"candidate": {"retained": False, "stopped": True}},
                     reason_code="cancelled",
                 )
-            task_outcome = self._product_outcome(run)
-            verified = bool(task_outcome.succeeded and run.state.verified)
-            reason_code = self._reason_code(run, task_outcome)
-            if verified and not candidate_proof_satisfied(resolved_skill, run):
-                # Verified by the wrong kind of proof for this request (a test fix
-                # that only rebuilt). Not a success, and not a failure of the code.
-                verified = False
-                task_outcome = TaskOutcome.NO_VERDICT
-                reason_code = "missing_evidence"
+
+            if cancellation_probe is not None and cancellation_probe.requested:
+                settled = True
+                return stopped()
+            proof = self._prove_candidate(resolved_skill, run, work_repo, registry)
+            if cancellation_probe is not None and cancellation_probe.requested:
+                settled = True
+                return stopped()
+            task_outcome, verified, reason_code = proof.outcome, proof.verified, proof.reason_code
+            proof_run, check = proof.proof_run, proof.check
             metrics = run.state.metrics.as_dict()
             # Proof identity is the candidate tree the build ran against.
-            metrics["proof_binding"] = binding_from_run(task, run, workspace.root).as_dict()
+            # A controller check's history follows the worker's in the evidence ids.
+            metrics["proof_binding"] = binding_from_run(
+                task, proof_run, workspace.root,
+                evidence_offset=len(run.state.history) if proof_run is check else 0,
+            ).as_dict()
             outcome, _candidate = settle_candidate(
                 manager, workspace, task_id=task_id, verified=verified,
                 proof=CANDIDATE_PROOF[resolved_skill],
             )
             settled = True
             metrics["candidate"] = outcome.as_metrics(workspace)
+            history = list(run.state.history)
+            if check is not None:
+                history += check.state.history
+                metrics["controller_check"] = {
+                    "check": _CONTROLLER_CHECK[resolved_skill],
+                    "decided": proof_run is check,
+                }
             answer = self._answer_with_model_failure(
                 outcome.summary + ("\n\n" + run.answer if run.answer else ""), run,
             )
+            if check is not None:
+                answer += "\n\n" + _controller_check_line(resolved_skill, check, verified=verified)
             return TaskResult(
                 task_id, task_outcome, answer, verified,
-                tuple(f"{h.name}:{i}" for i, h in enumerate(run.state.history)),
+                tuple(f"{h.name}:{i}" for i, h in enumerate(history)),
                 metrics,
-                verification_ran=bool(run.state.verification_attempted),
+                verification_ran=bool(
+                    run.state.verification_attempted
+                    or (check is not None and check.state.verification_attempted)
+                ),
                 reason_code=reason_code,
             )
         finally:
             if not settled:
                 # Nothing reviewable was produced; never leave an orphaned worktree.
                 manager.discard(workspace)
+
+    def _prove_candidate(
+        self, resolved_skill: str, run: RunResult, work_repo: RepoConfig,
+        registry: ToolRegistry,
+    ) -> _CandidateProof:
+        """The candidate's verdict: the worker's own proof, else the controller's check."""
+        outcome = self._product_outcome(run)
+        verified = bool(outcome.succeeded and run.state.verified)
+        reason_code = self._reason_code(run, outcome)
+        if verified and not candidate_proof_satisfied(resolved_skill, run):
+            # Verified by the wrong kind of proof for this request (a test fix that
+            # only rebuilt). Not a success, and not a failure of the code.
+            verified, outcome, reason_code = False, TaskOutcome.NO_VERDICT, "missing_evidence"
+        if verified or not _needs_controller_check(run):
+            return _CandidateProof(outcome, verified, reason_code, run, None)
+        # The worker changed the candidate and did not say it failed, but did not
+        # prove it either. Proof is the controller's job, not the model's memory:
+        # run the configured check this request requires on the candidate, through
+        # the same tools and durable activity, and let its result decide.
+        check = self._controller_check(resolved_skill, work_repo, registry)
+        if candidate_proof_satisfied(resolved_skill, check):
+            return _CandidateProof(TaskOutcome.PASS, True, "verification_passed", check, check)
+        if check.state.verification_attempted and _current_tree_observed_failure(check):
+            return _CandidateProof(TaskOutcome.FAIL, False, "verification_failed", check, check)
+        return _CandidateProof(outcome, verified, reason_code, run, check)
+
+    def _controller_check(
+        self, resolved_skill: str, work_repo: RepoConfig, registry: ToolRegistry,
+    ) -> RunResult:
+        """Run the configured check a candidate skill requires, with no model deciding."""
+        checker = Orchestrator(
+            repo=work_repo, registry=registry,
+            client=ConfiguredCheckPlan(_CONTROLLER_CHECK[resolved_skill]),
+            skills=self._skill_library(), approval=candidate_workspace_approval,
+            context_budget_tokens=self.context_budget_tokens, allow_escalation=False,
+        )
+        result: RunResult = checker.run(
+            f"Controller check of the candidate prepared for {resolved_skill}.",
+            skill_name=CONFIGURED_CHECK_SKILL,
+        )
+        return result
 
     def run(
         self,
