@@ -60,3 +60,31 @@ def test_indent_width_is_scaled_and_tabs_are_respected():
 
 def test_blank_find_never_matches():
     assert _tolerant_replace("a\n\nb\n", "\n   \n", "x") == (None, 0)
+
+
+def test_read_file_line_numbers_echoed_into_find_are_removed(sandbox):
+    # read_file shows `13:     ++count_;`; a small model copies that into find/replace.
+    propose, apply = _propose(sandbox)
+    shown = (sandbox.root / RING).read_text(encoding="utf-8").splitlines()
+    line = next(i for i, text in enumerate(shown, start=1) if text.strip() == "++count_;")
+    result = propose(path=RING, find=f"{line}:     ++count_;",
+                     replace=f"{line}:     ++count_;  // one more")
+    assert result.data["match"] == "line_numbers_stripped"
+    assert "line numbers" in result.summary
+    apply(patch_id=result.data["patch_id"])
+    text = (sandbox.root / RING).read_text(encoding="utf-8")
+    assert "    ++count_;  // one more\n" in text
+    assert f"{line}:" not in text
+
+
+def test_line_numbers_are_only_stripped_when_every_line_carries_them(sandbox):
+    propose, _apply = _propose(sandbox)
+    with pytest.raises(ToolError, match="does not appear"):
+        propose(path=RING, find="12: nothing like this\nstill nothing", replace="x")
+
+
+def test_the_prefix_rule_needs_every_nonblank_line_numbered():
+    from local_agent.tools.patch import _without_read_file_numbers
+    assert _without_read_file_numbers("1: a\n\n2:   b") == "a\n\n  b"
+    assert _without_read_file_numbers("1: a\nplain") is None
+    assert _without_read_file_numbers("") is None
