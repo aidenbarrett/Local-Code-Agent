@@ -543,8 +543,13 @@ class Orchestrator:
                 tool_result_max_bytes = min(
                     tool_result_max_bytes, max(512, token_cap * 4)
                 )
+        # The catalogue names procedures, and nothing lets the model switch to one.
+        # With a skill already active it is only bait: small models call skill
+        # names as tools (PTL J08 called diagnose-build-failure, J11 called
+        # repo-navigation) and then give up. The active skill's own procedure and
+        # tools are all the worker gets.
         ctx.append(ctxmod.build_system_message(
-            self.repo, self.skills.catalogue() if catalogue else None))
+            self.repo, self.skills.catalogue() if catalogue and skill is None else None))
         if skill and condition == "skill":
             ctx.append(ctxmod.build_skill_message(skill))
         if evidence is not None:
