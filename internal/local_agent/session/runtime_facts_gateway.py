@@ -57,10 +57,18 @@ _RUNTIME_INPUTS = frozenset({
 class RuntimeFactsGateway(ConversationGateway):
     """Public gateway with deterministic help/runtime truth before model fallback."""
 
-    def __init__(self, *args, runtime_facts: RuntimeFacts, repository_facts: RepositoryFacts | None = None, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        runtime_facts: RuntimeFacts,
+        repository_facts: RepositoryFacts | None = None,
+        **kwargs,
+    ) -> None:
         if not isinstance(runtime_facts, RuntimeFacts):
             raise TypeError("runtime-aware gateway requires RuntimeFacts")
-        if repository_facts is not None and not isinstance(repository_facts, RepositoryFacts):
+        if repository_facts is not None and not isinstance(
+            repository_facts, RepositoryFacts
+        ):
             raise TypeError("repository_facts must be RepositoryFacts when supplied")
         self.runtime_facts = runtime_facts
         self.repository_facts = repository_facts
@@ -79,7 +87,10 @@ class RuntimeFactsGateway(ConversationGateway):
             return self.runtime_facts.answer()
         if normalized in _REPOSITORY_INPUTS:
             if self.repository_facts is None:
-                return "I cannot establish the active repository authority for this session. No task was run."
+                return (
+                    "I cannot establish the active repository authority for this session. "
+                    "No task was run."
+                )
             return self.repository_facts.answer()
         return None
 
