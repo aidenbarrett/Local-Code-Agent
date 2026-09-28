@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `47406bbaca12d1753b01895f8751ea9a17a3b61f`
+Reconciled against GitHub `main` at `141aa625c5a4729da2e25afc29e3d2714238fcee`
 on 2026-09-27 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -12,8 +12,10 @@ acceptance summary (#232), candidate-ready truth (#236) and Stop endpoint fencin
 natural-completion reconciliation (#237, #238, #240, integrated by #246 and #247), the
 answered stopped turn and durable unproven test runs (#249), repository questions answered
 from the repository and the search-streak nudge (#250), deterministic push/commit/delete
-refusals and the scripted candidate journey (#252, #253) landed. Parallel CI tests (#251)
-were measured and not adopted: no reliable Windows gain and a Windows-only failure. Live
+refusals and the scripted candidate journey (#252, #253), failed-test CI annotations
+(#254) and duration-balanced CI test shards (#256, #257) landed. In-job parallel tests
+(#251) were measured and not adopted; the parallel probe exposed an unconfirmed
+abandoned-descendant cleanup on Windows, fixed with this reconciliation. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
@@ -64,6 +66,11 @@ The public/product path now includes:
   tested?", "where is the X implemented?") route directly to read-only repository
   navigation; push, bare commit and delete imperatives are refused without a model, naming
   the supported path; a model repository proposal is shown as the user's own request;
+- CI runs the authoritative suite as duration-balanced shards that partition what pytest
+  collects (Linux one, Windows five, about nine minutes on Windows instead of 37), names
+  failed tests in check annotations and reports each shard's slowest files;
+- a command that exits normally but abandons descendants in its Windows job is reported
+  with `process_cleanup_confirmed` from the job's own accounting, never assumed clean;
 - a task that could not use the model says why in the transport's own words, and a turn
   after the endpoint is quarantined is answered with the reason and "restart the Hub"
   instead of raising; a worker that exhausts its context budget ends BLOCKED /
