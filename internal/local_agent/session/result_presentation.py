@@ -88,6 +88,29 @@ def render_result_evidence(task: TaskSnapshot) -> str:
         f"  Evidence IDs: {evidence}",
         f"  Verification: {verification}",
     ]
+    if task.candidate is not None:
+        candidate = task.candidate
+        lines.append(f"  Candidate: {candidate.role}")
+        lines.append(f"  Candidate task: {candidate.candidate_task_id}")
+        if candidate.paths:
+            preview = ", ".join(candidate.paths[:5])
+            remaining = len(candidate.paths) - 5
+            if remaining > 0:
+                preview += f" (+{remaining} more)"
+            lines.append(f"  Candidate files: {preview}")
+        if candidate.patch_sha256 is not None:
+            lines.append(f"  Candidate patch: {candidate.patch_sha256}")
+        if candidate.base_commit is not None:
+            lines.append(f"  Candidate base: {candidate.base_commit}")
+        if candidate.commit is not None:
+            lines.append(f"  Commit: {candidate.commit}")
+        if candidate.role == "prepared" and candidate.retained:
+            lines.append("  Apply state: READY · NOT APPLIED")
+            lines.append("  Proof boundary: candidate-tree proof is not checkout proof")
+            lines.append(
+                f"  Actions: /diff {candidate.candidate_task_id} · "
+                f"/apply {candidate.candidate_task_id} · /discard {candidate.candidate_task_id}"
+            )
     if task.last_tool is not None:
         tool = task.last_tool
         execution = tool.execution or "finished"
