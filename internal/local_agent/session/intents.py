@@ -221,6 +221,17 @@ _FIX_TESTS = re.compile(
     r"|^make\s+the\s+tests\s+pass[.!]?$",
     re.IGNORECASE,
 )
+# Natural source-change requests are also deterministic work. Keep this deliberately
+# narrow: the request must name a file, so ordinary conversation containing words such as
+# "create" or "update" never gains mutation authority. The controller still prepares the
+# change in an isolated candidate; this rule grants no checkout authority.
+_NATURAL_IMPLEMENT_CHANGE = re.compile(
+    r"^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?"
+    r"(?:(?:create|add)\s+.+\bfile\b|(?:edit|modify|update)\s+(?:the\s+)?(?:file\s+)?\S+)"
+    r"(?:\s+.*)?[.!]?$",
+    re.IGNORECASE,
+)
+
 # The user's explicit, per-candidate instruction to import a reviewed change into their
 # checkout. The full task UUID is required: a prefix or "the last one" is not authority.
 _APPLY_CANDIDATE = re.compile(
@@ -499,7 +510,7 @@ def decide_route(
             reference_ids=(task_id,),
         )
 
-    if _IMPLEMENT_CHANGE.fullmatch(stripped):
+    if _IMPLEMENT_CHANGE.fullmatch(stripped) or _NATURAL_IMPLEMENT_CHANGE.fullmatch(stripped):
         reason = _repository_target_reason(active_repo_count)
         if reason is not None:
             return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
@@ -626,8 +637,14 @@ def correct_pending_route(text: str, pending: Sequence[PendingRouteRef]) -> Rout
     """Target one pending revision with an explicit one-word work/chat decision."""
     if not isinstance(text, str):
         raise TypeError("route correction must be text")
-    normalized = text.strip().lower()
-    if normalized not in {ExplicitMode.WORK.value, ExplicitMode.CHAT.value}:
+    normalized = text.strip().lower().rstrip(".!")
+    work_answers = {ExplicitMode.WORK.value, "yes", "go ahead", "do it"}
+    chat_answers = {ExplicitMode.CHAT.value}
+    if normalized in work_answers:
+        mode = ExplicitMode.WORK
+    elif normalized in chat_answers:
+        mode = ExplicitMode.CHAT
+    else:
         return RouteCorrection(CorrectionStatus.NOT_A_CORRECTION)
     candidates = tuple(pending)
     if any(not isinstance(candidate, PendingRouteRef) for candidate in candidates):
@@ -641,5 +658,5 @@ def correct_pending_route(text: str, pending: Sequence[PendingRouteRef]) -> Rout
         CorrectionStatus.APPLIED,
         route_id=current.route_id,
         revision=current.revision,
-        mode=ExplicitMode(normalized),
+        mode=mode,
     )
