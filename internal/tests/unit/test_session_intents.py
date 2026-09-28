@@ -78,26 +78,9 @@ def test_anchored_named_rules_route_without_model(text, rule_id, skill, kwargs):
 @pytest.mark.parametrize(
     "text",
     [
-        '"build it"',
-        "don't build it",
-        "do not build it",
-        "explain what build it means",
-        "the docs say build it",
-        "if I say build it, what happens?",
-        "don't run the tests",
-        "why did you run the tests?",
-        "run the tests on the other repo later",
-        "what changed on my branch if I run the tool?",
-        "why did that fail in your example?",
-        "please fix it later",
-    ],
-)
-@pytest.mark.parametrize(
-    "text",
-    [
         "Can you create a C++ file called aiden101.cpp and add a print inside it?",
         "please create a new file called src/widget.cpp",
-        "add a header file for the widget",
+        "add a header file called src/widget.h",
         "edit src/widget.cpp to return 42",
         "modify the file README.md to add setup notes",
         "update README.md with the new command",
@@ -129,6 +112,23 @@ def test_natural_change_words_do_not_gain_mutation_authority_without_direct_file
     assert decision.source is None
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        '"build it"',
+        "don't build it",
+        "do not build it",
+        "explain what build it means",
+        "the docs say build it",
+        "if I say build it, what happens?",
+        "don't run the tests",
+        "why did you run the tests?",
+        "run the tests on the other repo later",
+        "what changed on my branch if I run the tool?",
+        "why did that fail in your example?",
+        "please fix it later",
+    ],
+)
 def test_keywords_inside_other_language_do_not_gain_rule_authority(text):
     decision = decide_route(text, active_repo_count=1, eligible_task_ids=("task-1",))
     assert decision.action == RouteAction.MODEL_FALLBACK
@@ -263,9 +263,10 @@ def test_natural_affirmation_accepts_exactly_one_pending_work_proposal(answer):
     assert correction.mode == ExplicitMode.WORK
 
 
-def test_route_correction_never_guesses_across_multiple_pending_routes():
+@pytest.mark.parametrize("answer", ["chat", "yes", "go ahead", "do it"])
+def test_route_correction_never_guesses_across_multiple_pending_routes(answer):
     correction = correct_pending_route(
-        "chat",
+        answer,
         (PendingRouteRef("route-1", 0), PendingRouteRef("route-2", 2)),
     )
     assert correction.status == CorrectionStatus.CLARIFY

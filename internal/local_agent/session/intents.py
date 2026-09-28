@@ -12,6 +12,7 @@ import re
 from typing import Mapping, Sequence
 from uuid import UUID
 
+from .change_requests import change_request_refusal, natural_change_target
 from .configured_checks import RUN_BUILD_CHECK, RUN_TEST_CHECK
 from .contracts import MAX_MESSAGE_CHARS, RouteSource
 
@@ -221,17 +222,6 @@ _FIX_TESTS = re.compile(
     r"|^make\s+the\s+tests\s+pass[.!]?$",
     re.IGNORECASE,
 )
-# Natural source-change requests are also deterministic work. Keep this deliberately
-# narrow: the request must name a file, so ordinary conversation containing words such as
-# "create" or "update" never gains mutation authority. The controller still prepares the
-# change in an isolated candidate; this rule grants no checkout authority.
-_NATURAL_IMPLEMENT_CHANGE = re.compile(
-    r"^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?"
-    r"(?:(?:create|add)\s+.+\bfile\b|(?:edit|modify|update)\s+(?:the\s+)?(?:file\s+)?\S+)"
-    r"(?:\s+.*)?[.!]?$",
-    re.IGNORECASE,
-)
-
 # The user's explicit, per-candidate instruction to import a reviewed change into their
 # checkout. The full task UUID is required: a prefix or "the last one" is not authority.
 _APPLY_CANDIDATE = re.compile(
@@ -416,6 +406,9 @@ def decide_route(
     mode = None if explicit_mode is None else ExplicitMode(explicit_mode)
     if mode == ExplicitMode.CHAT:
         return RouteDecision(RouteAction.CHAT, objective=text)
+    refusal = change_request_refusal(text)
+    if refusal is not None:
+        return RouteDecision(RouteAction.REFUSE, reason_code=refusal)
     if mode == ExplicitMode.WORK:
         return RouteDecision(RouteAction.WORK, objective=text, source=RouteSource.USER_DIRECT)
 
@@ -510,7 +503,7 @@ def decide_route(
             reference_ids=(task_id,),
         )
 
-    if _IMPLEMENT_CHANGE.fullmatch(stripped) or _NATURAL_IMPLEMENT_CHANGE.fullmatch(stripped):
+    if _IMPLEMENT_CHANGE.fullmatch(stripped) or natural_change_target(stripped) is not None:
         reason = _repository_target_reason(active_repo_count)
         if reason is not None:
             return RouteDecision(RouteAction.CLARIFY, reason_code=reason)

@@ -633,7 +633,7 @@ def test_a_test_fix_proven_only_by_a_build_is_not_reported_as_proven(sandbox, tm
     sandbox.scenario("test_failure")
     turns = [
         ChatResponse(tool_calls=[tool_call("propose_patch", {
-            "path": RING, "find": "count_ + 1 == slots_.size()", "replace": "count_ == slots_.size()"}, "b1")]),
+            "path": RING, "find": "count_ + 1 == slots_.size()", "replace": "count_ + 2 == slots_.size()"}, "b1")]),
         lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "b2")]),
         ChatResponse(tool_calls=[tool_call("build_target", {}, "b3")]),
         lambda m: ChatResponse(tool_calls=[tool_call("submit_answer", {
@@ -644,9 +644,13 @@ def test_a_test_fix_proven_only_by_a_build_is_not_reported_as_proven(sandbox, tm
 
     result = controller.run("fix the failing tests", task_id=str(uuid4()), skill_name="fix-test-failure")
 
+    # The worker's build is the wrong proof for a test fix, so the controller runs
+    # the full test run itself; the wrong fix fails it and is never called proven.
     assert result.verified_at_completion is False
-    assert result.outcome is TaskOutcome.NO_VERDICT and result.reason_code == "missing_evidence"
+    assert result.outcome is TaskOutcome.FAIL and result.reason_code == "verification_failed"
+    assert result.metrics["controller_check"] == {"check": "run-tests", "decided": True}
     assert "NOT proven: no full test run passed" in result.answer
+    assert "full build and test run on the candidate: it failed." in result.answer
     verdict_block_from_task_result(result)
 
 
@@ -968,3 +972,176 @@ def test_discard_removes_an_unapplied_candidate_and_is_durable(sandbox, tmp_path
     again = controller.run(request, task_id=str(uuid4()), skill_name="discard-candidate")
     assert again.outcome is TaskOutcome.BLOCKED
     assert decide_route(f"/discard {task_id}", active_repo_count=1).skill == "discard-candidate"
+
+
+# ------------------------------------------- the controller proves the candidate
+
+
+def _edits_then(*finish, fixes=2):
+    """Worker turns that apply the ring buffer fixes and never build or test."""
+    edits = [("++count;", "++count_;"), ("return count_ == 0 }", "return count_ == 0; }")][:fixes]
+    turns = []
+    for i, (find, replace) in enumerate(edits):
+        turns.append(ChatResponse(tool_calls=[tool_call(
+            "propose_patch", {"path": RING, "find": find, "replace": replace}, f"p{i}")]))
+        turns.append(lambda m, i=i: ChatResponse(tool_calls=[tool_call(
+            "apply_patch", {"patch_id": _patch_id(m)}, f"a{i}")]))
+    return turns + list(finish)
+
+
+def _claims(claim):
+    return ChatResponse(tool_calls=[tool_call("submit_answer", {
+        "claim": claim, "summary": "edited ring_buffer.cpp", "evidence_ids": []}, "s1")])
+
+
+def test_unproven_fix_is_proven_by_the_controller_running_the_full_build(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    broken = (sandbox.root / RING).read_bytes()
+    task_id = str(uuid4())
+    turns = _edits_then(_claims("success"), ChatResponse(content="Fixed it."))
+    controller, manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the build", task_id=task_id, skill_name="fix-build-failure")
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert result.verified_at_completion is True and result.verification_ran is True
+    assert result.reason_code == "verification_passed"
+    assert result.metrics["controller_check"] == {"check": "run-build", "decided": True}
+    assert "The controller ran the configured full build on the candidate: it passed." in result.answer
+    assert result.metrics["candidate"]["retained"] is True
+    assert result.metrics["proof_binding"]["scope"] == "full_build"
+    cited = result.metrics["proof_binding"]["evidence_ids"]
+    assert len(cited) == 1 and cited[0].startswith("build_target:") and cited[0] in result.evidence_ids
+    verdict_block_from_task_result(result)
+    assert (sandbox.root / RING).read_bytes() == broken
+    workspace, candidate = manager.load(task_id)
+    assert b"++count_;" in candidate.patch
+    manager.discard(workspace)
+
+
+def test_a_worker_that_ends_in_prose_after_editing_is_still_checked(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    turns = _edits_then(ChatResponse(content="Fixed it."), ChatResponse(content="Fixed it, honest."))
+    controller, manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the build", task_id=str(uuid4()), skill_name="fix-build-failure")
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert result.metrics["controller_check"]["decided"] is True
+
+
+def test_unproven_incomplete_fix_fails_the_controller_build(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    task_id = str(uuid4())
+    turns = _edits_then(_claims("success"), ChatResponse(content="Fixed it."), fixes=1)
+    controller, manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the build", task_id=task_id, skill_name="fix-build-failure")
+
+    assert result.outcome is TaskOutcome.FAIL, result.answer
+    assert result.reason_code == "verification_failed"
+    assert result.verified_at_completion is False and result.verification_ran is True
+    assert result.metrics["controller_check"] == {"check": "run-build", "decided": True}
+    assert "The controller ran the configured full build on the candidate: it failed." in result.answer
+    # Kept for review like any unproven candidate, and said plainly to be unproven.
+    assert "NOT proven: no full build passed" in result.answer
+    assert "A full build of the candidate passed." not in result.answer
+    manager.discard(manager.load(task_id)[0])
+
+
+@pytest.mark.parametrize("claim", ["failure", "diagnosis", "needs_action"])
+def test_a_worker_that_reports_no_success_is_not_overruled_by_a_controller_check(sandbox, tmp_path, claim):
+    sandbox.scenario("compile_error")
+    turns = _edits_then(_claims(claim), ChatResponse(content="Not done."))
+    controller, _ = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the build", task_id=str(uuid4()), skill_name="fix-build-failure")
+
+    assert "controller_check" not in result.metrics
+    assert result.outcome is not TaskOutcome.PASS
+    assert result.verified_at_completion is False
+    assert "NOT proven" in result.answer
+    assert "The controller" not in result.answer
+
+
+def test_a_worker_proven_fix_needs_no_controller_check(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    controller, manager = _controller(sandbox.root, tmp_path, _fixing_turns())
+
+    result = controller.run("fix the build", task_id=str(uuid4()), skill_name="fix-build-failure")
+
+    assert result.outcome is TaskOutcome.PASS
+    assert "controller_check" not in result.metrics
+
+
+def test_test_fix_proven_only_by_a_build_gets_the_controller_full_test_run(sandbox, tmp_path):
+    sandbox.scenario("test_failure")
+    task_id = str(uuid4())
+    turns = [
+        ChatResponse(tool_calls=[tool_call("propose_patch", {
+            "path": RING, "find": "count_ + 1 == slots_.size()", "replace": "count_ == slots_.size()"}, "t1")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "t2")]),
+        ChatResponse(tool_calls=[tool_call("build_target", {}, "t3")]),
+        ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "full() was off by one", "evidence_ids": ["build_target:2"]}, "t4")]),
+        ChatResponse(content="Fixed RingBuffer::full()."),
+    ]
+    controller, manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the failing tests", task_id=task_id, skill_name="fix-test-failure")
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert result.metrics["controller_check"] == {"check": "run-tests", "decided": True}
+    assert result.metrics["proof_binding"]["scope"] == "full_test"
+    assert "full build and test run on the candidate: it passed." in result.answer
+    assert result.metrics["candidate"]["retained"] is True
+    verdict_block_from_task_result(result)
+    manager.discard(manager.load(task_id)[0])
+
+
+def test_stop_during_the_controller_check_discards_the_candidate(sandbox, tmp_path):
+    import threading
+    import time
+
+    from local_agent.session.cancellation import CancellationToken
+
+    sandbox.scenario("compile_error")
+    marker = tmp_path / "build-started"
+    config = sandbox.root / ".local-agent.toml"
+    slow_build = json.dumps([
+        sys.executable, "-c",
+        f"from pathlib import Path; import time; Path({str(marker)!r}).write_text('x'); time.sleep(60)",
+    ])
+    text = config.read_text(encoding="utf-8")
+    text = text.replace(
+        'build = ["cmake", "--build", "build", "--config", "Debug", "--parallel", "4"]',
+        f"build = {slow_build}",
+    )
+    text = text.replace('configure = ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"]', "")
+    config.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-qam", "slow build"],
+                   cwd=sandbox.root, check=True)
+
+    task_id = str(uuid4())
+    token = CancellationToken(task_id, 0)
+    turns = _edits_then(_claims("success"), ChatResponse(content="Fixed it."))
+    controller, manager = _controller(sandbox.root, tmp_path, turns)
+    results = []
+    worker = threading.Thread(target=lambda: results.append(controller.run(
+        "fix the build", task_id=task_id, skill_name="fix-build-failure",
+        cancellation_probe=token)))
+    worker.start()
+    deadline = time.monotonic() + 60
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert marker.exists(), "the controller check never started its build"
+    token.request()
+    worker.join(30)
+
+    assert not worker.is_alive(), "Stop did not reach the controller check"
+    result = results[0]
+    assert result.outcome is TaskOutcome.BLOCKED and result.reason_code == "cancelled"
+    assert result.metrics["candidate"] == {"retained": False, "stopped": True}
+    assert _worktrees(sandbox.root) == 1
+    with pytest.raises(WorkspaceError):
+        manager.load(task_id)

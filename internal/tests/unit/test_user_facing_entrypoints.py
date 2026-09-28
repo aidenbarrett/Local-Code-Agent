@@ -214,3 +214,47 @@ def test_root_commands_work_from_a_checkout_path_with_spaces(tmp_path):
         assert expected in combined
 
 
+
+
+def _launcher_commands():
+    import re
+
+    wrapper = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
+    completer = re.search(r"\[ArgumentCompleter\(\{.*?@\(([^)]*)\)", wrapper, re.S)
+    assert completer, "the launcher's Command parameter must carry a tab completer"
+    completed = re.findall(r"'([a-z-]+)'", completer.group(1))
+    switch = wrapper[wrapper.index("switch ($Command.ToLowerInvariant())"):]
+    dispatched = re.findall(r"^    '([a-z-]+)' \{", switch, re.M)
+    return completed, dispatched
+
+
+def test_launcher_tab_completion_names_exactly_the_dispatched_commands():
+    completed, dispatched = _launcher_commands()
+    assert dispatched, "no commands found in the launcher switch"
+    assert "acceptance" in dispatched
+    assert completed == dispatched
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell tab completion is exercised on Windows")
+def test_launcher_tab_completes_commands_in_powershell():
+    powershell = (
+        shutil.which("pwsh")
+        or shutil.which("powershell.exe")
+        or shutil.which("powershell")
+    )
+    assert powershell, "a Windows CI runner must provide PowerShell"
+    probe = (
+        "$ErrorActionPreference = 'Stop'; "
+        "foreach ($typed in @('.\\local-code-agent.ps1 acc', '.\\local-code-agent.ps1 ')) { "
+        "$r = TabExpansion2 -inputScript $typed -cursorColumn $typed.Length; "
+        "'[' + (($r.CompletionMatches | ForEach-Object CompletionText) -join ',') + ']' }"
+    )
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", probe],
+        cwd=REPO, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = [line for line in result.stdout.splitlines() if line.startswith("[")]
+    assert lines[0] == "[acceptance]", result.stdout
+    _, dispatched = _launcher_commands()
+    assert lines[1] == "[" + ",".join(dispatched) + "]", result.stdout

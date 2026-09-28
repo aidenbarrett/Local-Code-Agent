@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `92308f630cd23ce5048d5feb869860363c41745a`
-on 2026-09-27 after the isolated candidate-change journeys (#197-#215: build/test fixes,
+Reconciled against GitHub `main` at `806e70aed45e5de6353cf69e3527c10021723e9e`
+on 2026-09-28 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
 #217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
@@ -17,7 +17,9 @@ refusals and the scripted candidate journey (#252, #253), failed-test CI annotat
 (#251) were measured and not adopted; the parallel probe exposed an unconfirmed
 abandoned-descendant cleanup on Windows, fixed in #258. Small-model tool-use
 robustness from the Panther Lake run landed in #259 (read_file line numbers echoed into a
-patch are removed) and #260 (an invented tool is answered with the active skill's tools). Live
+patch are removed) and #260 (an invented tool is answered with the active skill's tools).
+Main also includes controller-run configured verification for otherwise unproven
+candidates (#264) and launcher command tab completion (#265). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
