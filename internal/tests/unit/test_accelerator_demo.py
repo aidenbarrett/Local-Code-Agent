@@ -22,6 +22,20 @@ def test_demo_uses_the_shared_runtime_root_with_explicit_override(monkeypatch, t
     monkeypatch.setenv("LCA_RUNTIME_ROOT", str(tmp_path / "chosen"))
     assert DEMO.default_runtime_root() == tmp_path / "chosen"
 
+    for script in ("chat.py", "session-hub.py"):
+        spec = spec_from_file_location(f"runtime_root_{script}", ROOT / "scripts" / script)
+        assert spec and spec.loader
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        assert module._runtime_root is default_runtime_root
+        assert module._runtime_root() == tmp_path / "chosen"
+
+    monkeypatch.delenv("LCA_RUNTIME_ROOT")
+    monkeypatch.delenv("LOCALAPPDATA")
+    assert default_runtime_root() == Path.home() / "LocalCodeAgent"
+    monkeypatch.setenv("LOCALAPPDATA", "")
+    assert default_runtime_root() == Path.home() / "LocalCodeAgent"
+
 
 def test_demo_uses_same_model_and_changes_only_explicit_device(tmp_path):
     configs = {device: DEMO.demo_config(device) for device in DEMO.DEVICES}

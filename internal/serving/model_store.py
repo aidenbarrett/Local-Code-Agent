@@ -10,7 +10,8 @@ def default_runtime_root() -> Path:
     explicit = os.environ.get("LCA_RUNTIME_ROOT")
     if explicit:
         return Path(explicit)
-    return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LocalCodeAgent"
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    return (Path(local_app_data) if local_app_data else Path.home()) / "LocalCodeAgent"
 
 
 def model_repository(runtime_root: Path) -> Path:
