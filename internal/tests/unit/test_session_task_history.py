@@ -167,6 +167,32 @@ def test_terminal_result_is_retained_and_reconstructed_after_restart(tmp_path, l
     assert observation.evidence_ids == ("compiler:0",)
 
 
+def test_latest_terminal_task_uses_conversation_order_across_streams(tmp_path):
+    store = SQLiteSessionStore(tmp_path / "session.db")
+    # Admission sequences restart in each stream. The later conversation turn must win.
+    with store._connect() as conn:
+        for task_id, stream_id, sequence, turn_index in (
+            ("older", "stream-a", 100, 0),
+            ("newer", "stream-b", 1, 1),
+        ):
+            conn.execute(
+                "INSERT INTO tasks(task_id, request_id, payload_sha256, stream_id, "
+                "admitted_sequence, execution_epoch, state, terminal) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, task_id, "a" * 64, stream_id, sequence, 0, "succeeded", 1),
+            )
+            conn.execute(
+                "INSERT INTO turn_tasks(conversation_id, turn_index, turn_sha256, task_id) "
+                "VALUES(?, ?, ?, ?)",
+                ("conv", turn_index, "b" * 64, task_id),
+            )
+
+    latest = store.latest_terminal_task_for_conversation("conv")
+
+    assert latest is not None
+    assert latest["task_id"] == "newer"
+
+
 def test_existing_admission_event_backfills_turn_association_without_inventing_bytes(tmp_path):
     store = SQLiteSessionStore(tmp_path / "session.db")
     stream_id, epoch, session_id, task_id = (str(uuid4()) for _ in range(4))
