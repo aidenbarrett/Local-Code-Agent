@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `604c0e38d98c6eca702e853595ae3ad2d5afb85b`
+Reconciled against GitHub `main` at `09d4d71f96effb90099d4972d86de68650214c58`
 on 2026-09-28 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -23,7 +23,9 @@ candidates (#264), launcher command tab completion (#265), natural file-change r
 with active-repository path, push, commit and Git refusals (#263), no skill catalogue for a
 worker whose skill is already chosen (#269, the cause of skill names called as tools on
 Panther Lake), the active repository shown in the Session Hub header (#266) and a
-collapsed empty Watches pane (#268). Live
+collapsed empty Watches pane (#268), a one-time reminder when a worker finishes with its
+proposed patch unapplied (#271), active-repository questions answered from product facts
+(#267) and a Session Hub Attention pane projected only from durable task facts (#273). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
