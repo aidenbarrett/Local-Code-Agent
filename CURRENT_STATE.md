@@ -1,7 +1,7 @@
 # Current state
 
 Reconciled against GitHub `main` at `e2b04cc144f2ae935f6aed1ae03cb7b9ebefbcdc`
-on 2026-09-28 after the isolated candidate-change journeys (#197-#215: build/test fixes,
+on 2026-09-29 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
 #217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
@@ -27,9 +27,11 @@ collapsed empty Watches pane (#268), a one-time reminder when a worker finishes 
 proposed patch unapplied (#271), active-repository questions answered from product facts
 (#267) and a Session Hub Attention pane projected only from durable task facts (#273),
 and "where did you save it?" answered from the latest retained candidate facts in
-conversation-turn order (#274, #278), a one-time reminder when an editing worker finishes
-with nothing changed (#282), a new acceptance output directory per run (#280) and the
-PR integration discipline in AGENTS.md (#276). Live
+conversation-turn order (#274, #278).
+Main also includes a single follow-up reminder when a candidate worker leaves a change
+unapplied or finishes with nothing changed (#282), integration discipline for exact-head
+CI (#276), refusal to reuse acceptance output folders (#280), and a longer retained-result
+test setup wait on Windows (#281). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
