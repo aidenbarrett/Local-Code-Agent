@@ -132,6 +132,13 @@ class DurableTaskHistory:
             return None
         return self._result_from_record(record)
 
+    def latest_result(self, conversation_id: str) -> RetainedTaskResult | None:
+        """Return the latest retained terminal result with its typed candidate facts."""
+        record = self.store.latest_terminal_task_for_conversation(conversation_id)
+        if record is None:
+            return None
+        return self._result_from_record(record)
+
     def _observation_from_record(
         self,
         record: dict[str, Any],
