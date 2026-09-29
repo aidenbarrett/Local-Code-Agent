@@ -58,7 +58,7 @@ _RUNTIME_INPUTS = frozenset({
     "what are you running on",
     "what are you running on?",
     "what model are you running",
-    "what model are you running on?",
+    "what model are you running?",
     "what model are you using",
     "what model are you using?",
 })
