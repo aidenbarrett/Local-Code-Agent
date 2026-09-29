@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -14,6 +15,7 @@ from local_agent.config import load_repo_config
 from local_agent.llm.client import ScriptedClient, tool_call
 from local_agent.llm.protocol import ChatResponse
 from local_agent.session.contracts import TaskOutcome
+from local_agent.session.conversation_gateway import ConversationGateway
 from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.intents import RULE_FIX_BUILD, RouteAction, decide_route
 from local_agent.session.results import verdict_block_from_task_result
@@ -183,6 +185,44 @@ def test_repository_policy_forbidding_patches_is_honoured(sandbox, tmp_path):
     result = controller.run("fix the build", task_id=str(uuid4()), skill_name="fix-build-failure")
     assert result.outcome is TaskOutcome.BLOCKED
     assert "allow_patch" in result.answer
+
+
+def test_create_refusal_names_all_blocks_in_the_conversation(sandbox, tmp_path):
+    config = sandbox.root / ".local-agent.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        .replace("allow_patch = true", "allow_patch = false")
+        .replace("allow_test = true", "allow_test = false"),
+        encoding="utf-8",
+    )
+    controller, manager = _controller(sandbox.root, tmp_path, [], allow_execution=False)
+    runner = SimpleNamespace(run=lambda task, **kwargs: controller.run(
+        task, skill_name=kwargs["skill"], route_source=kwargs["route_source"],
+    ))
+    gateway = ConversationGateway(
+        ScriptedClient([]), controller, EventBuffer(uuid4().hex), task_runner=runner,
+    )
+
+    rendered = gateway.turn("Create a C++ file called aiden.cpp that prints hello")
+
+    assert gateway.last_result is not None
+    assert gateway.last_result.outcome is TaskOutcome.BLOCKED
+    assert [item["code"] for item in gateway.last_result.metrics["candidate_blockers"]] == [
+        "patch_disabled", "execution_disabled", "test_disabled",
+    ]
+    assert "allow_patch = false" in rendered
+    assert "execution is not enabled" in rendered
+    assert "allow_test = false" in rendered
+    assert [turn.role for turn in gateway.session.turns] == ["user", "assistant"]
+    reply = gateway.session.turns[-1].content
+    assert "allow_patch = false" in reply
+    assert "execution is not enabled" in reply
+    assert "allow_test = false" in reply
+    assert "Nothing was created" in reply
+    assert "policy_denied" not in reply
+    assert not (sandbox.root / "aiden.cpp").exists()
+    assert _worktrees(sandbox.root) == 1
+    assert list(manager.workspaces_root.glob("*.lease")) == []
 
 
 def test_the_user_checkout_stays_read_only_for_every_other_skill(sandbox, tmp_path):

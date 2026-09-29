@@ -156,23 +156,34 @@ def candidate_workspace_approval(
     return tool.name in _CANDIDATE_APPROVED_TOOLS
 
 
-def candidate_blocker(
+@dataclass(frozen=True)
+class CandidateBlocker:
+    code: str
+    explanation: str
+
+
+def candidate_blockers(
     declared: RepoConfig, *, allow_execution: bool, skill: str = "fix-build-failure",
-) -> str | None:
-    """Why a candidate change cannot run, or None. Checked before any workspace exists."""
+) -> tuple[CandidateBlocker, ...]:
+    """All independent reasons a candidate cannot run, before any workspace exists."""
+    blockers = []
     if not declared.policy.allow_patch:
-        return "repository policy does not allow patches (policy.allow_patch = false)"
-    if not (allow_execution and declared.policy.allow_build):
-        return (
-            f"a candidate change must be proven by a {CANDIDATE_PROOF[skill]}, and configured "
-            "build execution is not enabled for this session"
-        )
+        blockers.append(CandidateBlocker(
+            "patch_disabled", "patches are switched off (allow_patch = false in .local-agent.toml)",
+        ))
+    if not allow_execution:
+        blockers.append(CandidateBlocker(
+            "execution_disabled", "execution is not enabled for this session",
+        ))
+    if not declared.policy.allow_build:
+        blockers.append(CandidateBlocker(
+            "build_disabled", "builds are switched off (allow_build = false in .local-agent.toml)",
+        ))
     if skill in ("fix-test-failure", "implement-change") and not declared.policy.allow_test:
-        return (
-            f"this change must be proven by a {CANDIDATE_PROOF[skill]}, and repository "
-            "policy does not allow running tests (policy.allow_test = false)"
-        )
-    return None
+        blockers.append(CandidateBlocker(
+            "test_disabled", "tests are switched off (allow_test = false in .local-agent.toml)",
+        ))
+    return tuple(blockers)
 
 
 def excluded_dirs(repo: RepoConfig) -> tuple[str, ...]:
@@ -662,9 +673,10 @@ __all__ = [
     "DIFF_CANDIDATE_ACTION",
     "DISCARD_CANDIDATE_ACTION",
     "UNDO_CANDIDATE_ACTION",
+    "CandidateBlocker",
     "CandidateOutcome",
     "apply_candidate",
-    "candidate_blocker",
+    "candidate_blockers",
     "candidate_proof_satisfied",
     "candidate_repo",
     "candidate_workspace_approval",
