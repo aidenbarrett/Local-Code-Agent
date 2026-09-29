@@ -184,6 +184,31 @@ def _result_preview(answer: str) -> str:
     return compact[: _RECENT_RESULT_PREVIEW_CHARS - 1].rstrip() + "…"
 
 
+def _retained_result_verified(task: TaskSnapshot) -> bool:
+    return task.verdict == "VERIFIED" and task.result_verified_at_completion is True
+
+
+def _recent_result_line(task: TaskSnapshot, answer: str) -> str:
+    label = "Result" if _retained_result_verified(task) else "Unverified result detail"
+    return f"  {label}: {_result_preview(answer)}"
+
+
+def _retained_result_lines(task: TaskSnapshot) -> tuple[str, ...]:
+    if task.result_answer is None:
+        return ()
+    label = (
+        "Retained result:" if _retained_result_verified(task)
+        else "Retained result (unverified as completion):"
+    )
+    if task.result_verified_at_completion is True:
+        verification = "Result verification: passed at task completion"
+    elif task.result_verification_ran:
+        verification = "Result verification: ran but did not establish success"
+    else:
+        verification = "Result verification: not established"
+    return ("", label, task.result_answer, verification)
+
+
 def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
     candidate = task.candidate
     if candidate is None:
@@ -251,14 +276,7 @@ def render_activity(state: HubViewState) -> str:
 
     lines.extend(_candidate_lines(task))
 
-    if task.result_answer is not None:
-        lines.extend(("", "Retained result:", task.result_answer))
-        if task.result_verified_at_completion is True:
-            lines.append("Result verification: passed at task completion")
-        elif task.result_verification_ran:
-            lines.append("Result verification: ran but did not establish success")
-        else:
-            lines.append("Result verification: not established")
+    lines.extend(_retained_result_lines(task))
 
     if task.faults:
         reason, message = task.faults[-1]
@@ -271,7 +289,7 @@ def render_activity(state: HubViewState) -> str:
             verdict = prior.verdict or "NO_VERDICT"
             lines.append(f"{prior.task_id} · {prior.state} · {verdict}")
             if prior.result_answer is not None:
-                lines.append(f"  Result: {_result_preview(prior.result_answer)}")
+                lines.append(_recent_result_line(prior, prior.result_answer))
     return "\n".join(lines)
 
 

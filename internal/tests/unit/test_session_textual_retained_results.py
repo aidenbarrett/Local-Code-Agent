@@ -134,7 +134,7 @@ def test_live_hub_exposes_integrity_checked_retained_answer(tmp_path):
         assert state.tasks[0].result_verification_ran is True
         assert state.tasks[0].result_verified_at_completion is False
         rendered = render_activity(state)
-        assert "Retained result:" in rendered
+        assert "Retained result (unverified as completion):" in rendered
         assert answer in rendered
         assert "Result verification: ran but did not establish success" in rendered
     finally:

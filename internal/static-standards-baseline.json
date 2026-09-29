@@ -601,7 +601,7 @@
     "W292": 1
    },
    "internal/local_agent/session/contracts.py": {
-    "E501": 3,
+    "E501": 2,
     "S105": 2,
     "UP037": 1,
     "UP042": 4
@@ -908,5 +908,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 952
+ "total": 951
 }
