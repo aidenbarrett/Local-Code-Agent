@@ -24,6 +24,7 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from local_agent.config import MODEL_PRESETS, ModelConfig
+from serving.model_store import default_runtime_root, model_repository
 
 
 class Refusal(RuntimeError):
@@ -64,7 +65,7 @@ def make_plan(profile, config, runtime_root, *, executable=None, model_dir=None,
     windows = os.name == "nt" if windows is None else windows
     runtime_root = Path(runtime_root).absolute()
     state = runtime_root / "runtime" / profile
-    repository = runtime_root / "models"
+    repository = model_repository(runtime_root)
     payload = Path(model_dir).absolute() if model_dir else model_directory(repository, config.model)
     cache = runtime_root / "cache" / profile
     env = {}
@@ -453,7 +454,7 @@ def main(argv=None):
     select = parser.add_mutually_exclusive_group(required=True)
     select.add_argument("--profile", choices=MODEL_PRESETS)
     select.add_argument("--all", action="store_true")
-    parser.add_argument("--runtime-root", type=Path, default=Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LocalCodeAgent")
+    parser.add_argument("--runtime-root", type=Path, default=default_runtime_root())
     parser.add_argument("--device")
     parser.add_argument("--executable")
     parser.add_argument("--model-dir", type=Path)
