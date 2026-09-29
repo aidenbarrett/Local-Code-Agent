@@ -35,7 +35,8 @@ from .candidate_change import (
     CONTROLLER_ACTIONS,
     apply_candidate,
     controller_action_sha256,
-    candidate_blocker,
+    CandidateBlocker,
+    candidate_blockers,
     candidate_repo,
     candidate_workspace_approval,
     excluded_dirs,
@@ -385,19 +386,29 @@ class TaskController:
     ) -> TaskResult:
         """Run a source-changing skill in its own worktree and retain the candidate."""
         manager = self.workspaces
-        blocker = (
-            "candidate workspaces are not configured for this session"
-            if manager is None
-            else candidate_blocker(
-                self.declared_repo, allow_execution=self.allow_execution, skill=resolved_skill,
-            )
+        blockers = candidate_blockers(
+            self.declared_repo, allow_execution=self.allow_execution, skill=resolved_skill,
         )
-        if manager is None or blocker is not None:
+        if manager is None:
+            blockers = (
+                CandidateBlocker(
+                    "workspace_unavailable",
+                    "candidate workspaces are not configured for this session",
+                ),
+                *blockers,
+            )
+        if blockers:
             return TaskResult(
                 task_id, TaskOutcome.BLOCKED,
-                f"No change was prepared: {blocker}.", False,
+                "No change was prepared: " + "; ".join(b.explanation for b in blockers) + ".",
+                False,
+                metrics={"candidate_blockers": [
+                    {"code": b.code, "explanation": b.explanation} for b in blockers
+                ]},
                 reason_code="policy_denied",
             )
+        if manager is None:
+            raise RuntimeError("candidate manager missing after blocker evaluation")
         readiness = manager.readiness(self.declared_repo.root)
         if not readiness.ready:
             # An environment limit, reported before any worktree or model call exists.

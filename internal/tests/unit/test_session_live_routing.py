@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from local_agent.llm.protocol import ChatResponse
 from local_agent.session.contracts import RouteSource, TaskOutcome, TaskResult
 from local_agent.session.conversation_gateway import ConversationGateway
@@ -92,6 +94,29 @@ def test_explicit_work_bypasses_model_and_preserves_user_text():
     assert task == "User request:\n" + text
     assert kwargs["route_source"] == RouteSource.USER_DIRECT
     assert gateway.session.turns[0].content == text
+
+
+@pytest.mark.parametrize("outcome,reason", [
+    (TaskOutcome.BLOCKED, "missing_dependency"),
+    (TaskOutcome.FAIL, "policy_denied"),
+])
+def test_unrelated_result_cannot_claim_nothing_was_created_in_chat(outcome, reason, tmp_path):
+    runner = Runner()
+    runner.run = lambda task, **kwargs: TaskResult(
+        "task-result", outcome, "Task detail", False,
+        metrics={"candidate_blockers": [{
+            "code": "patch_disabled", "explanation": "patches are switched off",
+        }]},
+        reason_code=reason,
+    )
+    gateway = ConversationGateway(
+        Chat(), SimpleNamespace(repo=SimpleNamespace(root=tmp_path)), EventBuffer("s"),
+        task_runner=runner,
+    )
+
+    gateway.turn("Create a C++ file called aiden.cpp")
+
+    assert [turn.role for turn in gateway.session.turns] == ["user"]
 
 
 class History:

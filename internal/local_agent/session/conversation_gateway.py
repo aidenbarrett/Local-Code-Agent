@@ -14,7 +14,7 @@ from threading import Lock
 
 from ..llm.protocol import LLMTransportError
 from .change_requests import change_path_refusal, natural_change_target
-from .contracts import MAX_MESSAGE_CHARS, Proposal, RouteSource, TaskResult
+from .contracts import MAX_MESSAGE_CHARS, Proposal, RouteSource, TaskOutcome, TaskResult
 from .conversation_store import (
     ContextRefusal,
     OpenConversation,
@@ -326,6 +326,25 @@ class ConversationGateway:
         self.last_turn_ref = ref
         return ref
 
+    def _return_task_result(self, result: TaskResult) -> str:
+        self.last_result = result
+        # This is a short controller-authored conversation reply, not the task result
+        # or a claim of verification. The detailed verdict remains the durable sibling.
+        if result.outcome is TaskOutcome.BLOCKED and result.reason_code == "policy_denied":
+            blockers = result.metrics.get("candidate_blockers")
+            if isinstance(blockers, list) and blockers and all(
+                isinstance(item, dict)
+                and isinstance(item.get("code"), str)
+                and isinstance(item.get("explanation"), str)
+                for item in blockers
+            ):
+                explanation = "; ".join(item["explanation"] for item in blockers)
+                self._record_assistant(
+                    "I can't make that change in this repository: "
+                    f"{explanation}. Nothing was created."
+                )
+        return result.render()
+
     def _run_task(
         self,
         task: str,
@@ -481,8 +500,7 @@ class ConversationGateway:
             route_source=RouteSource.MODEL_PROPOSAL,
             skill="repo-navigation" if route.skill == "self-check" else route.skill,
         )
-        self.last_result = result
-        return result.render()
+        return self._return_task_result(result)
 
     def _handle_durable_route_decision(self, said: str) -> str | None:
         if self.route_events is None:
@@ -602,8 +620,7 @@ class ConversationGateway:
                         rule_id=decision.rule_id,
                         skill=decision.skill,
                     )
-                    self.last_result = result
-                    return result.render()
+                    return self._return_task_result(result)
 
             failure_observations = self._failure_observations()
             decision = decide_route(
@@ -649,8 +666,7 @@ class ConversationGateway:
                     rule_id=decision.rule_id,
                     skill=decision.skill,
                 )
-                self.last_result = result
-                return result.render()
+                return self._return_task_result(result)
 
             if decision.action != RouteAction.MODEL_FALLBACK:
                 raise RuntimeError(f"unsupported route action: {decision.action.value}")
@@ -677,8 +693,7 @@ class ConversationGateway:
                     self_check=False,
                     route_source=RouteSource.MODEL_PROPOSAL,
                 )
-                self.last_result = result
-                return result.render()
+                return self._return_task_result(result)
 
             saved_turn = self._record_user(said)
             skill = "repo-navigation" if proposal.kind == "self_check" else None
