@@ -12,6 +12,10 @@ from local_agent.session.textual_feed import DurableHubFeed
 from local_agent.session.textual_hub import render_activity
 from local_agent.session.textual_live_app import HubLiveBinding
 
+# Durable routes allow 30 seconds; these tests measure result projection, not
+# writer scheduling latency under a busy Windows CI runner.
+WRITE_WAIT_SECONDS = 30
+
 
 def _service(tmp_path) -> DurableSessionService:
     return DurableSessionService(
@@ -53,7 +57,7 @@ def _admit(
             "deadline_utc": "2030-01-01T00:00:00Z",
         },
     )
-    receipt.wait(5)
+    receipt.wait(WRITE_WAIT_SECONDS)
     assert receipt.task_id is not None
     return receipt.task_id
 
@@ -114,7 +118,7 @@ def _finish(
         closed_payload={"status": "failed", "result_ref": ref, "cleanup": "not_needed"},
         result_bytes=payload,
     )
-    receipt.wait(5)
+    receipt.wait(WRITE_WAIT_SECONDS)
 
 
 def test_live_hub_exposes_integrity_checked_retained_answer(tmp_path):
@@ -172,7 +176,7 @@ def test_idle_hub_poll_does_not_reread_500_retained_results(tmp_path, monkeypatc
                 "recovered": False,
             },
         )
-        receipt.wait(5)
+        receipt.wait(WRITE_WAIT_SECONDS)
         assert binding.poll() is not None
         assert reads["count"] == 0
     finally:
