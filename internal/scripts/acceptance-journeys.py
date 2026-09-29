@@ -17,11 +17,12 @@ Two kinds of journey, reported differently:
 
 UNKNOWN always carries its reason. Nothing is inferred from configuration.
 
-Everything stays in --output: ``journeys.json`` (lca.acceptance-journeys/1), a
+Each run needs a new --output directory. Everything stays there: ``journeys.json``
+(lca.acceptance-journeys/1), a
 text ``summary.txt``, and per journey the conversation transcript and the full
 durable event log. Nothing is sent anywhere.
 
-    python internal/scripts/acceptance-journeys.py --output C:\\lca-acc --allow-model
+    python internal/scripts/acceptance-journeys.py --output C:\\lca-acc\\run-001 --allow-model
 """
 from __future__ import annotations
 
@@ -609,8 +610,10 @@ def j_candidate_lifecycle(s: Session) -> None:
         # By task id: the refused stale /apply is a failed task too, so "fix it" is ambiguous.
         _, again = s.turn(f"fix task {built.task_id}") if built is not None else ("", None)
         if again is None or again.outcome is not TaskOutcome.PASS:
-            s.journey.passed("diff, stale refusal, apply, independent build, preserved work, exact undo"
-                             " (no second candidate, so /commit was not exercised)")
+            s.journey.notes.append(
+                "diff, stale refusal, apply, independent build, preserved work and exact undo passed"
+            )
+            s.journey.unknown("no second verified candidate; /commit was not exercised")
             return
         cid = again.task_id
         _, reapplied = s.turn(f"/apply {cid}")
@@ -911,7 +914,7 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--output", type=Path, required=True,
-                        help="evidence directory; keep the path short on Windows (for example C:\\lca-acc)")
+                        help="new evidence directory for this run; keep the path short on Windows")
     parser.add_argument("--profile", default="ptl-npu-8b", choices=sorted(MODEL_PRESETS))
     parser.add_argument("--base-url", help="use an already-running endpoint instead of the profile's")
     parser.add_argument("--model", help="the model id that endpoint serves (default: the profile's)")
@@ -926,7 +929,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stop-budget", type=float, default=60.0, help="seconds Stop has to reach terminal")
     args = parser.parse_args(argv)
 
-    args.output.mkdir(parents=True, exist_ok=True)
+    try:
+        args.output.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        parser.error("--output already exists; choose a new directory for this run "
+                     "so earlier evidence is preserved")
     runner = Runner(args)
     started = time.time()
     runner.check_preconditions()
