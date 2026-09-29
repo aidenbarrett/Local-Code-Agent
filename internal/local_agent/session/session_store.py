@@ -526,7 +526,7 @@ class SQLiteSessionStore:
                 "SELECT t.task_id, t.state, t.result_ref_json, tt.turn_index, tt.turn_sha256 "
                 "FROM turn_tasks AS tt JOIN tasks AS t ON t.task_id = tt.task_id "
                 "WHERE tt.conversation_id = ? AND t.terminal = 1 "
-                "ORDER BY t.admitted_sequence DESC LIMIT 1",
+                "ORDER BY tt.turn_index DESC, t.admitted_sequence DESC LIMIT 1",
                 (conversation_id,),
             ).fetchone()
         if row is None:
