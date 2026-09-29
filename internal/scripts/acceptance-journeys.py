@@ -721,6 +721,7 @@ class Runner:
         self.profile: str = args.profile
         self.timeout: float = args.journey_timeout
         self.stop_budget: float = args.stop_budget
+        self.repeat: int = getattr(args, "repeat", 1)
         chat = MODEL_PRESETS[args.profile]
         if args.base_url:
             chat = replace(chat, base_url=args.base_url)
@@ -816,36 +817,65 @@ class Runner:
     def run(self, selected: set[str] | None) -> list[Journey]:
         results = []
         for jid, title, kind, scenario, needs_model, options, fn in JOURNEYS:
-            journey = Journey(jid, title, kind)
-            results.append(journey)
-            if selected and jid not in selected:
-                journey.unknown("not selected")
-                continue
-            if not self.preconditions.get("fixture_builds"):
-                journey.unknown("the bundled C++ repository does not build on this machine (see preconditions)")
-                continue
-            if needs_model and not self.allow_model:
-                journey.unknown("needs the model; run with --allow-model")
-                continue
-            if needs_model and not self.preconditions.get("model_endpoint", {}).get("ok"):
-                journey.unknown("the model endpoint is not ready: " + str(self.preconditions.get("model_endpoint")))
-                continue
-            print(f"--> {jid}: {title}", flush=True)
-            started = time.monotonic()
-            repo = make_repo(self.output / "repos" / jid, scenario, **options)
-            try:
-                with Session(self, journey, repo).open() as session:
-                    fn(session)
-            except JourneyFailed as exc:
-                journey.failed(str(exc))
-            except TimeoutError as exc:
-                journey.unknown(f"timed out: {exc}")
-            except Exception as exc:  # noqa: BLE001 - one broken journey must not end the run
-                journey.unknown(f"harness error: {type(exc).__name__}: {exc}")
-                journey.notes.append(traceback.format_exc()[-3000:])
-            journey.seconds = round(time.monotonic() - started, 1)
-            print(f"    {journey.status}  {journey.reason}  ({journey.seconds}s)", flush=True)
+            # A model journey measures a stochastic model: --repeat runs it N times,
+            # each attempt in its own repository and logs, so a rate can be reported.
+            attempts = self.repeat if kind == "model" else 1
+            for attempt in range(1, attempts + 1):
+                aid = jid if attempts == 1 else f"{jid}.r{attempt}"
+                results.append(self._run_one(aid, title, kind, scenario, needs_model, options, fn,
+                                             selected_as=jid, selected=selected))
         return results
+
+    def _run_one(self, jid: str, title: str, kind: str, scenario: str, needs_model: bool,
+                 options: dict[str, bool], fn: Callable[[Session], None], *,
+                 selected_as: str, selected: set[str] | None) -> Journey:
+        journey = Journey(jid, title, kind)
+        if selected and selected_as not in selected:
+            journey.unknown("not selected")
+            return journey
+        if not self.preconditions.get("fixture_builds"):
+            journey.unknown("the bundled C++ repository does not build on this machine (see preconditions)")
+            return journey
+        if needs_model and not self.allow_model:
+            journey.unknown("needs the model; run with --allow-model")
+            return journey
+        if needs_model and not self.preconditions.get("model_endpoint", {}).get("ok"):
+            journey.unknown("the model endpoint is not ready: " + str(self.preconditions.get("model_endpoint")))
+            return journey
+        print(f"--> {jid}: {title}", flush=True)
+        started = time.monotonic()
+        repo = make_repo(self.output / "repos" / jid, scenario, **options)
+        try:
+            with Session(self, journey, repo).open() as session:
+                fn(session)
+        except JourneyFailed as exc:
+            journey.failed(str(exc))
+        except TimeoutError as exc:
+            journey.unknown(f"timed out: {exc}")
+        except Exception as exc:  # noqa: BLE001 - one broken journey must not end the run
+            journey.unknown(f"harness error: {type(exc).__name__}: {exc}")
+            journey.notes.append(traceback.format_exc()[-3000:])
+        journey.seconds = round(time.monotonic() - started, 1)
+        print(f"    {journey.status}  {journey.reason}  ({journey.seconds}s)", flush=True)
+        return journey
+
+
+def model_rates(journeys: list[Journey]) -> list[str]:
+    """Per repeated model journey, how often each outcome occurred: ``changed 2/3``."""
+    groups: dict[str, list[Journey]] = {}
+    for journey in journeys:
+        base, sep, attempt = journey.id.rpartition(".r")
+        if journey.kind == "model" and sep and attempt.isdigit():
+            groups.setdefault(base, []).append(journey)
+    lines = []
+    for base, attempts in groups.items():
+        counts: dict[str, int] = {}
+        for journey in attempts:
+            outcome = journey.status.split(":", 1)[-1]
+            counts[outcome] = counts.get(outcome, 0) + 1
+        shown = ", ".join(f"{outcome} {n}/{len(attempts)}" for outcome, n in sorted(counts.items()))
+        lines.append(f"{base:<22} {shown}")
+    return lines
 
 
 def model_call_probe(config: ModelConfig) -> dict[str, Any]:
@@ -907,6 +937,9 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
     ]
     for journey in journeys:
         lines.append(f"{journey.id:<22} {journey.status:<18} {journey.seconds:>7.1f}s  {journey.reason}"[:160])
+    rates = model_rates(journeys)
+    if rates:
+        lines += ["", "Model rates (repeated model journeys)", *rates]
     lines += ["", f"Report SHA-256 {report_sha}"]
     return "\n".join(lines) + "\n"
 
@@ -925,9 +958,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="also run read-only journeys over this repository, in place (never modified)")
     parser.add_argument("--allow-build", action="store_true",
                         help="with --repo: let R02 run that repository's configured build")
+    parser.add_argument("--repeat", type=int, default=1,
+                        help="run each model journey this many times and report its outcome rate")
     parser.add_argument("--journey-timeout", type=float, default=900.0, help="seconds per user turn")
     parser.add_argument("--stop-budget", type=float, default=60.0, help="seconds Stop has to reach terminal")
     args = parser.parse_args(argv)
+    if args.repeat < 1:
+        parser.error("--repeat must be at least 1")
 
     try:
         args.output.mkdir(parents=True, exist_ok=False)
