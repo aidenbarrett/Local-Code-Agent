@@ -197,6 +197,11 @@ class TaskResult:
                 f"\nRequest SHA-256: {binding.request_sha256}"
                 f"\nTree SHA-256: {binding.tree_sha256}"
             )
-        return (f"{self.answer}\n\n[Controller: {self.outcome.value}; verification: {proof}{reason}; "
+        detail_label = (
+            "Task detail:" if self.verified_at_completion
+            else "Unverified task detail (not proof of a completed change):"
+        )
+        return (f"[Controller: {self.outcome.value}; verification: {proof}{reason}; "
                 f"evidence: {len(self.evidence_ids)} item(s); task: {self.task_id}]"
-                f"{binding_lines}\nEvidence IDs: {', '.join(self.evidence_ids) or 'none'}")
+                f"{binding_lines}\nEvidence IDs: {', '.join(self.evidence_ids) or 'none'}"
+                f"\n\n{detail_label}\n{self.answer}")

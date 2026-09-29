@@ -135,3 +135,38 @@ def test_live_activity_keeps_evidence_separate_from_retained_worker_answer():
     assert rendered.index("Evidence:") < rendered.index("Retained result:")
     assert "Evidence IDs: ev-1" in rendered
     assert "Worker prose that is not verification authority." in rendered
+
+
+def test_failed_worker_claim_is_below_verdict_and_explicitly_unverified():
+    task = _task(verdict="FAILED", reason="verification_failed", scope="full_test")
+    task.result_answer = "The fix was applied, and the test now passes."
+    task.result_verification_ran = True
+    task.result_verified_at_completion = False
+    rendered = render_live_activity(HubViewState(tasks=(task,)))
+    assert rendered.index("Result: FAILED") < rendered.index("Retained result (unverified as completion):")
+    assert rendered.index("Retained result (unverified as completion):") < rendered.index(
+        "The fix was applied"
+    )
+
+
+def test_failed_task_result_render_does_not_lead_with_unverified_effect_claim():
+    from local_agent.session.contracts import TaskOutcome, TaskResult
+
+    result = TaskResult(
+        "task-1", TaskOutcome.FAIL, "The fix was applied, and the test now passes.",
+        verification_ran=True,
+    )
+    rendered = result.render()
+    assert rendered.startswith("[Controller: fail; verification: ran, did not establish success")
+    assert rendered.index("Unverified task detail") < rendered.index("The fix was applied")
+
+
+def test_recent_failed_result_preview_keeps_unverified_label():
+    prior = _task(verdict="FAILED", reason="verification_failed")
+    prior.result_answer = "The fix was applied, and the test now passes."
+    prior.closed_sequence = 1
+    current = _task(verdict="VERIFIED", reason="verification_passed")
+    current.admitted_sequence = 2
+    current.closed_sequence = 2
+    rendered = render_live_activity(HubViewState(tasks=(prior, current)))
+    assert "Unverified result detail: The fix was applied" in rendered
