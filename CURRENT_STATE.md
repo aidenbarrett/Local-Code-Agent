@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `e2b04cc144f2ae935f6aed1ae03cb7b9ebefbcdc`
+Reconciled against GitHub `main` at `ff23129b8faefb894457e35b6ac00c2eb203da5f`
 on 2026-09-29 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -31,7 +31,10 @@ conversation-turn order (#274, #278).
 Main also includes a single follow-up reminder when a candidate worker leaves a change
 unapplied or finishes with nothing changed (#282), integration discipline for exact-head
 CI (#276), refusal to reuse acceptance output folders (#280), and a longer retained-result
-test setup wait on Windows (#281). Live
+test setup wait on Windows (#281), Hub file-effect requests and path answers tied to
+durable routes (#284), the controller verdict shown ahead of unverified worker accounts
+(#285), a longer handoff fixture wait (#288) and `--repeat N` model-journey rates in the
+acceptance runner (#287). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
