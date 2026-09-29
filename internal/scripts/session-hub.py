@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
-import os
 from pathlib import Path
 import sys
 import subprocess
@@ -46,15 +45,7 @@ from local_agent.session.workspaces import GitWorkspaceManager  # noqa: E402
 from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
 from local_agent.session.textual_runtime import build_textual_session_runtime  # noqa: E402
 from serving.managed_runtime import ensure_managed_runtime  # noqa: E402
-
-
-def _runtime_root() -> Path:
-    explicit = os.environ.get("LCA_RUNTIME_ROOT")
-    if explicit:
-        return Path(explicit)
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    base = Path(local_app_data) if local_app_data else Path.home()
-    return base / "LocalCodeAgent"
+from serving.model_store import default_runtime_root as _runtime_root  # noqa: E402
 
 
 def _durable_ids(conversation_id: str) -> tuple[str, str]:

@@ -31,6 +31,7 @@ if str(SOURCE_ROOT) not in sys.path:
 
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
 from serving import serve  # noqa: E402
+from serving.model_store import default_runtime_root as _runtime_root  # noqa: E402
 from scripts.chat_persona import Persona, PersonaError, load_persona, persona_message  # noqa: E402
 from scripts.chat_context import (  # noqa: E402
     ContextRefusal,
@@ -131,13 +132,6 @@ def _reachable(config: ModelConfig) -> bool:
         except (urllib.error.URLError, OSError, ValueError):
             continue
     return False
-
-
-def _runtime_root() -> Path:
-    explicit = os.environ.get("LCA_RUNTIME_ROOT")
-    if explicit:
-        return Path(explicit)
-    return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LocalCodeAgent"
 
 
 def _ensure_server(profile: str, config: ModelConfig, term=None) -> bool:

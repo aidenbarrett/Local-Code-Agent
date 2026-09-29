@@ -23,6 +23,7 @@ sys.path.insert(0, str(SOURCE_ROOT))
 from local_agent.config import MODEL_PRESETS  # noqa: E402
 from local_agent.llm.client import OpenAICompatibleClient  # noqa: E402
 from serving import serve  # noqa: E402
+from serving.model_store import default_runtime_root  # noqa: E402
 from terminal_ui import LCA_LOGO, WIDTH, device_label, ui  # noqa: E402
 
 BASE_PROFILE = "ptl-npu-8b"
@@ -35,10 +36,6 @@ PROMPT = (
 
 # Compatibility alias for existing tests and any external presentation checks.
 LOGO = LCA_LOGO
-
-
-def default_runtime_root() -> Path:
-    return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LocalCodeAgent"
 
 
 def demo_config(device: str):
