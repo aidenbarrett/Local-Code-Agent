@@ -8,11 +8,12 @@ proposals remain advice and never manufacture execution authority.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from threading import Lock
 
 from ..llm.protocol import LLMTransportError
-from .change_requests import change_path_refusal
+from .change_requests import change_path_refusal, natural_change_target
 from .contracts import MAX_MESSAGE_CHARS, Proposal, RouteSource, TaskResult
 from .conversation_store import (
     ContextRefusal,
@@ -125,6 +126,8 @@ _ACCEPTED_RECOVERY = (
     "Previously accepted repository work is awaiting durable task admission. "
     "Reply `work` to resume that accepted work before starting something new. No new task was run."
 )
+_CONVERSATION_ONLY = "[Conversation only; no repository action]"
+_CHANGE_FOLLOWUP = re.compile(r"^(?:create it|do it|go ahead|yes)[.!]?$", re.IGNORECASE)
 
 
 class ConversationGateway:
@@ -446,6 +449,18 @@ class ConversationGateway:
         reason = change_path_refusal(text, self._active_repo_root())
         return RouteDecision(RouteAction.REFUSE, reason_code=reason) if reason else None
 
+    def _unexecuted_change_referent(self) -> str | None:
+        """Only the immediately preceding conversation-only file request can be resumed."""
+        if len(self.session.turns) < 2:
+            return None
+        request, answer = self.session.turns[-2:]
+        if request.role != "user" or answer.role != "assistant":
+            return None
+        if not (answer.content.startswith(_CONVERSATION_ONLY)
+                or answer.content.endswith(_CONVERSATION_ONLY)):
+            return None
+        return request.content if natural_change_target(request.content) is not None else None
+
     def _run_model_route(self, route) -> str:
         task = self._model_route_task(route)
         # Revalidate canonical user text at acceptance/recovery, never model prose.
@@ -462,9 +477,9 @@ class ConversationGateway:
         result = self._run_task(
             task,
             turn_ref=route.turn_ref,
-            self_check=route.skill == "self-check",
+            self_check=False,
             route_source=RouteSource.MODEL_PROPOSAL,
-            skill=route.skill,
+            skill="repo-navigation" if route.skill == "self-check" else route.skill,
         )
         self.last_result = result
         return result.render()
@@ -538,7 +553,7 @@ class ConversationGateway:
             resolution="accepted",
             source="user",
             mode="work",
-            skill=route.skill,
+            skill="repo-navigation" if route.skill == "self-check" else route.skill,
         )
         return self._run_model_route(accepted_route)
 
@@ -560,6 +575,35 @@ class ConversationGateway:
                     answer = self._refusal(refusal)
                     self._record_exchange(said, answer)
                     return answer
+
+                if _CHANGE_FOLLOWUP.fullmatch(said.strip()):
+                    referent = self._unexecuted_change_referent()
+                    if referent is None:
+                        answer = (
+                            "I cannot identify an unexecuted file request to carry out. "
+                            "Name the file and change again. No task was run."
+                        )
+                        self._record_exchange(said, answer)
+                        return answer
+                    refusal = self._route_boundary_refusal(referent)
+                    if refusal is not None:
+                        answer = self._refusal(refusal)
+                        self._record_exchange(said, answer)
+                        return answer
+                    saved_turn = self._record_user(said)
+                    decision = decide_route(referent, active_repo_count=1)
+                    if decision.action != RouteAction.WORK or decision.skill != "implement-change":
+                        raise ArtifactIntegrityError("file-change referent lost its rule route")
+                    result = self._run_task(
+                        self._rule_task_text(referent, decision, {}),
+                        turn_ref=saved_turn,
+                        self_check=False,
+                        route_source=RouteSource.RULE,
+                        rule_id=decision.rule_id,
+                        skill=decision.skill,
+                    )
+                    self.last_result = result
+                    return result.render()
 
             failure_observations = self._failure_observations()
             decision = decide_route(
@@ -587,7 +631,7 @@ class ConversationGateway:
                 proposal = self._model_proposal(said)
                 if proposal is None:
                     return self.session.turns[-1].content
-                answer = proposal.text + "\n\n[Conversation only; no repository action]"
+                answer = _CONVERSATION_ONLY + "\n\n" + proposal.text
                 self._record_exchange(said, answer)
                 return answer
 
@@ -615,7 +659,7 @@ class ConversationGateway:
             if proposal is None:
                 return self.session.turns[-1].content
             if proposal.kind == "reply":
-                answer = proposal.text + "\n\n[Conversation only; no repository action]"
+                answer = _CONVERSATION_ONLY + "\n\n" + proposal.text
                 self._record_exchange(said, answer)
                 return answer
 
@@ -630,14 +674,14 @@ class ConversationGateway:
                 result = self._run_task(
                     task,
                     turn_ref=saved_turn,
-                    self_check=proposal.kind == "self_check",
+                    self_check=False,
                     route_source=RouteSource.MODEL_PROPOSAL,
                 )
                 self.last_result = result
                 return result.render()
 
             saved_turn = self._record_user(said)
-            skill = "self-check" if proposal.kind == "self_check" else None
+            skill = "repo-navigation" if proposal.kind == "self_check" else None
             route = self.route_events.propose(
                 TaskIntent(
                     turn_ref=saved_turn,

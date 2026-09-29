@@ -22,7 +22,7 @@ _EXPLICIT_CHANGE: Final = re.compile(r"^(?:/change|change:)\s+", re.IGNORECASE)
 _FILE_PREFIX: Final = re.compile(
     r"^(?:(?:a|an|the)\s+)?(?:new\s+)?"
     r"(?:(?:C\+\+|C|Python|header|source|text)\s+)?file\s+"
-    r"(?:(?:called|named)\s+)?",
+    r"(?:(?:for\s+me|please|new)\s+)*(?:(?:called|named)\s+)?",
     re.IGNORECASE,
 )
 _TOKEN: Final = re.compile(r'''`([^`\n]+)`|"([^"\n]+)"|'([^'\n]+)'|([^\s`"']+)''')

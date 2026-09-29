@@ -101,6 +101,14 @@ def test_followup_preserves_controller_result_without_model_recertification():
     assert any("Compiler rejected" in m["content"] for m in model.calls[1][0])
 
 
+def test_chat_reply_false_effect_claim_is_preceded_by_controller_marker():
+    model = Chat(reply("reply", "I've created Aiden.cpp in the current directory."))
+    gateway = ConversationGateway(model, SimpleNamespace(run=lambda *a, **k: None), EventBuffer("s"))
+    answer = gateway.turn("Tell me about C++ files")
+    assert answer.startswith("[Conversation only; no repository action]\n\n")
+    assert "I've created Aiden.cpp" in answer
+
+
 def test_gateway_records_model_fallback_and_deterministic_rule_route_sources():
     calls = []
     def run(task, **kwargs):

@@ -95,6 +95,45 @@ def test_model_repository_proposal_waits_for_explicit_work_acceptance(tmp_path):
         service.close()
 
 
+def test_model_self_check_proposal_for_path_question_cannot_run_self_check(tmp_path):
+    service = _service(tmp_path)
+    runner = Runner()
+    chat = Chat(_reply("self_check", "I'll check the file path."))
+    gateway = _gateway(service, chat, runner)
+    try:
+        answer = gateway.turn("Show me the filepath for that file")
+        assert "reply `work` to accept" in answer
+        assert service.replay()[0]["payload"]["skill"] == "repo-navigation"
+        gateway.turn("work")
+        assert chat.calls == 1
+        assert len(runner.calls) == 1
+        assert runner.calls[0][1]["self_check"] is False
+        assert runner.calls[0][1]["skill"] == "repo-navigation"
+    finally:
+        service.close()
+
+
+def test_old_pending_self_check_proposal_is_downgraded_at_acceptance(tmp_path):
+    service = _service(tmp_path)
+    runner = Runner()
+    gateway = _gateway(service, Chat(), runner)
+    try:
+        saved = gateway._record_user("Show me the filepath for that file")
+        gateway.route_events.propose(TaskIntent(
+            turn_ref=saved,
+            objective="Show me the filepath for that file",
+            proposed_reference_ids=(),
+            origin=RouteSource.MODEL_PROPOSAL,
+        ), skill="self-check")
+        gateway.turn("work")
+        assert len(runner.calls) == 1
+        assert runner.calls[0][1]["self_check"] is False
+        assert runner.calls[0][1]["skill"] == "repo-navigation"
+        assert service.replay()[-1]["payload"]["skill"] == "repo-navigation"
+    finally:
+        service.close()
+
+
 def test_chat_correction_resolves_proposal_without_running_task(tmp_path):
     service = _service(tmp_path)
     runner = Runner()

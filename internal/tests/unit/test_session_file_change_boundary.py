@@ -8,6 +8,12 @@ from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.intents import RouteAction, decide_route
 
 
+PHOTO_REQUEST = (
+    'can you create a c++ file for me called Aiden.cpp and add a print inside '
+    'that says "Well hello there". Show me where it is located.'
+)
+
+
 class NoModel:
     def chat(self, *args, **kwargs):
         raise AssertionError("This request must not reach the conversation model")
@@ -30,6 +36,15 @@ def gateway(root):
     "create a file", "update the documentation", "create an example about src/foo.cpp",
 ])
 def test_prose_is_not_a_deterministic_file_change(text):
+    assert decide_route(text, active_repo_count=1).action == RouteAction.MODEL_FALLBACK
+
+
+@pytest.mark.parametrize("text", [
+    'I said "create a file for me called Aiden.cpp", but do not do it',
+    'Do not create a file for me called Aiden.cpp',
+    'Can you explain how to create a file for me called Aiden.cpp?',
+])
+def test_named_file_in_non_request_has_no_mutation_route(text):
     assert decide_route(text, active_repo_count=1).action == RouteAction.MODEL_FALLBACK
 
 
@@ -80,6 +95,34 @@ def test_contained_targets_keep_the_original_request(text, tmp_path):
     assert "candidate attempted" in app.turn(text)
     assert len(calls) == 1
     assert text in calls[0][0]
+
+
+def test_live_named_file_request_routes_to_candidate_without_chat(tmp_path):
+    app, calls = gateway(tmp_path)
+    assert "candidate attempted" in app.turn(PHOTO_REQUEST)
+    assert len(calls) == 1
+    assert "skill=implement-change" in calls[0][0]
+    assert PHOTO_REQUEST in calls[0][0]
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("followup", ["Create it", "do it", "go ahead", "yes"])
+def test_followup_uses_only_recent_unexecuted_file_request(tmp_path, followup):
+    app, calls = gateway(tmp_path)
+    app._record_exchange(PHOTO_REQUEST, 'I have created Aiden.cpp.\n\n'
+                         '[Conversation only; no repository action]')
+    assert "candidate attempted" in app.turn(followup)
+    assert len(calls) == 1
+    assert PHOTO_REQUEST in calls[0][0]
+    assert "skill=implement-change" in calls[0][0]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_followup_without_recent_unexecuted_file_request_never_calls_model(tmp_path):
+    app, calls = gateway(tmp_path)
+    app._record_exchange(PHOTO_REQUEST, "A durable task was attempted.")
+    assert "Name the file and change again" in app.turn("Create it")
+    assert calls == []
 
 
 def test_absolute_contained_path_and_sibling_prefix(tmp_path):

@@ -33,6 +33,14 @@ _EFFECT_LOCATION_INPUTS = frozenset({
     "where did you save it?",
     "where did you put it",
     "where did you put it?",
+    "show me the filepath for that file",
+    "show me the filepath for that file?",
+    "where is that file",
+    "where is that file?",
+    "where is it",
+    "where is it?",
+    "what's the path",
+    "what's the path?",
 })
 
 

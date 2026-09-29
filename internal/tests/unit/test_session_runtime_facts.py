@@ -195,6 +195,10 @@ class _LatestResultHistory:
         assert conversation_id
         return self.result
 
+    def latest(self, conversation_id):
+        assert conversation_id
+        return None
+
 
 def _candidate_result(role, *, verified=True):
     return RetainedTaskResult(
@@ -269,6 +273,35 @@ def test_effect_location_fails_closed_without_durable_candidate():
         "The latest terminal task has no retained candidate facts proving where "
         "a change was saved. Earlier changes may exist."
     )
+
+
+@pytest.mark.parametrize("question", [
+    "Show me the filepath for that file", "where is that file", "where is it",
+    "what's the path?",
+])
+def test_pronoun_file_path_question_uses_durable_facts(question):
+    client = _NoModelClient()
+    gateway = RuntimeFactsGateway(
+        client, _Controller(), EventBuffer("pronoun-location"), runtime_facts=_facts(),
+    )
+    gateway.task_history = _LatestResultHistory(None)
+    answer = gateway.turn(question)
+    assert client.calls == 0
+    assert "no retained candidate facts" in answer
+
+
+@pytest.mark.parametrize("question", [
+    "where is README.md", "show me the filepath for config.toml",
+    "where is that other file", "what's the path to src/main.cpp",
+])
+def test_specific_other_file_is_not_claimed_from_latest_candidate(question):
+    gateway = RuntimeFactsGateway(
+        _FailingClient(), _Controller(), EventBuffer("specific-location"),
+        runtime_facts=_facts(),
+    )
+    gateway.task_history = _LatestResultHistory(_candidate_result("prepared"))
+    answer = gateway.turn(question)
+    assert "src/example.cpp" not in answer
 
 
 def test_effect_location_after_unrelated_task_does_not_deny_earlier_change():
