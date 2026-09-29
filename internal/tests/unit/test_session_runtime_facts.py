@@ -15,7 +15,9 @@ from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRole
 from local_agent.session.endpoint_runtime import EndpointRuntime
 from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.runtime_facts import RuntimeFacts
+from local_agent.session.candidate_facts import CandidateFacts
 from local_agent.session.runtime_facts_gateway import RepositoryFacts, RuntimeFactsGateway
+from local_agent.session.task_history import RetainedTaskResult
 
 
 class _NoModelClient:
@@ -183,3 +185,110 @@ def test_repository_question_fails_closed_when_authority_facts_are_missing():
     assert answer == (
         "I cannot establish the active repository authority for this session. No task was run."
     )
+
+
+class _LatestResultHistory:
+    def __init__(self, result):
+        self.result = result
+
+    def latest_result(self, conversation_id):
+        assert conversation_id
+        return self.result
+
+
+def _candidate_result(role, *, verified=True):
+    return RetainedTaskResult(
+        task_id="result-task",
+        status="SUCCEEDED",
+        verdict="PASSED",
+        answer="worker prose must not decide the location",
+        evidence_ids=(),
+        verification_ran=verified,
+        verified_at_completion=verified,
+        candidate=CandidateFacts(
+            role=role,
+            candidate_task_id="11111111-1111-1111-1111-111111111111",
+            retained=role == "prepared",
+            paths=("src/example.cpp",),
+            patch_sha256="a" * 64 if role == "prepared" else None,
+            base_commit="b" * 40,
+            commit="c" * 40 if role == "committed" else None,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [
+        ("prepared", "has not been applied"),
+        ("applied", "was applied"),
+        ("committed", "was committed"),
+        ("undone", "was undone"),
+        ("discarded", "was discarded"),
+        ("apply_refused", "apply was refused"),
+    ],
+)
+def test_effect_location_uses_durable_candidate_facts_without_model_calls(
+    tmp_path, role, expected
+):
+    client = _NoModelClient()
+    root = (tmp_path / "repo").resolve()
+    gateway = RuntimeFactsGateway(
+        client,
+        _Controller(),
+        EventBuffer("effect-location"),
+        runtime_facts=_facts(),
+        repository_facts=RepositoryFacts(
+            name="Local-Code-Agent",
+            root=root,
+            branch="feature/trust",
+            execution_enabled=False,
+        ),
+    )
+    gateway.task_history = _LatestResultHistory(_candidate_result(role))
+    answer = gateway.turn("where did you save it?")
+    assert client.calls == 0
+    assert expected in answer
+    assert "src/example.cpp" in answer
+    assert f"Active repository root: {root}" in answer
+    assert "worker prose" not in answer
+
+
+def test_effect_location_fails_closed_without_durable_candidate():
+    client = _NoModelClient()
+    gateway = RuntimeFactsGateway(
+        client,
+        _Controller(),
+        EventBuffer("effect-location-missing"),
+        runtime_facts=_facts(),
+    )
+    gateway.task_history = _LatestResultHistory(None)
+    answer = gateway.turn("where did you put it?")
+    assert client.calls == 0
+    assert answer == (
+        "I have no durable task result proving where a change was saved. No task was run."
+    )
+
+
+def test_unverified_prepared_candidate_is_not_reported_as_saved(tmp_path):
+    client = _NoModelClient()
+    root = (tmp_path / "repo").resolve()
+    gateway = RuntimeFactsGateway(
+        client,
+        _Controller(),
+        EventBuffer("effect-location-unverified"),
+        runtime_facts=_facts(),
+        repository_facts=RepositoryFacts(
+            name="Local-Code-Agent",
+            root=root,
+            branch="feature/trust",
+            execution_enabled=False,
+        ),
+    )
+    gateway.task_history = _LatestResultHistory(
+        _candidate_result("prepared", verified=False)
+    )
+    answer = gateway.turn("where did you save it")
+    assert client.calls == 0
+    assert "not verified at completion" in answer
+    assert "has not been applied" in answer
