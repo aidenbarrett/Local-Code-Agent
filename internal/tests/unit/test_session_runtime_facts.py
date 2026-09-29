@@ -270,8 +270,8 @@ def test_effect_location_fails_closed_without_durable_candidate():
     answer = gateway.turn("where did you put it?")
     assert client.calls == 0
     assert answer == (
-        "The latest terminal task has no retained candidate facts proving where "
-        "a change was saved. Earlier changes may exist."
+        "No durable task result in this conversation shows a change was saved. "
+        "I cannot establish a file location."
     )
 
 
@@ -287,7 +287,7 @@ def test_pronoun_file_path_question_uses_durable_facts(question):
     gateway.task_history = _LatestResultHistory(None)
     answer = gateway.turn(question)
     assert client.calls == 0
-    assert "no retained candidate facts" in answer
+    assert "No durable task result" in answer
 
 
 @pytest.mark.parametrize("question", [

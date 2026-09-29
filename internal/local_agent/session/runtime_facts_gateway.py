@@ -155,7 +155,12 @@ class RuntimeFactsGateway(ConversationGateway):
                 "I cannot trust the retained task result that would establish where the "
                 "change was saved."
             )
-        if result is None or result.candidate is None:
+        if result is None:
+            return (
+                "No durable task result in this conversation shows a change was saved. "
+                "I cannot establish a file location."
+            )
+        if result.candidate is None:
             return (
                 "The latest terminal task has no retained candidate facts proving where "
                 "a change was saved. Earlier changes may exist."
