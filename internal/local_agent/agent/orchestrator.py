@@ -96,6 +96,33 @@ def _unapplied_proposal_message(patch_id: str) -> str:
     )
 
 
+_NO_EDIT_CLAIMS = frozenset({"failure", "diagnosis", "needs_action"})
+_UNCHANGED_MESSAGE = (
+    "No file has been changed yet, so there is nothing to verify. Propose the edit "
+    "with propose_patch (or propose_file), apply it with apply_patch and verify it; "
+    "or call submit_answer with claim 'failure' and say what blocks you."
+)
+
+
+def _edit_reminder(state: Any, claim: str | None) -> tuple[str, str] | None:
+    """One reminder for a worker finishing an editing task without an applied edit.
+
+    Decided only from recorded tool state and the claim's typed value, never from
+    prose: a proposal left unapplied (PTL J11 on 604c0e3), or an editing skill that
+    changed nothing and did not report a failure, diagnosis or needed action (PTL
+    J08, J10 and J11 on 09d4d71, where J10 even said its fix "was applied").
+    """
+    toolset = state.toolset
+    if toolset and "apply_patch" not in toolset:
+        return None
+    pending = _unapplied_proposal(state.history)
+    if pending is not None:
+        return f"patch {pending} unapplied", _unapplied_proposal_message(pending)
+    if (toolset and state.mutation_epoch == 0 and claim not in _NO_EDIT_CLAIMS):
+        return "no file changed", _UNCHANGED_MESSAGE
+    return None
+
+
 def _search_streak(history: list[Any]) -> int:
     streak = 0
     for record in reversed(history):
@@ -599,7 +626,7 @@ class Orchestrator:
 
         answer = ""
         nudged = False
-        proposal_nudged = False
+        edit_reminded = False
         search_nudges = 0
         task_lower = task.lower()
         build_summary_mode = (
@@ -690,18 +717,16 @@ class Orchestrator:
             self.observer("llm", response.stats.as_dict())
             ctx.append(response.as_assistant_message())
 
-            can_apply = not state.toolset or "apply_patch" in state.toolset
             if not response.wants_tools:
                 answer = response.content or ""
-                pending_patch = _unapplied_proposal(state.history)
-                if pending_patch is not None and can_apply and not proposal_nudged:
-                    # One reminder, from recorded tool state: finishing with an
-                    # unapplied proposal leaves the tree exactly as it was.
-                    proposal_nudged = True
-                    state.warnings.append(f"finished with patch {pending_patch} unapplied")
-                    self.observer("unapplied_proposal", {"patch_id": pending_patch})
-                    ctx.append({"role": "user",
-                                "content": _unapplied_proposal_message(pending_patch)})
+                reminder = None if edit_reminded else _edit_reminder(state, state.claim)
+                if reminder is not None:
+                    # One reminder, from recorded tool state: finishing an editing
+                    # task with nothing applied leaves the tree exactly as it was.
+                    edit_reminded = True
+                    state.warnings.append(f"finished with {reminder[0]}")
+                    self.observer("edit_reminder", {"state": reminder[0]})
+                    ctx.append({"role": "user", "content": reminder[1]})
                     state.phase = Phase.VERIFY
                     continue
                 # A model that answers in prose instead of calling submit_answer
@@ -731,20 +756,24 @@ class Orchestrator:
             submitted = False
             for position, call in enumerate(response.tool_calls):
                 if call.name == "submit_answer":
-                    pending_patch = _unapplied_proposal(state.history)
-                    if (pending_patch is not None and can_apply and not proposal_nudged
-                            and position == len(response.tool_calls) - 1):
+                    claimed = call.arguments.get("claim")
+                    reminder = (
+                        None if edit_reminded or position != len(response.tool_calls) - 1
+                        else _edit_reminder(state, claimed if isinstance(claimed, str) else None)
+                    )
+                    if reminder is not None:
                         # Not accepted yet: the answer would describe an edit that
                         # was never made. Answered as the call's own tool result so
-                        # the conversation stays well formed; asked once only.
-                        proposal_nudged = True
-                        state.warnings.append(
-                            f"submitted with patch {pending_patch} unapplied")
-                        self.observer("unapplied_proposal", {"patch_id": pending_patch})
+                        # the conversation stays well formed; asked once only. The
+                        # claim and its citations are still recorded, so a model that
+                        # then stops in prose is judged on the claim it did make.
+                        self._accept_answer(call, state)
+                        edit_reminded = True
+                        state.warnings.append(f"submitted with {reminder[0]}")
+                        self.observer("edit_reminder", {"state": reminder[0]})
                         ctx.append(ctxmod.tool_result_message(
                             call.id, call.name, json.dumps({
-                                "ok": False, "accepted": False,
-                                "summary": _unapplied_proposal_message(pending_patch),
+                                "ok": False, "accepted": False, "summary": reminder[1],
                             })))
                         break
                     answer, submitted = self._accept_answer(call, state)
