@@ -13,6 +13,7 @@ from .contracts import MAX_MESSAGE_CHARS, Proposal
 from .conversation_gateway import ConversationGateway, quarantined_endpoint_answer
 from .endpoint_client import ModelEndpointQuarantinedError
 from .runtime_facts import RuntimeFacts
+from .session_store import ArtifactIntegrityError
 
 
 _HELP_INPUTS = frozenset({"help", "/help", "what can you do", "what can you do?"})
@@ -26,6 +27,7 @@ _REPOSITORY_INPUTS = frozenset({
     "what can you access",
     "what can you access?",
 })
+_EFFECT_LOCATION_INPUTS = frozenset({"where did you save it", "where did you save it?", "where did you put it", "where did you put it?"})
 
 
 @dataclass(frozen=True)
@@ -76,6 +78,34 @@ class RuntimeFactsGateway(ConversationGateway):
         self.repository_facts = repository_facts
         super().__init__(*args, **kwargs)
 
+    def _effect_location_answer(self) -> str:
+        if self.task_history is None:
+            return "I have no durable task result proving where a change was saved. No task was run."
+        try:
+            result = self.task_history.latest_result(self.session.conversation_id)
+        except ArtifactIntegrityError:
+            return "I cannot trust the retained task result that would establish where the change was saved. No task was run."
+        if result is None or result.candidate is None:
+            return "I have no durable task result proving where a change was saved. No task was run."
+        candidate = result.candidate
+        paths = ", ".join(candidate.paths) if candidate.paths else "no retained paths"
+        root = self.repository_facts.root if self.repository_facts is not None else None
+        location = f"Active repository root: {root}. " if root is not None else ""
+        if candidate.role == "prepared":
+            proof = "verified" if result.verified_at_completion else "not verified at completion"
+            return f"{location}The latest change is a {proof} prepared candidate for: {paths}. It is retained by Local Code Agent and has not been applied to the active repository. Candidate task: {candidate.candidate_task_id}."
+        if candidate.role == "applied":
+            return f"{location}The latest candidate was applied to these repository paths: {paths}."
+        if candidate.role == "committed":
+            return f"{location}The latest candidate was committed at {candidate.commit}; its repository paths are: {paths}."
+        if candidate.role == "undone":
+            return f"{location}The latest candidate was undone; its changes are no longer applied. The restored repository paths are: {paths}."
+        if candidate.role == "discarded":
+            return f"{location}The latest prepared candidate was discarded and is no longer retained or applied. Its recorded paths were: {paths}."
+        if candidate.role == "apply_refused":
+            return f"{location}The latest apply was refused, so I have no evidence that the candidate was saved into the active repository. Its intended paths were: {paths}."
+        return "I cannot establish where the latest change was saved. No task was run."
+
     def _deterministic_answer(self, said: str) -> str | None:
         normalized = " ".join(said.strip().lower().split())
         if normalized in _HELP_INPUTS:
@@ -87,6 +117,8 @@ class RuntimeFactsGateway(ConversationGateway):
             )
         if normalized in _RUNTIME_INPUTS:
             return self.runtime_facts.answer()
+        if normalized in _EFFECT_LOCATION_INPUTS:
+            return self._effect_location_answer()
         if normalized in _REPOSITORY_INPUTS:
             if self.repository_facts is None:
                 return (
