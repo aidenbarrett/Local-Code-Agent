@@ -14,6 +14,7 @@ from .conversation_gateway import ConversationGateway, quarantined_endpoint_answ
 from .endpoint_client import ModelEndpointQuarantinedError
 from .runtime_facts import RuntimeFacts
 from .session_store import ArtifactIntegrityError
+from .task_history import RetainedTaskResult
 
 
 _HELP_INPUTS = frozenset({"help", "/help", "what can you do", "what can you do?"})
@@ -57,7 +58,7 @@ _RUNTIME_INPUTS = frozenset({
     "what are you running on",
     "what are you running on?",
     "what model are you running",
-    "what model are you running?",
+    "what model are you running on?",
     "what model are you using",
     "what model are you using?",
 })
@@ -83,8 +84,10 @@ class RuntimeFactsGateway(ConversationGateway):
         self.repository_facts = repository_facts
         super().__init__(*args, **kwargs)
 
-    def _candidate_location_answer(self, result) -> str:
+    def _candidate_location_answer(self, result: RetainedTaskResult) -> str:
         candidate = result.candidate
+        if candidate is None:
+            return "I cannot establish where the latest change was saved. No task was run."
         paths = ", ".join(candidate.paths) if candidate.paths else "no retained paths"
         root = self.repository_facts.root if self.repository_facts is not None else None
         location = f"Active repository root: {root}. " if root is not None else ""
