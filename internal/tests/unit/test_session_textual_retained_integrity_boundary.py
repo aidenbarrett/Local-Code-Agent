@@ -60,7 +60,7 @@ def test_retained_result_integrity_failure_preserves_durable_verdict(tmp_path, m
 
         rendered = render_activity(projected)
         assert "Verdict: FAILED" in rendered
-        assert "Retained result:" in rendered
+        assert "Retained result (unverified as completion):" in rendered
         assert "durable controller verdict above remains authoritative" in rendered
     finally:
         service.close()
