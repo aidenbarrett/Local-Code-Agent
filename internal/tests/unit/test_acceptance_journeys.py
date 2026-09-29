@@ -12,6 +12,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "acceptance-journeys.py"
 SPEC = importlib.util.spec_from_file_location("lca_acceptance_journeys", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
@@ -27,6 +29,66 @@ def _report(output: Path) -> dict[str, dict[str, object]]:
     report = json.loads((output / "journeys.json").read_text(encoding="utf-8"))
     assert report["schema"] == "lca.acceptance-journeys/1"
     return {j["id"]: j for j in report["journeys"]}
+
+
+def test_reusing_output_refuses_before_deleting_previous_evidence(tmp_path, capsys):
+    out = tmp_path / "acc"
+    locked_object = out / "probe" / ".git" / "objects" / "08" / "previous"
+    locked_object.parent.mkdir(parents=True)
+    locked_object.write_bytes(b"previous run evidence")
+    old_report = out / "journeys.json"
+    old_report.write_text('{"previous": true}', encoding="utf-8")
+
+    with pytest.raises(SystemExit) as refusal:
+        journeys.main(["--output", str(out)])
+
+    assert refusal.value.code == 2
+    assert "choose a new directory" in capsys.readouterr().err
+    assert locked_object.read_bytes() == b"previous run evidence"
+    assert old_report.read_text(encoding="utf-8") == '{"previous": true}'
+
+
+def test_candidate_journey_is_incomplete_when_commit_cannot_be_exercised(tmp_path, monkeypatch):
+    repo = journeys.make_repo(tmp_path / "repo", "compile_error", allow_commit=True)
+    original = (repo / journeys.RING).read_bytes()
+    monkeypatch.setattr(journeys, "independent_build", lambda _repo: (True, ""))
+    build = journeys.TaskResult("build-task", journeys.TaskOutcome.FAIL, "compile error", False, ())
+    fixed = journeys.TaskResult("fixed-task", journeys.TaskOutcome.PASS, "candidate", True, ())
+    refused = journeys.TaskResult("refused-task", journeys.TaskOutcome.FAIL, "stale", False, ())
+    applied = journeys.TaskResult("applied-task", journeys.TaskOutcome.PASS, "applied", True, ())
+    undone = journeys.TaskResult("undone-task", journeys.TaskOutcome.PASS, "undone", True, ())
+    calls = iter((
+        ("build it", build),
+        ("fix it", fixed),
+        (f"/diff {fixed.task_id}", None),
+        (f"/apply {fixed.task_id}", refused),
+        (f"/apply {fixed.task_id}", applied),
+        (f"/undo {fixed.task_id}", undone),
+        (f"/apply {fixed.task_id}", refused),
+        (f"fix task {build.task_id}", refused),
+    ))
+
+    class SessionStub:
+        def __init__(self):
+            self.repo = repo
+            self.journey = journeys.Journey("J09-candidate", "candidate controls", "product")
+
+        def turn(self, request):
+            expected, result = next(calls)
+            assert request == expected
+            if request == f"/apply {fixed.task_id}" and result is applied:
+                (repo / journeys.RING).write_bytes(original + b"\n// applied\n")
+            if request == f"/undo {fixed.task_id}":
+                (repo / journeys.RING).write_bytes(original)
+            return (journeys.RING if request.startswith("/diff ") else "", result)
+
+    session = SessionStub()
+    journeys.j_candidate_lifecycle(session)
+
+    assert session.journey.status == "UNKNOWN"
+    assert "/commit was not exercised" in session.journey.reason
+    assert any("exact undo passed" in note for note in session.journey.notes)
+    assert next(calls, None) is None
 
 
 def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
