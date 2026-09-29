@@ -1291,3 +1291,130 @@ def test_an_empty_find_says_how_to_insert_at_the_start(sandbox, tmp_path):
     controller.run("change: add a comment at the top of src/text_util.cpp",
                    task_id=str(uuid4()), skill_name="implement-change")
     assert "`find` is empty" in seen["result"] and "appears" not in seen["result"]
+
+
+# ------------------------------- an editing task that changed nothing (PTL 09d4d71)
+
+
+def _submit(claim, call_id):
+    return ChatResponse(tool_calls=[tool_call("submit_answer", {
+        "claim": claim, "summary": "done", "evidence_ids": []}, call_id)])
+
+
+def _last_tool_content(m):
+    return next((x.get("content") or "" for x in reversed(m) if x.get("role") == "tool"), "")
+
+
+def test_a_success_claim_with_nothing_changed_is_sent_back_once_then_the_fix_lands(sandbox, tmp_path):
+    """PTL J10: reads and searches, no patch, then "the fix was applied". The claim is
+    held back once from recorded state; the model then edits and the controller proves it."""
+    sandbox.scenario("test_failure")
+    seen = {}
+
+    def record_then_propose(m):
+        seen["reminder"] = _last_tool_content(m)
+        return ChatResponse(tool_calls=[tool_call("propose_patch", {
+            "path": RING, "find": "count_ + 1 == slots_.size()",
+            "replace": "count_ == slots_.size()"}, "n2")])
+
+    turns = [
+        ChatResponse(tool_calls=[tool_call("read_file", {"path": RING}, "n0")]),
+        _submit("success", "n1"),
+        record_then_propose,
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "n3")]),
+        _submit("success", "n4"),
+        ChatResponse(content="Fixed RingBuffer::full()."),
+    ]
+    task_id = str(uuid4())
+    controller, manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the failing tests", task_id=task_id, skill_name="fix-test-failure")
+
+    assert "No file has been changed yet" in seen["reminder"] and '"accepted": false' in seen["reminder"]
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert result.metrics["controller_check"] == {"check": "run-tests", "decided": True}
+    verdict_block_from_task_result(result)
+    manager.discard(manager.load(task_id)[0])
+
+
+def test_a_prose_finish_with_nothing_changed_gets_the_reminder(sandbox, tmp_path):
+    """PTL J11: search, read, stop."""
+    sandbox.scenario("compile_error")
+    seen = {}
+
+    def record(m):
+        seen["reminder"] = m[-1].get("content") or ""
+        return ChatResponse(content="I looked at it.")
+
+    turns = [
+        ChatResponse(tool_calls=[tool_call("read_file", {"path": RING}, "p0")]),
+        ChatResponse(content="The build is fixed."),
+        record,
+        _submit("failure", "p1"),
+        ChatResponse(content="Not fixed."),
+    ]
+    controller, _ = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the build", task_id=str(uuid4()), skill_name="fix-build-failure")
+
+    assert "No file has been changed yet" in seen["reminder"]
+    assert result.outcome is not TaskOutcome.PASS
+    assert result.metrics["candidate"]["retained"] is False
+
+
+@pytest.mark.parametrize("claim", ["failure", "diagnosis", "needs_action"])
+def test_a_worker_reporting_no_success_without_edits_is_not_reminded(sandbox, tmp_path, claim):
+    sandbox.scenario("compile_error")
+    seen = []
+
+    def spy(m):
+        seen.extend(x.get("content") or "" for x in m)
+        return ChatResponse(content="Stopping.")
+
+    turns = [
+        ChatResponse(tool_calls=[tool_call("read_file", {"path": RING}, "f0")]),
+        _submit(claim, "f1"),
+        spy,
+    ]
+    controller, _ = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the build", task_id=str(uuid4()), skill_name="fix-build-failure")
+
+    assert not any("No file has been changed yet" in text for text in seen)
+    assert result.outcome is not TaskOutcome.PASS
+
+
+def test_the_nothing_changed_reminder_is_given_once_and_changes_nothing(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    turns = [
+        ChatResponse(tool_calls=[tool_call("read_file", {"path": RING}, "o0")]),
+        _submit("success", "o1"),
+        _submit("success", "o2"),
+        ChatResponse(content="Done."),
+    ]
+    controller, _ = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run("fix the build", task_id=str(uuid4()), skill_name="fix-build-failure")
+
+    assert result.outcome is not TaskOutcome.PASS
+    assert result.verified_at_completion is False
+    assert result.metrics["candidate"]["retained"] is False
+    assert "controller_check" not in result.metrics
+
+
+def test_the_edit_reminder_never_applies_to_read_only_or_unnarrowed_runs():
+    from types import SimpleNamespace
+
+    from local_agent.agent.orchestrator import _edit_reminder
+
+    read_only = SimpleNamespace(toolset=["read_file", "search_text", "submit_answer"],
+                                history=[], mutation_epoch=0)
+    unnarrowed = SimpleNamespace(toolset=[], history=[], mutation_epoch=0)
+    editing = SimpleNamespace(toolset=["read_file", "propose_patch", "apply_patch"],
+                              history=[], mutation_epoch=0)
+    assert _edit_reminder(read_only, None) is None
+    assert _edit_reminder(unnarrowed, "success") is None
+    assert _edit_reminder(editing, "success") is not None
+    assert _edit_reminder(editing, "diagnosis") is None
+    editing.mutation_epoch = 1
+    assert _edit_reminder(editing, "success") is None
