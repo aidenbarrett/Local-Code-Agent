@@ -27,7 +27,12 @@ _REPOSITORY_INPUTS = frozenset({
     "what can you access",
     "what can you access?",
 })
-_EFFECT_LOCATION_INPUTS = frozenset({"where did you save it", "where did you save it?", "where did you put it", "where did you put it?"})
+_EFFECT_LOCATION_INPUTS = frozenset({
+    "where did you save it",
+    "where did you save it?",
+    "where did you put it",
+    "where did you put it?",
+})
 
 
 @dataclass(frozen=True)
@@ -80,11 +85,17 @@ class RuntimeFactsGateway(ConversationGateway):
 
     def _effect_location_answer(self) -> str:
         if self.task_history is None:
-            return "I have no durable task result proving where a change was saved. No task was run."
+            return (
+                "I have no durable task result proving where a change was saved. "
+                "No task was run."
+            )
         try:
             result = self.task_history.latest_result(self.session.conversation_id)
         except ArtifactIntegrityError:
-            return "I cannot trust the retained task result that would establish where the change was saved. No task was run."
+            return (
+                "I cannot trust the retained task result that would establish where the "
+                "change was saved. No task was run."
+            )
         if result is None or result.candidate is None:
             return "I have no durable task result proving where a change was saved. No task was run."
         candidate = result.candidate
@@ -92,18 +103,42 @@ class RuntimeFactsGateway(ConversationGateway):
         root = self.repository_facts.root if self.repository_facts is not None else None
         location = f"Active repository root: {root}. " if root is not None else ""
         if candidate.role == "prepared":
-            proof = "verified" if result.verified_at_completion else "not verified at completion"
-            return f"{location}The latest change is a {proof} prepared candidate for: {paths}. It is retained by Local Code Agent and has not been applied to the active repository. Candidate task: {candidate.candidate_task_id}."
+            proof = (
+                "verified" if result.verified_at_completion
+                else "not verified at completion"
+            )
+            return (
+                f"{location}The latest change is a {proof} prepared candidate for: "
+                f"{paths}. It is retained by Local Code Agent and has not been applied "
+                "to the active repository. "
+                f"Candidate task: {candidate.candidate_task_id}."
+            )
         if candidate.role == "applied":
-            return f"{location}The latest candidate was applied to these repository paths: {paths}."
+            return (
+                f"{location}The latest candidate was applied to these repository paths: "
+                f"{paths}."
+            )
         if candidate.role == "committed":
-            return f"{location}The latest candidate was committed at {candidate.commit}; its repository paths are: {paths}."
+            return (
+                f"{location}The latest candidate was committed at {candidate.commit}; "
+                f"its repository paths are: {paths}."
+            )
         if candidate.role == "undone":
-            return f"{location}The latest candidate was undone; its changes are no longer applied. The restored repository paths are: {paths}."
+            return (
+                f"{location}The latest candidate was undone; its changes are no longer "
+                f"applied. The restored repository paths are: {paths}."
+            )
         if candidate.role == "discarded":
-            return f"{location}The latest prepared candidate was discarded and is no longer retained or applied. Its recorded paths were: {paths}."
+            return (
+                f"{location}The latest prepared candidate was discarded and is no longer "
+                f"retained or applied. Its recorded paths were: {paths}."
+            )
         if candidate.role == "apply_refused":
-            return f"{location}The latest apply was refused, so I have no evidence that the candidate was saved into the active repository. Its intended paths were: {paths}."
+            return (
+                f"{location}The latest apply was refused, so I have no evidence that the "
+                f"candidate was saved into the active repository. Its intended paths "
+                f"were: {paths}."
+            )
         return "I cannot establish where the latest change was saved. No task was run."
 
     def _deterministic_answer(self, said: str) -> str | None:
