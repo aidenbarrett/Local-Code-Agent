@@ -87,20 +87,23 @@ class RuntimeFactsGateway(ConversationGateway):
     def _candidate_location_answer(self, result: RetainedTaskResult) -> str:
         candidate = result.candidate
         if candidate is None:
-            return "I cannot establish where the latest change was saved. No task was run."
+            return "I cannot establish where the latest change was saved from durable facts."
         paths = ", ".join(candidate.paths) if candidate.paths else "no retained paths"
         root = self.repository_facts.root if self.repository_facts is not None else None
         location = f"Active repository root: {root}. " if root is not None else ""
-        answer = "I cannot establish where the latest change was saved. No task was run."
+        answer = "I cannot establish where the latest change was saved from durable facts."
         if candidate.role == "prepared":
             proof = (
                 "verified" if result.verified_at_completion
                 else "not verified at completion"
             )
+            retention = (
+                "It is retained by Local Code Agent"
+                if candidate.retained else "It is not retained by Local Code Agent"
+            )
             answer = (
                 f"{location}The latest change is a {proof} prepared candidate for: "
-                f"{paths}. It is retained by Local Code Agent and has not been applied "
-                "to the active repository. "
+                f"{paths}. {retention} and has not been applied to the active repository. "
                 f"Candidate task: {candidate.candidate_task_id}."
             )
         elif candidate.role == "applied":
@@ -134,20 +137,20 @@ class RuntimeFactsGateway(ConversationGateway):
     def _effect_location_answer(self) -> str:
         if self.task_history is None:
             return (
-                "I have no durable task result proving where a change was saved. "
-                "No task was run."
+                "I cannot access durable task history to establish where a change "
+                "was saved."
             )
         try:
             result = self.task_history.latest_result(self.session.conversation_id)
         except ArtifactIntegrityError:
             return (
                 "I cannot trust the retained task result that would establish where the "
-                "change was saved. No task was run."
+                "change was saved."
             )
         if result is None or result.candidate is None:
             return (
-                "I have no durable task result proving where a change was saved. "
-                "No task was run."
+                "The latest terminal task has no retained candidate facts proving where "
+                "a change was saved. Earlier changes may exist."
             )
         return self._candidate_location_answer(result)
 

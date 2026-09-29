@@ -266,8 +266,48 @@ def test_effect_location_fails_closed_without_durable_candidate():
     answer = gateway.turn("where did you put it?")
     assert client.calls == 0
     assert answer == (
-        "I have no durable task result proving where a change was saved. No task was run."
+        "The latest terminal task has no retained candidate facts proving where "
+        "a change was saved. Earlier changes may exist."
     )
+
+
+def test_effect_location_after_unrelated_task_does_not_deny_earlier_change():
+    client = _NoModelClient()
+    gateway = RuntimeFactsGateway(
+        client,
+        _Controller(),
+        EventBuffer("effect-location-after-repo-task"),
+        runtime_facts=_facts(),
+    )
+    latest = replace(_candidate_result("prepared"), candidate=None)
+    gateway.task_history = _LatestResultHistory(latest)
+
+    answer = gateway.turn("where did you save it?")
+
+    assert client.calls == 0
+    assert "latest terminal task" in answer
+    assert "Earlier changes may exist" in answer
+    assert "No task was run" not in answer
+
+
+def test_nonretained_prepared_candidate_is_not_claimed_to_be_retained():
+    client = _NoModelClient()
+    gateway = RuntimeFactsGateway(
+        client,
+        _Controller(),
+        EventBuffer("effect-location-not-retained"),
+        runtime_facts=_facts(),
+    )
+    candidate = replace(_candidate_result("prepared").candidate, retained=False)
+    gateway.task_history = _LatestResultHistory(
+        replace(_candidate_result("prepared"), candidate=candidate)
+    )
+
+    answer = gateway.turn("where did you put it?")
+
+    assert client.calls == 0
+    assert "not retained by Local Code Agent" in answer
+    assert "has not been applied" in answer
 
 
 def test_unverified_prepared_candidate_is_not_reported_as_saved(tmp_path):
