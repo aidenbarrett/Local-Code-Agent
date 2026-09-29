@@ -153,3 +153,51 @@ def test_a_model_the_product_cannot_call_is_one_precondition_not_every_journey(t
     fix = _report(out)["J08-fix-build"]
     assert fix["status"] == "UNKNOWN"
     assert "No module named 'jiter'" in fix["reason"]
+
+
+def test_repeat_runs_each_model_journey_n_times_and_reports_its_rate(tmp_path, monkeypatch):
+    """A single model attempt is noise (J09 passed on 09d4d71 and not on e2b04cc)."""
+    outcomes = iter(["changed", "fail", "changed"])
+    ran: list[str] = []
+
+    def model_journey(session):
+        ran.append(session.journey.id)
+        session.journey.measured_as(next(outcomes), "scripted")
+
+    def product_journey(session):
+        ran.append(session.journey.id)
+        session.journey.passed("scripted")
+
+    class _Session:
+        def __init__(self, runner, journey, repo):
+            self.journey = journey
+
+        def open(self):
+            from contextlib import nullcontext
+            return nullcontext(self)
+
+    monkeypatch.setattr(journeys, "JOURNEYS", [
+        ("P1", "a product journey", "product", "clean", False, {}, product_journey),
+        ("M1", "a model journey", "model", "clean", True, {}, model_journey),
+    ])
+    monkeypatch.setattr(journeys, "Session", _Session)
+    monkeypatch.setattr(journeys, "make_repo", lambda dest, scenario, **options: dest)
+    runner = journeys.Runner(journeys.argparse.Namespace(
+        output=tmp_path / "acc", profile="ptl-npu-8b", base_url=None, model=None,
+        allow_model=True, journey_timeout=10.0, stop_budget=10.0, repeat=3))
+    runner.preconditions = {"fixture_builds": True, "model_endpoint": {"ok": True}}
+
+    results = runner.run(None)
+
+    assert ran == ["P1", "M1.r1", "M1.r2", "M1.r3"]
+    assert [j.id for j in results] == ["P1", "M1.r1", "M1.r2", "M1.r3"]
+    assert journeys.model_rates(results) == [f"{'M1':<22} changed 2/3, fail 1/3"]
+    assert "Model rates (repeated model journeys)" in journeys.summary_text(runner, results, "0" * 64)
+
+
+def test_repeat_must_be_positive(tmp_path, capsys):
+    with pytest.raises(SystemExit) as refusal:
+        journeys.main(["--output", str(tmp_path / "acc"), "--repeat", "0"])
+    assert refusal.value.code == 2
+    assert "--repeat must be at least 1" in capsys.readouterr().err
+    assert not (tmp_path / "acc").exists()
