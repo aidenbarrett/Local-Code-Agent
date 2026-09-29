@@ -21,6 +21,7 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import Input, Static
 
+from .attention import render_attention
 from .task_read_model import TaskSnapshot, project_tasks
 from .watch_read_model import WatchSnapshot, project_watches
 
@@ -363,6 +364,13 @@ def _css(palette: Mapping[str, str]) -> str:
         background: {palette['surface']};
         color: {palette['foreground']};
     }}
+    #attention {{
+        height: auto;
+        max-height: 10;
+        padding: 0 2;
+        border: round {palette['warn']};
+        overflow-y: auto;
+    }}
     #activity {{
         height: 1fr;
         min-height: 8;
@@ -412,6 +420,7 @@ class SessionHubApp(App):
                 yield Static(render_conversation(self.view_state.conversation), id="conversation", markup=False)
                 yield Input(placeholder="Message Local Code Agent…", id="composer")
             with Vertical(id="side-column"):
+                yield Static(render_attention(self.view_state.tasks), id="attention", markup=False)
                 yield Static(render_activity(self.view_state), id="activity", markup=False)
                 yield Static(render_watches(self.view_state.watches), id="watch", markup=False)
         yield Static(self.view_state.status, id="status", markup=False)
@@ -419,6 +428,7 @@ class SessionHubApp(App):
     def on_mount(self) -> None:
         self._apply_layout(self.size.width)
         self._apply_watch_visibility()
+        self._apply_attention_visibility()
 
     def on_resize(self, event: events.Resize) -> None:
         self._apply_layout(event.size.width)
@@ -434,12 +444,18 @@ class SessionHubApp(App):
         watch = self.query_one("#watch", Static)
         watch.display = bool(self.view_state.watches)
 
+    def _apply_attention_visibility(self) -> None:
+        attention = self.query_one("#attention", Static)
+        attention.display = bool(render_attention(self.view_state.tasks))
+
     def replace_state(self, state: HubViewState) -> None:
         """Replace already-derived presentation state on the Textual thread."""
         if not isinstance(state, HubViewState):
             raise TypeError("Session Hub state must be HubViewState")
         self.view_state = state
         self.query_one("#conversation", Static).update(render_conversation(state.conversation))
+        self.query_one("#attention", Static).update(render_attention(state.tasks))
+        self._apply_attention_visibility()
         self.query_one("#activity", Static).update(render_activity(state))
         self.query_one("#watch", Static).update(render_watches(state.watches))
         self._apply_watch_visibility()
