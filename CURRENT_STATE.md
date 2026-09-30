@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `ff23129b8faefb894457e35b6ac00c2eb203da5f`
-on 2026-09-29 after the isolated candidate-change journeys (#197-#215: build/test fixes,
+Reconciled against GitHub `main` at `8aa64de3df1259feb2ab31f70a2eb6960cf4d1ce`
+on 2026-09-30 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
 #217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
@@ -34,7 +34,13 @@ CI (#276), refusal to reuse acceptance output folders (#280), and a longer retai
 test setup wait on Windows (#281), Hub file-effect requests and path answers tied to
 durable routes (#284), the controller verdict shown ahead of unverified worker accounts
 (#285), a longer handoff fixture wait (#288) and `--repeat N` model-journey rates in the
-acceptance runner (#287). Live
+acceptance runner (#287), a concrete trace-to-first-mismatch procedure in the
+fix-test-failure skill (#290), every independent candidate policy block named with a
+controller-authored refusal line in the Hub conversation (#292) and a candidate model
+fetcher that writes OpenVINO builds into the serving model store, with the runtime root
+and model layout owned by `internal/serving/model_store.py` (#294). The fetcher's
+catalogue is not a list of supported profiles; `MODEL_PRESETS` still decides what is
+served. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
