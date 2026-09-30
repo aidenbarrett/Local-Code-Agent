@@ -70,7 +70,7 @@
    },
    "internal/local_agent/session/durable_tool_registry.py": {
     "misc": 3,
-    "no-untyped-def": 3,
+    "no-untyped-def": 2,
     "union-attr": 1
    },
    "internal/local_agent/session/durable_watch.py": {
@@ -294,7 +294,7 @@
    },
    "internal/local_agent/session/durable_tool_registry.py": {
     "misc": 3,
-    "no-untyped-def": 3,
+    "no-untyped-def": 2,
     "union-attr": 1
    },
    "internal/local_agent/session/durable_watch.py": {
@@ -908,5 +908,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 951
+ "total": 949
 }

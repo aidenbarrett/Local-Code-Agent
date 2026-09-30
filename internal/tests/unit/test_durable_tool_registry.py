@@ -225,3 +225,61 @@ def test_errored_result_keeps_its_summary_as_failure_detail():
     assert activity.finished[0]["failure_detail"] == (
         "end_line must be greater than or equal to start_line"
     )
+
+
+def _execute_registry(handler):
+    registry = ToolRegistry()
+    registry.register(Tool(
+        name="run_test", description="fixture", parameters={
+            "type": "object", "properties": {"value": {"type": "integer"}},
+            "required": ["value"], "additionalProperties": False},
+        handler=handler, risk=Risk.EXECUTE))
+    return registry
+
+
+def test_execute_tool_refused_before_spawning_records_no_process_started():
+    activity = _Activity()
+    spawned = [0]
+
+    def handler(value):
+        raise ToolError("unknown build profile 'debug\\n<parameter=name_filter>'")
+
+    wrapped = wrap_registry_with_durable_activity(
+        _execute_registry(handler), activity, process_starts=lambda: spawned[0])
+    with pytest.raises(ToolError):
+        wrapped.get("run_test").handler(value=1)
+    assert activity.finished[0]["process_started"] is False
+
+
+def test_execute_tool_that_spawned_then_failed_records_process_started():
+    activity = _Activity()
+    spawned = [0]
+
+    def handler(value):
+        spawned[0] += 1
+        raise RuntimeError("runner broke after spawn")
+
+    wrapped = wrap_registry_with_durable_activity(
+        _execute_registry(handler), activity, process_starts=lambda: spawned[0])
+    with pytest.raises(RuntimeError):
+        wrapped.get("run_test").handler(value=1)
+    assert activity.finished[0]["process_started"] is True
+
+
+def test_non_execute_or_uncounted_calls_record_no_process_fact():
+    def handler(value):
+        raise ToolError("nope")
+
+    read_only = ToolRegistry()
+    read_only.register(Tool(
+        name="read_file", description="fixture", parameters={
+            "type": "object", "properties": {"value": {"type": "integer"}},
+            "required": ["value"], "additionalProperties": False},
+        handler=handler, risk=Risk.READ))
+    for registry, counter in ((read_only, lambda: 0), (_execute_registry(handler), None)):
+        activity = _Activity()
+        wrapped = wrap_registry_with_durable_activity(registry, activity, process_starts=counter)
+        name = registry.names()[0]
+        with pytest.raises(ToolError):
+            wrapped.get(name).handler(value=1)
+        assert activity.finished[0]["process_started"] is None

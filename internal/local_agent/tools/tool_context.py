@@ -20,6 +20,10 @@ class ToolContext:
     # The admitted task's cancellation token. None outside a cancellable durable task,
     # in which case configured commands run exactly as before.
     cancellation_probe: CancellationProbe | None = None
+    # How many configured commands actually started a process through this context.
+    # Durable activity compares it around one tool call, so a call refused before
+    # anything spawned is not mistaken for one that may have left a process behind.
+    processes_started: int = 0
 
     @property
     def root(self) -> Path:
@@ -34,6 +38,9 @@ class ToolContext:
     @property
     def timeout(self) -> int:
         return self.repo.policy.command_timeout_seconds
+
+    def _note_process_started(self) -> None:
+        self.processes_started += 1
 
     def run_configured(
         self, command: list[str], env: dict[str, str] | None = None
@@ -56,6 +63,7 @@ class ToolContext:
                 self.timeout,
                 env,
                 cancellation_probe=self.cancellation_probe,
+                on_spawn=self._note_process_started,
             )
         except CommandCancellationRequested as exc:
             raise BlockedError(

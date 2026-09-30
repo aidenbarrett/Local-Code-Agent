@@ -53,21 +53,31 @@ _ALLOWED_DOMAIN = frozenset({"pass", "fail", "unknown"})
 # short message as a result artifact, because the reviewed event vocabulary folds
 # several typed reasons together (``not_found`` and ``bad_arguments`` are both
 # ``invalid_input``). The message is tool-authored evidence, never authority.
-TOOL_FAILURE_SCHEMA = "lca.tool-failure/1"
+TOOL_FAILURE_SCHEMA = "lca.tool-failure/2"
 TOOL_FAILURE_MEDIA_TYPE = "application/json"
 MAX_FAILURE_DETAIL_CHARS = 300
 
 
 def tool_failure_artifact(
-    *, tool_name: str, tool_reason: str, failure_detail: str,
+    *,
+    tool_name: str,
+    tool_reason: str,
+    failure_detail: str,
+    process_started: bool | None = None,
 ) -> tuple[dict[str, Any], bytes]:
-    """The retained result reference and bytes for one failed tool call."""
+    """The retained result reference and bytes for one failed tool call.
+
+    ``process_started`` is the controller's own count of processes the call spawned
+    (None when the call cannot spawn any). It is what lets terminal truth tell a call
+    refused before anything ran from one that may have left a process behind.
+    """
     detail = " ".join(failure_detail.split())[:MAX_FAILURE_DETAIL_CHARS]
     payload = json.dumps({
         "schema": TOOL_FAILURE_SCHEMA,
         "tool_name": tool_name,
         "tool_reason": tool_reason,
         "detail": detail,
+        "process_started": process_started,
     }, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ref = {
         "artifact_id": str(uuid4()),
@@ -206,6 +216,7 @@ class DurableToolActivity:
         duration_ms: int,
         evidence_ids: tuple[str, ...] | list[str] = (),
         failure_detail: str | None = None,
+        process_started: bool | None = None,
     ) -> None:
         """Commit a typed finish for exactly the currently-open durable call.
 
@@ -226,14 +237,19 @@ class DurableToolActivity:
         durable_reason = durable_tool_reason(execution=execution, reason=reason, domain=domain)
         result_ref: dict[str, Any] | None = None
         result_bytes: bytes | None = None
-        if failure_detail is not None:
+        if failure_detail is not None or process_started is not None:
             if execution == "ok":
                 raise DurableActivityError("a cleanly executed tool call has no failure detail")
-            if not isinstance(failure_detail, str):
+            if failure_detail is not None and not isinstance(failure_detail, str):
                 raise ValueError("failure_detail must be a string")
-            if failure_detail.strip() and reason is not None:
+            if process_started is not None and not isinstance(process_started, bool):
+                raise ValueError("process_started must be a boolean")
+            if reason is not None:
                 result_ref, result_bytes = tool_failure_artifact(
-                    tool_name=tool_name, tool_reason=reason, failure_detail=failure_detail,
+                    tool_name=tool_name,
+                    tool_reason=reason,
+                    failure_detail=failure_detail or "",
+                    process_started=process_started,
                 )
         ids = tuple(str(value) for value in evidence_ids)
         if any(not value for value in ids):

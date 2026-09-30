@@ -36,6 +36,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import IO, Protocol
 
 import psutil
@@ -191,7 +192,9 @@ def run_command(
     timeout_s: int,
     env_overrides: dict[str, str] | None = None,
     cancellation_probe: CancellationProbe | None = None,
+    on_spawn: Callable[[], None] | None = None,
 ) -> RunOutcome:
+    """Run one command; ``on_spawn`` is called once, as soon as a process exists."""
     if not command:
         raise ValueError("empty command")
     if timeout_s <= 0:
@@ -258,6 +261,9 @@ def run_command(
                 )
 
             proc = spawn(job is not None)
+            if on_spawn is not None:
+                # From here a process has existed, so cleanup is a real question.
+                on_spawn()
             if job is not None:
                 try:
                     job.adopt_suspended(proc.pid)

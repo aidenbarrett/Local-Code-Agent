@@ -112,3 +112,21 @@ def test_normal_command_keeps_existing_non_cancelled_semantics(tmp_path):
     assert outcome.cancel_requested is False
     assert outcome.timed_out is False
     assert outcome.process_cleanup_confirmed is None
+
+
+def test_on_spawn_runs_once_for_a_started_process_and_never_before_spawn(tmp_path):
+    from local_agent.tools.tool_primitives import BlockedError
+
+    calls = []
+    run_command([sys.executable, "-c", "pass"], tmp_path, tmp_path / "runs", 30,
+                on_spawn=lambda: calls.append("spawned"))
+    assert calls == ["spawned"]
+
+    with pytest.raises(BlockedError):
+        run_command(["lca-definitely-not-on-path-7f3a"], tmp_path, tmp_path / "runs", 30,
+                    on_spawn=lambda: calls.append("missing"))
+    with pytest.raises(CommandCancellationRequested):
+        run_command([sys.executable, "-c", "pass"], tmp_path, tmp_path / "runs", 30,
+                    cancellation_probe=Probe(requested=True),
+                    on_spawn=lambda: calls.append("cancelled"))
+    assert calls == ["spawned"]
