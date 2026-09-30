@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `8aa64de3df1259feb2ab31f70a2eb6960cf4d1ce`
+Reconciled against GitHub `main` at `d5776c218db45603c2f1bcdb634df6d89e6b5432`
 on 2026-09-30 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -39,7 +39,12 @@ fix-test-failure skill (#290), every independent candidate policy block named wi
 controller-authored refusal line in the Hub conversation (#292) and the runtime root
 and model layout owned by `internal/serving/model_store.py` (#294). Model weights for a
 preset are listed and downloaded with `.\local-code-agent.ps1 models` and
-`models pull <profile>` through `serve.py pull`, the same owner setup uses. Live
+`models pull <profile>` through `serve.py pull`, the same owner setup uses (#300), and
+the runtime root resolves in that one owner for the Hub, chat and demo (`LCA_RUNTIME_ROOT`,
+then `LOCALAPPDATA`, then home; #298). A worker that writes `submit_answer` arguments as
+plain text gets one reminder to make the typed call, and that prose never records a claim
+(#297). Parked model and chat ideas carry their reopening conditions in
+`product-execution-priorities.md` (#301). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
