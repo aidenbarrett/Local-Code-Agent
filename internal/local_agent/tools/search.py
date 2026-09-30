@@ -172,7 +172,11 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     )
     def find_definition(symbol: str, limit: int = 20) -> ToolResult:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", symbol):
-            raise ToolError("symbol must be a plain C++ identifier")
+            message = "symbol must be a plain C++ identifier"
+            unqualified = symbol.rsplit("::", 1)[-1]
+            if "::" in symbol and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", unqualified):
+                message += f"; use {unqualified!r} and inspect the matches for {symbol!r}"
+            raise ToolError(message)
 
         pattern = "|".join(t.format(sym=re.escape(symbol)) for t in _DEF_TEMPLATES)
         result = search_text(pattern=pattern, limit=limit)

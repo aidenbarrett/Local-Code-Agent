@@ -42,6 +42,29 @@ def _iter_files(base: Path, *, recursive: bool) -> Iterator[Path]:
             yield root_path / name
 
 
+def _missing_file_message(root: Path, requested: str) -> str:
+    """Suggest existing contained paths, without substituting for the request."""
+    wanted = requested.replace("\\", "/").removeprefix("./")
+    suffixes: list[str] = []
+    basenames: list[str] = []
+    for candidate in _iter_files(root, recursive=True):
+        if not candidate.is_file() or not candidate.resolve().is_relative_to(root.resolve()):
+            continue
+        relative = candidate.relative_to(root).as_posix()
+        if relative == wanted or relative.endswith("/" + wanted):
+            if len(suffixes) < 5:
+                suffixes.append(relative)
+        elif candidate.name == wanted.rsplit("/", 1)[-1] and len(basenames) < 5:
+            basenames.append(relative)
+        if len(suffixes) == 5:
+            break
+    matches = suffixes or basenames
+    message = f"{requested!r} is not a file"
+    if matches:
+        message += "; existing paths to try: " + ", ".join(matches)
+    return message
+
+
 def _read_text_window(
     target: Path,
     *,
@@ -197,7 +220,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> ToolResult:
         target = resolve_in_repo(ctx.root, path)
         if not target.is_file():
-            raise NotFoundError(f"{path!r} is not a file")
+            raise NotFoundError(_missing_file_message(ctx.root, path))
 
         if target.suffix and target.suffix.lower() not in _TEXT_SUFFIXES:
             head = target.read_bytes()[:1024]
