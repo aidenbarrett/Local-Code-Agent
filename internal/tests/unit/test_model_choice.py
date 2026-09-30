@@ -89,3 +89,17 @@ def test_product_surfaces_take_their_default_from_the_one_owner():
         source = (SCRIPTS / f"{name}.py").read_text(encoding="utf-8")
         assert 'default="ptl-' not in source, name
         assert "resolve_preset(" in source, name
+
+
+def test_selected_prints_exactly_the_resolved_preset(tmp_path, capsys):
+    weights = _script("model_weights")
+    assert weights.main(["selected", "--runtime-root", str(tmp_path)]) == 0
+    assert capsys.readouterr().out.strip() == DEFAULT_MODEL_PRESET
+    store_preset(tmp_path, "ptl-npu-8b")
+    assert weights.main(["selected", "--runtime-root", str(tmp_path)]) == 0
+    assert capsys.readouterr().out.strip() == "ptl-npu-8b"
+
+
+def test_the_default_worker_is_the_gpu_30b_preset():
+    """Recorded decision (#293): on one commit the NPU 8B fixed J08/J10 0/3, the GPU 30B 3/3."""
+    assert DEFAULT_MODEL_PRESET == "ptl-gpu-30b"

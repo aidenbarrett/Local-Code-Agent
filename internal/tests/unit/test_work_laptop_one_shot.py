@@ -63,3 +63,13 @@ def test_one_shot_does_not_reconcile_when_controller_cannot_establish_ownership(
     assert "could not establish managed server ownership before startup" in text
     assert "could not be proven/stopped as controller-owned" in text
     assert "retrying once" in text
+
+
+def test_one_shot_prepares_the_selected_preset_not_a_hardcoded_one():
+    text = (INTERNAL / "work-laptop-one-shot.ps1").read_text(encoding="utf-8")
+    assert '$Profile = "ptl-' not in text
+    resolve = text.index('scripts\\model_weights.py") selected --runtime-root $RuntimeRoot')
+    first_use = text.index('$serveArgs = @("--profile",$Profile')
+    assert resolve < first_use
+    assert 'could not resolve the selected model preset' in text
+    assert '("qualification-{0}.json" -f $Profile)' in text
