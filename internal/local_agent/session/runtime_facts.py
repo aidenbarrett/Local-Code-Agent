@@ -79,7 +79,8 @@ class RuntimeFacts:
         model = self.observed_model or "unobserved"
         execution = "enabled" if self.execution_enabled else "disabled"
         return (
-            f"model {model} (observed) · device {self.declared_device} (declared) · "
+            f"preset {self.preset} · model {model} (observed) · "
+            f"device {self.declared_device} (declared) · "
             f"endpoint {self.endpoint} · execution {execution}"
         )
 

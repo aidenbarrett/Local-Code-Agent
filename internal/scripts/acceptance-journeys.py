@@ -62,6 +62,8 @@ from local_agent.session.conversation_store import (  # noqa: E402
 )
 from local_agent.session.runtime_facts import RuntimeFacts  # noqa: E402
 from serving.managed_runtime import endpoint_reachable  # noqa: E402
+from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
+from serving.model_store import default_runtime_root  # noqa: E402
 
 SCHEMA = "lca.acceptance-journeys/1"
 FIXTURE = SOURCE_ROOT / "benchmark_fixture" / "cpp_project"
@@ -1000,7 +1002,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--output", type=Path, required=True,
                         help="new evidence directory for this run; keep the path short on Windows")
-    parser.add_argument("--profile", default="ptl-npu-8b", choices=sorted(MODEL_PRESETS))
+    parser.add_argument("--profile", default=None, choices=sorted(MODEL_PRESETS),
+                        help="model preset (default: your `models use` choice)")
     parser.add_argument("--base-url", help="use an already-running endpoint instead of the profile's")
     parser.add_argument("--model", help="the model id that endpoint serves (default: the profile's)")
     parser.add_argument("--allow-model", action="store_true",
@@ -1017,6 +1020,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.repeat < 1:
         parser.error("--repeat must be at least 1")
+    try:
+        args.profile = resolve_preset(args.profile, default_runtime_root()).name
+    except ModelChoiceError as exc:
+        parser.error(str(exc))
 
     try:
         args.output.mkdir(parents=True, exist_ok=False)

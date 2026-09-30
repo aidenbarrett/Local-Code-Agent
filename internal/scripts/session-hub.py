@@ -45,6 +45,7 @@ from local_agent.session.workspaces import GitWorkspaceManager  # noqa: E402
 from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
 from local_agent.session.textual_runtime import build_textual_session_runtime  # noqa: E402
 from serving.managed_runtime import ensure_managed_runtime  # noqa: E402
+from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
 from serving.model_store import default_runtime_root as _runtime_root  # noqa: E402
 
 
@@ -219,7 +220,8 @@ def compose_session_graph(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="local-code-agent session")
     parser.add_argument("--repo", default=".", help="repository root or a path inside it")
-    parser.add_argument("--profile", default="ptl-npu-8b", choices=sorted(MODEL_PRESETS))
+    parser.add_argument("--profile", default=None, choices=sorted(MODEL_PRESETS),
+                        help="model preset for this session (default: your `models use` choice)")
     parser.add_argument("--worker-profile", default=None, choices=sorted(MODEL_PRESETS))
     parser.add_argument("--base-url", help="override conversation and worker endpoint unless --worker-base-url is set")
     parser.add_argument("--worker-base-url", help="explicitly split the worker onto a different endpoint")
@@ -227,6 +229,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--conversation", metavar="ID", help="resume a persisted Session Hub conversation")
     parser.add_argument("--check", action="store_true", help="run deterministic self-check once and exit")
     args = parser.parse_args(argv)
+    try:
+        args.profile = resolve_preset(args.profile, _runtime_root()).name
+    except ModelChoiceError as exc:
+        parser.error(str(exc))
 
     root = find_repo_root(Path(args.repo))
     repo = load_repo_config(root)

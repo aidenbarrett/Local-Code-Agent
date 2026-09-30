@@ -132,7 +132,7 @@ def test_runtime_header_uses_observed_models_response_and_marks_device_declared(
     assert requested_urls == ["http://127.0.0.1:9999/v1/models"]
     assert facts.observed_model == "actually-served-model"
     assert facts.header() == (
-        "model actually-served-model (observed) · device NPU (declared) · "
+        "preset ptl-npu-8b · model actually-served-model (observed) · device NPU (declared) · "
         "endpoint http://127.0.0.1:9999/v3 · execution enabled"
     )
 
