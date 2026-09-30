@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `d5776c218db45603c2f1bcdb634df6d89e6b5432`
+Reconciled against GitHub `main` at `7a89bc73200e70319fa4d7879fa33e8f705cdb87`
 on 2026-09-30 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -44,7 +44,10 @@ the runtime root resolves in that one owner for the Hub, chat and demo (`LCA_RUN
 then `LOCALAPPDATA`, then home; #298). A worker that writes `submit_answer` arguments as
 plain text gets one reminder to make the typed call, and that prose never records a claim
 (#297). Parked model and chat ideas carry their reopening conditions in
-`product-execution-priorities.md` (#301). Live
+`product-execution-priorities.md` (#301), test-only failure context for the retained-result
+fixture wait (#306), and a retained `lca.tool-failure` result on every tool call that did not
+execute cleanly, carrying the typed tool reason and the tool's own bounded message, inlined
+as `tool_failure` in acceptance journey logs (#307). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
