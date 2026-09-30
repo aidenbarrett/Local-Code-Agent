@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `7a89bc73200e70319fa4d7879fa33e8f705cdb87`
+Reconciled against GitHub `main` at `7fb958173415207973d902b6bca2ea6252a1719c`
 on 2026-09-30 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -47,7 +47,11 @@ plain text gets one reminder to make the typed call, and that prose never record
 `product-execution-priorities.md` (#301), test-only failure context for the retained-result
 fixture wait (#306), and a retained `lca.tool-failure` result on every tool call that did not
 execute cleanly, carrying the typed tool reason and the tool's own bounded message, inlined
-as `tool_failure` in acceptance journey logs (#307). Live
+as `tool_failure` in acceptance journey logs (#307). A process tool refused before any
+process started records `process_started: false`, so it no longer leaves a completed task
+without a durable terminal (#308); an unknown build profile argument is refused as
+`bad_arguments` (#310); and a `read_file` miss names up to five existing paths (#311).
+On Panther Lake the GPU 30B worker then fixed J08, J10, J11 and J12 3/3 each (#293). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
