@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
+import traceback
+from time import monotonic
 from uuid import uuid4
 
 import pytest
 
-from local_agent.session.session_event_service import DurableSessionService
+from local_agent.session.session_event_service import DurableSessionService, WriteReceipt
 from local_agent.session.session_store import SQLiteSessionStore
 from local_agent.session.textual_feed import DurableHubFeed
 from local_agent.session.textual_hub import render_activity
@@ -17,12 +20,55 @@ from local_agent.session.textual_live_app import HubLiveBinding
 WRITE_WAIT_SECONDS = 30
 
 
+def _wait_fixture_write(
+    service: DurableSessionService,
+    receipt: WriteReceipt,
+    *,
+    operation: str,
+    index: int | None = None,
+) -> None:
+    """Keep a Windows fixture timeout tied to the writer's actual location."""
+    started = monotonic()
+    try:
+        receipt.wait(WRITE_WAIT_SECONDS)
+    except TimeoutError as exc:
+        writer = service._thread
+        frame = sys._current_frames().get(writer.ident) if writer.ident is not None else None
+        writer_stack = "".join(traceback.format_stack(frame)) if frame else "unavailable"
+        raise AssertionError(
+            f"retained-result fixture {operation} timed out at index {index}; "
+            f"elapsed={monotonic() - started:.1f}s; "
+            f"receipt_committed={receipt.committed.is_set()}; "
+            f"writer_alive={writer.is_alive()}; "
+            f"queue_depth={service._commands.qsize()}; "
+            f"writer_stack:\n{writer_stack}"
+        ) from exc
+
+
 def _service(tmp_path) -> DurableSessionService:
     return DurableSessionService(
         SQLiteSessionStore(tmp_path / "session.db"),
         stream_id=str(uuid4()),
         session_id=str(uuid4()),
     )
+
+
+def test_fixture_timeout_names_the_write_and_writer_state(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+    try:
+        receipt = WriteReceipt()
+
+        def timed_out(_timeout):
+            raise TimeoutError("durable write did not commit before timeout")
+
+        monkeypatch.setattr(receipt, "wait", timed_out)
+        with pytest.raises(AssertionError, match="fixture finalize timed out at index 17") as error:
+            _wait_fixture_write(service, receipt, operation="finalize", index=17)
+        assert "writer_alive=True" in str(error.value)
+        assert "writer_stack:" in str(error.value)
+        assert isinstance(error.value.__cause__, TimeoutError)
+    finally:
+        service.close()
 
 
 def _admit(
@@ -57,7 +103,7 @@ def _admit(
             "deadline_utc": "2030-01-01T00:00:00Z",
         },
     )
-    receipt.wait(WRITE_WAIT_SECONDS)
+    _wait_fixture_write(service, receipt, operation="admit", index=turn_index)
     assert receipt.task_id is not None
     return receipt.task_id
 
@@ -67,6 +113,7 @@ def _finish(
     task_id: str,
     *,
     answer: str,
+    fixture_index: int | None = None,
     result_evidence: list[str] | None = None,
     verdict_evidence: list[str] | None = None,
 ) -> None:
@@ -118,7 +165,7 @@ def _finish(
         closed_payload={"status": "failed", "result_ref": ref, "cleanup": "not_needed"},
         result_bytes=payload,
     )
-    receipt.wait(WRITE_WAIT_SECONDS)
+    _wait_fixture_write(service, receipt, operation="finalize", index=fixture_index)
 
 
 def test_live_hub_exposes_integrity_checked_retained_answer(tmp_path):
@@ -150,7 +197,7 @@ def test_idle_hub_poll_does_not_reread_500_retained_results(tmp_path, monkeypatc
                 request_id=f"retained-result-{index}",
                 turn_index=index,
             )
-            _finish(service, task_id, answer=f"historical result {index}")
+            _finish(service, task_id, answer=f"historical result {index}", fixture_index=index)
 
         binding = HubLiveBinding(DurableHubFeed(service))
         original_artifact_bytes = service.store.artifact_bytes
