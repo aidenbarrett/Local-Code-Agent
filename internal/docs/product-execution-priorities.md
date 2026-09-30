@@ -280,6 +280,31 @@ large plugin marketplaces, deep multi-agent role systems and broad remote orches
 Research may continue, but implementation requires a named user problem and acceptance
 gate.
 
+### Parked on 2026-09-30, with the condition that reopens each one
+
+These came out of the J10 model-ceiling finding (#293) and were deliberately parked so
+the worker becomes dependable first. None of them is implemented.
+
+- **Stronger worker model.** Not parked: it is the active measurement. The
+  `ptl-gpu-30b` `--repeat 3` acceptance run decides the default worker.
+- **Specialist models per role** (a small summariser or classifier, embeddings and a
+  reranker for code search). Reopens when a named search or triage journey fails in a
+  way a specialist would fix, and the owning endpoint code can host it without a second
+  scheduler.
+- **Role routing across several endpoints** (NPU, GPU and CPU serving different jobs in
+  one run). Reopens after the default worker is chosen and a measured journey shows a
+  second model earning its place. It belongs to the existing endpoint lease/runtime
+  owners; a model's output stays a suggestion the controller validates.
+- **Tiny models for narrow commands.** Deterministic checks come first. Reopens only
+  where a bounded classification or extraction cannot be done deterministically.
+- **A separate social chat room with long-term memory** (its own window, one standing
+  room without conversation ids, an uncensored chat model). Reopens after the worker is
+  dependable. It builds on the existing `chat` persona and conversation store, runs on
+  its own profile, and has no tools or repository authority.
+- **Mixture-of-experts models on the NPU.** Upstream OpenVINO work is public but not
+  released. Reopens when a public OpenVINO/OVMS release supports it, as a preset plus
+  qualification, with no runtime code of our own.
+
 ## Explicit anti-tangent list
 
 Do not interrupt the current programme to build any of the following without a new
