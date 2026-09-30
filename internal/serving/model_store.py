@@ -7,7 +7,11 @@ from pathlib import Path
 
 def default_runtime_root() -> Path:
     """The default location for runtime state and downloaded model weights."""
-    return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LocalCodeAgent"
+    explicit = os.environ.get("LCA_RUNTIME_ROOT")
+    if explicit:
+        return Path(explicit)
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    return (Path(local_app_data) if local_app_data else Path.home()) / "LocalCodeAgent"
 
 
 def model_repository(runtime_root: Path) -> Path:
