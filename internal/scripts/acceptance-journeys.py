@@ -96,6 +96,7 @@ class Journey:
     notes: list[str] = field(default_factory=list)
     tasks: list[dict[str, Any]] = field(default_factory=list)
     measured: dict[str, Any] = field(default_factory=dict)
+    tool_failures: list[dict[str, Any]] = field(default_factory=list)
 
     def passed(self, reason: str = "") -> None:
         self.status, self.reason = "PASS", reason
@@ -369,7 +370,10 @@ class Session:
         try:
             with (self.log_dir / "events.jsonl").open("w", encoding="utf-8") as out:
                 for event in self.events():
-                    out.write(json.dumps(self._with_tool_failure(event), sort_keys=True) + "\n")
+                    retained = self._with_tool_failure(event)
+                    out.write(json.dumps(retained, sort_keys=True) + "\n")
+                    if failure := retained.get("tool_failure"):
+                        self.journey.tool_failures.append(failure)
         except Exception as exc:  # noqa: BLE001 - the dump must not hide the journey result
             self.journey.notes.append(f"event dump failed: {exc!r}")
 
@@ -864,7 +868,18 @@ class Runner:
             journey.notes.append(traceback.format_exc()[-3000:])
         journey.seconds = round(time.monotonic() - started, 1)
         print(f"    {journey.status}  {journey.reason}  ({journey.seconds}s)", flush=True)
+        if journey.kind == "model":
+            for line in failed_tool_lines(journey):
+                print("    " + line, flush=True)
         return journey
+
+
+def failed_tool_lines(journey: Journey) -> list[str]:
+    return [
+        f"{journey.id}: {failure['tool_name']} {failure['tool_reason']} "
+        + " ".join(str(failure.get("detail", "")).split())[:300]
+        for failure in journey.tool_failures
+    ]
 
 
 def model_rates(journeys: list[Journey]) -> list[str]:
@@ -947,6 +962,9 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
     rates = model_rates(journeys)
     if rates:
         lines += ["", "Model rates (repeated model journeys)", *rates]
+    failures = [line for journey in journeys for line in failed_tool_lines(journey)]
+    if failures:
+        lines += ["", "Failed tool calls", *failures]
     lines += ["", f"Report SHA-256 {report_sha}"]
     return "\n".join(lines) + "\n"
 
