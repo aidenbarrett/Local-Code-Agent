@@ -253,3 +253,60 @@ def test_failed_tool_summary_retains_evidence_and_prints_one_line(tmp_path):
     clean = journeys.Journey("clean", "clean", "model")
     assert journeys.failed_tool_lines(clean) == []
     assert "Failed tool calls" not in journeys.summary_text(runner, [clean], "0" * 64)
+
+
+@pytest.mark.parametrize("error", [None, RuntimeError, KeyboardInterrupt])
+def test_keep_awake_releases_on_normal_error_and_interrupt(monkeypatch, error):
+    calls = []
+    monkeypatch.setattr(journeys.sys, "platform", "win32")
+    monkeypatch.setattr(journeys, "_windows_execution_state", lambda: lambda flags: calls.append(flags) or 1)
+
+    def run():
+        with journeys.keep_system_awake():
+            assert calls == [0x80000001]
+            if error:
+                raise error("interrupted")
+    if error:
+        with pytest.raises(error):
+            run()
+    else:
+        run()
+    assert calls == [0x80000001, 0x80000000]
+
+
+def test_keep_awake_is_noop_elsewhere(monkeypatch):
+    monkeypatch.setattr(journeys.sys, "platform", "linux")
+    monkeypatch.setattr(journeys, "_windows_execution_state", lambda: pytest.fail("Windows API loaded"))
+    with journeys.keep_system_awake():
+        pass
+
+
+def test_keep_awake_refusal_does_not_start_run(monkeypatch):
+    monkeypatch.setattr(journeys.sys, "platform", "win32")
+    monkeypatch.setattr(journeys, "_windows_execution_state", lambda: lambda flags: 0)
+    with pytest.raises(OSError, match="refused"):
+        with journeys.keep_system_awake():
+            pytest.fail("run started")
+
+
+def test_main_keeps_preconditions_inside_awake_scope(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    activity = []
+
+    @contextmanager
+    def awake():
+        activity.append("acquire")
+        try:
+            yield
+        finally:
+            activity.append("release")
+
+    def preconditions(self):
+        assert activity == ["acquire"]
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(journeys, "keep_system_awake", awake)
+    monkeypatch.setattr(journeys.Runner, "check_preconditions", preconditions)
+    with pytest.raises(KeyboardInterrupt):
+        journeys.main(["--output", str(tmp_path / "acc")])
+    assert activity == ["acquire", "release"]
