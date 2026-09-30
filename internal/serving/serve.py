@@ -213,20 +213,40 @@ def check_port(plan):
             raise Refusal(f"port {plan['port']} is occupied; no owned healthy server") from exc
 
 
+def missing_payload_files(payload):
+    """Files an OVMS model payload needs that are absent or empty; empty when complete."""
+    payload = Path(payload)
+    languages = [name for name in ("openvino_model.xml", "openvino_language_model.xml")
+                 if (payload / name).is_file()]
+    missing = [] if languages else ["openvino_model.xml"]
+    required = ["openvino_tokenizer.xml", "openvino_tokenizer.bin",
+                "openvino_detokenizer.xml", "openvino_detokenizer.bin", "config.json"]
+    required += [xml.with_suffix(".bin").name for xml in sorted(payload.glob("openvino_*.xml"))]
+    missing += [name for name in required
+                if not (payload / name).is_file() or (payload / name).stat().st_size == 0]
+    return missing
+
+
+def pull_command(profile):
+    """The one supported way a user downloads a preset's weights."""
+    return rf".\local-code-agent.ps1 models pull {profile}"
+
+
 def preflight(plan, config, allow_experimental=False):
     if plan["experimental"] and not allow_experimental:
         raise Refusal("unproven preset; inspect dry-run, then explicitly use --allow-experimental")
     payload = Path(plan["model_dir"])
     record = {"warnings": []}
     if config.runtime == "ovms":
+        # Name absent weights before anything else, with the command that fetches them.
+        missing = missing_payload_files(payload)
+        if missing:
+            raise Refusal(
+                f"model weights for {plan['profile']} are not downloaded or are incomplete "
+                f"({payload / missing[0]} is missing); run: {pull_command(plan['profile'])}"
+            )
         # Do this before even querying the runtime, so a bad NPU artifact is named.
         record["precision"] = check_precision(payload, config.device)
-        required = ["openvino_tokenizer.xml", "openvino_tokenizer.bin",
-                    "openvino_detokenizer.xml", "openvino_detokenizer.bin", "config.json"]
-        required += [xml.with_suffix(".bin").name for xml in payload.glob("openvino_*.xml")]
-        for name in required:
-            if not (payload / name).is_file() or (payload / name).stat().st_size == 0:
-                raise Refusal(f"incomplete model payload: {payload / name}; run pull first")
         if config.device != "NPU":
             model_config = json.loads((payload / "config.json").read_text(encoding="utf-8"))
             maximum = model_config.get("text_config", model_config).get("max_position_embeddings")

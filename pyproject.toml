@@ -71,8 +71,7 @@ enable_error_code = [
 # the finding set is identical on every machine. Values from them must be validated at the
 # boundary where they enter our code, which is where the typing starts to bind.
 [[tool.mypy.overrides]]
-module = ["openai", "openai.*", "textual", "textual.*", "psutil", "psutil.*", "jsonschema", "jsonschema.*",
-          "huggingface_hub", "huggingface_hub.*"]
+module = ["openai", "openai.*", "textual", "textual.*", "psutil", "psutil.*", "jsonschema", "jsonschema.*"]
 follow_imports = "skip"
 follow_untyped_imports = false
 ignore_missing_imports = true
