@@ -55,8 +55,10 @@ def test_list_marks_each_local_preset_missing_or_downloaded(
     weights = _load()
     _complete_payload(_payload_dir(tmp_path, "ptl-npu-8b"))
     assert weights.main(["--runtime-root", str(tmp_path)]) == 0
-    rows = {line.split()[0]: line for line in capsys.readouterr().out.splitlines()
-            if line.startswith("  ")}
+    # Each preset row starts with a two-character selection marker ("* " or "  ").
+    rows = {line[2:].split()[0]: line for line in capsys.readouterr().out.splitlines()
+            if line[:2] in ("* ", "  ") and line[2:].strip()}
+    assert rows["ptl-npu-8b"].startswith("* ")  # the default, with no stored choice
     assert rows["ptl-npu-8b"].rstrip().endswith("downloaded")
     assert "missing" in rows["ptl-gpu-30b"]
     assert "cloud" not in rows

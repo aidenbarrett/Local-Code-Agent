@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Show which presets have their model weights downloaded, and download one preset's.
+"""List model presets, choose the one normally used, and download a preset's weights.
 
-`.\\local-code-agent.ps1 models` lists; `models pull <profile>` downloads. Downloads go
+`.\\local-code-agent.ps1 models` lists; `models use <profile>` chooses; `models pull <profile>`
+downloads. Downloads go
 through `serving.serve.pull`, the same owner the setup script uses, into the runtime
 model store. Only presets in `MODEL_PRESETS` can be pulled.
 """
@@ -19,6 +20,11 @@ if str(INTERNAL) not in sys.path:
 
 from local_agent.config import MODEL_PRESETS  # noqa: E402
 from serving import serve  # noqa: E402
+from serving.model_choice import (  # noqa: E402
+    ModelChoiceError,
+    resolve_preset,
+    store_preset,
+)
 from serving.model_store import default_runtime_root  # noqa: E402
 
 LOCAL_RUNTIMES = ("ovms", "llamacpp")
@@ -39,14 +45,29 @@ def weight_state(profile: str, runtime_root: Path) -> str:
 
 
 def list_weights(runtime_root: Path) -> int:
+    selected = resolve_preset(None, runtime_root)
     print(f"Model store: {serve.model_repository(runtime_root)}")
     for name, config in MODEL_PRESETS.items():
         if config.runtime not in LOCAL_RUNTIMES:
             continue
+        mark = "*" if name == selected.name else " "
         flag = "  (experimental)" if config.serving_experimental else ""
-        print(f"  {name:<20} {config.device:<4} {config.model:<48} "
+        print(f"{mark} {name:<20} {config.device:<4} {config.model:<48} "
               f"{weight_state(name, runtime_root)}{flag}")
-    print(f"\nDownload one with: {serve.pull_command('<profile>')}")
+    how = "your choice" if selected.source == "stored" else "the default"
+    print(f"\nMarked *: {selected.name} is used when no --profile is given ({how}).")
+    print("Choose the model you normally use:  .\\local-code-agent.ps1 models use <profile>")
+    print("Use another model for one session:  .\\local-code-agent.ps1 session --profile <profile>")
+    print(f"Download a model's weights:        {serve.pull_command('<profile>')}")
+    return 0
+
+
+def use_preset(profile: str, runtime_root: Path) -> int:
+    store_preset(runtime_root, profile)
+    print(f"{profile} is now used when no --profile is given "
+          f"(weights: {weight_state(profile, runtime_root)}).")
+    if weight_state(profile, runtime_root) != "downloaded":
+        print(f"Download its weights first: {serve.pull_command(profile)}")
     return 0
 
 
@@ -66,7 +87,7 @@ def pull_weights(profile: str, runtime_root: Path, *, allow_experimental: bool) 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("action", nargs="?", default="list", choices=("list", "pull"))
+    parser.add_argument("action", nargs="?", default="list", choices=("list", "pull", "use"))
     parser.add_argument("profile", nargs="?")
     parser.add_argument("--allow-experimental", action="store_true")
     parser.add_argument("--runtime-root", type=Path, default=None)
@@ -78,10 +99,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise serve.Refusal("list takes no profile")
             return list_weights(runtime_root)
         if not args.profile:
-            raise serve.Refusal("pull needs a profile; run .\\local-code-agent.ps1 models")
+            raise serve.Refusal(
+                f"{args.action} needs a profile; run .\\local-code-agent.ps1 models"
+            )
+        if args.action == "use":
+            return use_preset(args.profile, runtime_root)
         return pull_weights(args.profile, runtime_root,
                             allow_experimental=args.allow_experimental)
-    except (serve.Refusal, OSError, subprocess.SubprocessError) as exc:
+    except (serve.Refusal, ModelChoiceError, OSError, subprocess.SubprocessError) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
 

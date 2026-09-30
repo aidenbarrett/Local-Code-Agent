@@ -368,6 +368,12 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
     ),
 }
 
+# The one default model preset for the product surfaces (Session Hub, acceptance
+# runner, run-task). A user's own choice (`local-code-agent.ps1 models use <preset>`)
+# and an explicit `--profile` both take precedence; see serving/model_choice.py.
+# Changing this value is a product decision recorded in CURRENT_STATE.md.
+DEFAULT_MODEL_PRESET = "ptl-npu-8b"
+
 # Models deliberately not offered as presets, with the reason, so nobody has to
 # rediscover it:
 #
