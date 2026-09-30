@@ -294,10 +294,26 @@ class SQLiteSessionStore:
         with self._connect() as conn:
             return self._next_sequence(conn, stream_id)
 
-    def append(self, envelope: dict[str, Any], *, expected_sequence: int) -> None:
+    def append(
+        self,
+        envelope: dict[str, Any],
+        *,
+        expected_sequence: int,
+        result_bytes: bytes | None = None,
+    ) -> None:
+        """Append one event; a ``tool.finished`` result_ref commits with its bytes."""
         validate_event(envelope)
         if envelope["kind"] in {"task.verdict", "task.closed"}:
             raise ValueError("task verdict and closure must use atomic finalize_task")
+        result_ref = (
+            envelope["payload"].get("result_ref") if envelope["kind"] == "tool.finished" else None
+        )
+        if result_ref is None and result_bytes is not None:
+            raise ArtifactIntegrityError("result bytes need a tool.finished result_ref")
+        if result_ref is not None:
+            # Checked before the transaction: a reference must never commit without
+            # the exact bytes it names.
+            self._artifact_row_for_bytes(result_ref, result_bytes)
         stream_id = envelope["stream_id"]
         if int(envelope["sequence"]) != expected_sequence:
             raise SequenceConflict("envelope sequence does not match expected sequence")
@@ -327,6 +343,8 @@ class SQLiteSessionStore:
                 if current in _TERMINAL_TASK_STATES:
                     conn.execute("ROLLBACK")
                     raise TaskStateConflict("terminal task state requires atomic finalize_task")
+            if result_ref is not None:
+                self._insert_artifact(conn, str(envelope["task_id"]), result_ref, result_bytes)
             self._insert_event(conn, envelope)
             if envelope["kind"] == "task.state_changed":
                 conn.execute(

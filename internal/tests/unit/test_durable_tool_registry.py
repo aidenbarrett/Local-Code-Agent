@@ -181,3 +181,47 @@ def test_a_result_the_contract_rejects_closes_its_call_instead_of_jamming_the_ta
     with pytest.raises(DurableActivityError):
         wrapped.get("demo").handler(value=1)
     assert [(f["execution"], f["reason"]) for f in activity.finished] == [("error", "internal_error")]
+
+
+def test_raised_tool_error_keeps_its_typed_reason_and_message_as_failure_detail():
+    activity = _Activity()
+
+    def handler(value):
+        raise ToolError(f"'src/missing_{value}.cpp' is not a file", reason=Reason.NOT_FOUND)
+
+    wrapped = wrap_registry_with_durable_activity(_registry(handler), activity)
+    with pytest.raises(ToolError):
+        wrapped.get("demo").handler(value=4)
+
+    finished = activity.finished[0]
+    assert finished["execution"] == "error"
+    assert finished["reason"] == "not_found"
+    assert finished["failure_detail"] == "'src/missing_4.cpp' is not a file"
+
+
+def test_cleanly_executed_result_carries_no_failure_detail_even_when_it_fails():
+    activity = _Activity()
+
+    def handler(value):
+        return ToolResult(ok=False, summary="3 tests failed", domain_status=DomainStatus.FAIL)
+
+    wrapped = wrap_registry_with_durable_activity(_registry(handler), activity)
+    wrapped.get("demo").handler(value=1)
+
+    assert activity.finished[0]["execution"] == "ok"
+    assert activity.finished[0]["failure_detail"] is None
+
+
+def test_errored_result_keeps_its_summary_as_failure_detail():
+    activity = _Activity()
+
+    def handler(value):
+        return ToolResult.errored(Reason.BAD_ARGUMENTS, "end_line must be greater than or equal to start_line")
+
+    wrapped = wrap_registry_with_durable_activity(_registry(handler), activity)
+    wrapped.get("demo").handler(value=1)
+
+    assert activity.finished[0]["reason"] == "bad_arguments"
+    assert activity.finished[0]["failure_detail"] == (
+        "end_line must be greater than or equal to start_line"
+    )
