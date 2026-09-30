@@ -60,3 +60,25 @@ def test_external_symlink_is_not_a_hint(tmp_path):
     except OSError:
         pytest.skip('symlink creation unavailable')
     assert 'existing paths' not in _missing_file_message(tmp_path, 'missing/ring.hpp')
+
+
+@pytest.mark.parametrize("requested", ["missing/ring.cpp", "src/ring.cpp"])
+def test_shallower_hints_displace_earlier_deep_matches(tmp_path, requested):
+    names = [f"a/{i}/scenarios/src/ring.cpp" for i in range(8)]
+    names += ["src/ring.cpp", "z/src/ring.cpp", "b/src/ring.cpp", "c/src/ring.cpp", "d/src/ring.cpp"]
+    for name in reversed(names):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("source")
+    hints = _missing_file_message(tmp_path, requested).split("existing paths to try: ")[1]
+    assert hints.split(", ") == ["src/ring.cpp", "b/src/ring.cpp", "c/src/ring.cpp",
+                                "d/src/ring.cpp", "z/src/ring.cpp"]
+
+
+def test_deeper_suffix_still_beats_shallow_basename(tmp_path):
+    for name in ["ring.hpp", "deep/include/sandbox/ring.hpp"]:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("source")
+    hints = _missing_file_message(tmp_path, "sandbox/ring.hpp").split("existing paths to try: ")[1]
+    assert hints == "deep/include/sandbox/ring.hpp"

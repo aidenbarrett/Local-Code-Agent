@@ -52,12 +52,14 @@ def _missing_file_message(root: Path, requested: str) -> str:
             continue
         relative = candidate.relative_to(root).as_posix()
         if relative == wanted or relative.endswith("/" + wanted):
-            if len(suffixes) < 5:
-                suffixes.append(relative)
-        elif candidate.name == wanted.rsplit("/", 1)[-1] and len(basenames) < 5:
-            basenames.append(relative)
-        if len(suffixes) == 5:
-            break
+            matches = suffixes
+        elif candidate.name == wanted.rsplit("/", 1)[-1]:
+            matches = basenames
+        else:
+            continue
+        matches.append(relative)
+        matches.sort(key=lambda path: (path.count("/"), path))
+        del matches[5:]
     matches = suffixes or basenames
     message = f"{requested!r} is not a file"
     if matches:
