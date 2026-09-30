@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import RepoConfig
+from ..config import BuildProfile, ConfigError, RepoConfig
+from .tool_primitives import Reason, ToolError
 from .process_runner import (
     CancellationProbe,
     CommandCancellationRequested,
@@ -24,6 +25,13 @@ class ToolContext:
     # Durable activity compares it around one tool call, so a call refused before
     # anything spawned is not mistaken for one that may have left a process behind.
     processes_started: int = 0
+
+    def profile(self, name: str | None = None) -> BuildProfile:
+        """Resolve a tool argument without exposing configuration errors as crashes."""
+        try:
+            return self.repo.profile(name)
+        except ConfigError as exc:
+            raise ToolError(str(exc), reason=Reason.BAD_ARGUMENTS) from exc
 
     @property
     def root(self) -> Path:

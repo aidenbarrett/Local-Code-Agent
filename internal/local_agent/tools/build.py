@@ -49,7 +49,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     def configure_project(profile: str | None = None) -> ToolResult:
         if not ctx.repo.policy.allow_build:
             raise BlockedError("building is disabled by repository policy")
-        prof = ctx.repo.profile(profile)
+        prof = ctx.profile(profile)
         if not prof.configure:
             raise ToolError(f"profile {prof.name!r} defines no configure step")
 
@@ -94,7 +94,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     def build_target(profile: str | None = None, target: str | None = None) -> ToolResult:
         if not ctx.repo.policy.allow_build:
             raise BlockedError("building is disabled by repository policy")
-        prof = ctx.repo.profile(profile)
+        prof = ctx.profile(profile)
         if not prof.build:
             raise ToolError(f"profile {prof.name!r} defines no build step")
 
