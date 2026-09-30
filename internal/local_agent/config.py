@@ -372,7 +372,9 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
 # runner, run-task). A user's own choice (`local-code-agent.ps1 models use <preset>`)
 # and an explicit `--profile` both take precedence; see serving/model_choice.py.
 # Changing this value is a product decision recorded in CURRENT_STATE.md.
-DEFAULT_MODEL_PRESET = "ptl-npu-8b"
+# ptl-gpu-30b since 2026-09-30: on the same commit the NPU 8B fixed J08 and J10 0/3,
+# the GPU 30B 3/3 (#293). The 8B stays available for smaller work.
+DEFAULT_MODEL_PRESET = "ptl-gpu-30b"
 
 # Models deliberately not offered as presets, with the reason, so nobody has to
 # rediscover it:

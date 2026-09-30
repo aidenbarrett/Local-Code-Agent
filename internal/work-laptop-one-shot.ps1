@@ -15,13 +15,11 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $BaseBootstrap = Join-Path $PSScriptRoot "bootstrap-work-laptop.ps1"
 $Controller = Join-Path $PSScriptRoot "serving\serve.py"
 $QualificationScript = Join-Path $PSScriptRoot "serving\qualify_server.py"
-$Profile = "ptl-npu-8b"
 $VenvPython = Join-Path $RepoRoot ".venv-workstation\Scripts\python.exe"
 $ToolDir = Join-Path $RuntimeRoot "tools"
 $CacheDir = Join-Path $RuntimeRoot "cache"
 $ReportDir = Join-Path $RuntimeRoot "reports"
 $OvmsDir = Join-Path $ToolDir "ovms-2026.3.0"
-$QualificationJson = Join-Path $ReportDir "qualification-ptl-npu-8b.json"
 $ReportPath = Join-Path $ReportDir ("work-laptop-ready-{0}.json" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 
 function Say([string]$Text) { Write-Host "[one-shot] $Text" }
@@ -80,6 +78,14 @@ RestoreEnvVariable "PYTHONPATH" $hadPythonPath $pythonPathBefore
 
 & $VenvPython -c "import psutil"
 if ($LASTEXITCODE -ne 0) { Fail 'Update the checkout environment: python -m pip install -e ".[dev]"' }
+
+# Prepare the preset the user will actually get: their `models use` choice, else the
+# product default. One owner decides that (serving/model_choice.py); setup only asks.
+$selectedText = & $VenvPython (Join-Path $PSScriptRoot "scripts\model_weights.py") selected --runtime-root $RuntimeRoot
+if ($LASTEXITCODE -ne 0) { Fail "could not resolve the selected model preset" }
+$Profile = ($selectedText | Select-Object -Last 1).Trim()
+$QualificationJson = Join-Path $ReportDir ("qualification-{0}.json" -f $Profile)
+Say "model preset: $Profile"
 
 $serveArgs = @("--profile",$Profile,"--runtime-root",$RuntimeRoot,"--executable",$ovmsExe.FullName)
 $planText = & $VenvPython $Controller start @serveArgs --dry-run
