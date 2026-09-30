@@ -969,6 +969,33 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
     return "\n".join(lines) + "\n"
 
 
+def _windows_execution_state() -> Callable[[int], int]:
+    import ctypes
+    from ctypes import wintypes
+
+    call = ctypes.WinDLL("kernel32", use_last_error=True).SetThreadExecutionState
+    call.argtypes = [wintypes.DWORD]
+    call.restype = wintypes.DWORD
+    return call
+
+
+@contextmanager
+def keep_system_awake() -> Iterator[None]:
+    """Hold a Windows thread request for this run; leave power settings alone."""
+    if sys.platform != "win32":
+        yield
+        return
+    call = _windows_execution_state()
+    continuous = 0x80000000
+    if not call(continuous | 0x00000001):
+        raise OSError("Windows refused the acceptance keep-awake request")
+    try:
+        yield
+    finally:
+        if not call(continuous):
+            print("WARNING: Windows refused to release the keep-awake request", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--output", type=Path, required=True,
@@ -996,31 +1023,32 @@ def main(argv: list[str] | None = None) -> int:
     except FileExistsError:
         parser.error("--output already exists; choose a new directory for this run "
                      "so earlier evidence is preserved")
-    runner = Runner(args)
-    started = time.time()
-    runner.check_preconditions()
-    print(json.dumps(runner.preconditions, indent=1), flush=True)
-    selected = set(args.only) or None
-    journeys = runner.run(selected)
-    if args.repo:
-        journeys += runner.run_repo(args.repo.resolve(), allow_build=args.allow_build, selected=selected)
-    report = {
-        "schema": SCHEMA,
-        "started_unix": started,
-        "finished_unix": time.time(),
-        "profile": runner.profile,
-        "model": runner.chat_config.model,
-        "base_url": runner.chat_config.base_url,
-        "preconditions": runner.preconditions,
-        "journeys": [journey.__dict__ for journey in journeys],
-    }
-    report_path = args.output / "journeys.json"
-    report_path.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
-    sha = hashlib.sha256(report_path.read_bytes()).hexdigest()
-    text = summary_text(runner, journeys, sha)
-    (args.output / "summary.txt").write_text(text, encoding="utf-8")
-    print("\n" + text)
-    return 1 if any(j.status == "FAIL" for j in journeys) else 0
+    with keep_system_awake():
+        runner = Runner(args)
+        started = time.time()
+        runner.check_preconditions()
+        print(json.dumps(runner.preconditions, indent=1), flush=True)
+        selected = set(args.only) or None
+        journeys = runner.run(selected)
+        if args.repo:
+            journeys += runner.run_repo(args.repo.resolve(), allow_build=args.allow_build, selected=selected)
+        report = {
+            "schema": SCHEMA,
+            "started_unix": started,
+            "finished_unix": time.time(),
+            "profile": runner.profile,
+            "model": runner.chat_config.model,
+            "base_url": runner.chat_config.base_url,
+            "preconditions": runner.preconditions,
+            "journeys": [journey.__dict__ for journey in journeys],
+        }
+        report_path = args.output / "journeys.json"
+        report_path.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
+        sha = hashlib.sha256(report_path.read_bytes()).hexdigest()
+        text = summary_text(runner, journeys, sha)
+        (args.output / "summary.txt").write_text(text, encoding="utf-8")
+        print("\n" + text)
+        return 1 if any(j.status == "FAIL" for j in journeys) else 0
 
 
 if __name__ == "__main__":
