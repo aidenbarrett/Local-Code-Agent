@@ -143,13 +143,16 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
     wrapped_registry = object()
     observed = {}
 
+    tool_ctx = type("Ctx", (), {"processes_started": 0})()
+
     def build_registry_spy(_repo, **_kwargs):
         observed["registry_built_for"] = _repo
-        return registry, object(), object()
+        return registry, tool_ctx, object()
 
-    def wrap(actual_registry, activity):
+    def wrap(actual_registry, activity, *, process_starts):
         observed["wrapped_from"] = actual_registry
         observed["activity"] = activity
+        observed["process_starts"] = process_starts
         return wrapped_registry
 
     class FakeOrchestrator:
@@ -172,5 +175,9 @@ def test_task_controller_behaviorally_wraps_registry_when_durable_activity_is_su
     assert observed["registry_built_for"] is controller.repo
     assert observed["wrapped_from"] is registry
     assert observed["activity"] is durable_activity
+    # Cleanup truth counts processes on the same tool context the worker's tools use.
+    assert observed["process_starts"]() == 0
+    tool_ctx.processes_started = 2
+    assert observed["process_starts"]() == 2
     assert observed["worker_registry"] is wrapped_registry
     assert observed["skill_name"] is None

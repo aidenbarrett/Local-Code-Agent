@@ -8,12 +8,15 @@ for deciding whether a tool may be invoked.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import partial
 from time import monotonic
 
 
 from ..tools.tool_primitives import (
     BlockedError,
     Reason,
+    Risk,
     Tool,
     ToolError,
     ToolRegistry,
@@ -21,7 +24,8 @@ from ..tools.tool_primitives import (
 )
 
 
-def _finish_exception(activity, opened, tool_name: str, exc: BaseException, started: float) -> None:
+def _finish_exception(finish: Callable[..., None], exc: BaseException, started: float) -> None:
+    """Close one call as a typed failure; ``finish`` already names the call."""
     if isinstance(exc, BlockedError):
         execution = "blocked"
         reason = exc.reason.value
@@ -34,9 +38,7 @@ def _finish_exception(activity, opened, tool_name: str, exc: BaseException, star
     else:
         execution = "error"
         reason = Reason.INTERNAL_ERROR.value
-    activity.finish_tool(
-        call_id=opened.call_id,
-        tool_name=tool_name,
+    finish(
         execution=execution,
         domain="unknown",
         reason=reason,
@@ -49,6 +51,8 @@ def _finish_exception(activity, opened, tool_name: str, exc: BaseException, star
 def wrap_registry_with_durable_activity(
     registry: ToolRegistry,
     activity,
+    *,
+    process_starts: Callable[[], int] | None = None,
 ) -> ToolRegistry:
     """Return an equivalent registry whose handler effects are durably bracketed.
 
@@ -72,16 +76,36 @@ def wrap_registry_with_durable_activity(
         def handler(*, _tool=original, **kwargs):
             opened = activity.start_tool(_tool.name)
             started = monotonic()
+            counter = process_starts if _tool.risk is Risk.EXECUTE else None
+            spawned_before = counter() if counter is not None else 0
+
+            def process_started() -> bool | None:
+                # Only a tool that can spawn has a meaningful answer; for the rest the
+                # question does not arise and the record says so with None.
+                return None if counter is None else counter() > spawned_before
+
+            def fail(exc: BaseException) -> None:
+                _finish_exception(
+                    partial(
+                        activity.finish_tool,
+                        call_id=opened.call_id,
+                        tool_name=_tool.name,
+                        process_started=process_started(),
+                    ),
+                    exc,
+                    started,
+                )
+
             try:
                 result = _tool.handler(**kwargs)
             except BaseException as exc:
-                _finish_exception(activity, opened, _tool.name, exc, started)
+                fail(exc)
                 raise
             if not isinstance(result, ToolResult):
                 exc = RuntimeError(
                     f"tool {_tool.name!r} returned {type(result).__name__}, not ToolResult"
                 )
-                _finish_exception(activity, opened, _tool.name, exc, started)
+                fail(exc)
                 raise exc
             try:
                 activity.finish_tool(
@@ -93,6 +117,7 @@ def wrap_registry_with_durable_activity(
                     exit_code=result.exit_code,
                     duration_ms=max(0, int((monotonic() - started) * 1000)),
                     failure_detail=None if result.ran else result.summary,
+                    process_started=None if result.ran else process_started(),
                 )
             except Exception as exc:
                 # The result could not be recorded as typed (a contract rejection, or
@@ -100,7 +125,7 @@ def wrap_registry_with_durable_activity(
                 # the next tool is not refused for an open call this one left behind,
                 # then surface the original failure. If closing fails too, that
                 # failure propagates with this one chained.
-                _finish_exception(activity, opened, _tool.name, exc, started)
+                fail(exc)
                 raise
             return result
 
