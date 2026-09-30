@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `7fb958173415207973d902b6bca2ea6252a1719c`
-on 2026-09-30 after the isolated candidate-change journeys (#197-#215: build/test fixes,
+Reconciled against GitHub `main` at `b2980890783790ee87b02d9da32bd9e545598a22`
+on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
 #217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
@@ -51,7 +51,12 @@ as `tool_failure` in acceptance journey logs (#307). A process tool refused befo
 process started records `process_started: false`, so it no longer leaves a completed task
 without a durable terminal (#308); an unknown build profile argument is refused as
 `bad_arguments` (#310); and a `read_file` miss names up to five existing paths (#311).
-On Panther Lake the GPU 30B worker then fixed J08, J10, J11 and J12 3/3 each (#293). Live
+On Panther Lake the GPU 30B worker then fixed J08, J10, J11 and J12 3/3 each (#293).
+The acceptance report lists every failed tool call (#314), a run keeps Windows awake
+without changing power settings (#315), `read_file` hints put shallower paths first
+(#316), and the model preset has one owner: `.\local-code-agent.ps1 models use <profile>`
+stores a user's choice, an explicit `--profile` overrides it for one run, and the Hub
+header names the preset in use (#318). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
