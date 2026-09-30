@@ -358,11 +358,18 @@ class Session:
         self.transcript.write("  ANSWER:\n" + "\n".join("    " + line for line in answer.splitlines()) + "\n\n")
         self.transcript.flush()
 
+    def _with_tool_failure(self, event: dict[str, Any]) -> dict[str, Any]:
+        """Inline a failed tool call's retained reason and message for the log reader."""
+        ref = (event.get("payload") or {}).get("result_ref") if event.get("kind") == "tool.finished" else None
+        if not ref:
+            return event
+        return {**event, "tool_failure": json.loads(self.service.store.artifact_bytes(ref))}
+
     def _dump_events(self) -> None:
         try:
             with (self.log_dir / "events.jsonl").open("w", encoding="utf-8") as out:
                 for event in self.events():
-                    out.write(json.dumps(event, sort_keys=True) + "\n")
+                    out.write(json.dumps(self._with_tool_failure(event), sort_keys=True) + "\n")
         except Exception as exc:  # noqa: BLE001 - the dump must not hide the journey result
             self.journey.notes.append(f"event dump failed: {exc!r}")
 

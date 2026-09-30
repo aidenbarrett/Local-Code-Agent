@@ -201,3 +201,25 @@ def test_repeat_must_be_positive(tmp_path, capsys):
     assert refusal.value.code == 2
     assert "--repeat must be at least 1" in capsys.readouterr().err
     assert not (tmp_path / "acc").exists()
+
+
+def test_event_dump_inlines_a_failed_tool_calls_retained_reason():
+    """A journey log must say why a tool call failed, not only that it failed."""
+    retained = {"schema": "lca.tool-failure/1", "tool_name": "read_file",
+                "tool_reason": "not_found", "detail": "'src/x.cpp' is not a file"}
+    ref = {"artifact_id": "a", "availability": "retained"}
+
+    class _Store:
+        def artifact_bytes(self, seen):
+            assert seen is ref
+            return json.dumps(retained).encode("utf-8")
+
+    session = object.__new__(journeys.Session)
+    session.service = type("S", (), {"store": _Store()})()
+    failed = {"kind": "tool.finished", "payload": {"result_ref": ref}}
+    clean = {"kind": "tool.finished", "payload": {"result_ref": None}}
+    other = {"kind": "task.admitted", "payload": {}}
+
+    assert session._with_tool_failure(failed)["tool_failure"] == retained
+    assert session._with_tool_failure(clean) is clean
+    assert session._with_tool_failure(other) is other

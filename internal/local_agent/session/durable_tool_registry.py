@@ -42,6 +42,7 @@ def _finish_exception(activity, opened, tool_name: str, exc: BaseException, star
         reason=reason,
         exit_code=None,
         duration_ms=max(0, int((monotonic() - started) * 1000)),
+        failure_detail=str(exc),
     )
 
 
@@ -91,6 +92,7 @@ def wrap_registry_with_durable_activity(
                     reason=result.reason.value if result.reason is not None else None,
                     exit_code=result.exit_code,
                     duration_ms=max(0, int((monotonic() - started) * 1000)),
+                    failure_detail=None if result.ran else result.summary,
                 )
             except Exception as exc:
                 # The result could not be recorded as typed (a contract rejection, or

@@ -8,7 +8,10 @@ from typed execution/domain data, never by parsing summary prose.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import UUID, uuid5
+import hashlib
+import json
+from typing import Any
+from uuid import UUID, uuid4, uuid5
 
 
 class DurableActivityError(RuntimeError):
@@ -46,6 +49,34 @@ OK_EXECUTION_REASON_CODES = frozenset(
 )
 _ALLOWED_EXECUTION = frozenset({"ok", "blocked", "error", "interrupted", "unknown"})
 _ALLOWED_DOMAIN = frozenset({"pass", "fail", "unknown"})
+# A call that did not execute cleanly retains the tool's typed reason and its own
+# short message as a result artifact, because the reviewed event vocabulary folds
+# several typed reasons together (``not_found`` and ``bad_arguments`` are both
+# ``invalid_input``). The message is tool-authored evidence, never authority.
+TOOL_FAILURE_SCHEMA = "lca.tool-failure/1"
+TOOL_FAILURE_MEDIA_TYPE = "application/json"
+MAX_FAILURE_DETAIL_CHARS = 300
+
+
+def tool_failure_artifact(
+    *, tool_name: str, tool_reason: str, failure_detail: str,
+) -> tuple[dict[str, Any], bytes]:
+    """The retained result reference and bytes for one failed tool call."""
+    detail = " ".join(failure_detail.split())[:MAX_FAILURE_DETAIL_CHARS]
+    payload = json.dumps({
+        "schema": TOOL_FAILURE_SCHEMA,
+        "tool_name": tool_name,
+        "tool_reason": tool_reason,
+        "detail": detail,
+    }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ref = {
+        "artifact_id": str(uuid4()),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "media_type": TOOL_FAILURE_MEDIA_TYPE,
+        "size_bytes": len(payload),
+        "availability": "retained",
+    }
+    return ref, payload
 
 
 def durable_tool_reason(*, execution: str, reason: str | None, domain: str = "unknown") -> str:
@@ -174,8 +205,13 @@ class DurableToolActivity:
         exit_code: int | None,
         duration_ms: int,
         evidence_ids: tuple[str, ...] | list[str] = (),
+        failure_detail: str | None = None,
     ) -> None:
-        """Commit a typed finish for exactly the currently-open durable call."""
+        """Commit a typed finish for exactly the currently-open durable call.
+
+        ``failure_detail`` is the tool's own message for a call that did not
+        execute cleanly; it is retained with the typed reason as ``result_ref``.
+        """
         opened = self._open
         if opened is None:
             raise DurableActivityError("tool finish has no matching durable start")
@@ -188,6 +224,17 @@ class DurableToolActivity:
         if not isinstance(duration_ms, int) or isinstance(duration_ms, bool) or duration_ms < 0:
             raise ValueError("duration_ms must be a non-negative integer")
         durable_reason = durable_tool_reason(execution=execution, reason=reason, domain=domain)
+        result_ref: dict[str, Any] | None = None
+        result_bytes: bytes | None = None
+        if failure_detail is not None:
+            if execution == "ok":
+                raise DurableActivityError("a cleanly executed tool call has no failure detail")
+            if not isinstance(failure_detail, str):
+                raise ValueError("failure_detail must be a string")
+            if failure_detail.strip() and reason is not None:
+                result_ref, result_bytes = tool_failure_artifact(
+                    tool_name=tool_name, tool_reason=reason, failure_detail=failure_detail,
+                )
         ids = tuple(str(value) for value in evidence_ids)
         if any(not value for value in ids):
             raise ValueError("evidence ids must be nonempty strings")
@@ -202,10 +249,11 @@ class DurableToolActivity:
                 "exit_code": exit_code,
                 "duration_ms": duration_ms,
                 "evidence_ids": list(ids),
-                "result_ref": None,
+                "result_ref": result_ref,
                 "execution_epoch": self.execution_epoch,
             },
             task_id=self.task_id,
+            result_bytes=result_bytes,
         )
         receipt.wait(30)
         self._open = None

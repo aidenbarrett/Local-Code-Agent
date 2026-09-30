@@ -212,7 +212,12 @@ class DurableSessionService:
         }))
 
     def append(
-        self, kind: str, payload: dict[str, Any], *, task_id: str | None = None,
+        self,
+        kind: str,
+        payload: dict[str, Any],
+        *,
+        task_id: str | None = None,
+        result_bytes: bytes | None = None,
     ) -> WriteReceipt:
         if kind in {"task.verdict", "task.closed"}:
             raise ValueError("terminal task events must use finalize_task")
@@ -221,6 +226,7 @@ class DurableSessionService:
             "kind": kind,
             "payload": payload,
             "task_id": task_id,
+            "result_bytes": result_bytes,
         }))
 
     def finalize_task(
@@ -414,7 +420,13 @@ class DurableSessionService:
                         kind=command.data["kind"],
                         payload=command.data["payload"],
                     )
-                    self.store.append(event, expected_sequence=sequence)
+                    result_bytes = command.data.get("result_bytes")
+                    if result_bytes is None:
+                        self.store.append(event, expected_sequence=sequence)
+                    else:
+                        self.store.append(
+                            event, expected_sequence=sequence, result_bytes=result_bytes,
+                        )
                     self._publish(event)
             # The writer thread must survive any single write: the failure belongs to the
             # receipt of the write that caused it, and its waiter re-raises it.
