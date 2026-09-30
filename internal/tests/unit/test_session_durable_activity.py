@@ -175,7 +175,8 @@ def test_failed_call_retains_typed_reason_and_bounded_detail_as_result(tmp_path)
         assert ref["availability"] == "retained"
         assert ref["media_type"] == "application/json"
         retained = json.loads(service.store.artifact_bytes(ref))
-        assert retained["schema"] == "lca.tool-failure/1"
+        assert retained["schema"] == "lca.tool-failure/2"
+        assert retained["process_started"] is None
         assert retained["tool_name"] == "read_file"
         assert retained["tool_reason"] == "not_found"
         assert retained["detail"].startswith("'src/ring.cpp' is not a file")

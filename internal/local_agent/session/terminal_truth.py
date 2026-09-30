@@ -9,8 +9,10 @@ open.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from typing import Any
 
-from .durable_activity import OK_EXECUTION_REASON_CODES
+from .durable_activity import OK_EXECUTION_REASON_CODES, TOOL_FAILURE_SCHEMA
 
 
 class DurableWriteFailed(RuntimeError):
@@ -68,6 +70,13 @@ def derive_terminal_activity_truth(
         if len(batch) < 1000:
             break
 
+    # A call the controller recorded as having started no process leaves nothing to
+    # clean up, whatever else went wrong with it (a refused argument, a policy block).
+    # Anything else, including a failure record without that fact, stays unknown.
+    process_calls = {
+        call_id: finish for call_id, finish in process_calls.items()
+        if finish is None or not _started_no_process(service, finish)
+    }
     process_open = any(finish is None for finish in process_calls.values())
     if process_open:
         cleanup = "unknown"
@@ -95,3 +104,12 @@ def derive_terminal_activity_truth(
         cleanup=cleanup,
         open_call_ids=tuple(sorted(open_calls)),
     )
+
+
+def _started_no_process(service: Any, finish: dict[str, Any]) -> bool:
+    """True only when the retained failure record says the call spawned nothing."""
+    ref = finish.get("result_ref")
+    if finish.get("execution") == "ok" or not isinstance(ref, dict):
+        return False
+    record = json.loads(service.store.artifact_bytes(ref))
+    return record.get("schema") == TOOL_FAILURE_SCHEMA and record.get("process_started") is False

@@ -205,7 +205,7 @@ def test_repeat_must_be_positive(tmp_path, capsys):
 
 def test_event_dump_inlines_a_failed_tool_calls_retained_reason():
     """A journey log must say why a tool call failed, not only that it failed."""
-    retained = {"schema": "lca.tool-failure/1", "tool_name": "read_file",
+    retained = {"schema": "lca.tool-failure/2", "tool_name": "read_file",
                 "tool_reason": "not_found", "detail": "'src/x.cpp' is not a file"}
     ref = {"artifact_id": "a", "availability": "retained"}
 

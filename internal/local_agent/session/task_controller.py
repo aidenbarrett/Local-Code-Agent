@@ -336,14 +336,18 @@ class TaskController:
     ) -> TaskResult:
         """Run one skill in the hardened orchestrator against the user's checkout."""
         task_id, durable_activity = scope.task_id, scope.durable_activity
-        registry, _ctx, _store = build_registry(
+        registry, tool_ctx, _store = build_registry(
             self.repo, cancellation_probe=scope.cancellation_probe,
         )
         if durable_activity is not None:
             # The wrapper commits tool.started before entering an effectful handler
             # and typed tool.finished afterwards. Policy still lives in the
             # orchestrator; durable activity is evidence, not authority.
-            registry = wrap_registry_with_durable_activity(registry, durable_activity)
+            registry = wrap_registry_with_durable_activity(
+                registry,
+                durable_activity,
+                process_starts=lambda: tool_ctx.processes_started,
+            )
 
         def observe(kind: str, payload: Mapping[str, object]) -> None:
             fields = {
@@ -433,11 +437,15 @@ class TaskController:
             )
             # The same Stop token as any other task: a candidate build is a configured
             # command and must end when the user stops the task.
-            registry, _ctx, _store = build_registry(
+            registry, candidate_ctx, _store = build_registry(
                 work_repo, cancellation_probe=cancellation_probe
             )
             if durable_activity is not None:
-                registry = wrap_registry_with_durable_activity(registry, durable_activity)
+                registry = wrap_registry_with_durable_activity(
+                    registry,
+                    durable_activity,
+                    process_starts=lambda: candidate_ctx.processes_started,
+                )
             self.events.emit("worker.workspace", {
                 "workspace_id": workspace.workspace_id,
                 "base_commit": workspace.base_commit,

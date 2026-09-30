@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 from uuid import uuid4
 
@@ -169,5 +170,73 @@ def test_restart_recovery_records_controller_restarted(tmp_path):
         closed = next(event for event in service.replay() if event["kind"] == "task.closed")
         assert verdict["payload"]["completion"]["verdict_block"]["reason_code"] == "controller_restarted"
         assert closed["payload"]["cleanup"] == "unknown"
+    finally:
+        service.close()
+
+
+def _completed_after_failed_process_tool(service, *, process_started, execution="blocked",
+                                         reason="policy_denied"):
+    """A controller whose worker hit one failed run_test and then completed."""
+
+    class Controller:
+        def process_spawning_tools(self):
+            return {"build_target", "run_test"}
+
+        def run(self, task, *, self_check=False, route_source=None, task_id=None, skill_name=None):
+            activity = DurableToolActivity.from_task(service, task_id)
+            opened = activity.start_tool("run_test")
+            activity.finish_tool(
+                call_id=opened.call_id,
+                tool_name=opened.tool_name,
+                execution=execution,
+                domain="unknown",
+                reason=reason,
+                exit_code=None,
+                duration_ms=1,
+                failure_detail="running tests is disabled by repository policy",
+                process_started=process_started,
+            )
+            return TaskResult(
+                task_id,
+                TaskOutcome.PASS,
+                "answered without running tests",
+                True,
+                verification_ran=True,
+                reason_code="verification_passed",
+            )
+
+    return Controller()
+
+
+def test_process_tool_refused_before_spawning_does_not_block_a_completed_terminal(tmp_path):
+    """gpu30b-2 J10.r3: a run_test that started nothing made the terminal unwritable."""
+    service = _service(tmp_path)
+    try:
+        controller = _completed_after_failed_process_tool(service, process_started=False)
+        handle = _submit(CancellableDurableTaskExecutor(service, controller), request_id="refused")
+        assert handle.wait(5) is not None
+        closed = next(event for event in service.replay() if event["kind"] == "task.closed")
+        assert closed["payload"]["status"] == "completed"
+        assert closed["payload"]["cleanup"] == "not_needed"
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("process_started", [True, None])
+def test_failed_process_tool_without_proof_of_no_spawn_keeps_cleanup_unknown(
+        tmp_path, process_started):
+    """A process that may have started, or an unrecorded one, is never cleanup not_needed."""
+    service = _service(tmp_path)
+    try:
+        controller = _completed_after_failed_process_tool(
+            service, process_started=process_started, execution="error", reason="internal_error",
+        )
+        handle = _submit(CancellableDurableTaskExecutor(service, controller), request_id="maybe")
+        # Whatever the executor then does with a completed result and unknown cleanup
+        # (tracked separately), it must never record the cleanup as not needed.
+        with contextlib.suppress(Exception):
+            handle.wait(5)
+        assert not any(event["kind"] == "task.closed" and event["payload"]["cleanup"] == "not_needed"
+                       for event in service.replay())
     finally:
         service.close()

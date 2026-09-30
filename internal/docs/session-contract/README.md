@@ -92,11 +92,15 @@ chunks. An immutable Turn artifact snapshots one stored Turn, not the growing
 conversation JSON file. It follows the same private-content policy and caps.
 
 A `tool.finished` whose execution is not `ok` carries a retained `result_ref` to a
-`lca.tool-failure/1` JSON artifact: the tool name, the typed tool reason (for example
+`lca.tool-failure/2` JSON artifact: the tool name, the typed tool reason (for example
 `not_found` or `bad_arguments`, which the event vocabulary folds into `invalid_input`)
-and the tool's own message, bounded to 300 characters. It is evidence for diagnosis,
-never authority. A cleanly executed call has `result_ref: null`. The reference and its
-bytes commit in the same transaction or not at all.
+and the tool's own message, bounded to 300 characters, plus `process_started`: for a
+process-spawning tool, whether the controller's own runner started a process during the
+call (null for tools that cannot spawn). The message is evidence for diagnosis, never
+authority. Terminal cleanup truth uses only `process_started: false` to treat a failed
+process-tool call as leaving nothing to clean up; any other failure keeps cleanup
+unknown. A cleanly executed call has `result_ref: null`. The reference and its bytes
+commit in the same transaction or not at all.
 
 `TaskCompletion` contains task ID, terminal lifecycle state, `VerdictBlock`, an
 optional labelled worker-analysis artifact and immutable result artifact.
