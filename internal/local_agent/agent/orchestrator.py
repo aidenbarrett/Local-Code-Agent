@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from jsonschema import Draft202012Validator
+
 from ..config import RepoConfig
 from ..llm.client import LLMClient
 from ..llm.protocol import LLMTransportError, ToolCall
@@ -121,6 +123,15 @@ def _edit_reminder(state: Any, claim: str | None) -> tuple[str, str] | None:
     if (toolset and state.mutation_epoch == 0 and claim not in _NO_EDIT_CLAIMS):
         return "no file changed", _UNCHANGED_MESSAGE
     return None
+
+
+def _submit_answer_shaped_prose(content: str, schema: dict[str, Any]) -> bool:
+    """Recognize a format slip without interpreting its claim as a tool call."""
+    try:
+        value = json.loads(content)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(value, dict) and Draft202012Validator(schema).is_valid(value)
 
 
 def _search_streak(history: list[Any]) -> int:
@@ -621,11 +632,13 @@ class Orchestrator:
             skill.name if skill else None, skill, no_skill=(condition == "control"))
         state.toolset = list(toolset)
         schemas = self.registry.schemas(toolset)
+        answer_schema = self.registry.get("submit_answer").parameters
         ctx.set_tool_schemas(schemas)
         self.observer("toolset", {"tools": toolset})
 
         answer = ""
         nudged = False
+        prose_submit_observed = False
         edit_reminded = False
         search_nudges = 0
         task_lower = task.lower()
@@ -719,6 +732,26 @@ class Orchestrator:
 
             if not response.wants_tools:
                 answer = response.content or ""
+                if state.claim is None and _submit_answer_shaped_prose(answer, answer_schema):
+                    if not prose_submit_observed:
+                        prose_submit_observed = True
+                        self.observer("submit_answer_prose", {"claim_recorded": False})
+                    if not nudged:
+                        # The JSON is only model prose. Never convert it into a
+                        # claim or accept its citations as recorded tool evidence.
+                        nudged = True
+                        state.warnings.append("finished with submit_answer arguments in prose")
+                        ctx.append({
+                            "role": "user",
+                            "content": (
+                                "Your last response was plain text, so no claim or "
+                                "citations were recorded. Call the submit_answer tool "
+                                "to finish. Cite only tool call ids from recorded results; "
+                                "do not claim success without verified evidence."
+                            ),
+                        })
+                        state.phase = Phase.VERIFY
+                        continue
                 reminder = None if edit_reminded else _edit_reminder(state, state.claim)
                 if reminder is not None:
                     # One reminder, from recorded tool state: finishing an editing

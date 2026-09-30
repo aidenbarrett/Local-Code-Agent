@@ -19,13 +19,13 @@ from local_agent.tools import build_registry
 REPO = Path(__file__).resolve().parent.parent.parent
 
 
-def _orch(root: Path, turns, approval=None):
+def _orch(root: Path, turns, approval=None, observer=None):
     repo = load_repo_config(root)
     registry, _, _ = build_registry(repo)
     skills = SkillLibrary.discover(REPO / "skills")
     client = ScriptedClient(turns)
     return (
-        Orchestrator(repo, registry, client, skills, approval=approval),
+        Orchestrator(repo, registry, client, skills, approval=approval, observer=observer),
         client,
     )
 
@@ -91,6 +91,62 @@ def test_a_prose_answer_is_asked_to_state_a_checkable_claim(sandbox):
     assert result.state.verified is False
     # The nudge was appended as a user turn before the second call.
     assert client.calls[1][-1]["role"] == "user"
+
+
+def test_submit_answer_arguments_in_prose_get_one_tool_call_reminder(sandbox):
+    events = []
+    turns = [
+        ChatResponse(content=json.dumps({
+            "claim": "failure", "summary": "Build failed", "evidence_ids": [],
+        })),
+        ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "failure", "summary": "Build failed", "evidence_ids": [],
+        }, "c1")]),
+    ]
+    orch, client = _orch(sandbox.root, turns, observer=lambda kind, data: events.append(kind))
+
+    result = orch.run("review the repository", skill_name="git-review")
+
+    assert result.state.claim == "failure"
+    assert result.answer == "Build failed"
+    assert events.count("submit_answer_prose") == 1
+    assert len(client.calls) == 2
+    assert "no claim or citations were recorded" in client.calls[1][-1]["content"]
+    assert len([warning for warning in result.state.warnings if "arguments in prose" in warning]) == 1
+
+
+def test_tool_shaped_success_prose_never_records_a_claim_and_is_reminded_once(sandbox):
+    content = json.dumps({"claim": "success", "summary": "I fixed everything"})
+    events = []
+    orch, client = _orch(
+        sandbox.root, [ChatResponse(content=content), ChatResponse(content=content)],
+        observer=lambda kind, data: events.append(kind),
+    )
+
+    result = orch.run("review the repository", skill_name="git-review")
+
+    assert len(client.calls) == 2
+    assert events.count("submit_answer_prose") == 1
+    assert result.state.claim is None
+    assert result.state.verified is False
+    assert result.state.tool_calls == 0
+    assert len([warning for warning in result.state.warnings if "arguments in prose" in warning]) == 1
+
+
+def test_other_json_prose_does_not_trigger_a_tool_call_reminder(sandbox):
+    content = json.dumps({"claim": "success", "summary": "Looks good", "extra": "not a tool"})
+    events = []
+    orch, client = _orch(
+        sandbox.root, [ChatResponse(content=content)],
+        observer=lambda kind, data: events.append(kind),
+    )
+
+    result = orch.run("review the repository", skill_name="git-review")
+
+    assert len(client.calls) == 1
+    assert "submit_answer_prose" not in events
+    assert result.state.claim is None
+    assert result.answer == content
 
 
 def test_denied_tool_returns_a_recoverable_result(sandbox):
