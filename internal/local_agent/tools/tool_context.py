@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import RepoConfig
+from ..config import BuildProfile, ConfigError, RepoConfig
+from .tool_primitives import Reason, ToolError
 from .process_runner import (
     CancellationProbe,
     CommandCancellationRequested,
@@ -20,6 +21,13 @@ class ToolContext:
     # The admitted task's cancellation token. None outside a cancellable durable task,
     # in which case configured commands run exactly as before.
     cancellation_probe: CancellationProbe | None = None
+
+    def profile(self, name: str | None = None) -> BuildProfile:
+        """Resolve a tool argument without exposing configuration errors as crashes."""
+        try:
+            return self.repo.profile(name)
+        except ConfigError as exc:
+            raise ToolError(str(exc), reason=Reason.BAD_ARGUMENTS) from exc
 
     @property
     def root(self) -> Path:

@@ -259,7 +259,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     ) -> ToolResult:
         if not ctx.repo.policy.allow_test:
             raise BlockedError("running tests is disabled by repository policy")
-        prof = ctx.repo.profile(profile)
+        prof = ctx.profile(profile)
         if not prof.test:
             raise ToolError(f"profile {prof.name!r} defines no test step")
 
@@ -459,7 +459,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         Risk.EXECUTE,
     )
     def list_tests(profile: str | None = None) -> ToolResult:
-        prof = ctx.repo.profile(profile)
+        prof = ctx.profile(profile)
         if not prof.test:
             raise ToolError(f"profile {prof.name!r} defines no test step")
         outcome = ctx.run_configured([*prof.test, "-N"], prof.env)
