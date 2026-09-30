@@ -155,7 +155,7 @@ def test_a_model_the_product_cannot_call_is_one_precondition_not_every_journey(t
     assert "No module named 'jiter'" in fix["reason"]
 
 
-def test_repeat_runs_each_model_journey_n_times_and_reports_its_rate(tmp_path, monkeypatch):
+def test_repeat_runs_each_model_journey_n_times_and_reports_its_rate(tmp_path, monkeypatch, capsys):
     """A single model attempt is noise (J09 passed on 09d4d71 and not on e2b04cc)."""
     outcomes = iter(["changed", "fail", "changed"])
     ran: list[str] = []
@@ -163,6 +163,9 @@ def test_repeat_runs_each_model_journey_n_times_and_reports_its_rate(tmp_path, m
     def model_journey(session):
         ran.append(session.journey.id)
         session.journey.measured_as(next(outcomes), "scripted")
+        if session.journey.id == "M1.r2":
+            session.journey.tool_failures.append({"tool_name": "read_file",
+                                                  "tool_reason": "not_found", "detail": "missing"})
 
     def product_journey(session):
         ran.append(session.journey.id)
@@ -189,6 +192,9 @@ def test_repeat_runs_each_model_journey_n_times_and_reports_its_rate(tmp_path, m
 
     results = runner.run(None)
 
+    printed = capsys.readouterr().out
+    assert "M1.r2: read_file not_found missing" in printed
+    assert "M1.r1: read_file" not in printed
     assert ran == ["P1", "M1.r1", "M1.r2", "M1.r3"]
     assert [j.id for j in results] == ["P1", "M1.r1", "M1.r2", "M1.r3"]
     assert journeys.model_rates(results) == [f"{'M1':<22} changed 2/3, fail 1/3"]
@@ -223,3 +229,27 @@ def test_event_dump_inlines_a_failed_tool_calls_retained_reason():
     assert session._with_tool_failure(failed)["tool_failure"] == retained
     assert session._with_tool_failure(clean) is clean
     assert session._with_tool_failure(other) is other
+
+
+def test_failed_tool_summary_retains_evidence_and_prints_one_line(tmp_path):
+    failure = {"schema": "lca.tool-failure/2", "tool_name": "read_file",
+               "tool_reason": "not_found", "detail": "missing\nheader " + "x" * 400}
+    session = object.__new__(journeys.Session)
+    session.journey = journeys.Journey("J10", "test fix", "model")
+    session.log_dir = tmp_path
+    session.events = lambda: [{"kind": "tool.finished"}]
+    session._with_tool_failure = lambda event: {**event, "tool_failure": failure}
+    session._dump_events()
+    assert session.journey.tool_failures == [failure]
+    assert json.loads(json.dumps(session.journey.__dict__))["tool_failures"] == [failure]
+    line, = journeys.failed_tool_lines(session.journey)
+    assert line.startswith("J10: read_file not_found missing header ")
+    assert "\n" not in line
+    assert len(line.split("not_found ", 1)[1]) == 300
+    runner = type("Runner", (), {"preconditions": {}})()
+    text = journeys.summary_text(runner, [session.journey], "0" * 64)
+    assert "Failed tool calls\n" + line in text
+    assert journeys.SCHEMA == "lca.acceptance-journeys/1"
+    clean = journeys.Journey("clean", "clean", "model")
+    assert journeys.failed_tool_lines(clean) == []
+    assert "Failed tool calls" not in journeys.summary_text(runner, [clean], "0" * 64)
