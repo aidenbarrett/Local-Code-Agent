@@ -13,7 +13,7 @@ param(
     # switch, which prints help.
     [ArgumentCompleter({
         param($commandName, $parameterName, $wordToComplete)
-        @('session', 'chat', 'help', 'capabilities', 'run-task', 'acceptance', 'verification-demo', 'advanced') |
+        @('session', 'chat', 'help', 'capabilities', 'run-task', 'acceptance', 'models', 'verification-demo', 'advanced') |
             Where-Object { $_ -like "$wordToComplete*" } |
             ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
     })]
@@ -147,6 +147,12 @@ switch ($Command.ToLowerInvariant()) {
         # The Session Hub acceptance journeys, one run, every log kept in --output.
         Set-ManagedOvmsEnvironment
         & $python (Join-Path $internal 'scripts\acceptance-journeys.py') @Rest
+        exit $LASTEXITCODE
+    }
+    'models' {
+        # Which presets have weights downloaded; `models pull <profile>` fetches one.
+        Set-ManagedOvmsEnvironment
+        & $python (Join-Path $internal 'scripts\model_weights.py') @Rest
         exit $LASTEXITCODE
     }
     'verification-demo' {

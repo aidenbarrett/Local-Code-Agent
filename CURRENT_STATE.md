@@ -36,11 +36,10 @@ durable routes (#284), the controller verdict shown ahead of unverified worker a
 (#285), a longer handoff fixture wait (#288) and `--repeat N` model-journey rates in the
 acceptance runner (#287), a concrete trace-to-first-mismatch procedure in the
 fix-test-failure skill (#290), every independent candidate policy block named with a
-controller-authored refusal line in the Hub conversation (#292) and a candidate model
-fetcher that writes OpenVINO builds into the serving model store, with the runtime root
-and model layout owned by `internal/serving/model_store.py` (#294). The fetcher's
-catalogue is not a list of supported profiles; `MODEL_PRESETS` still decides what is
-served. Live
+controller-authored refusal line in the Hub conversation (#292) and the runtime root
+and model layout owned by `internal/serving/model_store.py` (#294). Model weights for a
+preset are listed and downloaded with `.\local-code-agent.ps1 models` and
+`models pull <profile>` through `serve.py pull`, the same owner setup uses. Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
