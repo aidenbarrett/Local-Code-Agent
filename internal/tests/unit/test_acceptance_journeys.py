@@ -337,3 +337,24 @@ def test_context_use_names_peak_against_budget_for_model_journeys_only():
     lines = journeys.context_use_lines([model, product, unmeasured], 8_000)
     assert lines == ["J08-fix-build.r1       12 model calls · peak context 7,200/8,000 tokens (90%)"
                      " · 1 compactions"]
+
+
+def test_compare_cli_never_starts_a_runner(tmp_path, monkeypatch, capsys):
+    old, new = tmp_path / "old", tmp_path / "new"
+    for directory in (old, new):
+        directory.mkdir()
+        (directory / "journeys.json").write_text(json.dumps({
+            "schema": journeys.SCHEMA, "model": "fixture",
+            "journeys": [{"id": "J01", "kind": "product", "status": "PASS"}]}))
+    monkeypatch.setattr(journeys, "Runner", lambda *_: pytest.fail("started a runner"))
+    monkeypatch.setattr(journeys, "resolve_preset", lambda *_: pytest.fail("resolved a model"))
+    assert journeys.main(["--compare", str(old), str(new)]) == 0
+    assert "J01 | PASS 1/1 | PASS 1/1" in capsys.readouterr().out
+
+
+def test_compare_cli_refuses_output_and_preserves_evidence(tmp_path):
+    out = tmp_path / "unused"
+    with pytest.raises(SystemExit) as refused:
+        journeys.main(["--compare", "old", "new", "--output", str(out)])
+    assert refused.value.code == 2
+    assert not out.exists()
