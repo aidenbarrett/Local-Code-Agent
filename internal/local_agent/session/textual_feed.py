@@ -8,6 +8,7 @@ re-subscribing from the last accepted sequence; it is never smoothed over.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Any
 
 from .session_event_service import DurableSessionService, ReplaySubscription, SubscriptionGap
 from .session_store import ArtifactIntegrityError
@@ -61,7 +62,7 @@ class DurableHubFeed:
         self.capacity = capacity
         self.replay_page = replay_page
         self.max_events = max_events
-        self._events: list[dict] = []
+        self._events: list[dict[str, Any]] = []
         self._cursor = 0
         self._handoff: ReplaySubscription | None = None
         self._started = False
@@ -75,7 +76,7 @@ class DurableHubFeed:
         return self._cursor
 
     @property
-    def events(self) -> tuple[dict, ...]:
+    def events(self) -> tuple[dict[str, Any], ...]:
         return tuple(self._events)
 
     @property
@@ -88,7 +89,7 @@ class DurableHubFeed:
             raise TypeError("conversation provider must return ConversationEntry values")
         return conversation
 
-    def _accept(self, events: Sequence[dict]) -> int:
+    def _accept(self, events: Sequence[dict[str, Any]]) -> int:
         accepted = 0
         for event in events:
             if event.get("stream_id") != self.service.stream_id:

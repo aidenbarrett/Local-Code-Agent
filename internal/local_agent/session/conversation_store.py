@@ -13,7 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 import uuid
 
 
@@ -156,7 +156,7 @@ def session_path(runtime_root: Path, conversation_id: str) -> Path:
     return Path(runtime_root) / "chat" / f"{conversation_id}.json"
 
 
-def _as_dict(session: Session) -> dict:
+def _as_dict(session: Session) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "conversation_id": session.conversation_id,

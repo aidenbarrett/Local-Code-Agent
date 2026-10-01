@@ -7,7 +7,7 @@ rejects revision/history contradictions instead of smoothing them over in presen
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Any, Iterable
 from uuid import UUID
 
 
@@ -32,8 +32,8 @@ class WatchRunSummary:
     started_utc: str
     finished_utc: str
     next_due_utc: str | None
-    counts: dict | None
-    delta_ref: dict | None
+    counts: dict[str, Any] | None
+    delta_ref: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ def _activity(sequence: int, occurred_utc: str, kind: str, summary: str) -> Watc
     return WatchActivity(sequence=sequence, occurred_utc=occurred_utc, kind=kind, summary=summary)
 
 
-def _state_event(event: dict) -> tuple[str, str, str, str, str | None, str | None]:
+def _state_event(event: dict[str, Any]) -> tuple[str, str, str, str, str | None, str | None]:
     payload = event["payload"]
     job_id = str(payload["job_id"])
     job_revision = str(payload["job_revision"])
@@ -101,7 +101,7 @@ def _state_event(event: dict) -> tuple[str, str, str, str, str | None, str | Non
     )
 
 
-def _apply(snapshot: WatchSnapshot, event: dict) -> None:
+def _apply(snapshot: WatchSnapshot, event: dict[str, Any]) -> None:
     sequence = int(event["sequence"])
     if sequence <= snapshot.last_sequence:
         raise WatchReadModelError("watch events must have strictly increasing durable sequence")
@@ -198,7 +198,7 @@ def _apply(snapshot: WatchSnapshot, event: dict) -> None:
     raise WatchReadModelError(f"unsupported watch event kind {kind!r}")
 
 
-def project_watch(events: Iterable[dict], job_id: str) -> WatchSnapshot:
+def project_watch(events: Iterable[dict[str, Any]], job_id: str) -> WatchSnapshot:
     _require_uuid("watch job_id", job_id)
     relevant = [
         event
@@ -240,7 +240,7 @@ def project_watch(events: Iterable[dict], job_id: str) -> WatchSnapshot:
     return snapshot
 
 
-def project_watches(events: Iterable[dict]) -> list[WatchSnapshot]:
+def project_watches(events: Iterable[dict[str, Any]]) -> list[WatchSnapshot]:
     materialised = list(events)
     first_by_job: dict[str, int] = {}
     for event in materialised:

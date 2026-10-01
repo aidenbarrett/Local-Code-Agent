@@ -42,7 +42,7 @@ def derive_terminal_activity_truth(
         raise ValueError("terminal truth requires an admitted durable task")
     cursor = int(record["admitted_sequence"]) - 1
     open_calls: dict[str, str] = {}
-    process_calls: dict[str, dict | None] = {}
+    process_calls: dict[str, dict[str, Any] | None] = {}
 
     while True:
         batch = service.replay(after=cursor, limit=1000)

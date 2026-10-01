@@ -7,7 +7,7 @@ authority to the UI.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 
 class RouteReadModelError(RuntimeError):
@@ -47,7 +47,7 @@ class RouteSnapshot:
         return " · ".join(parts)
 
 
-def _proposal_snapshot(payload: dict) -> RouteSnapshot:
+def _proposal_snapshot(payload: dict[str, Any]) -> RouteSnapshot:
     return RouteSnapshot(
         route_id=payload["route_id"],
         revision=int(payload["revision"]),
@@ -60,7 +60,7 @@ def _proposal_snapshot(payload: dict) -> RouteSnapshot:
     )
 
 
-def project_routes(events: Iterable[dict]) -> tuple[RouteSnapshot, ...]:
+def project_routes(events: Iterable[dict[str, Any]]) -> tuple[RouteSnapshot, ...]:
     """Project route events in durable sequence order and fail on impossible transitions."""
     routes: dict[str, RouteSnapshot] = {}
     order: list[str] = []
@@ -116,13 +116,13 @@ def project_routes(events: Iterable[dict]) -> tuple[RouteSnapshot, ...]:
     return tuple(routes[route_id] for route_id in order)
 
 
-def latest_route_snapshot(events: Iterable[dict]) -> RouteSnapshot | None:
+def latest_route_snapshot(events: Iterable[dict[str, Any]]) -> RouteSnapshot | None:
     """Return the latest typed durable route state for presentation decisions."""
     routes = project_routes(events)
     return None if not routes else routes[-1]
 
 
-def latest_route_summary(events: Iterable[dict]) -> str | None:
+def latest_route_summary(events: Iterable[dict[str, Any]]) -> str | None:
     latest = latest_route_snapshot(events)
     return None if latest is None else latest.summary()
 
