@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `44390501c8237b4c63db3a7e0a39f19d01d8fe80`
+Reconciled against GitHub `main` at `c0657bbd8ed035b793c2314d24334e6495ec59b6`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -73,7 +73,8 @@ server-side tool parser cannot read one as a number (#338; seen on the GPU 30B a
 `4.3477e22`). Context-use peaks count only requests actually sent to the model (#340).
 Product help shows `acceptance --compare` and a new output folder per run (#343). A file
 has one pending proposal: an edit to other lines builds on it so one apply lands both, an
-edit to the same lines replaces it and says the earlier edit is dropped (#344). Live
+edit to the same lines replaces it and says the earlier edit is dropped (#344). Session event payloads and context managers are
+fully typed (#346, #347). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
