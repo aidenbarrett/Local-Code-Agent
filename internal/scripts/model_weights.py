@@ -22,12 +22,11 @@ from local_agent.config import MODEL_PRESETS  # noqa: E402
 from serving import serve  # noqa: E402
 from serving.model_choice import (  # noqa: E402
     ModelChoiceError,
+    local_presets,
     resolve_preset,
     store_preset,
 )
 from serving.model_store import default_runtime_root  # noqa: E402
-
-LOCAL_RUNTIMES = ("ovms", "llamacpp")
 
 
 def _plan(profile: str, runtime_root: Path) -> dict:
@@ -47,9 +46,8 @@ def weight_state(profile: str, runtime_root: Path) -> str:
 def list_weights(runtime_root: Path) -> int:
     selected = resolve_preset(None, runtime_root)
     print(f"Model store: {serve.model_repository(runtime_root)}")
-    for name, config in MODEL_PRESETS.items():
-        if config.runtime not in LOCAL_RUNTIMES:
-            continue
+    for name in local_presets():
+        config = MODEL_PRESETS[name]
         mark = "*" if name == selected.name else " "
         flag = "  (experimental)" if config.serving_experimental else ""
         print(f"{mark} {name:<20} {config.device:<4} {config.model:<48} "

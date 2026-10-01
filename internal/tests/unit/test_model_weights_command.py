@@ -8,6 +8,7 @@ import pytest
 
 from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS
 from serving import serve
+from serving.model_choice import local_presets
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "model_weights.py"
 
@@ -63,8 +64,7 @@ def test_list_marks_each_local_preset_missing_or_downloaded(
     assert rows["ptl-npu-8b"].rstrip().endswith("downloaded")
     assert "missing" in rows["ptl-gpu-30b"]
     assert "cloud" not in rows
-    local = {n for n, c in MODEL_PRESETS.items() if c.runtime in ("ovms", "llamacpp")}
-    assert set(rows) == local
+    assert list(rows) == local_presets()
 
 
 def test_pull_refuses_without_ovms_and_never_downloads(
@@ -109,3 +109,14 @@ def test_pull_that_leaves_weights_incomplete_is_not_success(
     monkeypatch.setattr(serve, "pull", lambda plan, config, *, allow_experimental: {
         "pulled": "x", "model_dir": plan["model_dir"]})
     assert weights.main(["pull", "ptl-gpu-30b", "--runtime-root", str(tmp_path)]) == 2
+
+
+def test_list_obeys_the_local_preset_owner(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    weights = _load()
+    monkeypatch.setattr(weights, "local_presets", lambda: ["ptl-npu-8b"])
+    assert weights.list_weights(tmp_path) == 0
+    rows = [line[2:].split()[0] for line in capsys.readouterr().out.splitlines()
+            if line[:2] in ("* ", "  ") and line[2:].strip()]
+    assert rows == ["ptl-npu-8b"]
