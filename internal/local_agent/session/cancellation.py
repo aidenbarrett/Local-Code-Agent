@@ -12,6 +12,7 @@ from threading import Lock
 from uuid import UUID, uuid4
 
 from .contracts import TaskVerdict, TerminalState
+from .value_validation import require_integer, require_nonempty_string
 
 
 class StaleExecutionEpoch(RuntimeError):
@@ -48,8 +49,8 @@ class EpochFence:
     """
 
     def __init__(self, initial_epoch: int = 0):
-        if not isinstance(initial_epoch, int) or isinstance(initial_epoch, bool) or initial_epoch < 0:
-            raise ValueError("initial execution epoch must be a nonnegative integer")
+        require_integer(initial_epoch, minimum=0,
+                        message="initial execution epoch must be a nonnegative integer")
         self._lock = Lock()
         self._epoch = initial_epoch
 
@@ -64,8 +65,8 @@ class EpochFence:
             return self._epoch
 
     def accepts(self, execution_epoch: int) -> bool:
-        if not isinstance(execution_epoch, int) or isinstance(execution_epoch, bool) or execution_epoch < 0:
-            raise ValueError("execution epoch must be a nonnegative integer")
+        require_integer(execution_epoch, minimum=0,
+                        message="execution epoch must be a nonnegative integer")
         with self._lock:
             return execution_epoch == self._epoch
 
@@ -91,12 +92,11 @@ class CancelRequest:
                 UUID(value)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"{name} must be a UUID") from exc
-        if not isinstance(self.execution_epoch, int) or isinstance(self.execution_epoch, bool) or self.execution_epoch < 0:
-            raise ValueError("cancel request execution epoch must be nonnegative")
+        require_integer(self.execution_epoch, minimum=0,
+                        message="cancel request execution epoch must be nonnegative")
         raw_source: object = self.source
         object.__setattr__(self, "source", CancellationSource(raw_source))
-        if not isinstance(self.reason_code, str) or not self.reason_code.strip():
-            raise ValueError("cancel reason code must be nonempty")
+        require_nonempty_string(self.reason_code, message="cancel reason code must be nonempty")
         if len(self.reason_code) > 128:
             raise ValueError("cancel reason code exceeds size limit")
 
@@ -113,8 +113,8 @@ class CancellationToken:
             UUID(task_id)
         except (TypeError, ValueError) as exc:
             raise ValueError("cancellation token task id must be a UUID") from exc
-        if not isinstance(execution_epoch, int) or isinstance(execution_epoch, bool) or execution_epoch < 0:
-            raise ValueError("cancellation token execution epoch must be nonnegative")
+        require_integer(execution_epoch, minimum=0,
+                        message="cancellation token execution epoch must be nonnegative")
         self.task_id = task_id
         self.execution_epoch = execution_epoch
         self._lock = Lock()
@@ -166,12 +166,11 @@ class OwnedProcessHandle:
             UUID(self.task_id)
         except (TypeError, ValueError) as exc:
             raise ValueError("owned process task id must be a UUID") from exc
-        if not isinstance(self.execution_epoch, int) or isinstance(self.execution_epoch, bool) or self.execution_epoch < 0:
-            raise ValueError("owned process execution epoch must be nonnegative")
-        if not isinstance(self.pid, int) or isinstance(self.pid, bool) or self.pid < 1:
-            raise ValueError("owned process pid must be positive")
-        if not isinstance(self.birth_token, str) or not self.birth_token.strip():
-            raise ValueError("owned process birth token must be nonempty")
+        require_integer(self.execution_epoch, minimum=0,
+                        message="owned process execution epoch must be nonnegative")
+        require_integer(self.pid, minimum=1, message="owned process pid must be positive")
+        require_nonempty_string(self.birth_token,
+                        message="owned process birth token must be nonempty")
         if len(self.birth_token) > 256:
             raise ValueError("owned process birth token exceeds size limit")
         object.__setattr__(self, "containment", ProcessContainment(self.containment))
