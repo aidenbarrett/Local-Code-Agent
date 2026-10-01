@@ -175,6 +175,8 @@ def test_public_help_teaches_model_listing_download_choice_and_one_run_override(
         r".\local-code-agent.ps1 models pull ptl-gpu-30b",
         r".\local-code-agent.ps1 models use ptl-gpu-30b",
         r".\local-code-agent.ps1 session --profile ptl-npu-8b",
+        r".\local-code-agent.ps1 acceptance --output C:\lca-acc\run-1 --allow-model",
+        r".\local-code-agent.ps1 acceptance --compare C:\lca-acc\run-1 C:\lca-acc\run-2",
     ):
         assert command in output
     assert "Default worker" in output
