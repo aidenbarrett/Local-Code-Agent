@@ -66,12 +66,49 @@ class PatchStore:
 
     def __init__(self, journal: Any | None = None) -> None:
         self._pending: dict[str, PendingPatch] = {}
+        # Replaced id -> (replacement id, whether the replacement includes its edit).
+        self._superseded: dict[str, tuple[str, bool]] = {}
         self.journal = journal
 
-    def put(self, patch: PendingPatch) -> None:
+    def pending_for(self, path: Path) -> PendingPatch | None:
+        """The one pending proposal for this file, if any."""
+        return next((item for item in self._pending.values() if item.path == path), None)
+
+    def put(self, patch: PendingPatch, *, includes_previous: bool = False) -> str | None:
+        """Keep one pending proposal per file and remember what replaced the old one.
+
+        ``includes_previous`` says the new proposal was built on the pending one's
+        result, so its edit is carried forward rather than dropped.
+        """
+        if patch.patch_id in self._pending or patch.patch_id in self._superseded:
+            raise ToolError(f"patch id {patch.patch_id!r} is already used")
+        previous = self.pending_for(patch.path)
+        if previous is not None:
+            del self._pending[previous.patch_id]
+            self._superseded[previous.patch_id] = (patch.patch_id, includes_previous)
         self._pending[patch.patch_id] = patch
+        return previous.patch_id if previous is not None else None
 
     def take(self, patch_id: str) -> PendingPatch:
+        if patch_id in self._superseded:
+            replacement, included = self._superseded[patch_id]
+            while replacement in self._superseded:
+                replacement, carried = self._superseded[replacement]
+                included = included and carried
+            if replacement not in self._pending:
+                raise ToolError(
+                    f"{patch_id} was superseded by {replacement}, which is no longer pending. "
+                    "Read the current file and propose again if another edit is needed."
+                )
+            if included:
+                raise ToolError(
+                    f"{patch_id} is included in {replacement}; apply {replacement}, "
+                    "which carries both edits."
+                )
+            raise ToolError(
+                f"{patch_id} was replaced by {replacement}, which does not contain its edit. "
+                f"Apply {replacement}, then propose {patch_id}'s edit again if it is still needed."
+            )
         if patch_id not in self._pending:
             raise ToolError(
                 f"unknown patch id {patch_id!r}. Propose the patch first; the agent "
@@ -177,11 +214,78 @@ def _tolerant_replace(original: str, find: str, replace: str) -> tuple[str | Non
     return "".join(lines[:start]) + replacement + "".join(lines[start + len(key):]), 1
 
 
+def _replace_once(text: str, find: str, replace: str) -> tuple[str, str]:
+    """Apply one find/replace to ``text``: (updated text, match kind), or ToolError."""
+    numbered: str | None = None
+    if text.count(find) == 0 and _without_read_file_numbers(text) is None:
+        numbered = _without_read_file_numbers(find)
+    if numbered is not None:
+        # The model echoed read_file's line numbers. Match the lines it meant; a
+        # replacement written in the same display format loses its numbers too.
+        find = numbered
+        replace = _without_read_file_numbers(replace) or replace
+    occurrences = text.count(find)
+    match = "exact"
+    if occurrences > 1:
+        raise ToolError(
+            f"`find` text appears {occurrences} times. Widen it with surrounding "
+            "lines until it is unique."
+        )
+    if occurrences == 1:
+        updated = text.replace(find, replace, 1)
+    else:
+        tolerant, blocks = _tolerant_replace(text, find, replace)
+        if blocks > 1:
+            raise ToolError(
+                f"`find` matches {blocks} places once whitespace is ignored. Widen it "
+                "with surrounding lines until it is unique."
+            )
+        if tolerant is None:
+            raise ToolError(
+                "`find` text does not appear in the file, even ignoring indentation "
+                "and trailing spaces. Read the exact lines first."
+            )
+        updated = tolerant
+        match = "whitespace_tolerant"
+    if numbered is not None:
+        match = ("line_numbers_stripped" if match == "exact"
+                 else "line_numbers_stripped_whitespace_tolerant")
+    return updated, match
+
+
+def _changed_lines(before: str, after: str) -> list[tuple[int, int]]:
+    """Line ranges of ``before`` that ``after`` rewrites, deletes or inserts at."""
+    matcher = difflib.SequenceMatcher(
+        None, before.splitlines(keepends=True), after.splitlines(keepends=True),
+        autojunk=False)
+    return [(i1, i2) for tag, i1, i2, _j1, _j2 in matcher.get_opcodes() if tag != "equal"]
+
+
+def _ranges_overlap(a: tuple[int, int], b: tuple[int, int]) -> bool:
+    (a1, a2), (b1, b2) = a, b
+    if a1 == a2 and b1 == b2:
+        return a1 == b1  # two insertions at the same point
+    if a1 == a2:
+        return b1 < a1 < b2  # an insertion inside a rewritten range
+    if b1 == b2:
+        return a1 < b1 < a2
+    return max(a1, b1) < min(a2, b2)
+
+
+def _changes_overlap(original: str, first: str, second: str) -> bool:
+    """Do two edits of ``original`` rewrite any of the same lines?"""
+    return any(_ranges_overlap(a, b)
+               for a in _changed_lines(original, first)
+               for b in _changed_lines(original, second))
+
+
 def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
     @reg.add(
         "propose_patch",
         "Propose an exact text replacement in one file and return the unified diff. "
-        "Changes nothing on disk. `find` must appear exactly once in the file.",
+        "Changes nothing on disk. `find` must appear exactly once in the file. "
+        "If this file already has a pending proposal, an edit to other lines is added to "
+        "it and an edit to the same lines replaces it; either way apply only the newest id.",
         {
             "type": "object",
             "properties": {
@@ -216,37 +320,29 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
                 "`find` is empty. To add lines at the start of a file, use its first "
                 "line as `find` and put the new lines before it in `replace`."
             )
-        numbered: str | None = None
-        if original.count(find) == 0 and _without_read_file_numbers(original) is None:
-            numbered = _without_read_file_numbers(find)
-        if numbered is not None:
-            # The model echoed read_file's line numbers. Match the lines it meant; a
-            # replacement written in the same display format loses its numbers too.
-            find = numbered
-            replace = _without_read_file_numbers(replace) or replace
-        occurrences = original.count(find)
-        match = "exact"
-        if occurrences > 1:
-            raise ToolError(
-                f"`find` text appears {occurrences} times. Widen it with surrounding "
-                "lines until it is unique."
-            )
-        if occurrences == 1:
-            updated = original.replace(find, replace, 1)
+        # One pending proposal per file. A new edit to other lines builds on it, so
+        # both edits land with one apply; a new edit to the lines it already
+        # changes is a correction that replaces it, and says so.
+        pending = store.pending_for(target)
+        if pending is not None and pending.original != original:
+            pending = None  # stale: the file changed under it, so it can never apply
+        stacked_on: str | None = None
+        try:
+            updated, match = _replace_once(original, find, replace)
+        except ToolError:
+            if pending is None:
+                raise
+            # Not in the file on disk: the model is editing text it proposed.
+            updated, match = _replace_once(pending.updated, find, replace)
+            stacked_on = pending.patch_id
         else:
-            tolerant, blocks = _tolerant_replace(original, find, replace)
-            if blocks > 1:
-                raise ToolError(
-                    f"`find` matches {blocks} places once whitespace is ignored. Widen it "
-                    "with surrounding lines until it is unique."
-                )
-            if tolerant is None:
-                raise ToolError(
-                    "`find` text does not appear in the file, even ignoring indentation "
-                    "and trailing spaces. Read the exact lines first."
-                )
-            updated = tolerant
-            match = "whitespace_tolerant"
+            if pending is not None and not _changes_overlap(
+                    original, updated, pending.updated):
+                try:
+                    updated, match = _replace_once(pending.updated, find, replace)
+                    stacked_on = pending.patch_id
+                except ToolError:
+                    stacked_on = None  # ambiguous on the combined text: replace instead
         rel = relpath(ctx.root, target)
         diff = "".join(
             difflib.unified_diff(
@@ -258,24 +354,30 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
             )
         )
         patch_id = new_patch_id()
-        store.put(PendingPatch(patch_id, target, original, updated, diff))
-
-        if numbered is not None:
-            match = ("line_numbers_stripped" if match == "exact"
-                     else "line_numbers_stripped_whitespace_tolerant")
+        superseded = store.put(PendingPatch(patch_id, target, original, updated, diff),
+                               includes_previous=stacked_on is not None)
         note = {
             "exact": "",
             "whitespace_tolerant": "; matched ignoring indentation/trailing spaces, check the diff",
         }.get(match, "; matched after removing read_file line numbers from find, check the diff")
+        if stacked_on is not None:
+            replacement_note = f"; includes {stacked_on}, apply {patch_id} only"
+        elif superseded:
+            replacement_note = f"; replaces {superseded}, whose edit is dropped"
+        else:
+            replacement_note = ""
         return ToolResult(
             ok=True,
-            summary=f"patch {patch_id} proposed for {rel} (nothing written yet{note})",
+            summary=f"patch {patch_id} proposed for {rel} (nothing written yet{note})"
+                    + replacement_note,
             data={
                 "patch_id": patch_id,
                 "path": rel,
                 "rationale": rationale,
                 "diff": diff,
                 "match": match,
+                "supersedes": superseded,
+                "includes": stacked_on,
             },
         )
 
@@ -283,7 +385,8 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
         "propose_file",
         "Propose creating one NEW file with the given content and return the diff. "
         "Changes nothing on disk. Refuses if the file already exists: use "
-        "propose_patch to change an existing file. Apply it with apply_patch.",
+        "propose_patch to change an existing file. Apply it with apply_patch. "
+        "Replaces any pending proposal for this file.",
         {
             "type": "object",
             "properties": {
@@ -311,11 +414,15 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
             )
         )
         patch_id = new_patch_id()
-        store.put(PendingPatch(patch_id, target, None, content, diff))
+        superseded = store.put(PendingPatch(patch_id, target, None, content, diff))
+        replacement_note = (f"; replaces {superseded}, whose content is dropped"
+                            if superseded else "")
         return ToolResult(
             ok=True,
-            summary=f"new file {patch_id} proposed for {rel} (nothing written yet)",
-            data={"patch_id": patch_id, "path": rel, "rationale": rationale, "diff": diff},
+            summary=f"new file {patch_id} proposed for {rel} (nothing written yet)"
+                    + replacement_note,
+            data={"patch_id": patch_id, "path": rel, "rationale": rationale, "diff": diff,
+                  "supersedes": superseded},
         )
 
     @reg.add(
