@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `6bd0508cc5a6ab1018d8be2c39383a343ca8953d`
+Reconciled against GitHub `main` at `44390501c8237b4c63db3a7e0a39f19d01d8fe80`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -70,7 +70,10 @@ context, product verdicts) without starting a model or build (#333). The pre-Hub
 default, is deleted and a guard scans all product source for preset defaults (#336); serve
 reads the local-runtime set from the same owner (#337). Patch ids start with `p`, so a
 server-side tool parser cannot read one as a number (#338; seen on the GPU 30B as
-`4.3477e22`). Live
+`4.3477e22`). Context-use peaks count only requests actually sent to the model (#340).
+Product help shows `acceptance --compare` and a new output folder per run (#343). A file
+has one pending proposal: an edit to other lines builds on it so one apply lands both, an
+edit to the same lines replaces it and says the earlier edit is dropped (#344). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
