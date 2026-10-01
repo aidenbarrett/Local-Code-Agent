@@ -23,6 +23,13 @@ text ``summary.txt``, and per journey the conversation transcript and the full
 durable event log. Nothing is sent anywhere.
 
     python internal/scripts/acceptance-journeys.py --output C:\\lca-acc\\run-001 --allow-model
+
+Compare saved runs without starting a model or build:
+
+    .\\local-code-agent.ps1 acceptance --compare C:\\lca-acc\\old C:\\lca-acc\\new
+
+The comparison keeps outcome denominators, product verdicts and peak context tokens.
+Missing journeys and unavailable metrics stay explicit; incompatible reports are refused.
 """
 from __future__ import annotations
 
@@ -61,6 +68,7 @@ from local_agent.session.conversation_store import (  # noqa: E402
     conversation, create_session, ensure_runtime, new_session,
 )
 from local_agent.session.runtime_facts import RuntimeFacts  # noqa: E402
+from scripts.acceptance_compare import ComparisonError, comparison_text  # noqa: E402
 from serving.managed_runtime import endpoint_reachable  # noqa: E402
 from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
 from serving.model_store import default_runtime_root  # noqa: E402
@@ -1037,7 +1045,9 @@ def keep_system_awake() -> Iterator[None]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--output", type=Path, required=True,
+    parser.add_argument("--compare", nargs=2, type=Path, metavar=("OLD", "NEW"),
+                        help="compare two retained output directories; no model or build runs")
+    parser.add_argument("--output", type=Path,
                         help="new evidence directory for this run; keep the path short on Windows")
     parser.add_argument("--profile", default=None, choices=sorted(MODEL_PRESETS),
                         help="model preset (default: your `models use` choice)")
@@ -1055,6 +1065,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--journey-timeout", type=float, default=900.0, help="seconds per user turn")
     parser.add_argument("--stop-budget", type=float, default=60.0, help="seconds Stop has to reach terminal")
     args = parser.parse_args(argv)
+    if args.compare:
+        if args.output is not None:
+            parser.error("--compare cannot be combined with --output")
+        try:
+            print(comparison_text(*args.compare, SCHEMA), end="")
+        except ComparisonError as exc:
+            parser.error(str(exc))
+        return 0
+    if args.output is None:
+        parser.error("--output is required unless --compare is used")
     if args.repeat < 1:
         parser.error("--repeat must be at least 1")
     try:
