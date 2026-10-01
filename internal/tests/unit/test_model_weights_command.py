@@ -6,7 +6,7 @@ from types import ModuleType
 
 import pytest
 
-from local_agent.config import MODEL_PRESETS
+from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS
 from serving import serve
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "model_weights.py"
@@ -58,7 +58,8 @@ def test_list_marks_each_local_preset_missing_or_downloaded(
     # Each preset row starts with a two-character selection marker ("* " or "  ").
     rows = {line[2:].split()[0]: line for line in capsys.readouterr().out.splitlines()
             if line[:2] in ("* ", "  ") and line[2:].strip()}
-    assert rows["ptl-npu-8b"].startswith("* ")  # the default, with no stored choice
+    assert rows[DEFAULT_MODEL_PRESET].startswith("* ")  # the default, with no stored choice
+    assert sum(row.startswith("* ") for row in rows.values()) == 1
     assert rows["ptl-npu-8b"].rstrip().endswith("downloaded")
     assert "missing" in rows["ptl-gpu-30b"]
     assert "cloud" not in rows
