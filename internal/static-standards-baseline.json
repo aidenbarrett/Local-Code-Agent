@@ -36,7 +36,6 @@
     "redundant-expr": 8
    },
    "internal/local_agent/session/contracts.py": {
-    "no-untyped-def": 1,
     "redundant-expr": 1
    },
    "internal/local_agent/session/conversation_gateway.py": {
@@ -72,8 +71,7 @@
     "no-untyped-def": 1
    },
    "internal/local_agent/session/endpoint_call.py": {
-    "exit-return": 1,
-    "no-untyped-def": 1
+    "exit-return": 1
    },
    "internal/local_agent/session/endpoint_client.py": {
     "no-untyped-def": 3,
@@ -84,7 +82,6 @@
    },
    "internal/local_agent/session/endpoint_runtime.py": {
     "exit-return": 1,
-    "no-untyped-def": 1,
     "redundant-expr": 2
    },
    "internal/local_agent/session/event_buffer.py": {
@@ -119,8 +116,7 @@
     "redundant-expr": 1
    },
    "internal/local_agent/session/self_check.py": {
-    "no-untyped-call": 2,
-    "no-untyped-def": 2
+    "no-untyped-def": 1
    },
    "internal/local_agent/session/session_store.py": {
     "no-any-return": 2,
@@ -135,7 +131,7 @@
    },
    "internal/local_agent/session/textual_dispatch.py": {
     "exit-return": 1,
-    "no-untyped-def": 3
+    "no-untyped-def": 2
    },
    "internal/local_agent/session/textual_feed.py": {
     "no-untyped-def": 1
@@ -149,7 +145,7 @@
    },
    "internal/local_agent/session/textual_runtime.py": {
     "exit-return": 1,
-    "no-untyped-def": 2
+    "no-untyped-def": 1
    },
    "internal/local_agent/session/textual_session_app.py": {
     "redundant-expr": 2
@@ -245,7 +241,6 @@
     "redundant-expr": 8
    },
    "internal/local_agent/session/contracts.py": {
-    "no-untyped-def": 1,
     "redundant-expr": 1
    },
    "internal/local_agent/session/conversation_gateway.py": {
@@ -280,8 +275,7 @@
     "no-untyped-def": 1
    },
    "internal/local_agent/session/endpoint_call.py": {
-    "exit-return": 1,
-    "no-untyped-def": 1
+    "exit-return": 1
    },
    "internal/local_agent/session/endpoint_client.py": {
     "no-untyped-def": 3,
@@ -292,7 +286,6 @@
    },
    "internal/local_agent/session/endpoint_runtime.py": {
     "exit-return": 1,
-    "no-untyped-def": 1,
     "redundant-expr": 2
    },
    "internal/local_agent/session/event_buffer.py": {
@@ -327,8 +320,7 @@
     "redundant-expr": 1
    },
    "internal/local_agent/session/self_check.py": {
-    "no-untyped-call": 2,
-    "no-untyped-def": 2
+    "no-untyped-def": 1
    },
    "internal/local_agent/session/session_store.py": {
     "no-any-return": 2,
@@ -343,7 +335,7 @@
    },
    "internal/local_agent/session/textual_dispatch.py": {
     "exit-return": 1,
-    "no-untyped-def": 3
+    "no-untyped-def": 2
    },
    "internal/local_agent/session/textual_feed.py": {
     "no-untyped-def": 1
@@ -357,7 +349,7 @@
    },
    "internal/local_agent/session/textual_runtime.py": {
     "exit-return": 1,
-    "no-untyped-def": 2
+    "no-untyped-def": 1
    },
    "internal/local_agent/session/textual_session_app.py": {
     "redundant-expr": 2
@@ -871,5 +863,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 885
+ "total": 869
 }

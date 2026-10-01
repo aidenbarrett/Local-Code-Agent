@@ -7,6 +7,7 @@ result: the existing ConversationGateway remains the routing/admission boundary.
 """
 from __future__ import annotations
 
+from types import TracebackType
 from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Lock
 
@@ -84,7 +85,10 @@ class HubTurnDispatcher:
     def __enter__(self) -> "HubTurnDispatcher":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool:
         self.close()
         return False
 
