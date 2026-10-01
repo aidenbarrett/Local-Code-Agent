@@ -23,6 +23,9 @@
     ],
     "warning_storm": [
       "src/text_util.cpp"
+    ],
+    "untested_bug": [
+      "src/text_util.cpp"
     ]
   }
 }

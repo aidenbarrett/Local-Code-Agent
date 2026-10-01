@@ -358,3 +358,46 @@ def test_compare_cli_refuses_output_and_preserves_evidence(tmp_path):
         journeys.main(["--compare", "old", "new", "--output", str(out)])
     assert refused.value.code == 2
     assert not out.exists()
+
+
+# R11: the seeded bug behind J14 has to be invisible to today's suite and caught by a
+# real regression test, or the journey would measure nothing.
+REGRESSION_ASSERT = '    assert(sandbox::split("a,", \',\').size() == 2);\n    std::puts("text_util ok");\n'
+
+
+def _with_regression_test(repo: Path) -> Path:
+    test = repo / "tests" / "test_text_util.cpp"
+    text = test.read_text(encoding="utf-8")
+    assert '    std::puts("text_util ok");\n' in text
+    test.write_text(text.replace('    std::puts("text_util ok");\n', REGRESSION_ASSERT, 1), encoding="utf-8")
+    return repo
+
+
+def test_the_seeded_split_bug_passes_the_existing_suite(tmp_path):
+    passed, log = journeys.independent_suite(journeys.make_repo(tmp_path / "seeded", "untested_bug"))
+    assert passed, log
+
+
+def test_a_regression_test_for_the_seed_fails_only_text_util_on_the_bug(tmp_path):
+    correct, correct_log = journeys.independent_suite(
+        _with_regression_test(journeys.make_repo(tmp_path / "clean", "clean")))
+    assert correct, correct_log
+    on_bug, bug_log = journeys.independent_suite(
+        _with_regression_test(journeys.make_repo(tmp_path / "seeded", "untested_bug")))
+    assert not on_bug
+    assert journeys.suite_failed_only(bug_log, "text_util"), bug_log
+
+
+def test_suite_failed_only_reads_the_ctest_failure_list():
+    log = ("50% tests passed, 2 tests failed out of 4\n\nThe following tests FAILED:\n"
+           "\t  2 - text_util (Failed)\n\t  3 - fd_owner (Failed)\nErrors while running CTest\n")
+    assert not journeys.suite_failed_only(log, "text_util")
+    assert journeys.suite_failed_only(log.replace("\t  3 - fd_owner (Failed)\n", ""), "text_util")
+    assert not journeys.suite_failed_only("100% tests passed", "text_util")
+
+
+def test_j14_is_a_model_journey_on_the_clean_fixture():
+    row = next(r for r in journeys.JOURNEYS if r[0] == "J14-regression-test")
+    assert row[2:5] == ("model", "clean", True)
+    assert "untested_bug" in json.loads(
+        (journeys.FIXTURE / "scenarios" / "manifest.json").read_text(encoding="utf-8"))["scenarios"]
