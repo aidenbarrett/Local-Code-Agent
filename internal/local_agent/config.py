@@ -186,6 +186,11 @@ class ModelConfig:
         }
 
 
+# The OVMS release that product setup installs under the runtime root, on any machine.
+# Every preset served by that managed OVMS declares it; setup scripts must match.
+MANAGED_OVMS_VERSION = "2026.3.0"
+
+
 # Named presets. `local-agent --profile ptl-npu` and nothing else in the agent
 # changes.
 MODEL_PRESETS: dict[str, ModelConfig] = {
@@ -195,6 +200,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         device_note="CPU",
         runtime="ovms",
         quant="INT4_ASYM",
+        runtime_version=MANAGED_OVMS_VERSION,
         tool_parser="qwen3coder",
     ),
     "nuc-cpu-8b": ModelConfig(
@@ -203,6 +209,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         device_note="CPU",
         runtime="ovms",
         quant="INT4_SYM",
+        runtime_version=MANAGED_OVMS_VERSION,
         tool_parser="hermes3",
         tier="cheap",
     ),
@@ -272,7 +279,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         device_note="NPU (8K)",
         device="NPU",
         runtime="ovms",
-        runtime_version="2026.3.0",
+        runtime_version=MANAGED_OVMS_VERSION,
         quant="INT4_SYM",
         tool_parser="hermes3",
         thinking=False,
@@ -289,7 +296,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         device_note="NPU (16K), unproven",
         device="NPU",
         runtime="ovms",
-        runtime_version="2026.3.0",
+        runtime_version=MANAGED_OVMS_VERSION,
         quant="INT4_SYM",
         tool_parser="hermes3",
         thinking=False,
@@ -312,7 +319,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         device_note="GPU (Arc B390)",
         device="GPU",
         runtime="ovms",
-        runtime_version="2026.3.0",
+        runtime_version=MANAGED_OVMS_VERSION,
         quant="INT4_ASYM",
         tool_parser="qwen3coder",
         tier="strong",
@@ -323,7 +330,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         device_note="CPU",
         device="CPU",
         runtime="ovms",
-        runtime_version="2026.3.0",
+        runtime_version=MANAGED_OVMS_VERSION,
         quant="INT4_ASYM",
         tool_parser="qwen3coder",
         tier="strong",
