@@ -150,6 +150,30 @@ def test_install_default_is_transparent_before_machine_mutation():
 
 
 
+def test_install_skip_model_download_never_reaches_the_pull():
+    install = (REPO / "install.ps1").read_text(encoding="utf-8")
+    one_shot = (REPO / "internal" / "work-laptop-one-shot.ps1").read_text(encoding="utf-8")
+    assert "[switch]$SkipModelDownload" in install
+    assert "if ($SkipModelDownload) { $forward.SkipModelDownload = $true }" in install
+    assert "[switch]$SkipModelDownload" in one_shot
+    # Completeness comes from the one weights owner, not a single-file probe.
+    assert "$WeightsScript state $Profile --runtime-root $RuntimeRoot" in one_shot
+    assert 'Test-Path (Join-Path $modelRoot "openvino_model.xml")' not in one_shot
+    # The only pull sits in the branch that -SkipModelDownload excludes.
+    skip = one_shot.index("if (-not $weightsComplete -and $SkipModelDownload) {")
+    pull = one_shot.index("& $VenvPython $Controller pull @serveArgs")
+    other = one_shot.index("} elseif (-not $weightsComplete) {")
+    assert skip < other < pull
+    assert one_shot.count("$Controller pull") == 1
+    # Server start and qualification are gated on weights; "ready" is never claimed without them.
+    gate = one_shot.index("if (-not $ModelsPending) {")
+    assert gate < one_shot.index("$Controller start @serveArgs --wait-seconds 900")
+    assert gate < one_shot.index("$QualificationScript --profile")
+    assert one_shot.index("exit 3") < one_shot.index('Write-Host "READY TO USE"')
+    # install.ps1 accepts exit 3 only under the explicit opt-out.
+    assert "$modelsPending = $SkipModelDownload -and $rc -eq 3" in install
+
+
 def test_local_code_agent_root_facade_is_the_default_product_surface():
     wrapper = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
     assert "Canonical user-facing entrypoint" in wrapper

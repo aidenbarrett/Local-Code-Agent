@@ -120,3 +120,35 @@ def test_list_obeys_the_local_preset_owner(
     rows = [line[2:].split()[0] for line in capsys.readouterr().out.splitlines()
             if line[:2] in ("* ", "  ") and line[2:].strip()]
     assert rows == ["ptl-npu-8b"]
+
+
+def test_state_exits_zero_only_for_a_complete_payload(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    weights = _load()
+    assert weights.main(["state", "ptl-npu-8b", "--runtime-root", str(tmp_path)]) == 3
+    missing, where = capsys.readouterr().out.splitlines()
+    assert missing == "missing"
+    assert Path(where) == _payload_dir(tmp_path, "ptl-npu-8b")
+    _complete_payload(_payload_dir(tmp_path, "ptl-npu-8b"))
+    assert weights.main(["state", "ptl-npu-8b", "--runtime-root", str(tmp_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == "downloaded"
+
+
+def test_state_treats_an_incomplete_payload_as_missing(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    weights = _load()
+    payload = _payload_dir(tmp_path, "ptl-npu-8b")
+    _complete_payload(payload)
+    (payload / "openvino_tokenizer.bin").write_bytes(b"")  # truncated copy
+    assert weights.main(["state", "ptl-npu-8b", "--runtime-root", str(tmp_path)]) == 3
+
+
+def test_state_never_downloads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    weights = _load()
+    monkeypatch.setattr(serve, "pull", lambda *a, **k: pytest.fail("state must not download"))
+    assert weights.main(["state", "ptl-gpu-30b", "--runtime-root", str(tmp_path)]) == 3
+
+
+def test_state_refuses_an_unknown_profile(tmp_path: Path) -> None:
+    weights = _load()
+    assert weights.main(["state", "no-such-preset", "--runtime-root", str(tmp_path)]) == 2

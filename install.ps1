@@ -10,6 +10,9 @@
   Bare invocation shows the approved install plan and asks before allowing
   machine-level prerequisite installation.
   -InstallMissing is the explicit non-interactive approval for those installs.
+  -SkipModelDownload never downloads model weights. If the selected model is not
+  already in the model store, setup finishes everything else, names the exact folder
+  the weights belong in and exits 3; rerun setup once they are in place to qualify it.
 #>
 [CmdletBinding()]
 param(
@@ -17,6 +20,7 @@ param(
     [switch]$InstallMissing,
     [switch]$AttemptWslInstall,
     [switch]$OpenDriverPage,
+    [switch]$SkipModelDownload,
     [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent"
 )
 
@@ -53,7 +57,12 @@ function Show-InstallPlan {
     Write-Host ''
     Write-Host 'Setup also creates/updates the project virtual environment, installs the pinned'
     Write-Host 'local runtime dependencies, prepares OVMS under the managed runtime directory,'
-    Write-Host 'and may download the selected model if it is not already present. The default is'
+    if ($SkipModelDownload) {
+        Write-Host 'and checks for the selected model. -SkipModelDownload: model weights are NEVER'
+        Write-Host 'downloaded; if they are absent, setup names the folder they belong in. The default is'
+    } else {
+        Write-Host 'and may download the selected model if it is not already present. The default is'
+    }
     Write-Host 'Qwen3-Coder-30B on the GPU (about 17 GB); `.\local-code-agent.ps1 models use` changes it.'
     Write-Host ''
     Write-Host 'WSL installation is never attempted unless -AttemptWslInstall is supplied.'
@@ -104,6 +113,7 @@ if ($CheckOnly) { $forward.CheckOnly = $true }
 if ($allowInstallMissing) { $forward.InstallMissing = $true }
 if ($AttemptWslInstall) { $forward.AttemptWslInstall = $true }
 if ($OpenDriverPage) { $forward.OpenDriverPage = $true }
+if ($SkipModelDownload) { $forward.SkipModelDownload = $true }
 
 try {
     & $entry @forward
@@ -119,7 +129,8 @@ try {
     exit 2
 }
 
-if ($rc -ne 0) {
+$modelsPending = $SkipModelDownload -and $rc -eq 3
+if ($rc -ne 0 -and -not $modelsPending) {
     Write-Host ''
     Write-Host 'Setup did not complete successfully.'
     Write-Host 'If company policy blocked a WinGet package, ask IT to approve or install the'
@@ -157,6 +168,16 @@ if ($runtimeRc -ne 0) {
     Write-Host $(if ($CheckOnly) { 'Run .\install.ps1 to update it.' } else { 'Setup completed its earlier stages but runtime validation failed.' })
     Write-Host ''
     exit 2
+}
+
+if ($modelsPending) {
+    Write-Host ''
+    Write-Host 'Next:'
+    Write-Host '  1. Copy the model folder to the path named above.'
+    Write-Host '  2. .\local-code-agent.ps1 models         (the preset should show "downloaded")'
+    Write-Host '  3. .\install.ps1 -SkipModelDownload      (starts and qualifies the local model)'
+    Write-Host ''
+    exit 3
 }
 
 if (-not $CheckOnly) {

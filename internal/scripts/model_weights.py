@@ -2,7 +2,8 @@
 """List model presets, choose the one normally used, and download a preset's weights.
 
 `.\\local-code-agent.ps1 models` lists; `models use <profile>` chooses; `models pull <profile>`
-downloads. Downloads go
+downloads. `state <profile>` is the machine-readable completeness check setup uses: it
+prints the weight state and exits 0 only when the payload is complete. Downloads go
 through `serving.serve.pull`, the same owner the setup script uses, into the runtime
 model store. Only presets in `MODEL_PRESETS` can be pulled.
 """
@@ -85,7 +86,7 @@ def pull_weights(profile: str, runtime_root: Path, *, allow_experimental: bool) 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("action", nargs="?", default="list", choices=("list", "pull", "use", "selected"))
+    parser.add_argument("action", nargs="?", default="list", choices=("list", "pull", "use", "selected", "state"))
     parser.add_argument("profile", nargs="?")
     parser.add_argument("--allow-experimental", action="store_true")
     parser.add_argument("--runtime-root", type=Path, default=None)
@@ -106,6 +107,13 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.action == "use":
             return use_preset(args.profile, runtime_root)
+        if args.action == "state":
+            if args.profile not in MODEL_PRESETS:
+                raise serve.Refusal(f"unknown profile {args.profile}; run .\\local-code-agent.ps1 models")
+            state = weight_state(args.profile, runtime_root)
+            print(state)
+            print(_plan(args.profile, runtime_root)["model_dir"])
+            return 0 if state == "downloaded" else 3
         return pull_weights(args.profile, runtime_root,
                             allow_experimental=args.allow_experimental)
     except (serve.Refusal, ModelChoiceError, OSError, subprocess.SubprocessError) as exc:
