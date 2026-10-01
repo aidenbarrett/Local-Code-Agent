@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from local_agent.tools import files
 from local_agent.tools.files import _missing_file_message
 from local_agent.tools.tool_primitives import NotFoundError, ToolError
 
@@ -82,3 +83,42 @@ def test_deeper_suffix_still_beats_shallow_basename(tmp_path):
         path.write_text("source")
     hints = _missing_file_message(tmp_path, "sandbox/ring.hpp").split("existing paths to try: ")[1]
     assert hints == "deep/include/sandbox/ring.hpp"
+
+
+def test_hint_search_is_bounded_and_says_where_it_stopped(tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "_MAX_HINT_SEARCH_FILES", 3)
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt", "wanted.hpp"]:
+        (tmp_path / name).write_text("source")
+
+    message = _missing_file_message(tmp_path, "wanted.hpp")
+
+    assert "existing paths" not in message
+    assert "hint search stopped after 3 files" in message
+
+
+def test_match_before_hint_cap_is_reported_with_honest_truncation(tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "_MAX_HINT_SEARCH_FILES", 3)
+    for name in ["a/ring.hpp", "b/item.txt", "c/item.txt", "d/item.txt"]:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("source")
+
+    message = _missing_file_message(tmp_path, "missing/ring.hpp")
+
+    assert "existing paths to try: a/ring.hpp" in message
+    assert "hint search stopped after 3 files" in message
+
+
+def test_excluded_directories_do_not_consume_hint_search_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr(files, "_MAX_HINT_SEARCH_FILES", 1)
+    hidden = tmp_path / "build" / "ring.hpp"
+    hidden.parent.mkdir()
+    hidden.write_text("excluded")
+    visible = tmp_path / "ring.hpp"
+    visible.write_text("source")
+
+    message = _missing_file_message(tmp_path, "missing/ring.hpp")
+
+    assert "existing paths to try: ring.hpp" in message
+    assert "build/" not in message
+    assert "search stopped" not in message

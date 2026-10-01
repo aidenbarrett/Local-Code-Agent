@@ -17,6 +17,7 @@ _SKIP_DIRS = {
 }
 _MAX_RANGE_LINES = 400
 _MAX_LIST_LIMIT = 10_000
+_MAX_HINT_SEARCH_FILES = 20_000
 
 _TEXT_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".ipp", ".inl",
@@ -47,7 +48,11 @@ def _missing_file_message(root: Path, requested: str) -> str:
     wanted = requested.replace("\\", "/").removeprefix("./")
     suffixes: list[str] = []
     basenames: list[str] = []
-    for candidate in _iter_files(root, recursive=True):
+    search_stopped = False
+    for visited, candidate in enumerate(_iter_files(root, recursive=True), start=1):
+        if visited > _MAX_HINT_SEARCH_FILES:
+            search_stopped = True
+            break
         if not candidate.is_file() or not candidate.resolve().is_relative_to(root.resolve()):
             continue
         relative = candidate.relative_to(root).as_posix()
@@ -64,6 +69,8 @@ def _missing_file_message(root: Path, requested: str) -> str:
     message = f"{requested!r} is not a file"
     if matches:
         message += "; existing paths to try: " + ", ".join(matches)
+    if search_stopped:
+        message += f"; hint search stopped after {_MAX_HINT_SEARCH_FILES} files"
     return message
 
 
