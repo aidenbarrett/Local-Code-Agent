@@ -43,6 +43,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -213,6 +214,43 @@ def independent_build(root: Path, build_dir: str = "build-independent") -> tuple
         if done.returncode != 0:
             return False, (done.stdout + done.stderr)[-4000:]
     return True, ""
+
+
+CTEST_PER_TEST_SECONDS = 120
+
+
+def independent_suite(root: Path, build_dir: str = "build-independent") -> tuple[bool, str]:
+    """Build with CMake and run the whole CTest suite directly; the agent is not consulted.
+
+    Every test is bounded, so a test executable that never exits (a modal crash or assert
+    dialog on Windows, say) is reported by name as a failed test instead of stalling the
+    run. Output goes to a file, never a pipe a lingering child could hold open.
+    """
+    built, log = independent_build(root, build_dir)
+    if not built:
+        return False, "build failed:\n" + log
+    with tempfile.TemporaryFile(mode="w+b") as capture:
+        done = subprocess.run(
+            ["ctest", "--test-dir", build_dir, "-C", "Debug", "--output-on-failure",
+             "--timeout", str(CTEST_PER_TEST_SECONDS)],
+            cwd=root, stdout=capture, stderr=subprocess.STDOUT, check=False, timeout=900)
+        capture.seek(0)
+        output = capture.read().decode("utf-8", errors="replace")
+    return done.returncode == 0, output[-4000:]
+
+
+def suite_failed_only(ctest_log: str, test_name: str) -> bool:
+    """Did CTest report exactly this one test as failed?"""
+    _, marker, listing = ctest_log.partition("The following tests FAILED:")
+    failed = re.findall(r"^\s*\d+\s*-\s*(\S+)", listing, re.M) if marker else []
+    return failed == [test_name]
+
+
+def changed_paths(root: Path) -> list[str]:
+    """Tracked changes against HEAD plus untracked files, as repository-relative paths."""
+    tracked = _git(root, "diff", "--name-only", "HEAD").split()
+    untracked = _git(root, "ls-files", "--others", "--exclude-standard").split()
+    return sorted(set(tracked) | set(untracked))
 
 
 def processes_under(root: Path) -> list[str]:
@@ -686,6 +724,56 @@ def j_change(s: Session) -> None:
         s.journey.measured_as(result.outcome.value, f"no verified change ({result.reason_code})")
 
 
+REGRESSION_REQUEST = ("change: add a regression test to tests/test_text_util.cpp that checks split "
+                      "keeps a trailing empty field: split(\"a,\", ',') must return two parts, "
+                      "\"a\" and an empty string")
+
+
+def j_regression_test(s: Session) -> None:
+    """R11: the model's new test must fail on a seeded bug the existing suite misses.
+
+    The candidate is verified against the correct implementation by the product. The
+    runner then applies it with /apply, takes only the changed test files into a copy
+    of the fixture carrying the `untested_bug` scenario, and runs the suite itself.
+    """
+    before = tree_digest(s.repo)
+    _, result = s.turn(REGRESSION_REQUEST)
+    expect(result is not None, "change: admitted no task")
+    assert result is not None
+    expect(tree_digest(s.repo) == before, "preparing a change modified the checkout")
+    if result.outcome is not TaskOutcome.PASS:
+        expect(not result.verified_at_completion, "a non-PASS claims verification")
+        s.journey.measured_as(result.outcome.value, f"no verified test ({result.reason_code})")
+        return
+    _, applied = s.turn(f"/apply {result.task_id}")
+    expect(applied is not None and applied.outcome is TaskOutcome.PASS,
+           "/apply failed on an unchanged target")
+    changed = changed_paths(s.repo)
+    s.journey.measured["changed"] = changed
+    if not changed:
+        s.journey.measured_as("no_test", "the verified change touched no file")
+        return
+    outside = [rel for rel in changed if not rel.startswith("tests/")]
+    if outside:
+        s.journey.measured_as("changed_source", f"asked for a test, also changed {', '.join(outside)}")
+        return
+    correct, log = independent_suite(s.repo)
+    expect(correct, "the applied test fails on the correct implementation:\n" + log[-1500:])
+    seeded = make_repo(s.runner.output / "repos" / f"{s.journey.id}-seeded", "untested_bug")
+    for rel in changed:
+        target = seeded / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(s.repo / rel, target)
+    passed_on_bug, seeded_log = independent_suite(seeded)
+    s.journey.measured["seeded_suite"] = seeded_log[-1500:]
+    if passed_on_bug:
+        s.journey.measured_as("missed", "the new test also passes on the seeded bug")
+        return
+    expect(suite_failed_only(seeded_log, "text_util"),
+           "on the seeded bug something other than the text_util test failed:\n" + seeded_log[-1500:])
+    s.journey.measured_as("caught", "fails on the seeded bug, passes on the correct implementation")
+
+
 def j_questions(s: Session) -> None:
     for question in ("what does this repository do?", "where is the ring buffer implemented?"):
         answer, _ = s.turn(question)
@@ -738,6 +826,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
     ("J10-fix-tests", "fix it after a failing test", "model", "test_failure", True, {}, j_fix_tests),
     ("J11-change", "change: a small edit", "model", "clean", True, {}, j_change),
     ("J12-questions", "questions about the repository", "model", "clean", True, {}, j_questions),
+    ("J14-regression-test", "write a regression test that catches a seeded bug", "model", "clean",
+     True, {}, j_regression_test),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]
