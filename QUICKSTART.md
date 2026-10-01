@@ -20,6 +20,23 @@ Bare setup shows the machine-level changes it may make and asks first. `-Install
 
 Setup creates/updates the managed Python environment, prepares the configured local runtime/model, runs protocol conformance checks and proves the local C++ toolchain can configure/build/test the validation fixture.
 
+The default worker is `ptl-gpu-30b`, the Qwen3-Coder 30B-A3B INT4 model on the
+GPU. Its weights are about 17 GB, so use the lighter `ptl-npu-8b` option on a
+machine that cannot comfortably run it. List the available presets and their
+download state before opening the product:
+
+```powershell
+.\local-code-agent.ps1 models
+.\local-code-agent.ps1 models pull ptl-gpu-30b
+```
+
+`models use` remembers the normal choice for future sessions. It changes a
+per-user runtime setting, not this repository:
+
+```powershell
+.\local-code-agent.ps1 models use ptl-gpu-30b
+```
+
 ## 2. Open the product
 
 ```powershell
@@ -33,8 +50,12 @@ Useful explicit modes:
 ```powershell
 .\local-code-agent.ps1 help
 .\local-code-agent.ps1 capabilities
-.\local-code-agent.ps1 chat qwen3-8b-npu
+.\local-code-agent.ps1 session --profile ptl-npu-8b
+.\local-code-agent.ps1 chat ptl-gpu-30b
 ```
+
+An explicit `session --profile <preset>` overrides the remembered choice for
+that session only. It does not change what the next session uses.
 
 Raw chat has no repository authority, tools or independent verification. The Session Hub is the product path for controlled engineering work.
 
