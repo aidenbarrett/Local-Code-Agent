@@ -28,6 +28,7 @@ from serving.model_choice import (  # noqa: E402
 )
 from serving.model_store import default_runtime_root  # noqa: E402
 
+
 def _plan(profile: str, runtime_root: Path) -> dict:
     config = MODEL_PRESETS[profile]
     executable = os.environ.get("LCA_OVMS_EXECUTABLE") if config.runtime == "ovms" else None
