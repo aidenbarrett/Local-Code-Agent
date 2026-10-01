@@ -35,10 +35,6 @@
    "internal/local_agent/session/cancellation.py": {
     "redundant-expr": 8
    },
-   "internal/local_agent/session/cli.py": {
-    "arg-type": 1,
-    "no-untyped-def": 2
-   },
    "internal/local_agent/session/contracts.py": {
     "no-untyped-def": 1,
     "redundant-expr": 1
@@ -259,10 +255,6 @@
    },
    "internal/local_agent/session/cancellation.py": {
     "redundant-expr": 8
-   },
-   "internal/local_agent/session/cli.py": {
-    "arg-type": 1,
-    "no-untyped-def": 2
    },
    "internal/local_agent/session/contracts.py": {
     "no-untyped-def": 1,
@@ -595,11 +587,6 @@
     "RUF022": 1,
     "UP035": 1
    },
-   "internal/local_agent/session/cli.py": {
-    "E501": 3,
-    "T201": 10,
-    "W292": 1
-   },
    "internal/local_agent/session/contracts.py": {
     "E501": 2,
     "S105": 2,
@@ -908,5 +895,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 949
+ "total": 929
 }

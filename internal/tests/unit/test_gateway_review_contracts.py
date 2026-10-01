@@ -119,7 +119,7 @@ def test_blocked_reason_is_projected_without_tool_arguments(loaded, monkeypatch)
 
 
 def test_profile_budget_has_separate_character_and_byte_units():
-    from local_agent.session.cli import conversation_budgets
+    from local_agent.session.conversation_gateway import conversation_budgets
     budgets = conversation_budgets(7500)
     assert budgets == {"history_chars": 16000, "request_chars": 24000, "request_bytes": 97024}
     gateway = ConversationGateway(None, None, EventBuffer("s"), **budgets)

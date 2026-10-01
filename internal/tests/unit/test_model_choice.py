@@ -91,6 +91,17 @@ def test_product_surfaces_take_their_default_from_the_one_owner():
         assert "resolve_preset(" in source, name
 
 
+def test_no_product_source_carries_its_own_default_preset():
+    """A `--profile` default anywhere outside the owner bypasses the user's stored choice."""
+    internal = SCRIPTS.parent
+    offenders = [
+        str(path.relative_to(internal)) for path in internal.rglob("*.py")
+        if "tests" not in path.relative_to(internal).parts
+        and any(f"default={q}ptl-" in path.read_text(encoding="utf-8") for q in "\"'")
+    ]
+    assert offenders == []
+
+
 def test_selected_prints_exactly_the_resolved_preset(tmp_path, capsys):
     weights = _script("model_weights")
     assert weights.main(["selected", "--runtime-root", str(tmp_path)]) == 0

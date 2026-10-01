@@ -24,7 +24,7 @@ from local_agent.config import MODEL_PRESETS, find_repo_root, load_repo_config  
 from local_agent.llm.client import LLMClient, OpenAICompatibleClient  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor  # noqa: E402
-from local_agent.session.cli import conversation_budgets, safe_terminal  # noqa: E402
+from local_agent.session.conversation_gateway import conversation_budgets  # noqa: E402
 from local_agent.session.conversation_store import (  # noqa: E402
     ContextRefusal, conversation, create_session, ensure_runtime, new_session,
 )
@@ -47,6 +47,11 @@ from local_agent.session.textual_runtime import build_textual_session_runtime  #
 from serving.managed_runtime import ensure_managed_runtime  # noqa: E402
 from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
 from serving.model_store import default_runtime_root as _runtime_root  # noqa: E402
+
+
+def _safe_terminal(text: str) -> str:
+    """Drop escape and control characters before printing untrusted text to the console."""
+    return "".join(c for c in text if c in "\n\t" or (c.isprintable() and c != "\x1b"))
 
 
 def _durable_ids(conversation_id: str) -> tuple[str, str]:
@@ -296,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Conversation refused: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"Session startup failed: {safe_terminal(str(exc))}", file=sys.stderr)
+        print(f"Session startup failed: {_safe_terminal(str(exc))}", file=sys.stderr)
         return 2
 
 
