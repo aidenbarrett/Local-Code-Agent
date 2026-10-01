@@ -310,3 +310,30 @@ def test_main_keeps_preconditions_inside_awake_scope(tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         journeys.main(["--output", str(tmp_path / "acc")])
     assert activity == ["acquire", "release"]
+
+
+def test_task_facts_carry_the_workers_context_metrics():
+    from local_agent.session.contracts import TaskOutcome, TaskResult
+
+    measured = TaskResult("t1", TaskOutcome.FAIL, "no", False, metrics={
+        "llm_calls": 14, "prompt_tokens": 90_000, "context_peak_tokens": 7_400, "compactions": 2,
+        "proof_binding": None})
+    facts = journeys._task_facts(measured)
+    assert (facts["llm_calls"], facts["context_peak_tokens"], facts["compactions"]) == (14, 7_400, 2)
+    unmeasured = journeys._task_facts(TaskResult("t2", TaskOutcome.FAIL, "no", False,
+                                                 metrics={"llm_calls": True}))
+    assert unmeasured["llm_calls"] is None and unmeasured["context_peak_tokens"] is None
+
+
+def test_context_use_names_peak_against_budget_for_model_journeys_only():
+    model = journeys.Journey("J08-fix-build.r1", "fix it", "model")
+    model.tasks = [{"llm_calls": 9, "context_peak_tokens": 6_000, "compactions": 1},
+                   {"llm_calls": 3, "context_peak_tokens": 7_200, "compactions": 0}]
+    product = journeys.Journey("J01-build-pass", "build", "product")
+    product.tasks = [{"llm_calls": 0, "context_peak_tokens": 100, "compactions": 0}]
+    unmeasured = journeys.Journey("J10-fix-tests.r1", "fix it", "model")
+    unmeasured.tasks = [{"llm_calls": None, "context_peak_tokens": None}]
+
+    lines = journeys.context_use_lines([model, product, unmeasured], 8_000)
+    assert lines == ["J08-fix-build.r1       12 model calls · peak context 7,200/8,000 tokens (90%)"
+                     " · 1 compactions"]
