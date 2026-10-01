@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from textual import events
 from textual.app import App, ComposeResult
@@ -129,7 +129,7 @@ def layout_mode(width: int) -> str:
 
 def build_view_state(
     conversation: Sequence[ConversationEntry],
-    events_: Iterable[dict],
+    events_: Iterable[dict[str, Any]],
     *,
     route_summary: str | None = None,
     status: str = "Ready",

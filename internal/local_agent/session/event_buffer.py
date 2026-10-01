@@ -7,7 +7,7 @@ from collections import deque
 from datetime import datetime, timezone
 from threading import Lock, RLock
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 
 @dataclass(frozen=True)
@@ -26,7 +26,7 @@ class Event:
     wall_utc: str = ""
 
     @property
-    def payload(self) -> dict:
+    def payload(self) -> dict[str, Any]:
         return json.loads(self.payload_json)
 
 
@@ -50,7 +50,7 @@ class EventBuffer:
         # may read/re-emit, but must not wait for another producer to emit.
         self._delivery_lock = RLock()
 
-    def emit(self, kind: str, payload: dict, task_id: str | None = None) -> Event:
+    def emit(self, kind: str, payload: dict[str, Any], task_id: str | None = None) -> Event:
         encoded = json.dumps(payload, allow_nan=False)
         with self._delivery_lock:
             with self._lock:

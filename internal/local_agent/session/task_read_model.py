@@ -7,7 +7,7 @@ facts. Impossible orderings fail closed instead of being massaged into a plausib
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Any, Iterable
 from uuid import UUID
 
 from .candidate_facts import CandidateFacts
@@ -66,7 +66,7 @@ class TaskSnapshot:
     evidence_ids: tuple[str, ...] = ()
     cleanup: str | None = None
     closed_sequence: int | None = None
-    result_ref: dict | None = None
+    result_ref: dict[str, Any] | None = None
     result_answer: str | None = None
     result_verification_ran: bool | None = None
     result_verified_at_completion: bool | None = None
@@ -111,7 +111,7 @@ def _activity(sequence: int, occurred_utc: str, kind: str, summary: str) -> Task
     return TaskActivity(sequence=sequence, occurred_utc=occurred_utc, kind=kind, summary=summary)
 
 
-def _project_relevant(snapshot: TaskSnapshot, event: dict) -> None:
+def _project_relevant(snapshot: TaskSnapshot, event: dict[str, Any]) -> None:
     sequence = int(event["sequence"])
     if sequence <= snapshot.last_sequence:
         raise TaskReadModelError("task events must have strictly increasing durable sequence")
@@ -253,7 +253,7 @@ def _project_relevant(snapshot: TaskSnapshot, event: dict) -> None:
     raise TaskReadModelError(f"unsupported task event kind {kind!r}")
 
 
-def project_task(events: Iterable[dict], task_id: str) -> TaskSnapshot:
+def project_task(events: Iterable[dict[str, Any]], task_id: str) -> TaskSnapshot:
     """Project one task from a durable event stream.
 
     Events for other tasks and session-level events are ignored. The first relevant event
@@ -296,7 +296,7 @@ def project_task(events: Iterable[dict], task_id: str) -> TaskSnapshot:
     return snapshot
 
 
-def project_tasks(events: Iterable[dict]) -> list[TaskSnapshot]:
+def project_tasks(events: Iterable[dict[str, Any]]) -> list[TaskSnapshot]:
     """Project every admitted task in deterministic admission order."""
     materialised = list(events)
     task_ids: list[tuple[int, str]] = []
