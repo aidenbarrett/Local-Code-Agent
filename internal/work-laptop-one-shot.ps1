@@ -4,6 +4,7 @@ param(
     [switch]$InstallMissing,
     [switch]$AttemptWslInstall,
     [switch]$OpenDriverPage,
+    [switch]$SkipModelDownload,
     [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent"
 )
 
@@ -95,35 +96,51 @@ $ModelId = $plan.model_configuration.model
 $BaseUrl = $plan.base_url
 $modelRoot = $plan.model_dir
 
-if (!(Test-Path (Join-Path $modelRoot "openvino_model.xml"))) {
+# One owner decides whether a payload is complete (serving.serve.missing_payload_files via
+# model_weights.py state); exit 0 complete, 3 absent/incomplete, anything else is a failure.
+$WeightsScript = Join-Path $PSScriptRoot "scripts\model_weights.py"
+$null = & $VenvPython $WeightsScript state $Profile --runtime-root $RuntimeRoot
+$weightsExit = $LASTEXITCODE
+if ($weightsExit -ne 0 -and $weightsExit -ne 3) { Fail "could not determine model weight state for $Profile" }
+$weightsComplete = $weightsExit -eq 0
+$ModelsPending = $false
+
+if (-not $weightsComplete -and $SkipModelDownload) {
+    # Explicit opt-out: never download. Finish the rest of setup, then say exactly where
+    # the weights go. Server start and qualification need weights, so they are deferred.
+    $ModelsPending = $true
+    Say "model weights for $Profile are not present; -SkipModelDownload supplied, nothing will be downloaded"
+} elseif (-not $weightsComplete) {
     Say "pulling configured model after controller preflight"
     & $VenvPython $Controller pull @serveArgs
     if ($LASTEXITCODE -ne 0) { Fail "model pull failed" }
 }
 
-# Establish controller ownership before any stop/retry. An unowned endpoint is
-# never killed by setup.
-$statusText = & $VenvPython $Controller status @serveArgs
-$statusExit = $LASTEXITCODE
-if ($statusExit -ne 0) { Fail "could not establish managed server ownership before startup" }
-$status = ($statusText -join "`n") | ConvertFrom-Json
-$hadOwnedProcess = [bool]$status.process_alive
+if (-not $ModelsPending) {
+    # Establish controller ownership before any stop/retry. An unowned endpoint is
+    # never killed by setup.
+    $statusText = & $VenvPython $Controller status @serveArgs
+    $statusExit = $LASTEXITCODE
+    if ($statusExit -ne 0) { Fail "could not establish managed server ownership before startup" }
+    $status = ($statusText -join "`n") | ConvertFrom-Json
+    $hadOwnedProcess = [bool]$status.process_alive
 
-Say "starting configured local model server"
-& $VenvPython $Controller start @serveArgs --wait-seconds 900
-$startExit = $LASTEXITCODE
-if ($startExit -ne 0 -and $hadOwnedProcess) {
-    Say "existing controller-owned profile is stale or unhealthy; stopping only that owned process and retrying once"
-    & $VenvPython $Controller stop @serveArgs
-    if ($LASTEXITCODE -ne 0) { Fail "existing profile could not be proven/stopped as controller-owned" }
+    Say "starting configured local model server"
     & $VenvPython $Controller start @serveArgs --wait-seconds 900
     $startExit = $LASTEXITCODE
-}
-if ($startExit -ne 0) { Fail "managed model server did not become ready" }
+    if ($startExit -ne 0 -and $hadOwnedProcess) {
+        Say "existing controller-owned profile is stale or unhealthy; stopping only that owned process and retrying once"
+        & $VenvPython $Controller stop @serveArgs
+        if ($LASTEXITCODE -ne 0) { Fail "existing profile could not be proven/stopped as controller-owned" }
+        & $VenvPython $Controller start @serveArgs --wait-seconds 900
+        $startExit = $LASTEXITCODE
+    }
+    if ($startExit -ne 0) { Fail "managed model server did not become ready" }
 
-Say "running protocol conformance checks"
-& $VenvPython $QualificationScript --profile $Profile --base-url $BaseUrl --model $ModelId --context-probes "1000,4000,7000" --json $QualificationJson
-if ($LASTEXITCODE -ne 0) { Fail "server qualification failed; see $QualificationJson" }
+    Say "running protocol conformance checks"
+    & $VenvPython $QualificationScript --profile $Profile --base-url $BaseUrl --model $ModelId --context-probes "1000,4000,7000" --json $QualificationJson
+    if ($LASTEXITCODE -ne 0) { Fail "server qualification failed; see $QualificationJson" }
+}
 
 # Keep one real configure/build/test smoke so workstation readiness includes the
 # toolchain the product will use.
@@ -151,9 +168,25 @@ $gitSha = (& git -C $RepoRoot rev-parse HEAD 2>$null | Select-Object -First 1)
     model=$ModelId
     endpoint=$BaseUrl
     profile=$Profile
-    qualification=$QualificationJson
+    qualification=$(if ($ModelsPending) { "deferred: model weights not present" } else { $QualificationJson })
+    model_weights=$(if ($ModelsPending) { "pending: $modelRoot" } else { "present" })
     fixture_smoke="pass"
 } | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $ReportPath
+
+if ($ModelsPending) {
+    # Exit 3 is reserved for "setup complete except model weights"; install.ps1 reports it.
+    Write-Host ""
+    Write-Host "WORKSTATION VALIDATION"
+    Write-Host ""
+    Write-Host "SETUP COMPLETE EXCEPT MODEL WEIGHTS (nothing was downloaded)"
+    Write-Host "  C++ build/test: 4/4 tests passed"
+    Write-Host "  Model preset: $Profile ($ModelId)"
+    Write-Host "  Put the model weights here:"
+    Write-Host "    $modelRoot"
+    Write-Host "  Report: $ReportPath"
+    Write-Host ""
+    exit 3
+}
 
 Write-Host ""
 Write-Host "WORKSTATION VALIDATION"

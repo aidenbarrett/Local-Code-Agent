@@ -30,6 +30,16 @@ download state before opening the product:
 .\local-code-agent.ps1 models pull ptl-gpu-30b
 ```
 
+To install without any model download (for example when you already have the
+weights and will copy them in yourself), use `-SkipModelDownload`. Setup finishes
+everything else, prints the exact folder the selected model's weights belong in and
+exits 3. Copy them there, confirm with `models`, then rerun the same command to start
+and qualify the model:
+
+```powershell
+.\install.ps1 -SkipModelDownload
+```
+
 `models use` remembers the normal choice for future sessions. It changes a
 per-user runtime setting, not this repository:
 
