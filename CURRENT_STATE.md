@@ -124,7 +124,9 @@ The public/product path now includes:
   `--allow-model` one call through the product's own client must succeed before any model
   journey runs, otherwise those journeys are UNKNOWN with the client's error; J13 runs the
   whole candidate lifecycle (diff, stale apply, apply, undo, commit) with a scripted worker
-  through the real controller, so CI exercises it on Linux and Windows without a model;
+  through the real controller, so CI exercises it on Linux and Windows without a model; J14 asks the
+  model for a regression test and counts it as caught only if it fails on a seeded bug the
+  existing suite misses (`untested_bug`) and passes on the correct implementation;
 - everyday repository questions ("what does this repository do?", "how is it built and
   tested?", "where is the X implemented?") route directly to read-only repository
   navigation; push, bare commit and delete imperatives are refused without a model, naming

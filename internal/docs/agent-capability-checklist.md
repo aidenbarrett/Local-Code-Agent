@@ -58,7 +58,7 @@ All boxes stay unchecked until their row's evidence is linked.
 | [ ] R08 | Fix this compile/link failure | Fixture: J08 | Failure reproduced, isolated minimal candidate, independent full build; wrong fix remains failure |
 | [ ] R09 | Fix this failing test | Fixture: J10 | Exact assertion and implementation read; regression fails before/passes after; no weakening assertion |
 | [ ] R10 | Add a small feature/change | Fixture: J11 | Explicit acceptance behavior, positive/negative tests, candidate diff; unrelated work untouched |
-| [ ] R11 | Add a regression test | Gap: dedicated qualification | Seed bug; new test fails old implementation and passes fix, detects boundary behavior |
+| [ ] R11 | Add a regression test | Foundation: J14 journey and `untested_bug` seed; hardware qualification pending | Seed bug; new test fails old implementation and passes fix, detects boundary behavior |
 | [ ] R12 | Show/apply/undo/discard that change | Foundation and J09/J13 | Explicit candidate identity; stale/overlapping refusal; byte-exact undo; preserve staged/untracked edits |
 | [ ] R13 | Commit only the approved change | Foundation: explicit candidate commit | Permission refusal plus approved path-only commit; unrelated index unchanged; no push/hooks |
 | [ ] R14 | Explain what passed and what remains | Foundation: typed results/proof | Candidate versus checkout proof separated; failed tool detail and exact test scope retained |
