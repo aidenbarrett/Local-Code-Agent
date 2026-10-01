@@ -31,7 +31,9 @@ if str(SOURCE_ROOT) not in sys.path:
 
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
 from serving import serve  # noqa: E402
+from serving.model_choice import local_presets  # noqa: E402
 from serving.model_store import default_runtime_root as _runtime_root  # noqa: E402
+from scripts.model_weights import weight_state  # noqa: E402
 from scripts.chat_persona import Persona, PersonaError, load_persona, persona_message  # noqa: E402
 from scripts.chat_context import (  # noqa: E402
     ContextRefusal,
@@ -65,7 +67,7 @@ def _resolve(name: str) -> tuple[str, str, ModelConfig] | None:
         profile, device = FRIENDLY[name]
     else:
         profile, device = name, ""
-    base = MODEL_PRESETS.get(profile)
+    base = MODEL_PRESETS.get(profile) if profile in local_presets() else None
     if base is None:
         return None
     if device and device != base.device:
@@ -84,20 +86,24 @@ def list_profiles() -> int:
     term = ui()
     term.banner(
         "LOCAL MODEL CHAT",
-        "Available local model choices use the same Qwen3-8B on different hardware.",
+        "Available local model choices, including every local preset and its downloaded state.",
     )
     term.section("AVAILABLE LOCAL MODEL CHOICES")
-    for friendly in FRIENDLY:
-        resolved = _resolve(friendly)
-        if resolved is None:
-            term.field(friendly, "configuration unavailable", role="red")
-            continue
-        _profile, device, config = resolved
-        term.field(friendly, f"{_model_label(config)} · {device_label(device)}")
+    runtime_root = _runtime_root()
+    for profile in local_presets():
+        config = MODEL_PRESETS[profile]
+        state = weight_state(profile, runtime_root)
+        term.field(
+            profile,
+            f"{_model_label(config)} · {device_label(config.device)} · {state}",
+            role="red" if state.startswith("missing") else None,
+        )
+    term.line()
+    term.field("Existing aliases", ", ".join(FRIENDLY))
     term.line()
     term.section("START CHAT")
-    term.line(r"  .\local-code-agent.ps1 chat qwen3-8b-npu")
-    term.line(r"  .\local-code-agent.ps1 chat qwen3-8b-npu --persona neutral")
+    term.line(r"  .\local-code-agent.ps1 chat ptl-gpu-30b")
+    term.line(r"  .\local-code-agent.ps1 chat ptl-npu-8b --persona neutral")
     term.footer_note("Raw chat has no repository access. Run .\\local-code-agent.ps1 for the Session Hub.")
     term.line()
     return 0
