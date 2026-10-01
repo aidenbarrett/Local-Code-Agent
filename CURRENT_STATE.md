@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `c594ebcf6247edd18c88049412e5a44c2773fc15`
+Reconciled against GitHub `main` at `b7666c14a2133d2ba898ea854834dd6a47a7342b`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -78,7 +78,9 @@ fully typed (#346, #347); cancellation and endpoint authority share scalar valid
 keep their runtime guards (#348). `internal/docs/agent-capability-checklist.md` is a
 researched qualification backlog; none of its rows is claimed as qualified (#350). `install.ps1 -SkipModelDownload` finishes
 setup without downloading weights and names the folder they belong in (#352), and every
-managed OVMS preset, the NUC ones included, declares the one installed OVMS version (#353). Live
+managed OVMS preset, the NUC ones included, declares the one installed OVMS version (#353). Model journey J14 qualifies a requested
+regression test against a seeded bug the suite misses (#356), and scripted journey J15 proves
+staged, unstaged and untracked work survives inspection and candidate apply (#358). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
