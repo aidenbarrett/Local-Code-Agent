@@ -578,7 +578,7 @@ class ScriptedCompileFix:
                 return ChatResponse(tool_calls=[tool_call("propose_patch", {
                     "path": RING, "find": find, "replace": replace,
                     "rationale": "fixture compile error"}, f"p{step}")])
-            found = re.search(r'"patch_id":\s*"([0-9a-f]+)"', str(results[-1].get("content")))
+            found = re.search(r'"patch_id":\s*"([^"]+)"', str(results[-1].get("content")))
             if found is None:
                 return self._finish("diagnosis", "the patch was not proposed", [])
             return ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": found.group(1)},
