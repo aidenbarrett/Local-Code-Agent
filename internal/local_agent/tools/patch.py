@@ -28,6 +28,16 @@ from .tool_primitives import (
 from .tool_context import ToolContext
 
 
+def new_patch_id() -> str:
+    """A patch id no tool-call parser can read as a number.
+
+    A bare hex id such as ``43477e22`` is a valid float literal. A server-side tool
+    parser that coerces parameter values turned it into ``4.3477e22`` and the model
+    could never apply its own patch. The leading letter keeps every id a string.
+    """
+    return "p" + uuid.uuid4().hex[:8]
+
+
 def _protected(ctx: ToolContext) -> tuple[str, ...]:
     """Paths inside the repository that a patch may never touch.
 
@@ -247,7 +257,7 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
                 n=3,
             )
         )
-        patch_id = uuid.uuid4().hex[:8]
+        patch_id = new_patch_id()
         store.put(PendingPatch(patch_id, target, original, updated, diff))
 
         if numbered is not None:
@@ -300,7 +310,7 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
                 fromfile="/dev/null", tofile=f"b/{rel}", n=3,
             )
         )
-        patch_id = uuid.uuid4().hex[:8]
+        patch_id = new_patch_id()
         store.put(PendingPatch(patch_id, target, None, content, diff))
         return ToolResult(
             ok=True,
