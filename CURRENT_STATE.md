@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `c10e412784b5e0ac507a75ac487b3475500c435c`
+Reconciled against GitHub `main` at `367a579cc8efe5a0afa8e546cabe86cc2d19c5b3`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -60,7 +60,11 @@ header names the preset in use (#318). The default worker is `ptl-gpu-30b` (#320
 prepares the selected preset). A verified result whose process cleanup is unknown closes
 as NO_VERDICT with reason `cleanup_unknown` instead of failing its terminal write (#322),
 and the acceptance report shows each model journey's peak context against its budget
-(#323). Live
+(#323). `run-task` and `chat <preset>` resolve the model through the same owner, so
+setup, the Hub, run-task and chat use one preset; the run-task launcher prepares the managed
+OVMS environment (#325, #326). `read_file` path hints stop after 20,000 files and say so
+(#327), and QUICKSTART, TRICKS and product help take the default worker from the preset
+owner (#328). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
