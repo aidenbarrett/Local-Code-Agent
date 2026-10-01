@@ -65,6 +65,21 @@ Do not invent model/device utilisation, files, results or verification.
 """
 
 
+CHARS_PER_TOKEN_ESTIMATE = 4
+
+
+def conversation_budgets(context_budget_tokens: int) -> dict[str, int]:
+    """The gateway's character and UTF-8 byte limits for a model's context budget.
+
+    Four chars/token is a sizing heuristic, not tokenizer output or a lower bound.
+    Code and multilingual text can differ substantially. No occupancy claim follows.
+    """
+    if context_budget_tokens < 1:
+        raise ValueError("context token budget must be positive")
+    request_chars = min(24_000, context_budget_tokens * CHARS_PER_TOKEN_ESTIMATE)
+    return {"history_chars": min(16_000, request_chars),
+            "request_chars": request_chars, "request_bytes": request_chars * 4 + 1024}
+
 def _quoted_request(said: str, limit: int = 200) -> str:
     text = " ".join(said.split())
     return f'"{text if len(text) <= limit else text[: limit - 3] + "..."}"'

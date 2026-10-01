@@ -62,7 +62,7 @@ from local_agent.config import MODEL_PRESETS, ModelConfig, load_repo_config  # n
 from local_agent.llm.client import build_client, tool_call  # noqa: E402
 from local_agent.llm.protocol import ChatResponse, LLMTransportError  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
-from local_agent.session.cli import conversation_budgets  # noqa: E402
+from local_agent.session.conversation_gateway import conversation_budgets  # noqa: E402
 from local_agent.session.contracts import TaskOutcome, TaskResult  # noqa: E402
 from local_agent.session.conversation_store import (  # noqa: E402
     conversation, create_session, ensure_runtime, new_session,
