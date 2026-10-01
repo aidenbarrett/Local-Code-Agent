@@ -678,9 +678,6 @@ class Orchestrator:
                         },
                     )
 
-            state.metrics.context_peak_tokens = max(
-                state.metrics.context_peak_tokens, ctx.estimated_request_tokens
-            )
             if ctx.estimated_request_tokens > budget:
                 state.halt(
                     HaltCause.CONTEXT_BUDGET_EXHAUSTED,
@@ -693,6 +690,12 @@ class Orchestrator:
                 )
                 break
 
+            # The peak is the largest request actually sent: a refused over-budget
+            # request is reported by the halt, and results appended after the
+            # last request never reached the model.
+            state.metrics.context_peak_tokens = max(
+                state.metrics.context_peak_tokens, ctx.estimated_request_tokens
+            )
             message_tokens_before_request = ctx.tokens
             try:
                 response = self.client.chat(ctx.for_request(), tools=schemas)
@@ -880,9 +883,6 @@ class Orchestrator:
                 break
 
         state.metrics.wall_seconds = time.monotonic() - run_started
-        state.metrics.context_peak_tokens = max(
-            state.metrics.context_peak_tokens, ctx.estimated_request_tokens
-        )
         if tiered is not None:
             state.metrics.tier_stats = tiered.stats_as_dict()
         # Duck-typed on purpose: any client that can describe itself does, and
