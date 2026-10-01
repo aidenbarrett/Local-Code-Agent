@@ -22,7 +22,7 @@ sys.modules["lca_acceptance_journeys"] = journeys
 SPEC.loader.exec_module(journeys)
 
 DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambiguous", "J05-stop-build",
-                 "J06-authority", "J13-candidate-scripted"]
+                 "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree"]
 
 
 def _report(output: Path) -> dict[str, dict[str, object]]:
@@ -107,7 +107,7 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert by_id["J08-fix-build"]["status"] == "UNKNOWN"
     assert "--allow-model" in by_id["J08-fix-build"]["reason"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "Product   PASS 7 / FAIL 0" in summary
+    assert "Product   PASS 8 / FAIL 0" in summary
     assert "Model     not used" in summary
 
 
@@ -401,3 +401,41 @@ def test_j14_is_a_model_journey_on_the_clean_fixture():
     assert row[2:5] == ("model", "clean", True)
     assert "untested_bug" in json.loads(
         (journeys.FIXTURE / "scenarios" / "manifest.json").read_text(encoding="utf-8"))["scenarios"]
+
+
+@pytest.mark.parametrize("damage", ["index", "unstaged", "untracked"])
+def test_dirty_worktree_journey_detects_user_work_damage(tmp_path, monkeypatch, damage):
+    original_turn = journeys.Session.turn
+
+    def damaged_turn(session, text, **kwargs):
+        answer, result = original_turn(session, text, **kwargs)
+        if text.startswith("/apply "):
+            if damage == "index":
+                journeys._git(session.repo, "add", "--", "README.md")
+            elif damage == "unstaged":
+                (session.repo / "README.md").write_bytes(b"lost user edit\n")
+            else:
+                (session.repo / "private-notes.bin").write_bytes(b"lost private bytes\n")
+        return answer, result
+
+    monkeypatch.setattr(journeys.Session, "turn", damaged_turn)
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J15-dirty-worktree"]) == 1
+    result = _report(out)["J15-dirty-worktree"]
+    assert result["status"] == "FAIL"
+    assert "candidate import changed user work, index or history" in result["reason"]
+
+
+def test_dirty_inspection_does_not_count_unstaged_as_staged(tmp_path, monkeypatch):
+    original_turn = journeys.Session.turn
+
+    def omit_staged(session, text, **kwargs):
+        answer, result = original_turn(session, text, **kwargs)
+        if text == "what have I changed?":
+            answer = answer.replace("staged: README.md; unstaged:", "unstaged:")
+        return answer, result
+
+    monkeypatch.setattr(journeys.Session, "turn", omit_staged)
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J15-dirty-worktree"]) == 1
+    assert "inspection omitted staged: README.md" in _report(out)["J15-dirty-worktree"]["reason"]
