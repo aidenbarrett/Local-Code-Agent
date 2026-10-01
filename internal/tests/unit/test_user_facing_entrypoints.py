@@ -23,6 +23,15 @@ def _load_chat_module():
     return module
 
 
+def _load_product_help_module():
+    script = INTERNAL / "scripts" / "product-help.py"
+    spec = spec_from_file_location("product_help", script)
+    assert spec and spec.loader
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_product_root_is_small_and_implementation_is_hidden():
     for name in (
         "install.ps1",
@@ -151,6 +160,28 @@ def test_local_code_agent_root_facade_is_the_default_product_surface():
     assert "$internal = Join-Path $root 'internal'" in wrapper
     assert "(Join-Path $internal 'scripts\\session-hub.py')" in wrapper
     assert "(Join-Path $internal 'scripts\\capabilities.py')" in wrapper
+
+
+def test_public_help_teaches_model_listing_download_choice_and_one_run_override(monkeypatch):
+    product_help = _load_product_help_module()
+    stream = io.StringIO()
+    make_ui = product_help.ui
+    monkeypatch.setattr(product_help, "ui", lambda: make_ui(stream=stream, colour=False))
+
+    assert product_help.main() == 0
+    output = stream.getvalue()
+    for command in (
+        r".\local-code-agent.ps1 models",
+        r".\local-code-agent.ps1 models pull ptl-gpu-30b",
+        r".\local-code-agent.ps1 models use ptl-gpu-30b",
+        r".\local-code-agent.ps1 session --profile ptl-npu-8b",
+    ):
+        assert command in output
+    assert "Default worker" in output
+    # The help names whatever the one owner says the default is, never a copy of it.
+    from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS
+    assert DEFAULT_MODEL_PRESET in output
+    assert MODEL_PRESETS[DEFAULT_MODEL_PRESET].model in output
 
 
 def test_capabilities_use_plain_user_facing_language():

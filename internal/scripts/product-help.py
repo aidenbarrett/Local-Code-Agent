@@ -9,6 +9,7 @@ INTERNAL = Path(__file__).resolve().parents[1]
 if str(INTERNAL) not in sys.path:
     sys.path.insert(0, str(INTERNAL))
 
+from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS  # noqa: E402
 from terminal_ui import ui  # noqa: E402
 
 
@@ -21,6 +22,8 @@ def main() -> int:
 
     term.section("START")
     term.field(r".\local-code-agent.ps1", "Open the Session Hub (default human interface)")
+    default = MODEL_PRESETS[DEFAULT_MODEL_PRESET]
+    term.field("Default worker", f"{DEFAULT_MODEL_PRESET} · {default.model} on {default.device}")
     term.line()
 
     term.section("COMMANDS")
@@ -38,6 +41,8 @@ def main() -> int:
     term.line(r"  .\local-code-agent.ps1 chat qwen3-8b-npu")
     term.line(r"  .\local-code-agent.ps1 capabilities")
     term.line(r"  .\local-code-agent.ps1 acceptance --output C:\lca-acc --allow-model")
+    term.line(r"  .\local-code-agent.ps1 models")
+    term.line(r"  .\local-code-agent.ps1 models pull ptl-gpu-30b")
     term.line(r"  .\local-code-agent.ps1 models use ptl-gpu-30b")
     term.line(r"  .\local-code-agent.ps1 session --profile ptl-npu-8b")
     term.line(r'  .\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation')

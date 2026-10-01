@@ -4,6 +4,30 @@ This is the short acceptance contract for the public `local-code-agent.ps1` Sess
 
 The first release should let a new user inspect a repository, find code, understand a branch, run configured builds/tests, explain failures and see truthful local runtime/model/device facts. Stop must also be truthful. Source edits, conflict resolution, commits and recurring watches remain later journeys.
 
+## Choose the local model
+
+The default worker is `ptl-gpu-30b` (Qwen3-Coder 30B-A3B INT4 on the GPU).
+Its download is about 17 GB. The lighter `ptl-npu-8b` preset remains available
+for the NPU.
+
+```powershell
+.\local-code-agent.ps1 models
+.\local-code-agent.ps1 models pull ptl-gpu-30b
+.\local-code-agent.ps1 models use ptl-gpu-30b
+```
+
+`models` shows which preset is selected and whether its weights are present.
+`models use` remembers the normal choice outside the repository. To try a
+different model once without changing that choice:
+
+```powershell
+.\local-code-agent.ps1 session --profile ptl-npu-8b
+```
+
+A preset declares the intended device; the Hub still reports configured and
+observed runtime facts separately. Selecting `NPU` or `GPU` is not proof that
+physical execution occurred there.
+
 ## Shared rules
 
 - Users ask naturally. Supported work does not require route/skill vocabulary.
