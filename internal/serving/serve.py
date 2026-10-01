@@ -24,6 +24,7 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from local_agent.config import MODEL_PRESETS, ModelConfig
+from serving.model_choice import LOCAL_RUNTIMES, local_presets
 from serving.model_store import default_runtime_root, model_repository
 
 
@@ -36,7 +37,7 @@ def validate(config):
         raise Refusal("preset is missing runtime, quant, device or tier")
     if not 0 < config.context_budget_tokens < config.server_max_prompt_length:
         raise Refusal("context budget must be positive and below server_max_prompt_length")
-    if config.runtime not in ("ovms", "llamacpp"):
+    if config.runtime not in LOCAL_RUNTIMES:
         raise Refusal(f"{config.runtime} is not a local serving runtime")
     if not re.fullmatch(r"CPU|GPU(?:\.\d+)?|NPU", config.device):
         raise Refusal(f"unsupported explicit device: {config.device}")
@@ -491,7 +492,7 @@ def main(argv=None):
             raise Refusal("--all is supported only for status")
         if args.tail < 0 or args.wait_seconds < 0:
             raise Refusal("tail and wait-seconds must be nonnegative")
-        profiles = [n for n, c in MODEL_PRESETS.items() if c.runtime in ("ovms", "llamacpp")] if args.all else [args.profile]
+        profiles = local_presets() if args.all else [args.profile]
         output = []
         for name in profiles:
             config = MODEL_PRESETS[name]
