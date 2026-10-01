@@ -237,6 +237,39 @@ def test_compaction_is_recorded_and_warned_about(sandbox):
     assert big not in json.dumps(result.messages)  # nothing invented
 
 
+def test_context_peak_is_the_largest_request_actually_sent(sandbox, monkeypatch):
+    """A tool result appended after the last request never reached the model.
+
+    On hardware an 8B run reported a peak of 7,537 against a 7,500 budget with no
+    compaction: the request check had held, but the peak also counted the final
+    tool result, which was never sent.
+    """
+    from dataclasses import replace
+
+    from local_agent.agent.context import ContextManager
+
+    sent: list[int] = []
+    original = ContextManager.for_request
+
+    def recording(self):
+        sent.append(self.estimated_request_tokens)
+        return original(self)
+
+    monkeypatch.setattr(ContextManager, "for_request", recording)
+    repo = load_repo_config(sandbox.root)
+    repo = replace(repo, policy=replace(repo.policy, max_tool_calls=1))
+    registry, _, _ = build_registry(repo)
+    turns = [ChatResponse(tool_calls=[tool_call(
+        "read_file", {"path": "src/ring_buffer.cpp"}, "c1")])]
+    orch = Orchestrator(repo, registry, ScriptedClient(turns),
+                        SkillLibrary.discover(REPO / "skills"))
+    result = orch.run("read the ring buffer", skill_name="repo-navigation")
+
+    assert result.state.halt_reason is not None  # stopped with the result unsent
+    assert len(sent) == 1
+    assert result.state.metrics.context_peak_tokens == max(sent)
+
+
 def test_metrics_are_attributed_to_model_tools_and_overhead(sandbox):
     from local_agent.llm.protocol import CallStats
 
