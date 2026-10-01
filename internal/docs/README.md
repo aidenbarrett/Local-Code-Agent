@@ -14,6 +14,7 @@ Current source and CI own implementation truth. These documents describe contrac
 
 - `product-roadmap.md`: product destination and milestone gates
 - `product-execution-priorities.md`: immediate priority ladder and anti-tangent rules
+- `agent-capability-checklist.md`: researched everyday-task qualification backlog; every row stays unchecked until its evidence is linked
 - `session-hub-design.md`: Session Hub architecture
 - `session-contract/README.md`: event-contract semantics
 - `session-hub-file-layout.md`: intended ownership/layout
