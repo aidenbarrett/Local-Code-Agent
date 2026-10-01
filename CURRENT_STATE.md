@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `e7e0fa69c9bd1a59f3bab7b724322239752515c2`
+Reconciled against GitHub `main` at `6bd0508cc5a6ab1018d8be2c39383a343ca8953d`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -66,7 +66,11 @@ OVMS environment (#325, #326). `read_file` path hints stop after 20,000 files an
 (#327), and QUICKSTART, TRICKS and product help take the default worker from the preset
 owner (#328). The model list reads the same local-preset owner (#332), and
 `acceptance --compare OLD NEW` sets two retained runs side by side (outcome counts, peak
-context, product verdicts) without starting a model or build (#333). Live
+context, product verdicts) without starting a model or build (#333). The pre-Hub prototype session CLI, which carried its own 8B
+default, is deleted and a guard scans all product source for preset defaults (#336); serve
+reads the local-runtime set from the same owner (#337). Patch ids start with `p`, so a
+server-side tool parser cannot read one as a number (#338; seen on the GPU 30B as
+`4.3477e22`). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
