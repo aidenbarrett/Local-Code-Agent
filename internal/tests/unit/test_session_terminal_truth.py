@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import hashlib
 from uuid import uuid4
 
@@ -232,11 +231,38 @@ def test_failed_process_tool_without_proof_of_no_spawn_keeps_cleanup_unknown(
             service, process_started=process_started, execution="error", reason="internal_error",
         )
         handle = _submit(CancellableDurableTaskExecutor(service, controller), request_id="maybe")
-        # Whatever the executor then does with a completed result and unknown cleanup
-        # (tracked separately), it must never record the cleanup as not needed.
-        with contextlib.suppress(Exception):
-            handle.wait(5)
-        assert not any(event["kind"] == "task.closed" and event["payload"]["cleanup"] == "not_needed"
-                       for event in service.replay())
+        # A verified result whose cleanup is unknown closes honestly, with no verdict,
+        # instead of failing the terminal write and leaving no terminal at all.
+        assert handle.wait(5) is not None
+        events = service.replay()
+        closed = next(event for event in events if event["kind"] == "task.closed")
+        completion = next(e for e in events if e["kind"] == "task.verdict")["payload"]["completion"]
+        assert closed["payload"]["status"] == "unknown"
+        assert closed["payload"]["cleanup"] == "unknown"
+        assert completion["verdict_block"]["verdict"] == "NO_VERDICT"
+        assert completion["verdict_block"]["reason_code"] == "cleanup_unknown"
+        retained = service.store.artifact_bytes(completion["result_ref"]).decode("utf-8")
+        assert "may still be running" in retained
+        assert "answered without running tests" in retained  # the worker's answer is kept
+        assert service.store.task_record(handle.task_id)["terminal"] is True
     finally:
         service.close()
+
+
+def test_only_a_completed_result_with_unreconciled_cleanup_is_downgraded():
+    from local_agent.session.cancellable_task_executor import _with_reconciled_cleanup
+
+    task_id = str(uuid4())
+    passed = TaskResult(task_id, TaskOutcome.PASS, "done", True, verification_ran=True,
+                        reason_code="verification_passed")
+    failed = TaskResult(task_id, TaskOutcome.FAIL, "broken", False, verification_ran=True,
+                        reason_code="verification_failed")
+    for cleanup in ("not_needed", "confirmed"):
+        assert _with_reconciled_cleanup(passed, cleanup) is passed
+    for cleanup in ("unknown", "attempted"):
+        assert _with_reconciled_cleanup(failed, cleanup) is failed
+        downgraded = _with_reconciled_cleanup(passed, cleanup)
+        assert downgraded.outcome == TaskOutcome.NO_VERDICT  # value: other tests reload the module
+        assert downgraded.reason_code == "cleanup_unknown"
+        assert downgraded.verified_at_completion is False
+        assert downgraded.answer.endswith("done")
