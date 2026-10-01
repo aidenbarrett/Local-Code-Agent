@@ -19,28 +19,14 @@ def _presenter():
     return module
 
 
-def test_public_presenter_keeps_the_provisioned_npu_profile_contract():
+def test_agent_command_uses_resolved_profile():
     presenter = _presenter()
     args = presenter.build_parser().parse_args(
-        ["Inspect this repository", "--skill", "repo-navigation"]
+        ["Inspect this repository", "--profile", "ptl-gpu-30b", "--skill", "repo-navigation"]
     )
     command = presenter._agent_command(args)
-
-    assert "--profile" in command
-    assert command[command.index("--profile") + 1] == "ptl-npu-8b"
+    assert command[command.index("--profile") + 1] == "ptl-gpu-30b"
     assert command[-3:] == ["Inspect this repository", "--skill", "repo-navigation"]
-
-
-def test_public_presenter_delegates_server_ownership_to_canonical_launcher():
-    presenter = _presenter()
-    command = presenter._server_command("powershell.exe")
-
-    launcher = REPO / "local-code-agent.ps1"
-    assert launcher.exists()
-    assert command[0] == "powershell.exe"
-    assert str(launcher) in command
-    assert str(REPO / "chat.ps1") not in command
-    assert command[-3:] == ["chat", "qwen3-8b-npu", "--ensure-only"]
 
 
 def test_report_split_keeps_answer_separate_from_operator_telemetry():
@@ -81,7 +67,7 @@ def test_internal_cheap_tier_is_translated_for_public_output():
     skill, route = presenter._route_display("repo-navigation -> cheap tier")
 
     assert skill == "repo-navigation"
-    assert route == "Prefer local Qwen3-8B on NPU"
+    assert route == "Use the selected model route"
     assert "cheap" not in route.lower()
 
 
@@ -127,3 +113,51 @@ def test_root_run_task_uses_the_product_presenter_not_raw_cli_output():
     assert "scripts\\run-task-ui.py" in wrapper
     run_task_block = wrapper.split("'run-task' {", 1)[1].split("'verification-demo' {", 1)[0]
     assert "local_agent.cli" not in run_task_block
+
+
+def test_default_stored_and_explicit_choice_drive_server_agent_and_labels(tmp_path, monkeypatch):
+    from serving.model_choice import store_preset
+    from serving.managed_runtime import RuntimeEnsureResult
+    presenter = _presenter()
+    monkeypatch.setattr(presenter, "default_runtime_root", lambda: tmp_path)
+    cases = [(None, []), ("ptl-gpu-30b", []), ("ptl-gpu-30b", ["--profile", "ptl-npu-8b"])]
+    for stored, flags in cases:
+        if stored:
+            store_preset(tmp_path, stored)
+        expected = flags[-1] if flags else stored or presenter.resolve_preset(None, tmp_path).name
+        config = presenter.MODEL_PRESETS[expected]
+        stream = StringIO()
+        monkeypatch.setattr(presenter, "ui", lambda: presenter_ui(stream))
+        calls = []
+        def ensure(profile, seen, root):
+            calls.append((profile, seen, root))
+            return RuntimeEnsureResult(True, "ready")
+        monkeypatch.setattr(presenter, "ensure_managed_runtime", ensure)
+        def run(term, args):
+            command = presenter._agent_command(args)
+            assert command[command.index("--profile") + 1] == expected
+            return 0, "answer\n--- run summary ---\noutcome: pass\n"
+        monkeypatch.setattr(presenter, "_run_agent", run)
+        assert presenter.main(["Inspect", *flags]) == 0
+        assert calls == [(expected, config, tmp_path)]
+        assert config.model in stream.getvalue()
+        assert presenter.device_label(config.device) in stream.getvalue()
+    assert "Qwen3-8B" not in (INTERNAL / "scripts" / "run-task-ui.py").read_text()
+
+
+def presenter_ui(stream):
+    from terminal_ui import ui
+    return ui(stream=stream, colour=False)
+
+
+def test_missing_weights_refuses_before_agent_and_preserves_pull_command(tmp_path, monkeypatch):
+    presenter = _presenter()
+    monkeypatch.setattr(presenter, "default_runtime_root", lambda: tmp_path)
+    def refuse(*args):
+        raise presenter.Refusal("missing weights; run: .\\local-code-agent.ps1 models pull ptl-gpu-30b")
+    monkeypatch.setattr(presenter, "ensure_managed_runtime", refuse)
+    monkeypatch.setattr(presenter, "_run_agent", lambda *args: (_ for _ in ()).throw(AssertionError("agent ran")))
+    stream = StringIO()
+    monkeypatch.setattr(presenter, "ui", lambda: presenter_ui(stream))
+    assert presenter.main(["Inspect", "--profile", "ptl-gpu-30b"]) == 2
+    assert "models pull ptl-gpu-30b" in stream.getvalue()
