@@ -31,6 +31,16 @@ def test_context_budget_must_fit_server_envelope(tmp_path):
         )
 
 
+def test_local_runtimes_come_from_the_model_choice_owner():
+    from serving import model_choice
+    assert serve.LOCAL_RUNTIMES is model_choice.LOCAL_RUNTIMES
+    assert serve.local_presets is model_choice.local_presets
+    with pytest.raises(serve.Refusal, match="not a local serving runtime"):
+        serve.validate(replace(MODEL_PRESETS["ptl-npu-8b"], runtime="cloud"))
+    for name in model_choice.local_presets():
+        serve.validate(MODEL_PRESETS[name])
+
+
 def test_status_does_not_adopt_foreign_endpoint(tmp_path, monkeypatch):
     config = replace(
         MODEL_PRESETS["nuc-llama-8b"],
