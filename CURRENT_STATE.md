@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `5e8a8dd45fb277d835d924decfb7ad8e7ff3fd55`
+Reconciled against GitHub `main` at `c594ebcf6247edd18c88049412e5a44c2773fc15`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -76,7 +76,9 @@ has one pending proposal: an edit to other lines builds on it so one apply lands
 edit to the same lines replaces it and says the earlier edit is dropped (#344). Session event payloads and context managers are
 fully typed (#346, #347); cancellation and endpoint authority share scalar validators that
 keep their runtime guards (#348). `internal/docs/agent-capability-checklist.md` is a
-researched qualification backlog; none of its rows is claimed as qualified (#350). Live
+researched qualification backlog; none of its rows is claimed as qualified (#350). `install.ps1 -SkipModelDownload` finishes
+setup without downloading weights and names the folder they belong in (#352), and every
+managed OVMS preset, the NUC ones included, declares the one installed OVMS version (#353). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
