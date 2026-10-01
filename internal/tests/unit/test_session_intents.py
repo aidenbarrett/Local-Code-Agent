@@ -294,3 +294,17 @@ def test_invalid_route_inputs_fail_closed():
         PendingRouteRef("route-1", -1)
     with pytest.raises(ValueError, match="PendingRouteRef"):
         correct_pending_route("work", ["route-1"])
+
+
+@pytest.mark.parametrize("text", ["what have I changed?", "What have I changed", "what changed on my branch?"])
+def test_worktree_inspection_phrase_routes_read_only(text):
+    decision = decide_route(text, active_repo_count=1)
+    assert decision.action == RouteAction.WORK
+    assert decision.rule_id == RULE_GIT_REVIEW
+    assert decision.skill == "git-review"
+
+
+@pytest.mark.parametrize("text", ['"what have I changed?"', "what have I changed if I run it?",
+                                "explain what have I changed means"])
+def test_quoted_or_conditional_worktree_phrase_does_not_run(text):
+    assert decide_route(text, active_repo_count=1).action == RouteAction.MODEL_FALLBACK

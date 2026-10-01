@@ -301,7 +301,7 @@ class Session:
                     service, repo_config, chat, worker,
                     runtime_facts=runner.runtime_facts, opened=opened, runtime_index=runtime_index,
                     runtime_root=hub_root, allow_execution=self.allow_execution, budgets=budgets,
-                    worker_client=ScriptedCompileFix if self.journey.id in SCRIPTED_WORKER else None,
+                    worker_client=SCRIPTED_WORKERS.get(self.journey.id),
                 )
                 yield self
             finally:
@@ -632,6 +632,84 @@ class ScriptedCompileFix:
             "claim": claim, "summary": summary, "evidence_ids": evidence}, "done")])
 
 
+class ScriptedDirtyReview(ScriptedCompileFix):
+    """Read actual Git facts for inspection; reuse the compile-fix worker otherwise."""
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:
+        if not any("what have I changed?" in str(m.get("content", ""))
+                   for m in messages if m.get("role") == "user"):
+            return super().chat(messages, tools, max_tokens)
+        results = [m for m in messages if m.get("role") == "tool"]
+        if not results:
+            return ChatResponse(tool_calls=[tool_call("git_status", {}, "status")])
+        if len(results) < 3:
+            return ChatResponse(tool_calls=[tool_call("git_diff", {
+                "staged": len(results) == 1}, f"diff{len(results)}")])
+        data = json.loads(str(results[0]["content"])).get("data", {})
+        states = []
+        for item in data.get("changed", []):
+            if item.get("staged"):
+                states.append(f"staged: {item['path']}")
+            if item.get("worktree"):
+                states.append(f"unstaged: {item['path']}")
+        states.extend(f"untracked: {path}" for path in data.get("untracked", []))
+        return self._finish("diagnosis", "; ".join(states),
+                            ["git_status:0", "git_diff:1", "git_diff:2"])
+
+
+def dirty_work_snapshot(repo: Path, tracked: str, untracked: str) -> dict[str, bytes]:
+    """Index content/modes, both diffs and owned dirty bytes, without index stat-cache noise."""
+    return {
+        "index": _git(repo, "ls-files", "--stage").encode(),
+        "staged_diff": _git(repo, "diff", "--cached", "--binary").encode(),
+        "unstaged_diff": _git(repo, "diff", "--binary", "--", tracked).encode(),
+        "tracked_bytes": (repo / tracked).read_bytes(),
+        "untracked_bytes": (repo / untracked).read_bytes(),
+        "head": _git(repo, "rev-parse", "HEAD").encode(),
+    }
+
+
+def j_dirty_worktree(s: Session) -> None:
+    """R04/O04: inspection and candidate import preserve all three user-work states."""
+    tracked, untracked = "README.md", "private-notes.bin"
+    path = s.repo / tracked
+    original = path.read_bytes()
+    path.write_bytes(original + b"\nmy staged edit\n")
+    _git(s.repo, "add", "--", tracked)
+    path.write_bytes(path.read_bytes() + b"my separate unstaged edit\n")
+    (s.repo / untracked).write_bytes(b"untracked\x00private\xff\r\n")
+    before = dirty_work_snapshot(s.repo, tracked, untracked)
+    s.journey.measured["preserved_work_sha256"] = {
+        key: hashlib.sha256(value).hexdigest() for key, value in before.items()
+    }
+    answer, reviewed = s.turn("what have I changed?")
+    expect(reviewed is not None, "change inspection admitted no task")
+    for state, filename in (("staged", tracked), ("unstaged", tracked), ("untracked", untracked)):
+        expect(re.search(r"(?<!\w)" + re.escape(f"{state}: {filename}"), answer) is not None,
+               f"inspection omitted {state}: {filename}")
+    expect(dirty_work_snapshot(s.repo, tracked, untracked) == before,
+           "inspection changed user work or the index")
+    broken = (s.repo / RING).read_bytes()
+    s.turn("build it")
+    _, fixed = s.turn("fix it")
+    expect(fixed is not None and fixed.outcome is TaskOutcome.PASS,
+           "scripted worker produced no verified candidate")
+    assert fixed is not None
+    expect((s.repo / RING).read_bytes() == broken, "candidate preparation touched its target")
+    expect(dirty_work_snapshot(s.repo, tracked, untracked) == before,
+           "candidate preparation changed user work or the index")
+    _, applied = s.turn(f"/apply {fixed.task_id}")
+    expect(applied is not None and applied.outcome is TaskOutcome.PASS, "candidate import failed")
+    expect((s.repo / RING).read_bytes() != broken, "candidate import did not change its target")
+    expect(dirty_work_snapshot(s.repo, tracked, untracked) == before,
+           "candidate import changed user work, index or history")
+    ok, log = independent_build(s.repo)
+    expect(ok, "the imported candidate fails an independent build: " + log[-1500:])
+    s.journey.passed("staged, unstaged and untracked states named; inspection, preparation and apply "
+                     "preserved exact user bytes, index content and history; independent build passed")
+
+
 def j_candidate_lifecycle(s: Session) -> None:
     """Needs a verified candidate from the model; exercises every candidate control."""
     _, built = s.turn("build it")
@@ -809,8 +887,9 @@ REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
 ]
 
 
-# Journeys whose worker is ScriptedCompileFix instead of the model.
-SCRIPTED_WORKER = frozenset({"J13-candidate-scripted"})
+# Product journeys with scripted workers instead of the model.
+SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
+                    "J15-dirty-worktree": ScriptedDirtyReview}
 # (id, title, kind, scenario, needs_model, repo options, function)
 JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Session], None]]] = [
     ("J01-build-pass", "build it on a clean tree", "product", "clean", False, {}, j_build_pass),
@@ -828,6 +907,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
     ("J12-questions", "questions about the repository", "model", "clean", True, {}, j_questions),
     ("J14-regression-test", "write a regression test that catches a seeded bug", "model", "clean",
      True, {}, j_regression_test),
+    ("J15-dirty-worktree", "preserve staged, unstaged and untracked work", "product",
+     "compile_error", False, {}, j_dirty_worktree),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]

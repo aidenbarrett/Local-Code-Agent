@@ -175,7 +175,7 @@ class RouteCorrection:
                 raise ValueError("non-correction cannot carry correction state")
 
 
-_GIT_REVIEW = re.compile(r"^what changed on my branch\??$", re.IGNORECASE)
+_GIT_REVIEW = re.compile(r"^(?:what changed on my branch|what have I changed)\??$", re.IGNORECASE)
 _REPO_INSPECT = re.compile(r"^inspect (?:this|the) (?:repo|repository)[.!]?$", re.IGNORECASE)
 _SYMBOL_LOOKUP = re.compile(
     r"^where is (?P<symbol>[A-Za-z_~][A-Za-z0-9_:.<>~]*) (?:defined|declared|implemented)\??$",
