@@ -258,3 +258,13 @@ def test_launcher_tab_completes_commands_in_powershell():
     assert lines[0] == "[acceptance]", result.stdout
     _, dispatched = _launcher_commands()
     assert lines[1] == "[" + ",".join(dispatched) + "]", result.stdout
+
+
+def test_commands_that_start_a_managed_model_server_set_the_ovms_environment():
+    """run-task, session, acceptance and models start or pull through the runtime owner."""
+    wrapper = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
+    switch = wrapper[wrapper.index("switch ($Command.ToLowerInvariant())"):]
+    for command in ("run-task", "session", "acceptance", "models"):
+        start = switch.index(f"    '{command}' {{")
+        body = switch[start:switch.index("\n    }", start)]
+        assert "Set-ManagedOvmsEnvironment" in body, command

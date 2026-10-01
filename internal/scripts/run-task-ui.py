@@ -2,7 +2,7 @@
 """Human-facing presenter for ``local-code-agent.ps1 run-task``.
 
 The underlying developer CLI remains the execution contract. This script owns
-presentation only: it prepares the already-supported public NPU server, streams
+presentation only: it prepares the selected managed model server, streams
 CLI observer events in user-facing language, and gives the final answer/result a
 clear visual hierarchy.
 """
@@ -12,7 +12,6 @@ import argparse
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 
@@ -22,6 +21,11 @@ if str(INTERNAL) not in sys.path:
     sys.path.insert(0, str(INTERNAL))
 
 from terminal_ui import device_label, ui  # noqa: E402
+from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
+from serving.managed_runtime import ensure_managed_runtime  # noqa: E402
+from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
+from serving.model_store import default_runtime_root  # noqa: E402
+from serving.serve import Refusal  # noqa: E402
 
 _REPORT_MARKER = "--- run summary ---"
 _MODEL_RE = re.compile(
@@ -40,34 +44,12 @@ _WALL_RE = re.compile(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="local-code-agent run-task")
     parser.add_argument("task")
+    parser.add_argument("--profile", choices=sorted(MODEL_PRESETS))
     parser.add_argument("--skill")
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--transcript")
     parser.add_argument("--quiet", action="store_true")
     return parser
-
-
-def _powershell() -> str | None:
-    for candidate in ("pwsh", "powershell.exe", "powershell"):
-        resolved = shutil.which(candidate)
-        if resolved:
-            return resolved
-    return None
-
-
-def _server_command(shell: str) -> list[str]:
-    """Prepare the managed server through the one public product launcher."""
-    return [
-        shell,
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(ROOT / "local-code-agent.ps1"),
-        "chat",
-        "qwen3-8b-npu",
-        "--ensure-only",
-    ]
 
 
 def _agent_command(args: argparse.Namespace) -> list[str]:
@@ -76,7 +58,7 @@ def _agent_command(args: argparse.Namespace) -> list[str]:
         "-m",
         "local_agent.cli",
         "--profile",
-        "ptl-npu-8b",
+        args.profile,
         "run",
         args.task,
     ]
@@ -141,7 +123,7 @@ def _route_display(detail: str) -> tuple[str, str | None]:
     if normalized.endswith(" tier"):
         normalized = normalized[:-5].strip()
     labels = {
-        "cheap": "Prefer local Qwen3-8B on NPU",
+        "cheap": "Use the selected model route",
         "strong": "Use the higher-capability model route",
     }
     return skill, labels.get(normalized, tier)
@@ -206,34 +188,15 @@ def _show_observer_line(term, raw: str) -> None:
     term.status("info", line)
 
 
-def _prepare_server(term) -> int:
-    shell = _powershell()
-    if not shell:
-        term.status("fail", "PowerShell was not found; cannot prepare the local model server")
+def _prepare_server(term, profile: str, config: ModelConfig) -> int:
+    term.status("active", f"Preparing {config.model} on {config.device}")
+    try:
+        result = ensure_managed_runtime(profile, config, default_runtime_root())
+    except (Refusal, OSError) as exc:
+        term.status("fail", str(exc))
         return 2
-
-    term.status("active", "Preparing Qwen3-8B (INT4) on the NPU")
-    result = subprocess.run(
-        _server_command(shell),
-        cwd=ROOT,
-        env=_child_env(),
-        capture_output=True,
-        text=True,
-        errors="replace",
-    )
-    combined = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
-    if result.returncode != 0:
-        term.status("fail", "The local NPU model server could not be prepared")
-        for line in combined.splitlines()[-12:]:
-            term.status("info", line.strip())
-        return result.returncode
-
-    lowered = combined.lower()
-    if "already ready" in lowered:
-        term.status("ok", "Qwen3-8B already resident and ready on the NPU")
-    else:
-        term.status("ok", "Qwen3-8B ready on the NPU")
-    return 0
+    term.status("ok" if result.ok else "fail", result.message)
+    return 0 if result.ok else 2
 
 
 def _run_agent(term, args: argparse.Namespace) -> tuple[int, str]:
@@ -257,7 +220,13 @@ def _run_agent(term, args: argparse.Namespace) -> tuple[int, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        args.profile = resolve_preset(args.profile, default_runtime_root()).name
+    except ModelChoiceError as exc:
+        parser.error(str(exc))
+    config = MODEL_PRESETS[args.profile]
     term = ui()
 
     term.banner(
@@ -268,12 +237,12 @@ def main(argv: list[str] | None = None) -> int:
     term.section("TASK")
     term.wrapped_field("Request", args.task)
     term.field("Procedure", args.skill or "automatic routing")
-    term.field("Model", "Qwen3-8B · INT4")
-    term.field("Device", device_label("NPU"))
+    term.field("Model", config.model)
+    term.field("Device", device_label(config.device))
 
     term.line()
     term.section("LOCAL MODEL")
-    server_rc = _prepare_server(term)
+    server_rc = _prepare_server(term, args.profile, config)
     if server_rc != 0:
         term.line()
         term.section("RESULT")

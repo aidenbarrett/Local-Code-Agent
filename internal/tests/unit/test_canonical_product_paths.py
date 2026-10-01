@@ -19,4 +19,7 @@ def test_deleted_chat_wrapper_is_not_a_run_task_dependency():
     presenter = (REPO / "internal" / "scripts" / "run-task-ui.py").read_text(encoding="utf-8")
 
     assert "ROOT / \"chat.ps1\"" not in presenter
-    assert "ROOT / \"local-code-agent.ps1\"" in presenter
+    # The server is prepared by the one runtime owner, not by shelling out to a chat
+    # surface (deleted chat.ps1, or the launcher's chat command).
+    assert "ensure_managed_runtime(" in presenter
+    assert '"chat"' not in presenter and "--ensure-only" not in presenter

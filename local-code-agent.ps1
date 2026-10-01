@@ -140,6 +140,8 @@ switch ($Command.ToLowerInvariant()) {
             exit 2
         }
 
+        # run-task prepares the selected model's managed server itself.
+        Set-ManagedOvmsEnvironment
         & $python (Join-Path $internal 'scripts\run-task-ui.py') @Rest
         exit $LASTEXITCODE
     }

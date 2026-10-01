@@ -10,8 +10,13 @@ def test_public_run_task_uses_the_profile_installed_by_first_run_setup():
     presenter = (REPO / "internal" / "scripts" / "run-task-ui.py").read_text(encoding="utf-8")
     run_task_block = wrapper.split("'run-task' {", 1)[1].split("'verification-demo' {", 1)[0]
     assert "scripts\\run-task-ui.py" in run_task_block
-    assert '"ptl-npu-8b"' in presenter
-    assert '"qwen3-8b-npu"' in presenter
+    # Setup prepares the selected preset and run-task runs the selected preset:
+    # both ask the one model-choice owner, so they cannot drift apart.
+    setup = (REPO / "internal" / "work-laptop-one-shot.ps1").read_text(encoding="utf-8")
+    assert 'model_weights.py") selected' in setup
+    assert "resolve_preset(args.profile, default_runtime_root())" in presenter
+    assert "ensure_managed_runtime(profile, config" in presenter
+    assert '"ptl-npu-8b"' not in presenter and '"qwen3-8b-npu"' not in presenter
     assert "local_agent.cli" in presenter
 
 
