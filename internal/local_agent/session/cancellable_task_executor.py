@@ -103,6 +103,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 "controller returned completed while durable tool activity remained open: "
                 + ", ".join(truth.open_call_ids)
             )
+        result = _with_reconciled_cleanup(result, truth.cleanup)
         result_ref, result_bytes = self._result_artifact(result)
         status = result.projection.terminal_state.value
         verdict_block = verdict_block_from_task_result(result)
@@ -373,3 +374,32 @@ if TYPE_CHECKING:
 
 
 __all__ = ["CancellableDurableTaskExecutor", "ExecutableController"]
+
+
+_RECONCILED_CLEANUP = frozenset({"not_needed", "confirmed"})
+
+
+def _with_reconciled_cleanup(result: TaskResult, cleanup: str) -> TaskResult:
+    """A verified result whose process cleanup is unknown is not a completed task.
+
+    The worker may have proven the change, but a configured command it started may
+    still be running, so the task cannot honestly close as completed. It closes with
+    no verdict and the reason, keeping the worker's answer and metrics, instead of
+    failing the terminal write and leaving no durable terminal at all.
+    """
+    if result.projection.terminal_state.value != "completed" or cleanup in _RECONCILED_CLEANUP:
+        return result
+    note = (
+        "A build or test process this task started may still be running "
+        f"(cleanup {cleanup}), so its result is not trusted as complete."
+    )
+    return TaskResult(
+        result.task_id,
+        TaskOutcome.NO_VERDICT,
+        f"{note}\n\n{result.answer}".strip(),
+        False,
+        evidence_ids=result.evidence_ids,
+        metrics=dict(result.metrics),
+        verification_ran=result.verification_ran,
+        reason_code="cleanup_unknown",
+    )
