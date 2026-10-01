@@ -22,7 +22,7 @@ def tree_digest(root: Path) -> str:
     Failure to read Git or a file blocks verification. This is a product snapshot,
     not the experiment source hash. Ignored outputs are outside this contract.
     """
-    def git(*args):
+    def git(*args: str) -> bytes:
         return subprocess.run(["git", *args], cwd=root, check=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30).stdout
 

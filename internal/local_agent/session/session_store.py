@@ -6,6 +6,7 @@ replays task effects. Admission and terminalization are durable atomic fences.
 """
 from __future__ import annotations
 
+from types import TracebackType
 import hashlib
 import json
 import sqlite3
@@ -39,7 +40,10 @@ _TERMINAL_TASK_STATES = frozenset({
 class _ClosingConnection(sqlite3.Connection):
     """Commit/rollback like sqlite3.Connection, then always release the handle."""
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None,
+        tb: TracebackType | None,
+    ):
         try:
             return super().__exit__(exc_type, exc, tb)
         finally:

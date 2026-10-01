@@ -7,6 +7,7 @@ that the underlying inference stopped. Reconciliation remains explicit afterward
 """
 from __future__ import annotations
 
+from types import TracebackType
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Callable
@@ -120,7 +121,10 @@ class ManagedEndpointCall:
             raise EndpointCallStateError("endpoint call handle is not ready")
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool:
         # An exception before invoke() began did not start inference, so the endpoint
         # can be released. invoke() itself changes state before executing and handles
         # abnormal completion by quarantining.

@@ -11,6 +11,7 @@ does not claim to cancel an inference server request.
 """
 from __future__ import annotations
 
+from types import TracebackType
 from threading import Condition, Lock
 from time import monotonic
 
@@ -340,7 +341,10 @@ class ManagedEndpointLease:
             raise EndpointLeaseConflict("managed endpoint lease is not open")
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool:
         state = self.state
         if state != "open":
             return False

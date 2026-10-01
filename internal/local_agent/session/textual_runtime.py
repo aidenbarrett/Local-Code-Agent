@@ -7,6 +7,7 @@ it does not pretend that UI exit cancelled execution.
 """
 from __future__ import annotations
 
+from types import TracebackType
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -29,7 +30,10 @@ class TextualSessionRuntime:
     def __enter__(self) -> "TextualSessionRuntime":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool:
         self.close()
         return False
 

@@ -106,8 +106,8 @@ class Proposal:
 
     @classmethod
     def parse(cls, raw: str) -> "Proposal":
-        def unique(pairs):
-            result = {}
+        def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            result: dict[str, Any] = {}
             for key, value in pairs:
                 if key in result:
                     raise ValueError("duplicate proposal field")
