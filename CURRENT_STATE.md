@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `367a579cc8efe5a0afa8e546cabe86cc2d19c5b3`
+Reconciled against GitHub `main` at `e7e0fa69c9bd1a59f3bab7b724322239752515c2`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -64,7 +64,9 @@ and the acceptance report shows each model journey's peak context against its bu
 setup, the Hub, run-task and chat use one preset; the run-task launcher prepares the managed
 OVMS environment (#325, #326). `read_file` path hints stop after 20,000 files and say so
 (#327), and QUICKSTART, TRICKS and product help take the default worker from the preset
-owner (#328). Live
+owner (#328). The model list reads the same local-preset owner (#332), and
+`acceptance --compare OLD NEW` sets two retained runs side by side (outcome counts, peak
+context, product verdicts) without starting a model or build (#333). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
