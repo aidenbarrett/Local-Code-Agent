@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `b2980890783790ee87b02d9da32bd9e545598a22`
+Reconciled against GitHub `main` at `c10e412784b5e0ac507a75ac487b3475500c435c`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -56,7 +56,11 @@ The acceptance report lists every failed tool call (#314), a run keeps Windows a
 without changing power settings (#315), `read_file` hints put shallower paths first
 (#316), and the model preset has one owner: `.\local-code-agent.ps1 models use <profile>`
 stores a user's choice, an explicit `--profile` overrides it for one run, and the Hub
-header names the preset in use (#318). Live
+header names the preset in use (#318). The default worker is `ptl-gpu-30b` (#320; setup
+prepares the selected preset). A verified result whose process cleanup is unknown closes
+as NO_VERDICT with reason `cleanup_unknown` instead of failing its terminal write (#322),
+and the acceptance report shows each model journey's peak context against its budget
+(#323). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
