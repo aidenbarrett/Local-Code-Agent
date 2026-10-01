@@ -133,7 +133,17 @@ def _task_facts(result: TaskResult | None) -> dict[str, Any]:
         "verified": result.verified_at_completion,
         "evidence_ids": list(result.evidence_ids),
         "proof_scope": binding.get("scope") if isinstance(binding, dict) else None,
+        # The worker's own run metrics: how hard the turn pressed on the context budget.
+        **{key: _metric_int(result.metrics, key) for key in _CONTEXT_METRICS},
     }
+
+
+_CONTEXT_METRICS = ("llm_calls", "prompt_tokens", "context_peak_tokens", "compactions")
+
+
+def _metric_int(metrics: object, key: str) -> int | None:
+    value = metrics.get(key) if isinstance(metrics, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 # ------------------------------------------------------------------ repositories
@@ -902,6 +912,27 @@ def model_rates(journeys: list[Journey]) -> list[str]:
     return lines
 
 
+def context_use_lines(journeys: list[Journey], budget_tokens: int) -> list[str]:
+    """Per model journey: model calls, peak context against the budget, compactions."""
+    lines = []
+    for journey in journeys:
+        if journey.kind != "model":
+            continue
+        peaks = [t["context_peak_tokens"] for t in journey.tasks
+                 if isinstance(t.get("context_peak_tokens"), int)]
+        if not peaks:
+            continue
+        calls = sum(t.get("llm_calls") or 0 for t in journey.tasks)
+        compactions = sum(t.get("compactions") or 0 for t in journey.tasks)
+        peak = max(peaks)
+        share = f"{round(100 * peak / budget_tokens)}%" if budget_tokens > 0 else "?"
+        lines.append(
+            f"{journey.id:<22} {calls} model calls · peak context {peak:,}/{budget_tokens:,}"
+            f" tokens ({share}) · {compactions} compactions"
+        )
+    return lines
+
+
 def model_call_probe(config: ModelConfig) -> dict[str, Any]:
     """One tiny chat through the product's own client before any journey runs.
 
@@ -964,6 +995,12 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
     rates = model_rates(journeys)
     if rates:
         lines += ["", "Model rates (repeated model journeys)", *rates]
+    measured = any(isinstance(task.get("context_peak_tokens"), int)
+                   for journey in journeys if journey.kind == "model" for task in journey.tasks)
+    context = (context_use_lines(journeys, runner.worker_config.context_budget_tokens)
+               if measured else [])
+    if context:
+        lines += ["", "Context use (model journeys)", *context]
     failures = [line for journey in journeys for line in failed_tool_lines(journey)]
     if failures:
         lines += ["", "Failed tool calls", *failures]
