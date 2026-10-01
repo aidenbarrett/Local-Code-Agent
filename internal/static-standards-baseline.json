@@ -32,9 +32,6 @@
     "no-untyped-def": 1,
     "redundant-expr": 1
    },
-   "internal/local_agent/session/cancellation.py": {
-    "redundant-expr": 8
-   },
    "internal/local_agent/session/contracts.py": {
     "redundant-expr": 1
    },
@@ -76,9 +73,6 @@
    "internal/local_agent/session/endpoint_client.py": {
     "no-untyped-def": 3,
     "redundant-expr": 2
-   },
-   "internal/local_agent/session/endpoint_lease.py": {
-    "redundant-expr": 6
    },
    "internal/local_agent/session/endpoint_runtime.py": {
     "exit-return": 1,
@@ -237,9 +231,6 @@
     "no-untyped-def": 1,
     "redundant-expr": 1
    },
-   "internal/local_agent/session/cancellation.py": {
-    "redundant-expr": 8
-   },
    "internal/local_agent/session/contracts.py": {
     "redundant-expr": 1
    },
@@ -280,9 +271,6 @@
    "internal/local_agent/session/endpoint_client.py": {
     "no-untyped-def": 3,
     "redundant-expr": 2
-   },
-   "internal/local_agent/session/endpoint_lease.py": {
-    "redundant-expr": 6
    },
    "internal/local_agent/session/endpoint_runtime.py": {
     "exit-return": 1,
@@ -537,7 +525,7 @@
     "PLR0915": 1
    },
    "internal/local_agent/session/cancellation.py": {
-    "E501": 7,
+    "E501": 2,
     "N818": 1,
     "UP042": 3
    },
@@ -863,5 +851,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 869
+ "total": 836
 }

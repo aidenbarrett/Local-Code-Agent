@@ -13,6 +13,8 @@ from enum import Enum
 from threading import Lock
 from uuid import UUID, uuid4
 
+from .value_validation import require_integer, require_nonempty_string
+
 
 class EndpointLeaseError(RuntimeError):
     pass
@@ -55,8 +57,7 @@ class EndpointRequest:
             UUID(self.request_id)
         except (TypeError, ValueError) as exc:
             raise ValueError("endpoint request id must be a UUID") from exc
-        if not isinstance(self.endpoint_id, str) or not self.endpoint_id.strip():
-            raise ValueError("endpoint id must be nonempty")
+        require_nonempty_string(self.endpoint_id, message="endpoint id must be nonempty")
         object.__setattr__(self, "role", EndpointRole(self.role))
         if self.role == EndpointRole.CONVERSATION:
             if not isinstance(self.session_id, str) or not self.session_id.strip():
@@ -64,10 +65,9 @@ class EndpointRequest:
             if self.task_id is not None or self.execution_epoch is not None:
                 raise ValueError("conversation endpoint request cannot carry task execution authority")
             return
-        if self.session_id is not None and (
-            not isinstance(self.session_id, str) or not self.session_id.strip()
-        ):
-            raise ValueError("worker session id must be nonempty when present")
+        if self.session_id is not None:
+            require_nonempty_string(self.session_id,
+                            message="worker session id must be nonempty when present")
         if self.task_id is None:
             raise ValueError("worker/strong endpoint request requires a task id")
         try:
@@ -108,12 +108,8 @@ class PendingPosition:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "queue_class", QueueClass(self.queue_class))
-        if (
-            not isinstance(self.class_position, int)
-            or isinstance(self.class_position, bool)
-            or self.class_position < 0
-        ):
-            raise ValueError("class queue position must be a nonnegative integer")
+        require_integer(self.class_position, minimum=0,
+                        message="class queue position must be a nonnegative integer")
 
 
 class EndpointArbiter:
@@ -126,14 +122,12 @@ class EndpointArbiter:
         chat_pending_limit_per_session: int = 4,
         work_pending_limit: int = 64,
     ):
-        if not isinstance(endpoint_id, str) or not endpoint_id.strip():
-            raise ValueError("endpoint id must be nonempty")
+        require_nonempty_string(endpoint_id, message="endpoint id must be nonempty")
         for name, value in (
             ("chat_pending_limit_per_session", chat_pending_limit_per_session),
             ("work_pending_limit", work_pending_limit),
         ):
-            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-                raise ValueError(f"{name} must be a positive integer")
+            require_integer(value, minimum=1, message=f"{name} must be a positive integer")
         self.endpoint_id = endpoint_id
         self.chat_pending_limit_per_session = chat_pending_limit_per_session
         self.work_pending_limit = work_pending_limit
@@ -274,8 +268,7 @@ class EndpointArbiter:
             return self._finish_active()
 
     def quarantine(self, reason: str, *, lease_id: str | None = None) -> None:
-        if not isinstance(reason, str) or not reason.strip():
-            raise ValueError("endpoint quarantine reason must be nonempty")
+        require_nonempty_string(reason, message="endpoint quarantine reason must be nonempty")
         if len(reason) > 256:
             raise ValueError("endpoint quarantine reason exceeds size limit")
         if lease_id is not None:
