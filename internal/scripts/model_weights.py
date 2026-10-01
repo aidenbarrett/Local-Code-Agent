@@ -87,13 +87,17 @@ def pull_weights(profile: str, runtime_root: Path, *, allow_experimental: bool) 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("action", nargs="?", default="list", choices=("list", "pull", "use"))
+    parser.add_argument("action", nargs="?", default="list", choices=("list", "pull", "use", "selected"))
     parser.add_argument("profile", nargs="?")
     parser.add_argument("--allow-experimental", action="store_true")
     parser.add_argument("--runtime-root", type=Path, default=None)
     args = parser.parse_args(argv)
     runtime_root = args.runtime_root or default_runtime_root()
     try:
+        if args.action == "selected":
+            # Machine-readable: setup prepares whichever preset the user will get.
+            print(resolve_preset(None, runtime_root).name)
+            return 0
         if args.action == "list":
             if args.profile:
                 raise serve.Refusal("list takes no profile")
