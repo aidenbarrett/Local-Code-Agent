@@ -11,7 +11,8 @@ $ProgressPreference = "SilentlyContinue"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Core = Join-Path $PSScriptRoot "bootstrap-work-laptop-core.ps1"
-$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent"
+. (Join-Path $PSScriptRoot 'scripts\runtime-root.ps1')
+$RuntimeRoot = Resolve-LcaRuntimeRoot
 $CheckOnly = $false
 $InstallMissing = $false
 $SkipOvms = $false

@@ -81,14 +81,10 @@ function Set-ManagedOvmsEnvironment {
     # Preserve the old direct-chat wrapper's managed OVMS setup while keeping one
     # product launcher. setupvars.ps1 may set PYTHONHOME/PYTHONPATH for OVMS; capture
     # those for the child server and restore the controller Python environment.
-    $localAppData = $env:LOCALAPPDATA
-    if (-not $localAppData) {
-        $localAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
-    }
-    if (-not $localAppData) {
-        $localAppData = Join-Path $HOME '.local'
-    }
-    $runtimeRoot = Join-Path $localAppData 'LocalCodeAgent'
+    # The same location setup used: LCA_RUNTIME_ROOT when the user set it, otherwise the
+    # default. Exported so every child resolves the identical root.
+    . (Join-Path $internal 'scripts\runtime-root.ps1')
+    $runtimeRoot = Resolve-LcaRuntimeRoot
     $env:LCA_RUNTIME_ROOT = $runtimeRoot
 
     $ovmsDir = Join-Path $runtimeRoot 'tools\ovms-2026.3.0'

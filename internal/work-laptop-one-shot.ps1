@@ -5,12 +5,13 @@ param(
     [switch]$AttemptWslInstall,
     [switch]$OpenDriverPage,
     [switch]$SkipModelDownload,
-    [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent"
+    [string]$RuntimeRoot = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+if (-not $RuntimeRoot) { . (Join-Path $PSScriptRoot 'scripts\runtime-root.ps1'); $RuntimeRoot = Resolve-LcaRuntimeRoot }
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $BaseBootstrap = Join-Path $PSScriptRoot "bootstrap-work-laptop.ps1"

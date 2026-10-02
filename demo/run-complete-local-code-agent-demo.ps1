@@ -1,11 +1,12 @@
 [CmdletBinding()]
 param(
     [double]$Seconds = 12,
-    [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent"
+    [string]$RuntimeRoot = ""
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+if (-not $RuntimeRoot) { . (Join-Path $root 'internal\scripts\runtime-root.ps1'); $RuntimeRoot = Resolve-LcaRuntimeRoot }
 
 Write-Host ''
 Write-Host 'LOCAL CODE AGENT - COMPLETE DEMO'

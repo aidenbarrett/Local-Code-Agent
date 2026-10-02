@@ -39,9 +39,8 @@ def test_windows_launcher_handles_runtime_location_and_noninteractive_setup_expl
     launcher = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
     install = (REPO / "install.ps1").read_text(encoding="utf-8")
     assert not (REPO / "chat.ps1").exists()
-    assert "$env:LOCALAPPDATA" in launcher
-    assert "GetFolderPath" in launcher
-    assert "Join-Path $HOME '.local'" in launcher
+    # The runtime location comes from the one shared rule (test_runtime_root_resolution).
+    assert "$runtimeRoot = Resolve-LcaRuntimeRoot" in launcher
     assert "Set-ManagedOvmsEnvironment" in launcher
     assert "[Console]::IsInputRedirected" in install
     assert "-InstallMissing for non-interactive setup" in install
