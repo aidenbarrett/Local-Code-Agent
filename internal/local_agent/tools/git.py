@@ -66,9 +66,52 @@ def _resolve_commit(ctx: ToolContext, value: str, *, label: str) -> str | None:
     return resolved
 
 
+# Unmerged index states from ``git status --porcelain=v2``, in git's own terms.
+_CONFLICT_STATES = {
+    "DD": "both deleted",
+    "AU": "added by us",
+    "UD": "deleted by them",
+    "UA": "added by them",
+    "DU": "deleted by us",
+    "AA": "both added",
+    "UU": "both modified",
+}
+
+# Marker files under the git directory, checked in this order. A rebase stopped
+# on a conflict can leave single-commit head files beside its own directory, so
+# the rebase directories are checked before the single-commit heads.
+_OPERATION_MARKERS: tuple[tuple[str, str], ...] = (
+    ("rebase-merge", "rebase"),
+    ("rebase-apply/applying", "am"),
+    ("rebase-apply", "rebase"),
+    ("MERGE_HEAD", "merge"),
+    ("CHERRY_PICK_HEAD", "cherry-pick"),
+    ("REVERT_HEAD", "revert"),
+)
+
+
+def _operation_in_progress(ctx: ToolContext) -> dict[str, Any]:
+    """Report the interrupted multi-step operation, if any, from git's own markers.
+
+    Bisect is reported separately: it is a search over history rather than a
+    half-finished change, and it does not block committing.
+    """
+    names = [marker for marker, _ in _OPERATION_MARKERS] + ["BISECT_LOG"]
+    code, out, err = _git(ctx, ["rev-parse", *(arg for n in names for arg in ("--git-path", n))])
+    if code != 0:
+        raise ToolError(f"git rev-parse --git-path failed: {err.strip()}")
+    paths = out.splitlines()
+    if len(paths) != len(names):
+        raise ToolError("git rev-parse --git-path returned an unexpected number of paths")
+    present = {name: (ctx.root / path).exists() for name, path in zip(names, paths, strict=True)}
+    operation = next((op for marker, op in _OPERATION_MARKERS if present[marker]), None)
+    return {"operation": operation, "bisecting": present["BISECT_LOG"]}
+
+
 def _parse_porcelain_v2(stdout: str) -> dict[str, Any]:
     branch: dict[str, str] = {}
     changed: list[dict[str, str]] = []
+    conflicted: list[dict[str, str]] = []
     untracked: list[str] = []
 
     records = iter(stdout.split("\0"))
@@ -88,10 +131,26 @@ def _parse_porcelain_v2(stdout: str) -> dict[str, Any]:
             if renamed:
                 item["original_path"] = next(records)
             changed.append(item)
+        elif line.startswith("u "):
+            fields = line.split(" ", 10)
+            xy = fields[1]
+            conflicted.append(
+                {"path": fields[-1], "state": _CONFLICT_STATES.get(xy, f"unmerged {xy}")}
+            )
         elif line.startswith("? "):
             untracked.append(line[2:])
 
-    return {"branch": branch, "changed": changed, "untracked": untracked}
+    ahead_behind = branch.get("ab", "").split()
+    divergence: dict[str, int] | None = None
+    if len(ahead_behind) == 2 and ahead_behind[0][:1] == "+" and ahead_behind[1][:1] == "-":
+        divergence = {"ahead": int(ahead_behind[0][1:]), "behind": int(ahead_behind[1][1:])}
+    return {
+        "branch": branch,
+        "upstream_divergence": divergence,
+        "changed": changed,
+        "conflicted": conflicted,
+        "untracked": untracked,
+    }
 
 
 def _name_status(stdout: str) -> list[dict[str, str]]:
@@ -112,8 +171,10 @@ def _name_status(stdout: str) -> list[dict[str, str]]:
 def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None) -> None:
     @reg.add(
         "git_status",
-        "Show the working tree status: current branch, upstream, staged and "
-        "unstaged changes, untracked files.",
+        "Show the working tree status: current branch, how far it is ahead of and "
+        "behind its upstream, staged and unstaged changes, untracked files, "
+        "conflicted files, and any merge, rebase, cherry-pick or revert that has "
+        "stopped part-way.",
         {"type": "object", "properties": {}, "additionalProperties": False},
         Risk.READ,
     )
@@ -122,14 +183,22 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         if code != 0:
             raise ToolError(f"git status failed: {err.strip()}")
         parsed = _parse_porcelain_v2(out)
-        n = len(parsed["changed"])
-        u = len(parsed["untracked"])
-        return ToolResult(
-            ok=True,
-            summary=f"{n} changed file(s), {u} untracked, on "
-                    f"{parsed['branch'].get('head', 'unknown')}",
-            data=parsed,
-        )
+        parsed.update(_operation_in_progress(ctx))
+        parts = [
+            f"{len(parsed['changed'])} changed file(s)",
+            f"{len(parsed['untracked'])} untracked",
+        ]
+        if parsed["conflicted"]:
+            parts.append(f"{len(parsed['conflicted'])} conflicted")
+        summary = ", ".join(parts) + f", on {parsed['branch'].get('head', 'unknown')}"
+        divergence = parsed["upstream_divergence"]
+        if divergence is not None and (divergence["ahead"] or divergence["behind"]):
+            summary += f" ({divergence['ahead']} ahead, {divergence['behind']} behind upstream)"
+        if parsed["operation"] is not None:
+            summary += f"; a {parsed['operation']} is in progress"
+        if parsed["bisecting"]:
+            summary += "; a bisect is in progress"
+        return ToolResult(ok=True, summary=summary, data=parsed)
 
     @reg.add(
         "git_diff",
