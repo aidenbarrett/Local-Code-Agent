@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `88ae42ad57c92949dc968b448c59b386720da6c4`
+Reconciled against GitHub `main` at `fd861425da7b4ee6fd56af0d3586aaaaf1008494`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -85,7 +85,9 @@ both paths and paths with spaces are not split; J15b covers rename and binary in
 (#361). Tool calls refused before a handler runs (unknown tool, invalid arguments) are now
 retained as durable tool failures, and J16 proves malformed model calls fail closed (#362). Routing and verdict boundaries validate through the
 shared typed validators in `session/value_validation.py` (#364), and the acceptance tests skip
-only redundant clean probe builds, about 22% less Windows CI time with no assertion lost (#365). Live
+only redundant clean probe builds, about 22% less Windows CI time with no assertion lost (#365). `git_branch_info` reports a detached HEAD, the upstream (or its
+absence) and the files changed since the merge base, and J17 proves branch review is read-only
+in all three states (#367). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
