@@ -191,6 +191,25 @@ def test_verdict_block_rejects_multiline_or_oversized_rendering():
         )
 
 
+@pytest.mark.parametrize("value", [None, False, 0, "", []])
+def test_annotated_verdict_text_still_validates_untrusted_runtime_values(value):
+    with pytest.raises(ValueError, match="scope"):
+        VerdictBlock(
+            verdict="NO_VERDICT", reason_code="cleanup_unknown",
+            scope=value, rendered_lines=("NO_VERDICT",),
+        )
+    with pytest.raises(ValueError, match="evidence ids"):
+        VerdictBlock(
+            verdict="NO_VERDICT", reason_code="cleanup_unknown",
+            scope="scope", evidence_ids=(value,), rendered_lines=("NO_VERDICT",),
+        )
+    with pytest.raises(ValueError, match="rendered lines"):
+        VerdictBlock(
+            verdict="NO_VERDICT", reason_code="cleanup_unknown",
+            scope="scope", rendered_lines=(value,),
+        )
+
+
 def test_renderer_never_silently_drops_evidence_to_fit_line_budget():
     evidence_ids = tuple(f"{index:03d}-" + ("x" * 252) for index in range(128))
     with pytest.raises(ValueError, match="line-count limit"):

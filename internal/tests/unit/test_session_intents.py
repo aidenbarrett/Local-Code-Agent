@@ -10,6 +10,7 @@ from local_agent.session.intents import (
     ExplicitMode,
     PendingRouteRef,
     RouteAction,
+    RouteDecision,
     RULE_BUILD_AND_TEST,
     RULE_RUN_TESTS,
     RULE_GIT_REVIEW,
@@ -294,6 +295,24 @@ def test_invalid_route_inputs_fail_closed():
         PendingRouteRef("route-1", -1)
     with pytest.raises(ValueError, match="PendingRouteRef"):
         correct_pending_route("work", ["route-1"])
+
+
+@pytest.mark.parametrize("value", [None, False, 0, "", " \t", []])
+def test_annotated_route_fields_still_validate_untrusted_runtime_values(value):
+    with pytest.raises(ValueError, match="nonempty objective"):
+        RouteDecision(RouteAction.WORK, objective=value, source=RouteSource.USER_DIRECT)
+    with pytest.raises(ValueError, match="task intent objective"):
+        TaskIntent(_turn_ref(), value, (), RouteSource.USER_DIRECT)
+    with pytest.raises(ValueError, match="pending route id"):
+        PendingRouteRef(value, 0)
+
+
+@pytest.mark.parametrize("value", [False, -1, 1.5, "0", []])
+def test_annotated_route_counts_still_reject_non_integer_runtime_values(value):
+    with pytest.raises(ValueError, match="active_repo_count"):
+        decide_route("build it", active_repo_count=value)
+    with pytest.raises(ValueError, match="pending route revision"):
+        PendingRouteRef("route-1", value)
 
 
 @pytest.mark.parametrize("text", ["what have I changed?", "What have I changed", "what changed on my branch?"])

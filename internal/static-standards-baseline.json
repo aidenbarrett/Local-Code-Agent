@@ -86,9 +86,6 @@
     "no-any-return": 1,
     "unreachable": 1
    },
-   "internal/local_agent/session/intents.py": {
-    "redundant-expr": 6
-   },
    "internal/local_agent/session/process_stop.py": {
     "arg-type": 1,
     "misc": 2
@@ -98,8 +95,6 @@
     "redundant-expr": 2
    },
    "internal/local_agent/session/results.py": {
-    "assignment": 1,
-    "redundant-expr": 4,
     "union-attr": 2
    },
    "internal/local_agent/session/runtime_facts.py": {
@@ -284,9 +279,6 @@
     "no-any-return": 1,
     "unreachable": 1
    },
-   "internal/local_agent/session/intents.py": {
-    "redundant-expr": 6
-   },
    "internal/local_agent/session/process_stop.py": {
     "arg-type": 1,
     "misc": 2
@@ -296,8 +288,6 @@
     "redundant-expr": 2
    },
    "internal/local_agent/session/results.py": {
-    "assignment": 1,
-    "redundant-expr": 4,
     "union-attr": 2
    },
    "internal/local_agent/session/runtime_facts.py": {
@@ -615,9 +605,9 @@
     "UP042": 1
    },
    "internal/local_agent/session/intents.py": {
-    "E501": 3,
+    "E501": 2,
     "PLR0911": 1,
-    "PLR0912": 2,
+    "PLR0912": 1,
     "PLR0915": 1,
     "UP035": 1,
     "UP042": 3
@@ -851,5 +841,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 836
+ "total": 812
 }
