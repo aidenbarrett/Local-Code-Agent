@@ -32,6 +32,11 @@ def _report(output: Path) -> dict[str, dict[str, object]]:
     return {j["id"]: j for j in report["journeys"]}
 
 
+def _skip_redundant_fixture_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip only the clean probe; selected journeys still run their real builds."""
+    monkeypatch.setattr(journeys, "probe_fixture_build", lambda _output: (True, ""))
+
+
 def test_reusing_output_refuses_before_deleting_previous_evidence(tmp_path, capsys):
     out = tmp_path / "acc"
     locked_object = out / "probe" / ".git" / "objects" / "08" / "previous"
@@ -111,6 +116,29 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert "Product   PASS 10 / FAIL 0" in summary
     assert "Model     not used" in summary
 
+    report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))
+    product = report["preconditions"]["product"]
+    assert len(product["source_sha256"]) == 64
+    assert f"source sha256 {product['source_sha256'][:16]}" in summary
+
+    rename_transcript = (out / "journeys" / "J15b-rename-binary" / "transcript.txt").read_text(
+        encoding="utf-8",
+    )
+    assert "renamed: README.md -> renamed notes.md" in rename_transcript
+    assert "private-binary-marker" not in rename_transcript
+
+    malformed = by_id["J16-malformed-calls"]
+    assert malformed["tasks"][-1]["outcome"] != "pass"
+    assert malformed["tasks"][-1]["verified"] is False
+    assert {
+        (failure["tool_name"], failure["tool_reason"])
+        for failure in malformed["tool_failures"]
+    } == {
+        ("invented_patch_tool", "unknown_tool"),
+        ("read_file", "invalid_model_response"),
+        ("apply_patch", "bad_arguments"),
+    }
+
 
 def test_a_journey_whose_claim_does_not_hold_fails_the_run(tmp_path, monkeypatch):
     # The clean-build journey pointed at a compile error must FAIL, not pass or skip.
@@ -118,20 +146,12 @@ def test_a_journey_whose_claim_does_not_hold_fails_the_run(tmp_path, monkeypatch
         ("JX-wrong", "clean-build check on a broken tree", "product", "compile_error", False, {},
          journeys.j_build_pass),
     ])
+    _skip_redundant_fixture_probe(monkeypatch)
     out = tmp_path / "acc"
     assert journeys.main(["--output", str(out)]) == 1
     wrong = _report(out)["JX-wrong"]
     assert wrong["status"] == "FAIL"
     assert "clean tree build was fail/verification_failed" in wrong["reason"]
-
-
-def test_the_report_names_the_product_source_that_produced_it(tmp_path):
-    out = tmp_path / "acc"
-    journeys.main(["--output", str(out), "--only", "J04-ambiguous"])
-    report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))
-    product = report["preconditions"]["product"]
-    assert len(product["source_sha256"]) == 64
-    assert f"source sha256 {product['source_sha256'][:16]}" in (out / "summary.txt").read_text(encoding="utf-8")
 
 
 def test_a_model_the_product_cannot_call_is_one_precondition_not_every_journey(tmp_path, monkeypatch):
@@ -208,6 +228,32 @@ def test_repeat_must_be_positive(tmp_path, capsys):
     assert refusal.value.code == 2
     assert "--repeat must be at least 1" in capsys.readouterr().err
     assert not (tmp_path / "acc").exists()
+
+
+def test_fixture_probe_seam_preserves_real_runtime_preconditions(tmp_path, monkeypatch):
+    class RuntimeFactsStub:
+        @staticmethod
+        def header() -> str:
+            return "observed runtime"
+
+    runtime_facts = RuntimeFactsStub()
+    monkeypatch.setattr(journeys.shutil, "which", lambda _name: "available")
+    monkeypatch.setattr(journeys, "probe_fixture_build", lambda _output: (True, ""))
+    monkeypatch.setattr(
+        journeys.RuntimeFacts,
+        "observe",
+        lambda *_args, **_kwargs: runtime_facts,
+    )
+    runner = journeys.Runner(journeys.argparse.Namespace(
+        output=tmp_path / "acc", profile="ptl-npu-8b", base_url=None, model=None,
+        allow_model=False, journey_timeout=10.0, stop_budget=10.0, repeat=1,
+    ))
+
+    runner.check_preconditions()
+
+    assert runner.runtime_facts is runtime_facts
+    assert runner.preconditions["fixture_builds"] is True
+    assert runner.preconditions["runtime_header"] == "observed runtime"
 
 
 def test_event_dump_inlines_a_failed_tool_calls_retained_reason():
@@ -420,6 +466,7 @@ def test_dirty_worktree_journey_detects_user_work_damage(tmp_path, monkeypatch, 
         return answer, result
 
     monkeypatch.setattr(journeys.Session, "turn", damaged_turn)
+    _skip_redundant_fixture_probe(monkeypatch)
     out = tmp_path / "acc"
     assert journeys.main(["--output", str(out), "--only", "J15-dirty-worktree"]) == 1
     result = _report(out)["J15-dirty-worktree"]
@@ -437,19 +484,10 @@ def test_dirty_inspection_does_not_count_unstaged_as_staged(tmp_path, monkeypatc
         return answer, result
 
     monkeypatch.setattr(journeys.Session, "turn", omit_staged)
+    _skip_redundant_fixture_probe(monkeypatch)
     out = tmp_path / "acc"
     assert journeys.main(["--output", str(out), "--only", "J15-dirty-worktree"]) == 1
     assert "inspection omitted staged: README.md" in _report(out)["J15-dirty-worktree"]["reason"]
-
-
-def test_rename_binary_journey_reports_identity_and_preserves_work(tmp_path):
-    out = tmp_path / 'rename-binary'
-    assert journeys.main(['--output', str(out), '--only', 'J15b-rename-binary']) == 0
-    result = _report(out)['J15b-rename-binary']
-    assert result['status'] == 'PASS'
-    transcript = (out / 'journeys' / 'J15b-rename-binary' / 'transcript.txt').read_text(encoding='utf-8')
-    assert 'renamed: README.md -> renamed notes.md' in transcript
-    assert 'private-binary-marker' not in transcript
 
 
 def test_rename_binary_journey_rejects_index_damage(tmp_path, monkeypatch):
@@ -461,23 +499,9 @@ def test_rename_binary_journey_rejects_index_damage(tmp_path, monkeypatch):
         return answer, result
 
     monkeypatch.setattr(journeys.Session, 'turn', damage)
+    _skip_redundant_fixture_probe(monkeypatch)
     out = tmp_path / 'damaged'
     assert journeys.main(['--output', str(out), '--only', 'J15b-rename-binary']) == 1
     result = _report(out)['J15b-rename-binary']
     assert result['status'] == 'FAIL'
     assert 'changed index, history or file bytes' in result['reason']
-
-
-def test_malformed_call_journey_records_typed_failures_and_no_success(tmp_path):
-    out = tmp_path / "malformed"
-    assert journeys.main(["--output", str(out), "--only", "J16-malformed-calls"]) == 0
-    result = _report(out)["J16-malformed-calls"]
-    assert result["status"] == "PASS"
-    assert result["tasks"][-1]["outcome"] != "pass"
-    assert result["tasks"][-1]["verified"] is False
-    failures = {(f["tool_name"], f["tool_reason"]) for f in result["tool_failures"]}
-    assert failures == {
-        ("invented_patch_tool", "unknown_tool"),
-        ("read_file", "invalid_model_response"),
-        ("apply_patch", "bad_arguments"),
-    }

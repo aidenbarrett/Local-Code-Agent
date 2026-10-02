@@ -216,6 +216,16 @@ def independent_build(root: Path, build_dir: str = "build-independent") -> tuple
     return True, ""
 
 
+def probe_fixture_build(output: Path) -> tuple[bool, str]:
+    """Prove the bundled clean fixture builds, then remove the private probe."""
+    probe = output / "probe"
+    try:
+        make_repo(probe, "clean")
+        return independent_build(probe)
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+
+
 CTEST_PER_TEST_SECONDS = 120
 
 
@@ -1010,14 +1020,11 @@ class Runner:
             "git": shutil.which("git"),
             "cmake": shutil.which("cmake"),
         }
-        probe = self.output / "probe"
         if facts["git"] and facts["cmake"]:
-            make_repo(probe, "clean")
-            ok, log = independent_build(probe)
+            ok, log = probe_fixture_build(self.output)
             facts["fixture_builds"] = ok
             if not ok:
                 facts["fixture_build_log_tail"] = log[-1500:]
-            shutil.rmtree(probe, ignore_errors=True)
         else:
             facts["fixture_builds"] = False
         if self.allow_model:
