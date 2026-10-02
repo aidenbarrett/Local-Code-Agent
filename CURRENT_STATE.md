@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `fd861425da7b4ee6fd56af0d3586aaaaf1008494`
-on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
+Reconciled against GitHub `main` at `f9bb4a199d79a7e62646add723d51a2771e662c5`
+on 2026-10-02 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
 #217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
@@ -87,7 +87,13 @@ retained as durable tool failures, and J16 proves malformed model calls fail clo
 shared typed validators in `session/value_validation.py` (#364), and the acceptance tests skip
 only redundant clean probe builds, about 22% less Windows CI time with no assertion lost (#365). `git_branch_info` reports a detached HEAD, the upstream (or its
 absence) and the files changed since the merge base, and J17 proves branch review is read-only
-in all three states (#367). Live
+in all three states (#367). Restart at each candidate effect boundary never replays an
+effect or claims success (#369). `git_status` reports conflicted paths in git's own terms,
+a stopped merge, rebase, am, cherry-pick or revert, bisect, and ahead/behind its upstream
+(unknown without one) (#370). Setup, the launcher, demos and bootstrap resolve the runtime
+root through one rule (`internal/scripts/runtime-root.ps1`, pinned to `model_store.py`);
+`install.ps1` no longer takes `-RuntimeRoot`, and `LCA_RUNTIME_ROOT` is the one supported
+setting (#371). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
