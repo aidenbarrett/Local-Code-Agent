@@ -14,6 +14,7 @@ from ..watch.delta import ComparisonStatus
 from ..watch.job_store import StoredWatchJob
 from ..watch.service import WatchServiceRun
 from .contracts import TaskResult
+from .session_event_service import DURABLE_WRITE_TIMEOUT_S
 from .watch_read_model import WatchReadModelError, project_watch
 
 
@@ -75,7 +76,7 @@ class DurableWatchEvents:
                 "next_due_utc": next_due_utc,
             },
         )
-        receipt.wait(30)
+        receipt.wait(DURABLE_WRITE_TIMEOUT_S)
 
     def record_run(
         self,
@@ -159,7 +160,7 @@ class DurableWatchEvents:
             },
             task_id=task_result.task_id,
         )
-        receipt.wait(30)
+        receipt.wait(DURABLE_WRITE_TIMEOUT_S)
 
 
 __all__ = ["DurableWatchError", "DurableWatchEvents", "watch_schedule_revision"]

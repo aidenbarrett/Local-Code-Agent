@@ -17,7 +17,7 @@ from uuid import UUID, uuid5
 from ..watch.job_store import StoredWatchJob
 from .contracts import MAX_MESSAGE_CHARS
 from .durable_watch import watch_schedule_revision
-from .session_event_service import DurableSessionService
+from .session_event_service import DURABLE_WRITE_TIMEOUT_S, DurableSessionService
 from .task_admission import execution_contract_sha256, repository_id
 
 
@@ -142,7 +142,7 @@ class DurableWatchTaskAdmission:
             },
             request_bytes=request_bytes,
         )
-        receipt.wait(30)
+        receipt.wait(DURABLE_WRITE_TIMEOUT_S)
         if receipt.task_id is None or receipt.created is None:
             raise DurableWatchAdmissionError("durable watch admission returned no committed identity")
         return WatchTaskAdmission(

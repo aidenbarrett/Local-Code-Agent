@@ -8,7 +8,7 @@ import pytest
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor
 from local_agent.session.contracts import TaskOutcome, TaskResult
 from local_agent.session.durable_activity import DurableToolActivity
-from local_agent.session.session_event_service import DurableSessionService
+from local_agent.session.session_event_service import DURABLE_WRITE_TIMEOUT_S, DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
 
 
@@ -86,7 +86,7 @@ def test_timed_out_build_cannot_claim_cleanup_not_needed(tmp_path):
 
     try:
         handle = _submit(CancellableDurableTaskExecutor(service, Controller()), request_id="timeout")
-        assert handle.wait(5) is not None
+        assert handle.wait(DURABLE_WRITE_TIMEOUT_S) is not None
         closed = next(event for event in service.replay() if event["kind"] == "task.closed")
         assert closed["payload"]["cleanup"] == "attempted"
         assert closed["payload"]["cleanup"] != "not_needed"
@@ -107,7 +107,7 @@ def test_controller_attribute_error_is_durable_fault_and_still_raises(tmp_path):
     try:
         handle = _submit(CancellableDurableTaskExecutor(service, Controller()), request_id="fault")
         with pytest.raises(AttributeError, match="injected controller bug"):
-            handle.wait(5)
+            handle.wait(DURABLE_WRITE_TIMEOUT_S)
 
         events = service.replay()
         verdict = next(event for event in events if event["kind"] == "task.verdict")
@@ -144,7 +144,7 @@ def test_open_tool_activity_forbids_completed_terminal_state(tmp_path):
     try:
         handle = _submit(CancellableDurableTaskExecutor(service, Controller()), request_id="open-tool")
         with pytest.raises(RuntimeError, match="durable tool activity remained open"):
-            handle.wait(5)
+            handle.wait(DURABLE_WRITE_TIMEOUT_S)
         verdict = next(event for event in service.replay() if event["kind"] == "task.verdict")
         assert verdict["payload"]["completion"]["verdict_block"]["reason_code"] == "controller_fault"
         assert verdict["payload"]["completion"]["status"] == "unknown"
@@ -213,7 +213,7 @@ def test_process_tool_refused_before_spawning_does_not_block_a_completed_termina
     try:
         controller = _completed_after_failed_process_tool(service, process_started=False)
         handle = _submit(CancellableDurableTaskExecutor(service, controller), request_id="refused")
-        assert handle.wait(5) is not None
+        assert handle.wait(DURABLE_WRITE_TIMEOUT_S) is not None
         closed = next(event for event in service.replay() if event["kind"] == "task.closed")
         assert closed["payload"]["status"] == "completed"
         assert closed["payload"]["cleanup"] == "not_needed"
@@ -233,7 +233,7 @@ def test_failed_process_tool_without_proof_of_no_spawn_keeps_cleanup_unknown(
         handle = _submit(CancellableDurableTaskExecutor(service, controller), request_id="maybe")
         # A verified result whose cleanup is unknown closes honestly, with no verdict,
         # instead of failing the terminal write and leaving no terminal at all.
-        assert handle.wait(5) is not None
+        assert handle.wait(DURABLE_WRITE_TIMEOUT_S) is not None
         events = service.replay()
         closed = next(event for event in events if event["kind"] == "task.closed")
         completion = next(e for e in events if e["kind"] == "task.verdict")["payload"]["completion"]

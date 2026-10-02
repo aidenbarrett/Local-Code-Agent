@@ -22,6 +22,7 @@ from .cancellation_runtime import (
 from .contracts import RouteSource, TaskOutcome, TaskResult
 from .results import verdict_block_from_task_result
 from .session_event_service import (
+    DURABLE_WRITE_TIMEOUT_S,
     DurableSessionService,
     DurableTaskExecutor,
     ExecutableController,
@@ -126,7 +127,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 },
                 result_bytes=result_bytes,
             )
-            terminal.wait(30)
+            terminal.wait(DURABLE_WRITE_TIMEOUT_S)
         except Exception as exc:
             raise DurableWriteFailed(f"durable terminal write failed: {exc}") from exc
 
@@ -253,7 +254,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 },
                 task_id=task_id,
             )
-            receipt.wait(30)
+            receipt.wait(DURABLE_WRITE_TIMEOUT_S)
             cancel_endpoint = getattr(self.controller, "cancel_endpoint_execution", None)
             if callable(cancel_endpoint):
                 cancel_endpoint(task_id, execution_epoch)
@@ -270,7 +271,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
         owns_registration: bool,
     ) -> None:
         try:
-            handle.admission.wait(30)
+            handle.admission.wait(DURABLE_WRITE_TIMEOUT_S)
             if handle.admission.created is False:
                 if owns_registration:
                     self._release_registration(handle.task_id, execution_epoch)
@@ -288,7 +289,7 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                     },
                     task_id=handle.task_id,
                 )
-                running.wait(30)
+                running.wait(DURABLE_WRITE_TIMEOUT_S)
                 self.cancellation.set_site(
                     handle.task_id,
                     execution_epoch,

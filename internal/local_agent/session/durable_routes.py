@@ -15,6 +15,7 @@ from uuid import UUID, uuid5
 
 from .contracts import RouteSource
 from .intents import TaskIntent
+from .session_event_service import DURABLE_WRITE_TIMEOUT_S
 
 
 class DurableRouteError(RuntimeError):
@@ -99,7 +100,7 @@ class DurableRouteEvents:
             "requires_acceptance": requires_acceptance,
         }
         receipt = self.service.append("route.proposed", payload)
-        receipt.wait(30)
+        receipt.wait(DURABLE_WRITE_TIMEOUT_S)
         return DurableRouteRef(
             route_id=route_id,
             revision=0,
@@ -322,7 +323,7 @@ class DurableRouteEvents:
                 "skill": skill,
             },
         )
-        receipt.wait(30)
+        receipt.wait(DURABLE_WRITE_TIMEOUT_S)
         return DurableRouteRef(
             route_id=route.route_id,
             revision=revision,
