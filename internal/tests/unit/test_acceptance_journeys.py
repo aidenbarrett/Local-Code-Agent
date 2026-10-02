@@ -22,7 +22,8 @@ sys.modules["lca_acceptance_journeys"] = journeys
 SPEC.loader.exec_module(journeys)
 
 DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambiguous", "J05-stop-build",
-                 "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree", "J15b-rename-binary"]
+                 "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree", "J15b-rename-binary",
+                 "J16-malformed-calls"]
 
 
 def _report(output: Path) -> dict[str, dict[str, object]]:
@@ -107,7 +108,7 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert by_id["J08-fix-build"]["status"] == "UNKNOWN"
     assert "--allow-model" in by_id["J08-fix-build"]["reason"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "Product   PASS 9 / FAIL 0" in summary
+    assert "Product   PASS 10 / FAIL 0" in summary
     assert "Model     not used" in summary
 
 
@@ -465,3 +466,18 @@ def test_rename_binary_journey_rejects_index_damage(tmp_path, monkeypatch):
     result = _report(out)['J15b-rename-binary']
     assert result['status'] == 'FAIL'
     assert 'changed index, history or file bytes' in result['reason']
+
+
+def test_malformed_call_journey_records_typed_failures_and_no_success(tmp_path):
+    out = tmp_path / "malformed"
+    assert journeys.main(["--output", str(out), "--only", "J16-malformed-calls"]) == 0
+    result = _report(out)["J16-malformed-calls"]
+    assert result["status"] == "PASS"
+    assert result["tasks"][-1]["outcome"] != "pass"
+    assert result["tasks"][-1]["verified"] is False
+    failures = {(f["tool_name"], f["tool_reason"]) for f in result["tool_failures"]}
+    assert failures == {
+        ("invented_patch_tool", "unknown_tool"),
+        ("read_file", "invalid_model_response"),
+        ("apply_patch", "bad_arguments"),
+    }

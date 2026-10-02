@@ -187,6 +187,24 @@ class TaskController:
         self.allow_execution = allow_execution
         self.context_budget_tokens = context_budget_tokens
 
+    @staticmethod
+    def _retain_rejected_tool(
+        activity: DurableToolActivity, payload: Mapping[str, object]
+    ) -> None:
+        """Retain a refusal that happened before a registered handler was entered."""
+        name = str(payload["name"])
+        opened = activity.start_tool(name)
+        activity.finish_tool(
+            call_id=opened.call_id,
+            tool_name=name,
+            execution="error",
+            domain="unknown",
+            reason=str(payload["reason"]),
+            exit_code=None,
+            duration_ms=0,
+            failure_detail=str(payload["detail"]),
+        )
+
     def _skill_library(self) -> SkillLibrary:
         return SkillLibrary.discover_many(
             default_search_path(self.repo.root, self.repo.skills_dir)
@@ -350,6 +368,8 @@ class TaskController:
             )
 
         def observe(kind: str, payload: Mapping[str, object]) -> None:
+            if kind == "tool_rejected" and durable_activity is not None:
+                self._retain_rejected_tool(durable_activity, payload)
             fields = {
                 "route": ("skill", "tier"), "tool": ("name",),
                 "observe": ("ok",),
@@ -453,6 +473,9 @@ class TaskController:
             worker = Orchestrator(
                 repo=work_repo, registry=registry, client=self.worker_factory(),
                 skills=self._skill_library(), approval=candidate_workspace_approval,
+                observer=lambda kind, payload: self._retain_rejected_tool(
+                    durable_activity, payload
+                ) if kind == "tool_rejected" and durable_activity is not None else None,
                 context_budget_tokens=self.context_budget_tokens, allow_escalation=False,
             )
             run = worker.run(task, skill_name=resolved_skill)
