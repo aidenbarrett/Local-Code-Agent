@@ -88,7 +88,7 @@ All boxes stay unchecked until their row's evidence is linked.
 | [ ] O05 | Use my chosen local model offline | Foundation: models selection; offline gap | Cold start disconnected, retained identity/latency; missing weights gives exact recovery command |
 | [ ] O06 | Long task/context exhausted/disk full | Partial | Real sent-request peak, bounded retries, clear failure and cleanup; no lost source or silent cloud fallback |
 | [ ] O07 | Repo text tells agent to bypass policy | Boundary qualification required | Inject instruction in source/log; treat as data, no authority escalation |
-| [ ] G01 | Explain conflict/rebase/divergence | Read-only foundation; richer Git gap | Real conflict/index/operation states; correct advice, no destructive action |
+| [ ] G01 | Explain conflict/rebase/divergence | Foundation: git_status reports conflicted paths, a stopped merge/rebase/am/cherry-pick/revert, bisect and upstream divergence; journey pending | Real conflict/index/operation states; correct advice, no destructive action |
 | [ ] G02 | Resolve conflict/recover commit/bisect | Later: intent-scoped Git capability | Dedicated reversible journeys, reflog/index/worktree invariants; do not implement via arbitrary shell |
 | [ ] G03 | Push/open PR/deploy | Later: separate effect authority | Explicit destination/scope, reviewable artifact and capability authorization; never automatic |
 
