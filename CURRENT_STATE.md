@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `760264ccc03b9b13bb25b8dbeada556e82d78b7d`
-on 2026-10-02 after the isolated candidate-change journeys (#197-#215: build/test fixes,
+Reconciled against GitHub `main` at `27e2210d6132952466555481a1ff77a693b15d3f`
+on 2026-10-03 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
 #217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
@@ -100,7 +100,14 @@ without being touched (#373). Setup installs and checks CMake and the Visual Stu
 Tools it promises; a missing toolchain is a setup FAIL with the recovery command, not a later
 "cmake is not recognized" (#374, found on the first clean NUC install). The Git tools never run
 repository hooks: every call pins `core.hooksPath` to an empty directory and `git_commit`
-passes `--no-verify`, matching the Session Hub commit path (#376). Live
+passes `--no-verify`, matching the Session Hub commit path (#376). Every session-layer durable
+write waits on one bound, `DURABLE_WRITE_TIMEOUT_S` (30 s), and the executor tests wait for a
+terminal with that same bound instead of a 5 s guess that failed on a slow Windows runner (#379).
+A worker that obeys instructions planted in a source file or a build log still cannot stage,
+commit or push: policy refuses, approval is never asked and nothing changes (#377, worker/tool
+boundary only). Death inside a real `/apply` or `/commit` after its effect recovers through the
+Hub's own startup path as UNKNOWN with no verdict, and re-issuing is refused with the exact
+reason and no second effect (#378). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
