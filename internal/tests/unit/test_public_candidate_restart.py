@@ -150,7 +150,13 @@ def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
             gateway = _gateway(sandbox.root, service, manager, opened)
             answer = gateway.turn(f"/{effect} {candidate_id}")
             assert gateway.last_result.outcome.value in {"fail", "blocked"}, answer
-            assert ("No change" in answer if effect == "apply" else "Nothing was committed" in answer)
+            # The refusal names why, and the why is the interrupted effect itself.
+            if effect == "apply":
+                assert gateway.last_result.reason_code == "scope_changed", answer
+                assert "No change was applied" in answer and RING in answer, answer
+            else:
+                assert gateway.last_result.reason_code == "invalid_input", answer
+                assert "already what HEAD contains" in answer, answer
             assert _state(sandbox.root) == at_death
             assert (sandbox.root / RING).read_bytes() == bytes_at_death
             assert (sandbox.root / "scratch.txt").read_text(encoding="utf-8") == "keep untracked\n"
