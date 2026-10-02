@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `b7666c14a2133d2ba898ea854834dd6a47a7342b`
+Reconciled against GitHub `main` at `dea1776b068010a460c136efcc8e7fa16196bcb5`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -80,7 +80,10 @@ researched qualification backlog; none of its rows is claimed as qualified (#350
 setup without downloading weights and names the folder they belong in (#352), and every
 managed OVMS preset, the NUC ones included, declares the one installed OVMS version (#353). Model journey J14 qualifies a requested
 regression test against a seeded bug the suite misses (#356), and scripted journey J15 proves
-staged, unstaged and untracked work survives inspection and candidate apply (#358). Live
+staged, unstaged and untracked work survives inspection and candidate apply (#358). `git_status` reads porcelain v2 with `-z`, so a staged rename keeps
+both paths and paths with spaces are not split; J15b covers rename and binary inspection
+(#361). Tool calls refused before a handler runs (unknown tool, invalid arguments) are now
+retained as durable tool failures, and J16 proves malformed model calls fail closed (#362). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
