@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `f9bb4a199d79a7e62646add723d51a2771e662c5`
+Reconciled against GitHub `main` at `760264ccc03b9b13bb25b8dbeada556e82d78b7d`
 on 2026-10-02 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -93,7 +93,14 @@ a stopped merge, rebase, am, cherry-pick or revert, bisect, and ahead/behind its
 (unknown without one) (#370). Setup, the launcher, demos and bootstrap resolve the runtime
 root through one rule (`internal/scripts/runtime-root.ps1`, pinned to `model_store.py`);
 `install.ps1` no longer takes `-RuntimeRoot`, and `LCA_RUNTIME_ROOT` is the one supported
-setting (#371). Live
+setting (#371). "Explain this conflict", "why is my rebase stuck?" and "what state is my
+repo in?" route to read-only Git review; `git_status` reports git's own continue/abort
+commands for a stopped operation, and J20 proves a stopped merge and rebase are explained
+without being touched (#373). Setup installs and checks CMake and the Visual Studio C++ Build
+Tools it promises; a missing toolchain is a setup FAIL with the recovery command, not a later
+"cmake is not recognized" (#374, found on the first clean NUC install). The Git tools never run
+repository hooks: every call pins `core.hooksPath` to an empty directory and `git_commit`
+passes `--no-verify`, matching the Session Hub commit path (#376). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
