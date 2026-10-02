@@ -22,7 +22,7 @@ sys.modules["lca_acceptance_journeys"] = journeys
 SPEC.loader.exec_module(journeys)
 
 DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambiguous", "J05-stop-build",
-                 "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree"]
+                 "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree", "J15b-rename-binary"]
 
 
 def _report(output: Path) -> dict[str, dict[str, object]]:
@@ -107,7 +107,7 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert by_id["J08-fix-build"]["status"] == "UNKNOWN"
     assert "--allow-model" in by_id["J08-fix-build"]["reason"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "Product   PASS 8 / FAIL 0" in summary
+    assert "Product   PASS 9 / FAIL 0" in summary
     assert "Model     not used" in summary
 
 
@@ -439,3 +439,29 @@ def test_dirty_inspection_does_not_count_unstaged_as_staged(tmp_path, monkeypatc
     out = tmp_path / "acc"
     assert journeys.main(["--output", str(out), "--only", "J15-dirty-worktree"]) == 1
     assert "inspection omitted staged: README.md" in _report(out)["J15-dirty-worktree"]["reason"]
+
+
+def test_rename_binary_journey_reports_identity_and_preserves_work(tmp_path):
+    out = tmp_path / 'rename-binary'
+    assert journeys.main(['--output', str(out), '--only', 'J15b-rename-binary']) == 0
+    result = _report(out)['J15b-rename-binary']
+    assert result['status'] == 'PASS'
+    transcript = (out / 'journeys' / 'J15b-rename-binary' / 'transcript.txt').read_text(encoding='utf-8')
+    assert 'renamed: README.md -> renamed notes.md' in transcript
+    assert 'private-binary-marker' not in transcript
+
+
+def test_rename_binary_journey_rejects_index_damage(tmp_path, monkeypatch):
+    turn = journeys.Session.turn
+
+    def damage(session, text, **kwargs):
+        answer, result = turn(session, text, **kwargs)
+        journeys._git(session.repo, 'add', '--', 'sample.bin')
+        return answer, result
+
+    monkeypatch.setattr(journeys.Session, 'turn', damage)
+    out = tmp_path / 'damaged'
+    assert journeys.main(['--output', str(out), '--only', 'J15b-rename-binary']) == 1
+    result = _report(out)['J15b-rename-binary']
+    assert result['status'] == 'FAIL'
+    assert 'changed index, history or file bytes' in result['reason']

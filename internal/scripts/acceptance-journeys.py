@@ -649,10 +649,15 @@ class ScriptedDirtyReview(ScriptedCompileFix):
         data = json.loads(str(results[0]["content"])).get("data", {})
         states = []
         for item in data.get("changed", []):
+            if item.get("original_path"):
+                states.append(f"renamed: {item['original_path']} -> {item['path']}")
             if item.get("staged"):
                 states.append(f"staged: {item['path']}")
             if item.get("worktree"):
                 states.append(f"unstaged: {item['path']}")
+        for result in results[1:3]:
+            diff = json.loads(str(result["content"])).get("data", {}).get("diff", "")
+            states.extend(line for line in diff.splitlines() if line.startswith("Binary files "))
         states.extend(f"untracked: {path}" for path in data.get("untracked", []))
         return self._finish("diagnosis", "; ".join(states),
                             ["git_status:0", "git_diff:1", "git_diff:2"])
@@ -708,6 +713,29 @@ def j_dirty_worktree(s: Session) -> None:
     expect(ok, "the imported candidate fails an independent build: " + log[-1500:])
     s.journey.passed("staged, unstaged and untracked states named; inspection, preparation and apply "
                      "preserved exact user bytes, index content and history; independent build passed")
+
+
+def j_rename_binary(s: Session) -> None:
+    """R04b: rename identity and binary diff stay readable without altering user work."""
+    old, new, binary = "README.md", "renamed notes.md", "sample.bin"
+    (s.repo / binary).write_bytes(b"before\x00private-binary-marker\xff")
+    _git(s.repo, "add", "--", binary)
+    _git(s.repo, "-c", "user.name=fixture", "-c", "user.email=fixture@example.com",
+         "commit", "-qm", "tracked binary baseline")
+    _git(s.repo, "mv", "--", old, new)
+    (s.repo / binary).write_bytes(b"after\x00private-binary-marker\xfe")
+    before = dirty_work_snapshot(s.repo, new, binary)
+    answer, result = s.turn("what have I changed?")
+    expect(result is not None, "rename inspection admitted no task")
+    expect(f"renamed: {old} -> {new}" in answer, "inspection lost rename identity")
+    expect(f"unstaged: {binary}" in answer and "Binary files " in answer,
+           "inspection omitted the binary change")
+    expect("private-binary-marker" not in answer, "inspection dumped binary bytes")
+    expect(dirty_work_snapshot(s.repo, new, binary) == before,
+           "rename/binary inspection changed index, history or file bytes")
+    expect(not (s.repo / old).exists(), "inspection restored the old rename path")
+    s.journey.passed("staged rename names both paths; binary diff reports metadata only; "
+                     "index content, history and file bytes preserved")
 
 
 def j_candidate_lifecycle(s: Session) -> None:
@@ -889,7 +917,8 @@ REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
 
 # Product journeys with scripted workers instead of the model.
 SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
-                    "J15-dirty-worktree": ScriptedDirtyReview}
+                    "J15-dirty-worktree": ScriptedDirtyReview,
+                    "J15b-rename-binary": ScriptedDirtyReview}
 # (id, title, kind, scenario, needs_model, repo options, function)
 JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Session], None]]] = [
     ("J01-build-pass", "build it on a clean tree", "product", "clean", False, {}, j_build_pass),
@@ -907,6 +936,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
     ("J12-questions", "questions about the repository", "model", "clean", True, {}, j_questions),
     ("J14-regression-test", "write a regression test that catches a seeded bug", "model", "clean",
      True, {}, j_regression_test),
+    ("J15b-rename-binary", "inspect staged rename and modified binary", "product",
+     "clean", False, {}, j_rename_binary),
     ("J15-dirty-worktree", "preserve staged, unstaged and untracked work", "product",
      "compile_error", False, {}, j_dirty_worktree),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",

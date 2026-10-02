@@ -51,7 +51,7 @@ All boxes stay unchecked until their row's evidence is linked.
 | [ ] R01 | Explain this repo and how to build it | Foundation: repo_info, list/read/search | Real repo; accurate entry points and configured commands, file references; no invented architecture |
 | [ ] R02 | Find the implementation and callers | Foundation: search_text, find_definition | Duplicate symbols, qualified C++ names and include-relative paths; find real file without guessing loops |
 | [ ] R03 | Explain this function/error | Fixture: J12; Foundation: reads/logs | Answer anchored to actual lines/log; absent evidence explicitly stated |
-| [ ] R04 | What have I changed? | Foundation: git_status/git_diff; J15 scripted journey | Staged, unstaged, untracked, rename and binary cases; index and bytes unchanged |
+| [ ] R04 | What have I changed? | Foundation: git_status/git_diff; J15 and J15b scripted journeys | Staged, unstaged, untracked, rename and binary cases; index and bytes unchanged |
 | [ ] R05 | Review this branch against main | Foundation: branch_info/log/show/diff | Correct merge base; missing upstream/detached HEAD handled; identify planted defect without editing |
 | [ ] R06 | Configure and build this target | Foundation: configured build tools; J01-J02 | Clean and failed real builds; exact profile/target/source, bounded retained logs; missing tool classified |
 | [ ] R07 | List/run this test or the suite | Foundation: list_tests/run_test; J03 | Correct filter and denominator; zero matches refused as success; stale build and disabled policy truthful |

@@ -71,21 +71,23 @@ def _parse_porcelain_v2(stdout: str) -> dict[str, Any]:
     changed: list[dict[str, str]] = []
     untracked: list[str] = []
 
-    for line in stdout.splitlines():
+    records = iter(stdout.split("\0"))
+    for line in records:
         if line.startswith("# branch."):
             key, _, value = line[len("# branch.") :].partition(" ")
             branch[key] = value
         elif line.startswith("1 ") or line.startswith("2 "):
-            fields = line.split(" ", 8)
+            renamed = line.startswith("2 ")
+            fields = line.split(" ", 9 if renamed else 8)
             xy = fields[1]
-            path = fields[-1]
-            changed.append(
-                {
-                    "path": path.split("\t")[0],
-                    "staged": xy[0] if xy[0] != "." else "",
-                    "worktree": xy[1] if xy[1] != "." else "",
-                }
-            )
+            item = {
+                "path": fields[-1],
+                "staged": xy[0] if xy[0] != "." else "",
+                "worktree": xy[1] if xy[1] != "." else "",
+            }
+            if renamed:
+                item["original_path"] = next(records)
+            changed.append(item)
         elif line.startswith("? "):
             untracked.append(line[2:])
 
@@ -101,7 +103,7 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         Risk.READ,
     )
     def git_status() -> ToolResult:
-        code, out, err = _git(ctx, ["status", "--porcelain=v2", "--branch"])
+        code, out, err = _git(ctx, ["status", "--porcelain=v2", "--branch", "-z"])
         if code != 0:
             raise ToolError(f"git status failed: {err.strip()}")
         parsed = _parse_porcelain_v2(out)
