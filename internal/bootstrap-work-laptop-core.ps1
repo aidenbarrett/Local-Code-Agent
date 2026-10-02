@@ -5,12 +5,13 @@ param(
     [switch]$SkipOvms,
     [switch]$AttemptWslInstall,
     [switch]$OpenDriverPage,
-    [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent"
+    [string]$RuntimeRoot = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+if (-not $RuntimeRoot) { . (Join-Path $PSScriptRoot 'scripts\runtime-root.ps1'); $RuntimeRoot = Resolve-LcaRuntimeRoot }
 
 # Local Code Agent - Windows work-laptop bootstrap
 # Windows-first, WSL optional, safe for managed/corporate laptops.

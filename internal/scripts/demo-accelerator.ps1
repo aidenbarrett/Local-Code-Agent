@@ -2,12 +2,13 @@ param(
     [ValidateSet("CPU", "GPU", "NPU", "ALL")]
     [string]$Device = "NPU",
     [double]$Seconds = 45,
-    [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent",
+    [string]$RuntimeRoot = "",
     # Leave the server running after the load ends, so chat.ps1 can use it.
     [switch]$KeepServer
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $RuntimeRoot) { . (Join-Path $PSScriptRoot 'runtime-root.ps1'); $RuntimeRoot = Resolve-LcaRuntimeRoot }
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $InternalRoot = Split-Path -Parent $ScriptDir
 $Root = Split-Path -Parent $InternalRoot

@@ -13,6 +13,9 @@
   -SkipModelDownload never downloads model weights. If the selected model is not
   already in the model store, setup finishes everything else, names the exact folder
   the weights belong in and exits 3; rerun setup once they are in place to qualify it.
+  Runtime state and model weights go under %LOCALAPPDATA%\LocalCodeAgent. To keep them
+  elsewhere, set the user environment variable LCA_RUNTIME_ROOT before setup; setup and
+  .\local-code-agent.ps1 both read it, so they always agree on the location.
 #>
 [CmdletBinding()]
 param(
@@ -20,8 +23,7 @@ param(
     [switch]$InstallMissing,
     [switch]$AttemptWslInstall,
     [switch]$OpenDriverPage,
-    [switch]$SkipModelDownload,
-    [string]$RuntimeRoot = "$env:LOCALAPPDATA\LocalCodeAgent"
+    [switch]$SkipModelDownload
 )
 
 Set-StrictMode -Version Latest
@@ -32,6 +34,8 @@ $entry = Join-Path $root 'internal\work-laptop-one-shot.ps1'
 $runtimePreflight = Join-Path $root 'internal\scripts\runtime-preflight.py'
 $managedPython = Join-Path $root '.venv-workstation\Scripts\python.exe'
 $pyproject = Join-Path $root 'pyproject.toml'
+. (Join-Path $root 'internal\scripts\runtime-root.ps1')
+$RuntimeRoot = Resolve-LcaRuntimeRoot
 
 if (-not (Test-Path $entry)) {
     throw "Local Code Agent installation files are incomplete: $entry is missing."
