@@ -25,6 +25,7 @@ _TOOL_REASON_TO_EVENT_REASON = {
     "spawn_failure": "unavailable_capability",
     "orchestrator_timeout": "tool_timeout",
     "bad_arguments": "invalid_input",
+    "invalid_model_response": "invalid_input",
     "sandbox_violation": "policy_denied",
     "unknown_tool": "unavailable_capability",
     "tool_not_allowed": "policy_denied",

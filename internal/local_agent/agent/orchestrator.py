@@ -948,6 +948,14 @@ class Orchestrator:
                 hint = (f"{call.name!r} is a skill, not a tool. " if self.skills.get(call.name)
                         else "")
                 message = f"unknown tool {call.name!r}. {hint}Call one of: {usable}"
+            # These failures occur before a registered handler can enter the
+            # durable tool wrapper. Publish the same typed refusal through the
+            # observer so the session boundary can retain it like every other
+            # failed tool call; the observer remains evidence, never authority.
+            self.observer(
+                "tool_rejected",
+                {"name": str(call.name), "reason": reason.value, "detail": message},
+            )
             result = ToolResult.errored(reason, message)
             state.record(
                 ToolCallRecord(

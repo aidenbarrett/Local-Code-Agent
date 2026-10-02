@@ -61,7 +61,7 @@ import psutil  # noqa: E402
 
 from local_agent.config import MODEL_PRESETS, ModelConfig, load_repo_config  # noqa: E402
 from local_agent.llm.client import build_client, tool_call  # noqa: E402
-from local_agent.llm.protocol import ChatResponse, LLMTransportError  # noqa: E402
+from local_agent.llm.protocol import ChatResponse, LLMTransportError, ToolCall  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.conversation_gateway import conversation_budgets  # noqa: E402
 from local_agent.session.contracts import TaskOutcome, TaskResult  # noqa: E402
@@ -663,6 +663,23 @@ class ScriptedDirtyReview(ScriptedCompileFix):
                             ["git_status:0", "git_diff:1", "git_diff:2"])
 
 
+class ScriptedMalformedCalls(ScriptedCompileFix):
+    """Exercise malformed model output without repairing it or trusting its claim."""
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:  # noqa: ARG002 - LLMClient shape
+        step = sum(m.get("role") == "tool" for m in messages)
+        if step == 0:
+            return ChatResponse(tool_calls=[tool_call("invented_patch_tool", {}, "unknown")])
+        if step == 1:
+            return ChatResponse(tool_calls=[ToolCall.from_parts(
+                "invalid-json", "read_file", '{"path":"src/ring_buffer.cpp"')])
+        if step == 2:
+            return ChatResponse(tool_calls=[tool_call(
+                "apply_patch", {"patch_id": "p-does-not-exist"}, "bogus-patch")])
+        return self._finish("success", "the compile error is fixed", [])
+
+
 def dirty_work_snapshot(repo: Path, tracked: str, untracked: str) -> dict[str, bytes]:
     """Index content/modes, both diffs and owned dirty bytes, without index stat-cache noise."""
     return {
@@ -880,6 +897,19 @@ def j_regression_test(s: Session) -> None:
     s.journey.measured_as("caught", "fails on the seeded bug, passes on the correct implementation")
 
 
+def j_malformed_calls(s: Session) -> None:
+    """O03: malformed calls and an unsupported success claim fail closed and durably."""
+    s.turn("build it")
+    before = tree_digest(s.repo)
+    _, result = s.turn("fix it")
+    expect(result is not None, "fix it admitted no task")
+    assert result is not None
+    expect(result.outcome is not TaskOutcome.PASS, "malformed calls manufactured a PASS")
+    expect(not result.verified_at_completion, "malformed calls manufactured verification")
+    expect(tree_digest(s.repo) == before, "malformed calls changed the checkout")
+    s.journey.passed("malformed calls refused with typed durable reasons; false success did not pass")
+
+
 def j_questions(s: Session) -> None:
     for question in ("what does this repository do?", "where is the ring buffer implemented?"):
         answer, _ = s.turn(question)
@@ -918,7 +948,8 @@ REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
 # Product journeys with scripted workers instead of the model.
 SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
                     "J15-dirty-worktree": ScriptedDirtyReview,
-                    "J15b-rename-binary": ScriptedDirtyReview}
+                    "J15b-rename-binary": ScriptedDirtyReview,
+                    "J16-malformed-calls": ScriptedMalformedCalls}
 # (id, title, kind, scenario, needs_model, repo options, function)
 JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Session], None]]] = [
     ("J01-build-pass", "build it on a clean tree", "product", "clean", False, {}, j_build_pass),
@@ -940,6 +971,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
      "clean", False, {}, j_rename_binary),
     ("J15-dirty-worktree", "preserve staged, unstaged and untracked work", "product",
      "compile_error", False, {}, j_dirty_worktree),
+    ("J16-malformed-calls", "refuse malformed model tool calls", "product",
+     "compile_error", False, {}, j_malformed_calls),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]
