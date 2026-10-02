@@ -10,7 +10,12 @@ from local_agent.session.cancellation import (
     ProcessContainment,
 )
 from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRequest, PendingPosition, QueueClass
-from local_agent.session.value_validation import require_integer, require_nonempty_string
+from local_agent.session.value_validation import (
+    require_exact_keys,
+    require_integer,
+    require_nonempty_string,
+    require_string_tuple,
+)
 
 
 @pytest.mark.parametrize("value", [None, True, False, -1, 1.0, "0", []])
@@ -60,3 +65,23 @@ def test_valid_values_are_not_coerced_or_trimmed():
     assert require_nonempty_string(text, message="bad") is text
     assert EndpointArbiter(text).endpoint_id == text
     assert EpochFence(number).current is number
+
+
+def test_collection_validators_return_typed_copies_without_coercion():
+    values = ["one", "two"]
+    mapping = {"name": object()}
+
+    assert require_string_tuple(values, message="bad") == ("one", "two")
+    assert require_exact_keys(mapping, {"name"}, message="bad") is mapping
+
+
+@pytest.mark.parametrize("value", [None, False, 0, ["ok", ""], ["ok", 1]])
+def test_string_tuple_validator_rejects_malformed_values(value):
+    with pytest.raises(ValueError, match="invalid strings"):
+        require_string_tuple(value, message="invalid strings")
+
+
+@pytest.mark.parametrize("value", [None, False, [], {"wrong": "value"}, {"name": 1, "extra": 2}])
+def test_exact_keys_validator_rejects_malformed_values(value):
+    with pytest.raises(ValueError, match="invalid mapping"):
+        require_exact_keys(value, {"name"}, message="invalid mapping")

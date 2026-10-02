@@ -15,6 +15,12 @@ from uuid import UUID
 from .change_requests import change_request_refusal, natural_change_target
 from .configured_checks import RUN_BUILD_CHECK, RUN_TEST_CHECK
 from .contracts import MAX_MESSAGE_CHARS, RouteSource
+from .value_validation import (
+    require_exact_keys,
+    require_integer,
+    require_nonempty_string,
+    require_string_tuple,
+)
 
 
 RULE_GIT_REVIEW = "git-review/v1"
@@ -55,8 +61,11 @@ class CorrectionStatus(str, Enum):
 
 
 def _validate_reference_ids(reference_ids: Sequence[str]) -> tuple[str, ...]:
-    values = tuple(reference_ids)
-    if any(not isinstance(value, str) or not value.strip() for value in values):
+    values = require_string_tuple(
+        reference_ids,
+        message="task reference ids must be nonempty strings",
+    )
+    if any(not value.strip() for value in values):
         raise ValueError("task reference ids must be nonempty strings")
     if len(set(values)) != len(values):
         raise ValueError("task reference ids must be unique")
@@ -83,8 +92,10 @@ class RouteDecision:
         if self.action == RouteAction.WORK:
             if self.source is None:
                 raise ValueError("work route requires source provenance")
-            if not isinstance(self.objective, str) or not self.objective.strip():
-                raise ValueError("work route requires a nonempty objective")
+            require_nonempty_string(
+                self.objective,
+                message="work route requires a nonempty objective",
+            )
             if self.source == RouteSource.RULE and not self.rule_id:
                 raise ValueError("rule work route requires rule identity")
         elif self.source is not None:
@@ -126,9 +137,11 @@ class TaskIntent:
             "proposed_reference_ids",
             _validate_reference_ids(self.proposed_reference_ids),
         )
-        if not isinstance(self.objective, str) or not self.objective.strip():
-            raise ValueError("task intent objective must be nonempty")
-        if len(self.objective) > MAX_MESSAGE_CHARS:
+        objective = require_nonempty_string(
+            self.objective,
+            message="task intent objective must be nonempty",
+        )
+        if len(objective) > MAX_MESSAGE_CHARS:
             raise ValueError("task intent objective exceeds size limit")
         if self.origin == RouteSource.RULE and not self.rule_id:
             raise ValueError("rule-origin task intent requires rule identity")
@@ -142,10 +155,12 @@ class PendingRouteRef:
     revision: int
 
     def __post_init__(self) -> None:
-        if not isinstance(self.route_id, str) or not self.route_id.strip():
-            raise ValueError("pending route id must be nonempty")
-        if not isinstance(self.revision, int) or isinstance(self.revision, bool) or self.revision < 0:
-            raise ValueError("pending route revision must be a nonnegative integer")
+        require_nonempty_string(self.route_id, message="pending route id must be nonempty")
+        require_integer(
+            self.revision,
+            minimum=0,
+            message="pending route revision must be a nonnegative integer",
+        )
 
 
 @dataclass(frozen=True)
@@ -314,17 +329,23 @@ def candidate_referent(request_text: str) -> str | None:
 _CONTROL = {"/quit": "quit", "/exit": "quit"}
 
 
-def _validate_turn_ref(value: dict[str, object]) -> None:
+def _validate_turn_ref(value: object) -> None:
     required = {"conversation_id", "turn_index", "turn_sha256"}
-    if not isinstance(value, dict) or set(value) != required:
-        raise ValueError("task intent requires an exact TurnRef")
-    conversation_id = value["conversation_id"]
-    turn_index = value["turn_index"]
-    digest = value["turn_sha256"]
-    if not isinstance(conversation_id, str) or not conversation_id:
-        raise ValueError("TurnRef conversation id must be nonempty")
-    if not isinstance(turn_index, int) or isinstance(turn_index, bool) or turn_index < 0:
-        raise ValueError("TurnRef turn index must be a nonnegative integer")
+    checked = require_exact_keys(
+        value,
+        required,
+        message="task intent requires an exact TurnRef",
+    )
+    require_nonempty_string(
+        checked["conversation_id"],
+        message="TurnRef conversation id must be nonempty",
+    )
+    require_integer(
+        checked["turn_index"],
+        minimum=0,
+        message="TurnRef turn index must be a nonnegative integer",
+    )
+    digest = checked["turn_sha256"]
     if (
         not isinstance(digest, str)
         or len(digest) != 64
@@ -389,12 +410,12 @@ def decide_route(
         raise TypeError("route input must be text")
     if len(text) > MAX_MESSAGE_CHARS:
         raise ValueError("route input exceeds size limit")
-    if active_repo_count is not None and (
-        not isinstance(active_repo_count, int)
-        or isinstance(active_repo_count, bool)
-        or active_repo_count < 0
-    ):
-        raise ValueError("active_repo_count must be a nonnegative integer or None")
+    if active_repo_count is not None:
+        require_integer(
+            active_repo_count,
+            minimum=0,
+            message="active_repo_count must be a nonnegative integer or None",
+        )
 
     stripped = text.strip()
     lowered = stripped.lower()

@@ -12,6 +12,7 @@ from typing import Any, Iterable
 
 from .contracts import TaskResult, TaskVerdict
 from .proof_binding import proof_binding_from_result
+from .value_validation import require_nonempty_string, require_string_tuple
 
 
 MAX_SCOPE_CHARS = 512
@@ -118,12 +119,14 @@ def _tree_sha256(value: object) -> str | None:
 
 
 def _evidence_ids(values: Iterable[str]) -> tuple[str, ...]:
-    ids = tuple(values)
-    if len(ids) > MAX_EVIDENCE_IDS:
+    copied_ids = tuple(values)
+    if len(copied_ids) > MAX_EVIDENCE_IDS:
         raise ValueError("too many evidence ids for v1 verdict block")
+    ids = require_string_tuple(
+        copied_ids,
+        message="evidence ids must be nonempty strings",
+    )
     for value in ids:
-        if not isinstance(value, str) or not value:
-            raise ValueError("evidence ids must be nonempty strings")
         if len(value) > MAX_EVIDENCE_ID_CHARS:
             raise ValueError("evidence id exceeds v1 size limit")
     return ids
@@ -170,18 +173,19 @@ class VerdictBlock:
     def __post_init__(self) -> None:
         object.__setattr__(self, "verdict", TaskVerdict(self.verdict))
         object.__setattr__(self, "reason_code", VerdictReason(self.reason_code))
-        if not isinstance(self.scope, str) or not self.scope:
-            raise ValueError("verdict scope must be nonempty")
-        if len(self.scope) > MAX_SCOPE_CHARS:
+        scope = require_nonempty_string(self.scope, message="verdict scope must be nonempty")
+        if len(scope) > MAX_SCOPE_CHARS:
             raise ValueError("verdict scope exceeds v1 size limit")
         object.__setattr__(self, "evidence_ids", _evidence_ids(self.evidence_ids))
         object.__setattr__(self, "tree_sha256", _tree_sha256(self.tree_sha256))
-        lines = tuple(self.rendered_lines)
-        if not lines or len(lines) > MAX_RENDERED_LINES:
+        copied_lines = tuple(self.rendered_lines)
+        if not copied_lines or len(copied_lines) > MAX_RENDERED_LINES:
             raise ValueError("verdict rendered_lines must contain 1..12 lines")
+        lines = require_string_tuple(
+            copied_lines,
+            message="verdict rendered lines must be nonempty strings",
+        )
         for line in lines:
-            if not isinstance(line, str) or not line:
-                raise ValueError("verdict rendered lines must be nonempty strings")
             if len(line) > MAX_RENDERED_LINE_CHARS:
                 raise ValueError("verdict rendered line exceeds v1 size limit")
             if "\n" in line or "\r" in line:
@@ -225,6 +229,7 @@ def verdict_block_from_task_result(
 
     evidence_ids = _evidence_ids(result.evidence_ids)
     binding = proof_binding_from_result(result)
+    tree: str | None
     if binding is not None:
         tree = binding.tree_sha256
         scope = f"{binding.scope.value}; request_sha256={binding.request_sha256}"
