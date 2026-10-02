@@ -66,12 +66,27 @@ function RefreshPath {
     $env:Path = ([Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User"))
 }
 
-function InstallWinget([string]$Id) {
+function InstallWinget([string]$Id,[string]$Override="") {
     if (!(Has "winget")) { throw "WinGet is unavailable. Install manually or ask IT." }
     ProgressNote "Installing $Id with WinGet. The installer may be quiet for several minutes."
-    & winget install --id $Id -e --source winget --accept-package-agreements --accept-source-agreements
+    $wingetArgs = @("install","--id",$Id,"-e","--source","winget","--accept-package-agreements","--accept-source-agreements")
+    if ($Override) { $wingetArgs += @("--override",$Override) }
+    & winget @wingetArgs
     if ($LASTEXITCODE -ne 0) { throw "winget install failed for $Id ($LASTEXITCODE)" }
     RefreshPath
+}
+
+# The MSVC C++ compiler that CMake's Visual Studio generator uses. vswhere ships with
+# every Visual Studio 2017+ installation, Build Tools included.
+$MsvcComponent = "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+$BuildToolsOverride = "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+function FindMsvc {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (!(Test-Path $vswhere)) { return $null }
+    $found = @(& $vswhere -products * -latest -requires $MsvcComponent -property installationPath) |
+        Where-Object { $_ } | Select-Object -First 1
+    if ($found) { return ([string]$found).Trim() }
+    return $null
 }
 
 function FindPython {
@@ -181,6 +196,33 @@ else {
     }
 }
 if (!(PythonOk $py)) { Result "Python usable" "FAIL" "Python >=3.11 unavailable" "Install Python 3.12 and rerun." }
+
+# The product configures, builds and tests C++ with CMake/CTest and MSVC. The install
+# plan promises both, so readiness requires both: a missing toolchain is a FAIL here,
+# never a raw "cmake is not recognized" from the later fixture smoke test.
+if (!(Has "cmake") -and !$CheckOnly -and $InstallMissing) {
+    try { InstallWinget "Kitware.CMake" }
+    catch { Result "CMake install" "WARN" "automatic install failed" $_.Exception.Message }
+}
+if (Has "cmake") { Result "CMake" "PASS" ((& cmake --version) | Select-Object -First 1) }
+elseif (Test-Path (Join-Path $env:ProgramFiles "CMake\bin\cmake.exe")) {
+    Result "CMake" "FAIL" "installed but not on PATH" "Close every PowerShell window, open a new one and rerun; if it persists, add $(Join-Path $env:ProgramFiles 'CMake\bin') to PATH."
+} else {
+    Result "CMake" "FAIL" "not found" "Rerun .\install.ps1 and approve setup, or install it: winget install --id Kitware.CMake -e --source winget"
+}
+
+$msvc = FindMsvc
+if (!$msvc -and !$CheckOnly -and $InstallMissing) {
+    try {
+        ProgressNote "Installing the Visual Studio 2022 C++ Build Tools. This takes 10-20 minutes and may ask for administrator approval."
+        InstallWinget "Microsoft.VisualStudio.2022.BuildTools" $BuildToolsOverride
+        $msvc = FindMsvc
+    } catch { Result "C++ Build Tools install" "WARN" "automatic install failed" $_.Exception.Message }
+}
+if ($msvc) { Result "C++ compiler (MSVC)" "PASS" $msvc }
+else {
+    Result "C++ compiler (MSVC)" "FAIL" "no Visual Studio installation with the C++ tools" "Rerun .\install.ps1 and approve setup, or install from an elevated PowerShell: winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --override `"$BuildToolsOverride`""
+}
 
 Section "2. WSL status (optional)"
 $wslUsable = $false
