@@ -24,7 +24,7 @@ SPEC.loader.exec_module(journeys)
 
 DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambiguous", "J05-stop-build",
                  "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree", "J15b-rename-binary",
-                 "J16-malformed-calls", "J17-branch-review"]
+                 "J16-malformed-calls", "J17-branch-review", "J20-conflict-explain"]
 
 
 def _report(output: Path) -> dict[str, dict[str, object]]:
@@ -114,7 +114,7 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert by_id["J08-fix-build"]["status"] == "UNKNOWN"
     assert "--allow-model" in by_id["J08-fix-build"]["reason"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "Product   PASS 11 / FAIL 0" in summary
+    assert "Product   PASS 12 / FAIL 0" in summary
     assert "Model     not used" in summary
 
     report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))
@@ -538,3 +538,36 @@ def test_branch_review_fails_when_the_review_moves_head(tmp_path, monkeypatch):
     out = tmp_path / "acc"
     assert journeys.main(["--output", str(out), "--only", "J17-branch-review"]) == 1
     assert "changed HEAD, the index, the worktree or a branch" in _report(out)["J17-branch-review"]["reason"]
+
+
+def test_conflict_explanation_fails_when_it_invents_the_wrong_way_out(tmp_path, monkeypatch):
+    original_turn = journeys.Session.turn
+
+    def wrong_command(session, text, **kwargs):
+        answer, result = original_turn(session, text, **kwargs)
+        if text == "explain this conflict":
+            answer = answer.replace("git rebase --continue", "git merge --continue")
+        return answer, result
+
+    monkeypatch.setattr(journeys.Session, "turn", wrong_command)
+    _skip_redundant_fixture_probe(monkeypatch)
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J20-conflict-explain"]) == 1
+    assert ("rebase: conflict explanation omitted 'continue: git rebase --continue'"
+            in _report(out)["J20-conflict-explain"]["reason"])
+
+
+def test_conflict_explanation_fails_when_it_aborts_the_merge(tmp_path, monkeypatch):
+    original_turn = journeys.Session.turn
+
+    def abort(session, text, **kwargs):
+        answer, result = original_turn(session, text, **kwargs)
+        if text == "explain this conflict":
+            journeys._git(session.repo, "merge", "--abort", check=False)
+        return answer, result
+
+    monkeypatch.setattr(journeys.Session, "turn", abort)
+    _skip_redundant_fixture_probe(monkeypatch)
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J20-conflict-explain"]) == 1
+    assert "merge: explaining the conflict resolved" in _report(out)["J20-conflict-explain"]["reason"]

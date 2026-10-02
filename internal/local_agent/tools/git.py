@@ -90,6 +90,15 @@ _OPERATION_MARKERS: tuple[tuple[str, str], ...] = (
 )
 
 
+# What the user runs to finish or back out of each stopped operation. These tools
+# never run them: the commands are reported so advice comes from git's real state
+# rather than from whatever the model remembers about each operation.
+_OPERATION_COMMANDS: dict[str, dict[str, str]] = {
+    op: {"continue": f"git {op} --continue", "abort": f"git {op} --abort"}
+    for op in ("merge", "rebase", "am", "cherry-pick", "revert")
+}
+
+
 def _operation_in_progress(ctx: ToolContext) -> dict[str, Any]:
     """Report the interrupted multi-step operation, if any, from git's own markers.
 
@@ -105,7 +114,11 @@ def _operation_in_progress(ctx: ToolContext) -> dict[str, Any]:
         raise ToolError("git rev-parse --git-path returned an unexpected number of paths")
     present = {name: (ctx.root / path).exists() for name, path in zip(names, paths, strict=True)}
     operation = next((op for marker, op in _OPERATION_MARKERS if present[marker]), None)
-    return {"operation": operation, "bisecting": present["BISECT_LOG"]}
+    return {
+        "operation": operation,
+        "operation_commands": _OPERATION_COMMANDS[operation] if operation else None,
+        "bisecting": present["BISECT_LOG"],
+    }
 
 
 def _parse_porcelain_v2(stdout: str) -> dict[str, Any]:

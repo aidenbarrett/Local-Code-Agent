@@ -315,7 +315,9 @@ def test_annotated_route_counts_still_reject_non_integer_runtime_values(value):
         PendingRouteRef("route-1", value)
 
 
-@pytest.mark.parametrize("text", ["what have I changed?", "What have I changed", "what changed on my branch?"])
+@pytest.mark.parametrize("text", ["what have I changed?", "What have I changed", "what changed on my branch?",
+                                  "explain this conflict", "Explain my merge conflicts?",
+                                  "why is my rebase stuck?", "what state is my repo in?"])
 def test_worktree_inspection_phrase_routes_read_only(text):
     decision = decide_route(text, active_repo_count=1)
     assert decision.action == RouteAction.WORK
@@ -324,6 +326,8 @@ def test_worktree_inspection_phrase_routes_read_only(text):
 
 
 @pytest.mark.parametrize("text", ['"what have I changed?"', "what have I changed if I run it?",
-                                "explain what have I changed means"])
+                                "explain what have I changed means",
+                                "explain this conflict and then resolve it",
+                                "why is my merge stuck? abort it"])
 def test_quoted_or_conditional_worktree_phrase_does_not_run(text):
     assert decide_route(text, active_repo_count=1).action == RouteAction.MODEL_FALLBACK
