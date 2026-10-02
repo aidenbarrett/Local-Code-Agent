@@ -693,6 +693,28 @@ class ScriptedBranchReview(ScriptedCompileFix):
         return self._finish("diagnosis", "; ".join(facts), ["git_branch_info:0"])
 
 
+class ScriptedConflictExplain(ScriptedCompileFix):
+    """Report the stopped operation, conflicts and ways out exactly as git_status states them."""
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:
+        if not any("explain this conflict" in str(m.get("content", ""))
+                   for m in messages if m.get("role") == "user"):
+            return super().chat(messages, tools, max_tokens)
+        results = [m for m in messages if m.get("role") == "tool"]
+        if not results:
+            return ChatResponse(tool_calls=[tool_call("git_status", {}, "status")])
+        data = json.loads(str(results[0]["content"])).get("data", {})
+        commands = data.get("operation_commands") or {}
+        divergence = data.get("upstream_divergence")
+        facts = [f"operation: {data.get('operation') or 'none'}"]
+        facts.extend(f"conflict: {item['path']} ({item['state']})" for item in data.get("conflicted", []))
+        facts.extend(f"{way}: {commands[way]}" for way in ("continue", "abort") if way in commands)
+        facts.append("upstream: unknown" if divergence is None
+                     else f"upstream: {divergence['ahead']} ahead, {divergence['behind']} behind")
+        return self._finish("diagnosis", "; ".join(facts), ["git_status:0"])
+
+
 class ScriptedMalformedCalls(ScriptedCompileFix):
     """Exercise malformed model output without repairing it or trusting its claim."""
 
@@ -792,6 +814,55 @@ def branch_review_snapshot(repo: Path) -> dict[str, str]:
             "index": _git(repo, "ls-files", "--stage"),
             "status": _git(repo, "status", "--porcelain=v1", "-uall"),
             "branches": _git(repo, "for-each-ref", "--format=%(refname) %(objectname) %(upstream)")}
+
+
+def conflict_snapshot(repo: Path, path: str) -> dict[str, str]:
+    """A read-only conflict explanation must leave the stopped operation exactly where it is."""
+    git_dir = Path(_git(repo, "rev-parse", "--absolute-git-dir").strip())
+    markers = sorted(name for name in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD",
+                                       "rebase-merge", "rebase-apply") if (git_dir / name).exists())
+    return {"head": _git(repo, "rev-parse", "HEAD"),
+            "index": _git(repo, "ls-files", "--stage"),
+            "status": _git(repo, "status", "--porcelain=v1", "-uall"),
+            "markers": " ".join(markers),
+            "conflicted_bytes": hashlib.sha256((repo / path).read_bytes()).hexdigest()}
+
+
+def j_conflict_explain(s: Session) -> None:
+    """G01: a stopped merge and a stopped rebase are named with git's own ways out, read-only."""
+    who = ("-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid")
+    path = "notes.txt"
+
+    def commit(text: str, message: str) -> None:
+        (s.repo / path).write_bytes(text.encode())
+        _git(s.repo, "add", "--", path)
+        _git(s.repo, *who, "commit", "-qm", message)
+
+    _git(s.repo, "branch", "-M", "main")
+    commit("base\n", "base")
+    _git(s.repo, "switch", "-q", "-c", "other")
+    commit("theirs\n", "theirs")
+    _git(s.repo, "switch", "-q", "main")
+    commit("ours\n", "ours")
+
+    cases = (("merge", ("merge", "other")), ("rebase", ("rebase", "main")))
+    for operation, command in cases:
+        if operation == "rebase":
+            _git(s.repo, "merge", "--abort")
+            _git(s.repo, "switch", "-q", "other")
+        _git(s.repo, *who, *command, check=False)
+        before = conflict_snapshot(s.repo, path)
+        expect(before["markers"], f"{operation}: the fixture did not stop on a conflict")
+        answer, explained = s.turn("explain this conflict")
+        expect(explained is not None, f"{operation}: conflict explanation admitted no task")
+        for fact in (f"operation: {operation}", f"conflict: {path} (both modified)",
+                     f"continue: git {operation} --continue", f"abort: git {operation} --abort",
+                     "upstream: unknown"):
+            expect(fact in answer, f"{operation}: conflict explanation omitted {fact!r}")
+        expect(conflict_snapshot(s.repo, path) == before,
+               f"{operation}: explaining the conflict resolved, staged, continued or aborted it")
+    s.journey.passed("stopped merge and rebase named with the conflicted path, its state and git's "
+                     "continue/abort commands; HEAD, index, markers and conflicted bytes unchanged")
 
 
 def j_branch_review(s: Session) -> None:
@@ -1023,7 +1094,8 @@ SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
                     "J15-dirty-worktree": ScriptedDirtyReview,
                     "J15b-rename-binary": ScriptedDirtyReview,
                     "J16-malformed-calls": ScriptedMalformedCalls,
-                    "J17-branch-review": ScriptedBranchReview}
+                    "J17-branch-review": ScriptedBranchReview,
+                    "J20-conflict-explain": ScriptedConflictExplain}
 # (id, title, kind, scenario, needs_model, repo options, function)
 JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Session], None]]] = [
     ("J01-build-pass", "build it on a clean tree", "product", "clean", False, {}, j_build_pass),
@@ -1049,6 +1121,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
      "compile_error", False, {}, j_malformed_calls),
     ("J17-branch-review", "review my branch: merge base, upstream, detached HEAD", "product",
      "clean", False, {}, j_branch_review),
+    ("J20-conflict-explain", "explain a stopped merge or rebase without touching it", "product",
+     "clean", False, {}, j_conflict_explain),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]

@@ -190,7 +190,14 @@ class RouteCorrection:
                 raise ValueError("non-correction cannot carry correction state")
 
 
-_GIT_REVIEW = re.compile(r"^(?:what changed on my branch|what have I changed)\??$", re.IGNORECASE)
+_GIT_REVIEW = re.compile(
+    r"^(?:what changed on my branch|what have I changed"
+    # Read-only questions about a stopped merge, rebase or pick (checklist G01).
+    r"|explain (?:this|the|my) (?:merge |rebase )?conflicts?"
+    r"|why is my (?:merge|rebase|cherry-pick|revert) stuck"
+    r"|what state is (?:my|this|the) (?:repo|repository) in)\??$",
+    re.IGNORECASE,
+)
 _REPO_INSPECT = re.compile(r"^inspect (?:this|the) (?:repo|repository)[.!]?$", re.IGNORECASE)
 _SYMBOL_LOOKUP = re.compile(
     r"^where is (?P<symbol>[A-Za-z_~][A-Za-z0-9_:.<>~]*) (?:defined|declared|implemented)\??$",

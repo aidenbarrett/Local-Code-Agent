@@ -3,7 +3,8 @@ name: git-review
 description: >
   Reviews uncommitted or recent changes in the working tree and reports concrete
   problems. Use when asked to review a diff, look over changes, sanity check
-  work before committing, or say what changed.
+  work before committing, say what changed, or explain a conflict or a stopped
+  merge, rebase, cherry-pick or revert.
 tier: cheap
 escalation: allowed
 tools: [git_status, git_diff, git_log, git_show, git_branch_info, read_file, search_text]
@@ -23,6 +24,21 @@ nothing else.
    it. A diff on its own hides the context that makes a change wrong.
 4. Use `search_text` to check whether a changed function has other callers.
 5. Report findings, worst first.
+
+# Conflicts and stopped operations
+
+When `git_status` reports an `operation` or `conflicted` paths, that is the
+answer's first line:
+
+- Name the operation exactly as `git_status` reports it, and every conflicted
+  path with its `state` ("both modified", "deleted by them", ...).
+- Read each conflicted file and quote the conflict hunks with their line numbers;
+  say what each side wants.
+- Give the user the two ways out from `operation_commands`: resolve, `git add`
+  each path, then the `continue` command; or the `abort` command to go back.
+  Never invent a command for an operation; use only what `git_status` returned.
+- State `upstream_divergence` when it is known, and say so when it is unknown.
+- You cannot resolve, stage, continue or abort. Do not offer to.
 
 # What to look for in C++
 

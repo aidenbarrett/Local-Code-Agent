@@ -56,6 +56,7 @@ def _index_and_head(sandbox) -> tuple[str, str]:
 def test_a_clean_repository_reports_no_operation_and_no_conflicts(sandbox):
     data = _status(sandbox).data
     assert data["operation"] is None and data["bisecting"] is False
+    assert data["operation_commands"] is None
     assert data["conflicted"] == []
 
 
@@ -65,6 +66,8 @@ def test_a_stopped_merge_names_the_operation_and_the_conflicted_file(sandbox):
     before = _index_and_head(sandbox)
     result = _status(sandbox)
     assert result.data["operation"] == "merge"
+    assert result.data["operation_commands"] == {"continue": "git merge --continue",
+                                                 "abort": "git merge --abort"}
     assert result.data["conflicted"] == [{"path": "conflict.txt", "state": "both modified"}]
     assert "1 conflicted" in result.summary and "a merge is in progress" in result.summary
     # Reading the state must not resolve, stage or abort anything.
@@ -78,6 +81,7 @@ def test_a_stopped_rebase_is_reported_as_a_rebase(sandbox):
     _git(sandbox.root, "rebase", "main", check=False)
     data = _status(sandbox).data
     assert data["operation"] == "rebase"
+    assert data["operation_commands"]["abort"] == "git rebase --abort"
     assert [entry["path"] for entry in data["conflicted"]] == ["conflict.txt"]
 
 
