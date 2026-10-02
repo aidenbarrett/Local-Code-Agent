@@ -8,6 +8,7 @@ your way into `push --force` because there is nothing to approve.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from .tool_primitives import Risk, ToolError, ToolRegistry, ToolResult
@@ -22,12 +23,25 @@ _ALLOWED_SUBCOMMANDS = {
 }
 
 
+def _no_hooks_dir(ctx: ToolContext) -> Path:
+    """An empty directory to point ``core.hooksPath`` at, so repository hooks never run.
+
+    A hook is code from the repository being worked on. Running it would let repository
+    content execute with the agent's authority, the same rule the Session Hub's own
+    commit path (session/workspaces.py) enforces.
+    """
+    path = ctx.run_root / ".no-hooks"
+    path.mkdir(exist_ok=True)
+    return path
+
+
 def _git(ctx: ToolContext, args: list[str]) -> tuple[int, str, str]:
     if not args or args[0] not in _ALLOWED_SUBCOMMANDS:
         raise ToolError(f"git subcommand {args[:1]} is not permitted by this agent")
     proc = subprocess.run(
         [
             "git",
+            "-c", f"core.hooksPath={_no_hooks_dir(ctx)}",
             "-c", "core.fsmonitor=false",
             "-c", "diff.external=",
             "--no-pager",
@@ -422,7 +436,7 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         code, staged, _ = _git(ctx, ["diff", "--cached", "--name-only"])
         if code != 0 or not staged.strip():
             raise ToolError("nothing staged; stage explicit paths first")
-        code, out, err = _git(ctx, ["commit", "-m", message])
+        code, out, err = _git(ctx, ["commit", "--no-verify", "-m", message])
         if code != 0:
             raise ToolError(f"git commit failed: {err.strip() or out.strip()}")
         if journal is not None:
