@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `dea1776b068010a460c136efcc8e7fa16196bcb5`
+Reconciled against GitHub `main` at `88ae42ad57c92949dc968b448c59b386720da6c4`
 on 2026-10-01 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -83,7 +83,9 @@ regression test against a seeded bug the suite misses (#356), and scripted journ
 staged, unstaged and untracked work survives inspection and candidate apply (#358). `git_status` reads porcelain v2 with `-z`, so a staged rename keeps
 both paths and paths with spaces are not split; J15b covers rename and binary inspection
 (#361). Tool calls refused before a handler runs (unknown tool, invalid arguments) are now
-retained as durable tool failures, and J16 proves malformed model calls fail closed (#362). Live
+retained as durable tool failures, and J16 proves malformed model calls fail closed (#362). Routing and verdict boundaries validate through the
+shared typed validators in `session/value_validation.py` (#364), and the acceptance tests skip
+only redundant clean probe builds, about 22% less Windows CI time with no assertion lost (#365). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
