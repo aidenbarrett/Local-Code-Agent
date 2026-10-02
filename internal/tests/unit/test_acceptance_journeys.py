@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -23,7 +24,7 @@ SPEC.loader.exec_module(journeys)
 
 DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambiguous", "J05-stop-build",
                  "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree", "J15b-rename-binary",
-                 "J16-malformed-calls"]
+                 "J16-malformed-calls", "J17-branch-review"]
 
 
 def _report(output: Path) -> dict[str, dict[str, object]]:
@@ -113,7 +114,7 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert by_id["J08-fix-build"]["status"] == "UNKNOWN"
     assert "--allow-model" in by_id["J08-fix-build"]["reason"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "Product   PASS 10 / FAIL 0" in summary
+    assert "Product   PASS 11 / FAIL 0" in summary
     assert "Model     not used" in summary
 
     report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))
@@ -505,3 +506,35 @@ def test_rename_binary_journey_rejects_index_damage(tmp_path, monkeypatch):
     result = _report(out)['J15b-rename-binary']
     assert result['status'] == 'FAIL'
     assert 'changed index, history or file bytes' in result['reason']
+
+
+def test_branch_review_fails_when_a_detached_head_is_reported_as_a_branch(tmp_path, monkeypatch):
+    original_turn = journeys.Session.turn
+
+    def call_detached_a_branch(session, text, **kwargs):
+        answer, result = original_turn(session, text, **kwargs)
+        if text == "what changed on my branch?":
+            answer = re.sub(r"detached at [0-9a-f]+", "branch: feature", answer)
+        return answer, result
+
+    monkeypatch.setattr(journeys.Session, "turn", call_detached_a_branch)
+    _skip_redundant_fixture_probe(monkeypatch)
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J17-branch-review"]) == 1
+    assert "detached: branch review omitted 'detached at" in _report(out)["J17-branch-review"]["reason"]
+
+
+def test_branch_review_fails_when_the_review_moves_head(tmp_path, monkeypatch):
+    original_turn = journeys.Session.turn
+
+    def move_head(session, text, **kwargs):
+        answer, result = original_turn(session, text, **kwargs)
+        if text == "what changed on my branch?":
+            journeys._git(session.repo, "switch", "-q", "main")
+        return answer, result
+
+    monkeypatch.setattr(journeys.Session, "turn", move_head)
+    _skip_redundant_fixture_probe(monkeypatch)
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J17-branch-review"]) == 1
+    assert "changed HEAD, the index, the worktree or a branch" in _report(out)["J17-branch-review"]["reason"]

@@ -94,6 +94,21 @@ def _parse_porcelain_v2(stdout: str) -> dict[str, Any]:
     return {"branch": branch, "changed": changed, "untracked": untracked}
 
 
+def _name_status(stdout: str) -> list[dict[str, str]]:
+    """Parse ``git diff --name-status -z``: renames and copies carry both paths."""
+    records = iter(stdout.split("\0"))
+    files: list[dict[str, str]] = []
+    for status in records:
+        if not status:
+            continue
+        if status[0] in "RC":
+            original, path = next(records), next(records)
+            files.append({"status": status[0], "path": path, "original_path": original})
+        else:
+            files.append({"status": status[0], "path": next(records)})
+    return files
+
+
 def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None) -> None:
     @reg.add(
         "git_status",
@@ -223,8 +238,9 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
 
     @reg.add(
         "git_branch_info",
-        "Show the current branch, its upstream, and the merge base against a base "
-        "branch. Use this to work out what 'my changes' actually means.",
+        "Show the current branch (or that HEAD is detached), its upstream, the merge "
+        "base against a base branch, and the files changed since that merge base. Use "
+        "this to work out what 'my changes' actually means.",
         {
             "type": "object",
             "properties": {"base": {"type": "string", "default": "origin/main"}},
@@ -236,18 +252,49 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         code, head, _ = _git(ctx, ["rev-parse", "--abbrev-ref", "HEAD"])
         if code != 0:
             raise ToolError("not a git repository")
-        data: dict[str, Any] = {"head": head.strip()}
-        resolved_base = _resolve_commit(ctx, base, label="base revision")
+        name = head.strip()
+        detached = name == "HEAD"
+        commit_code, commit, _ = _git(ctx, ["rev-parse", "--verify", "HEAD"])
+        data: dict[str, Any] = {
+            "head": None if detached else name,
+            "detached": detached,
+            "head_commit": commit.strip() if commit_code == 0 else None,
+            "upstream": None,
+        }
+        notes: list[str] = []
+        if detached:
+            notes.append("HEAD is detached; there is no current branch or upstream")
+        else:
+            up_code, upstream, _ = _git(
+                ctx, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]
+            )
+            if up_code == 0 and upstream.strip():
+                data["upstream"] = upstream.strip()
+            else:
+                notes.append(f"branch {name!r} has no upstream configured")
         data["base"] = base
+        data["merge_base"] = None
+        data["files_changed"] = None
+        resolved_base = _resolve_commit(ctx, base, label="base revision")
         if resolved_base is None:
-            data["merge_base"] = None
-            data["note"] = f"{base!r} is not resolvable in this repository"
-            return ToolResult(ok=True, summary=f"on {data['head']}", data=data)
-        mb_code, mb, _ = _git(ctx, ["merge-base", resolved_base, "HEAD"])
-        data["merge_base"] = mb.strip() if mb_code == 0 else None
-        if mb_code != 0:
-            data["note"] = f"{base!r} has no merge base with HEAD"
-        return ToolResult(ok=True, summary=f"on {data['head']}", data=data)
+            notes.append(f"{base!r} is not resolvable in this repository")
+        else:
+            mb_code, mb, _ = _git(ctx, ["merge-base", resolved_base, "HEAD"])
+            if mb_code != 0:
+                notes.append(f"{base!r} has no merge base with HEAD")
+            else:
+                merge_base = mb.strip()
+                data["merge_base"] = merge_base
+                diff_code, diff, err = _git(
+                    ctx, ["diff", "--name-status", "-z", "--find-renames", merge_base, "HEAD"]
+                )
+                if diff_code != 0:
+                    raise ToolError(f"git diff against the merge base failed: {err.strip()}")
+                data["files_changed"] = _name_status(diff)
+        if notes:
+            data["note"] = "; ".join(notes)
+        where = f"detached at {str(data['head_commit'])[:12]}" if detached else f"on {name}"
+        return ToolResult(ok=True, summary=where, data=data)
 
     # ---------------------------------------------------------------- writes
 

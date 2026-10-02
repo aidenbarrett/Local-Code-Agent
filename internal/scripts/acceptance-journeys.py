@@ -673,6 +673,26 @@ class ScriptedDirtyReview(ScriptedCompileFix):
                             ["git_status:0", "git_diff:1", "git_diff:2"])
 
 
+class ScriptedBranchReview(ScriptedCompileFix):
+    """Report what the branch facts actually say, never what the branch is assumed to be."""
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:
+        if not any("what changed on my branch?" in str(m.get("content", ""))
+                   for m in messages if m.get("role") == "user"):
+            return super().chat(messages, tools, max_tokens)
+        results = [m for m in messages if m.get("role") == "tool"]
+        if not results:
+            return ChatResponse(tool_calls=[tool_call("git_branch_info", {"base": "main"}, "branch")])
+        data = json.loads(str(results[0]["content"])).get("data", {})
+        where = (f"detached at {data.get('head_commit')}" if data.get("detached")
+                 else f"branch: {data.get('head')}")
+        facts = [where, f"upstream: {data.get('upstream') or 'none'}",
+                 f"merge base: {data.get('merge_base')}"]
+        facts.extend(f"{item['status']} {item['path']}" for item in data.get("files_changed") or [])
+        return self._finish("diagnosis", "; ".join(facts), ["git_branch_info:0"])
+
+
 class ScriptedMalformedCalls(ScriptedCompileFix):
     """Exercise malformed model output without repairing it or trusting its claim."""
 
@@ -763,6 +783,49 @@ def j_rename_binary(s: Session) -> None:
     expect(not (s.repo / old).exists(), "inspection restored the old rename path")
     s.journey.passed("staged rename names both paths; binary diff reports metadata only; "
                      "index content, history and file bytes preserved")
+
+
+def branch_review_snapshot(repo: Path) -> dict[str, str]:
+    """Everything a read-only branch review must leave alone."""
+    return {"head": _git(repo, "rev-parse", "HEAD"),
+            "symbolic": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+            "index": _git(repo, "ls-files", "--stage"),
+            "status": _git(repo, "status", "--porcelain=v1", "-uall"),
+            "branches": _git(repo, "for-each-ref", "--format=%(refname) %(objectname) %(upstream)")}
+
+
+def j_branch_review(s: Session) -> None:
+    """R05: the merge base, the changed files, the upstream and a detached HEAD are all named."""
+    who = ("-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid")
+    _git(s.repo, "branch", "-M", "main")
+    base = _git(s.repo, "rev-parse", "HEAD").strip()
+    _git(s.repo, "switch", "-q", "-c", "feature")
+    text_util = s.repo / "src" / "text_util.cpp"
+    text_util.write_bytes(text_util.read_bytes() + b"// feature work\n")
+    (s.repo / "docs").mkdir(exist_ok=True)
+    (s.repo / "docs" / "notes.md").write_bytes(b"feature notes\n")
+    _git(s.repo, "add", "--", "src/text_util.cpp", "docs/notes.md")
+    _git(s.repo, *who, "commit", "-qm", "feature work")
+    tip = _git(s.repo, "rev-parse", "HEAD").strip()
+    changed = ("M src/text_util.cpp", "A docs/notes.md")
+
+    cases = (("no upstream", None, "branch: feature", "upstream: none"),
+             ("upstream", ["branch", "--set-upstream-to=main", "feature"],
+              "branch: feature", "upstream: main"),
+             ("detached", ["switch", "-q", "--detach", "HEAD"],
+              f"detached at {tip}", "upstream: none"))
+    for label, setup, where, upstream in cases:
+        if setup:
+            _git(s.repo, *setup)
+        before = branch_review_snapshot(s.repo)
+        answer, reviewed = s.turn("what changed on my branch?")
+        expect(reviewed is not None, f"{label}: branch review admitted no task")
+        for fact in (where, upstream, f"merge base: {base}", *changed):
+            expect(fact in answer, f"{label}: branch review omitted {fact!r}")
+        expect(branch_review_snapshot(s.repo) == before,
+               f"{label}: branch review changed HEAD, the index, the worktree or a branch")
+    s.journey.passed("merge base and changed files named on a branch without upstream, with an "
+                     "upstream and on a detached HEAD; HEAD, index, worktree and refs unchanged")
 
 
 def j_candidate_lifecycle(s: Session) -> None:
@@ -959,7 +1022,8 @@ REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
 SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
                     "J15-dirty-worktree": ScriptedDirtyReview,
                     "J15b-rename-binary": ScriptedDirtyReview,
-                    "J16-malformed-calls": ScriptedMalformedCalls}
+                    "J16-malformed-calls": ScriptedMalformedCalls,
+                    "J17-branch-review": ScriptedBranchReview}
 # (id, title, kind, scenario, needs_model, repo options, function)
 JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Session], None]]] = [
     ("J01-build-pass", "build it on a clean tree", "product", "clean", False, {}, j_build_pass),
@@ -983,6 +1047,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
      "compile_error", False, {}, j_dirty_worktree),
     ("J16-malformed-calls", "refuse malformed model tool calls", "product",
      "compile_error", False, {}, j_malformed_calls),
+    ("J17-branch-review", "review my branch: merge base, upstream, detached HEAD", "product",
+     "clean", False, {}, j_branch_review),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]
