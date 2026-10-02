@@ -266,3 +266,86 @@ def test_only_a_completed_result_with_unreconciled_cleanup_is_downgraded():
         assert downgraded.reason_code == "cleanup_unknown"
         assert downgraded.verified_at_completion is False
         assert downgraded.answer.endswith("done")
+
+
+@pytest.mark.parametrize("effect", ["apply", "commit"])
+@pytest.mark.parametrize("after_effect", [False, True], ids=["before", "after"])
+def test_restart_at_candidate_effect_boundary_never_replays_or_claims_success(
+    tmp_path, effect, after_effect,
+):
+    """Model abrupt death by leaving admission durable but no terminal result.
+
+    Effects use the real Git workspace owner. Reopening/recovery must neither
+    replay the write nor infer completion from the checkout's current state.
+    """
+    from test_session_workspaces import _git, _manager, _state, _user_repo
+
+    user = _user_repo(tmp_path)
+    _git(user, "config", "user.email", "restart@example.invalid")
+    _git(user, "config", "user.name", "Restart test")
+    manager = _manager(tmp_path)
+    candidate_id = str(uuid4())
+    workspace = manager.create(user, candidate_id)
+    try:
+        source = user / "src" / "a.cpp"
+        original = source.read_bytes()
+        (workspace.root / "src" / "a.cpp").write_bytes(b"int a() { return 42; }\n")
+        candidate = manager.candidate_patch(workspace)
+        if effect == "commit":
+            imported = manager.import_patch(workspace, candidate)
+            assert imported.applied and imported.verified
+            manager.record_applied(candidate_id, user, candidate, imported)
+        service = _service(tmp_path)
+        stream_id, session_id = service.stream_id, service.session_id
+        admission = service.submit_task(
+            request_id=f"{effect}-boundary",
+            payload_sha256="c" * 64,
+            admission_payload=_admission_payload(),
+        )
+        admission.wait(5)
+        task_id = admission.task_id
+        assert task_id is not None
+        head_before = _git(user, "rev-parse", "HEAD")
+        if after_effect:
+            if effect == "apply":
+                # Death after writing, before even recording an applied receipt.
+                imported = manager.import_patch(workspace, candidate)
+                assert imported.applied and imported.verified
+            else:
+                manager.commit_applied(candidate_id, user, "approved candidate")
+        head_at_death = _git(user, "rev-parse", "HEAD")
+        if effect == "commit":
+            assert (head_at_death != head_before) is after_effect
+        else:
+            assert (source.read_bytes() != original) is after_effect
+        state_at_death = _state(user)
+        bytes_at_death = source.read_bytes()
+        service.close()  # no task finalization: the process has disappeared
+
+        reopened = DurableSessionService(
+            SQLiteSessionStore(tmp_path / "session.db"),
+            stream_id=stream_id, session_id=session_id,
+        )
+        try:
+            assert reopened.recover_unknown_tasks() == [task_id]
+            assert reopened.recover_unknown_tasks() == []
+            assert _git(user, "rev-parse", "HEAD") == head_at_death
+            assert _state(user) == state_at_death
+            assert source.read_bytes() == bytes_at_death
+            events = reopened.replay()
+            verdicts = [event for event in events if event["kind"] == "task.verdict"]
+            assert len(verdicts) == 1
+            completion = verdicts[0]["payload"]["completion"]
+            assert completion["status"] == "unknown"
+            assert completion["verdict_block"]["verdict"] == "NO_VERDICT"
+            assert completion["verdict_block"]["reason_code"] == "controller_restarted"
+            retained = reopened.store.artifact_bytes(completion["result_ref"])
+            assert retained is not None
+            assert b'"verified_at_completion":false' in retained
+            assert b"cleanup is unknown" in retained
+            assert any("not retried" in line for line in
+                       completion["verdict_block"]["rendered_lines"])
+        finally:
+            reopened.close()
+    finally:
+        manager.close(workspace)
