@@ -9,7 +9,7 @@ import pytest
 from local_agent.session.cancellation_runtime import CancellationRuntimeError
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor
 from local_agent.session.contracts import TaskOutcome, TaskResult
-from local_agent.session.session_event_service import DurableSessionService
+from local_agent.session.session_event_service import DURABLE_WRITE_TIMEOUT_S, DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
 from local_agent.session.task_history import DurableTaskHistory
 from local_agent.session.task_read_model import project_task
@@ -89,7 +89,7 @@ def test_cancelled_epoch_cannot_commit_late_result_but_terminalizes_no_verdict(t
 
         release.set()
         with pytest.raises(CancelUnreconciled):
-            handle.wait(5)
+            handle.wait(DURABLE_WRITE_TIMEOUT_S)
 
         events = service.replay()
         assert [event["kind"] for event in events] == [
@@ -154,7 +154,7 @@ def test_normal_terminal_commit_releases_cancellation_authority(tmp_path):
             admission_payload=_admission_payload(),
             route_source="user_direct",
         )
-        result = handle.wait(5)
+        result = handle.wait(DURABLE_WRITE_TIMEOUT_S)
         assert result is not None
         assert service.store.task_record(handle.task_id)["terminal"] is True
 

@@ -35,6 +35,11 @@ class SubscriptionGap(RuntimeError):
     pass
 
 
+# How long a caller waits for one durable write to commit before treating the write as
+# failed. Every durable writer in the session layer uses this one bound.
+DURABLE_WRITE_TIMEOUT_S = 30.0
+
+
 @dataclass
 class WriteReceipt:
     task_id: str | None = None
@@ -547,7 +552,7 @@ class DurableTaskExecutor:
         skill_name: str | None,
     ) -> None:
         try:
-            handle.admission.wait(30)
+            handle.admission.wait(DURABLE_WRITE_TIMEOUT_S)
             if handle.admission.created is False:
                 return
             running = self.service.append("task.state_changed", {
@@ -556,7 +561,7 @@ class DurableTaskExecutor:
                 "reason_code": "requested",
                 "execution_epoch": execution_epoch,
             }, task_id=handle.task_id)
-            running.wait(30)
+            running.wait(DURABLE_WRITE_TIMEOUT_S)
             result = self.controller.run(
                 task,
                 self_check=self_check,
@@ -586,7 +591,7 @@ class DurableTaskExecutor:
                 },
                 result_bytes=result_bytes,
             )
-            terminal.wait(30)
+            terminal.wait(DURABLE_WRITE_TIMEOUT_S)
         # A daemon thread has no caller to raise to: every failure, including interrupts,
         # is handed to the waiting TaskHandle, which re-raises it.
         except BaseException as exc:  # noqa: BLE001

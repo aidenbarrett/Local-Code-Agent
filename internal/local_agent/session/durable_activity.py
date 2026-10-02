@@ -13,6 +13,8 @@ import json
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
+from .session_event_service import DURABLE_WRITE_TIMEOUT_S
+
 
 class DurableActivityError(RuntimeError):
     """The durable tool lifecycle cannot be represented truthfully."""
@@ -199,7 +201,7 @@ class DurableToolActivity:
             },
             task_id=self.task_id,
         )
-        receipt.wait(30)
+        receipt.wait(DURABLE_WRITE_TIMEOUT_S)
         opened = OpenToolCall(call_id=call_id, tool_name=tool_name)
         self._open = opened
         self._ordinal += 1
@@ -272,5 +274,5 @@ class DurableToolActivity:
             task_id=self.task_id,
             result_bytes=result_bytes,
         )
-        receipt.wait(30)
+        receipt.wait(DURABLE_WRITE_TIMEOUT_S)
         self._open = None

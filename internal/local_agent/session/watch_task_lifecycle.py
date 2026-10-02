@@ -18,7 +18,11 @@ from ..watch.service import WatchServiceRun
 from .contracts import TaskOutcome, TaskResult
 from .durable_watch import DurableWatchEvents, watch_schedule_revision
 from .results import verdict_block_from_task_result
-from .session_event_service import DurableSessionService, DurableTaskExecutor
+from .session_event_service import (
+    DURABLE_WRITE_TIMEOUT_S,
+    DurableSessionService,
+    DurableTaskExecutor,
+)
 from .task_admission import execution_contract_sha256
 from .watch_read_model import WatchReadModelError, project_watch
 from .watch_task_admission import DurableWatchTaskAdmission
@@ -69,7 +73,7 @@ def _finalize_result(
         },
         result_bytes=result_bytes,
     )
-    receipt.wait(30)
+    receipt.wait(DURABLE_WRITE_TIMEOUT_S)
 
 
 class DurableWatchTaskLifecycle:
@@ -145,7 +149,7 @@ class DurableWatchTaskLifecycle:
             },
             task_id=state.task_id,
         )
-        receipt.wait(30)
+        receipt.wait(DURABLE_WRITE_TIMEOUT_S)
         started = _utc_now()
         with self._lock:
             current = self._runs.get(run_id)
