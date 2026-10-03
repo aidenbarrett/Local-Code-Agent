@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from local_agent.tools import files
 from local_agent.tools.files import _missing_file_message
-from local_agent.tools.tool_primitives import NotFoundError, ToolError
+from local_agent.tools.tool_primitives import NotFoundError
 
 
 def test_suffix_hint_is_preferred_over_basename(tmp_path):
@@ -32,16 +34,67 @@ def test_no_match_has_no_invented_hint(tmp_path):
     assert _missing_file_message(tmp_path, "missing.hpp") == "'missing.hpp' is not a file"
 
 
-def test_missing_read_remains_not_found(loaded):
+@pytest.mark.parametrize("requested", ["sandbox/ring_buffer.hpp", "sandbox\\ring_buffer.hpp"])
+def test_unique_include_relative_header_is_read_without_a_guessing_loop(loaded, requested):
     _, _, registry, _, _ = loaded
-    with pytest.raises(NotFoundError, match="include/sandbox/ring_buffer.hpp"):
+    result = registry.get("read_file").handler(path=requested)
+    assert Path(result.data["path"]) == Path("include/sandbox/ring_buffer.hpp")
+    assert "class RingBuffer" in result.data["content"]
+    # The summary names the file actually read, so a later patch targets the real path.
+    assert result.summary.startswith(str(Path("include/sandbox/ring_buffer.hpp")))
+    assert f"(resolved from {requested!r})" in result.summary
+
+
+def test_a_direct_read_summary_is_unchanged(loaded):
+    _, _, registry, _, _ = loaded
+    result = registry.get("read_file").handler(path="include/sandbox/ring_buffer.hpp")
+    assert result.summary.startswith("include/sandbox/ring_buffer.hpp lines 1-")
+    assert "resolved from" not in result.summary
+
+
+def test_qualified_definition_excludes_duplicate_short_names(loaded):
+    sandbox, _, registry, _, _ = loaded
+    duplicate = sandbox.root / "src" / "other.cpp"
+    duplicate.write_text(
+        "bool Other::full() const { return true; }\nbool full() { return false; }\n",
+        encoding="utf-8",
+    )
+
+    qualified = registry.get("find_definition").handler(symbol="RingBuffer::full", limit=200)
+    fully_qualified = registry.get("find_definition").handler(symbol="sandbox::RingBuffer::full", limit=200)
+    # The fixture holds scenario copies of the source; ask for enough sites that the
+    # default limit (20) cannot truncate away the planted duplicates.
+    short = registry.get("find_definition").handler(symbol="full", limit=200)
+
+    # Search order differs between ripgrep and the Python fallback; the fixture also
+    # carries scenario copies of the source. Membership, not position, is the fact.
+    sites = {(Path(m["file"]).as_posix(), m["line"]) for m in qualified.data["matches"]}
+    assert ("src/ring_buffer.cpp", 29) in sites
+    assert not any(Path(m["file"]).as_posix() == "src/other.cpp" for m in qualified.data["matches"])
+    assert all("RingBuffer::full" in m["text"] for m in qualified.data["matches"])
+    assert {
+        (m["file"], m["line"], m["text"]) for m in fully_qualified.data["matches"]
+    } == {
+        (m["file"], m["line"], m["text"]) for m in qualified.data["matches"]
+    }
+    assert {m["text"] for m in short.data["matches"]} >= {
+        "bool RingBuffer::full() const { return count_ == slots_.size(); }",
+        "bool Other::full() const { return true; }",
+        "bool full() { return false; }",
+    }
+
+
+def test_ambiguous_include_relative_header_is_not_chosen(loaded):
+    sandbox, _, registry, _, _ = loaded
+    duplicate = sandbox.root / "vendor" / "include" / "sandbox" / "ring_buffer.hpp"
+    duplicate.parent.mkdir(parents=True)
+    duplicate.write_text("class WrongRingBuffer {};\n", encoding="utf-8")
+
+    with pytest.raises(NotFoundError, match="existing paths to try") as refused:
         registry.get("read_file").handler(path="sandbox/ring_buffer.hpp")
 
-
-def test_qualified_definition_names_the_identifier_to_use(loaded):
-    _, _, registry, _, _ = loaded
-    with pytest.raises(ToolError, match="use 'full'"):
-        registry.get("find_definition").handler(symbol="RingBuffer::full")
+    assert "include/sandbox/ring_buffer.hpp" in str(refused.value)
+    assert "vendor/include/sandbox/ring_buffer.hpp" in str(refused.value)
 
 
 def test_suffix_matches_are_bounded(tmp_path):
@@ -122,3 +175,18 @@ def test_excluded_directories_do_not_consume_hint_search_budget(tmp_path, monkey
     assert "existing paths to try: ring.hpp" in message
     assert "build/" not in message
     assert "search stopped" not in message
+
+
+@pytest.mark.parametrize("ripgrep", [True, False], ids=["ripgrep", "git-grep"])
+def test_definition_search_sees_untracked_files_with_either_backend(loaded, monkeypatch, ripgrep):
+    """CI runners without ripgrep fell back to git grep, which skipped untracked files."""
+    from local_agent.tools import search
+
+    if ripgrep and not search._rg_available():
+        pytest.skip("ripgrep is not installed here")
+    monkeypatch.setattr(search, "_rg_available", lambda: ripgrep)
+    sandbox, _, registry, _, _ = loaded
+    (sandbox.root / "src" / "fresh.cpp").write_text("int brand_new_symbol() { return 1; }\n",
+                                                    encoding="utf-8")
+    found = registry.get("find_definition").handler(symbol="brand_new_symbol")
+    assert [Path(m["file"]).as_posix() for m in found.data["matches"]] == ["src/fresh.cpp"]

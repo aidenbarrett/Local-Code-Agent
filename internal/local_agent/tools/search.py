@@ -22,14 +22,44 @@ _EXCLUDES = [
 
 # Rough C++ definition shapes. Deliberately crude; it feeds `read_file`, it does
 # not pretend to be a compiler front end.
-_DEF_TEMPLATES = (
-    r"(class|struct|enum class|enum|union)\s+{sym}\b",
+# A qualified name (``RingBuffer::full``) is defined out of line as a function body
+# or a static member initialiser; the type, macro and namespace shapes do not apply.
+_QUALIFIED_DEF_TEMPLATES = (
     r"\b{sym}\s*\([^;]*\)\s*(const)?\s*(noexcept)?\s*\{{",
     r"\b{sym}\s*=",
+)
+_DEF_TEMPLATES = (
+    r"(class|struct|enum class|enum|union)\s+{sym}\b",
+    *_QUALIFIED_DEF_TEMPLATES,
     r"#define\s+{sym}\b",
     r"using\s+{sym}\s*=",
     r"namespace\s+{sym}\b",
 )
+
+_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
+_QUALIFIED_IDENTIFIER = re.compile(rf"{_IDENTIFIER}(?:::{_IDENTIFIER})*")
+
+
+def _definition_pattern(symbol: str) -> str:
+    """Build a bounded textual definition query without discarding qualification."""
+    parts = symbol.split("::")
+    forms: tuple[str, ...]
+    templates: tuple[str, ...]
+    if len(parts) == 1:
+        forms = (symbol,)
+        templates = _DEF_TEMPLATES
+    else:
+        # A definition inside ``namespace sandbox`` is commonly spelt
+        # ``RingBuffer::full`` rather than ``sandbox::RingBuffer::full``. Keep
+        # the member qualification, but never fall back to bare ``full`` where
+        # unrelated classes would become indistinguishable.
+        forms = (symbol,) if len(parts) == 2 else (symbol, "::".join(parts[-2:]))
+        templates = _QUALIFIED_DEF_TEMPLATES
+    return "|".join(
+        template.format(sym=re.escape(form))
+        for form in dict.fromkeys(forms)
+        for template in templates
+    )
 
 
 def _rg_available() -> bool:
@@ -132,7 +162,10 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             args += [pattern, str(base)]
             code, stdout = _run_rg(args, ctx.root, timeout=60)
         else:
-            args = ["-n", "-I", "-E"]
+            # --untracked: a file the user (or the agent) has just created is part of
+            # the working tree. Without it the fallback silently searched only what
+            # git already tracks, while ripgrep searched everything.
+            args = ["-n", "-I", "-E", "--untracked"]
             if not case_sensitive:
                 args.append("-i")
             args += [pattern]
@@ -171,14 +204,10 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         Risk.READ,
     )
     def find_definition(symbol: str, limit: int = 20) -> ToolResult:
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", symbol):
-            message = "symbol must be a plain C++ identifier"
-            unqualified = symbol.rsplit("::", 1)[-1]
-            if "::" in symbol and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", unqualified):
-                message += f"; use {unqualified!r} and inspect the matches for {symbol!r}"
-            raise ToolError(message)
+        if not _QUALIFIED_IDENTIFIER.fullmatch(symbol):
+            raise ToolError("symbol must be a C++ identifier, optionally qualified with ::")
 
-        pattern = "|".join(t.format(sym=re.escape(symbol)) for t in _DEF_TEMPLATES)
+        pattern = _definition_pattern(symbol)
         result = search_text(pattern=pattern, limit=limit)
         result.summary = (
             f"{len(result.data['matches'])} candidate definition site(s) for "

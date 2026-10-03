@@ -24,6 +24,29 @@ _TEXT_SUFFIXES = {
     ".txt", ".md", ".cmake", ".toml", ".yaml", ".yml", ".json", ".py", ".sh",
     ".ps1", ".ini", ".cfg", ".in", ".s", ".asm",
 }
+_HEADER_SUFFIXES = {".h", ".hh", ".hpp", ".hxx", ".ipp", ".inl"}
+
+
+def _unique_include_target(root: Path, requested: str) -> Path | None:
+    """Resolve one C/C++ include-relative header, never an ambiguous suffix."""
+    wanted = requested.replace("\\", "/").removeprefix("./")
+    if Path(wanted).suffix.lower() not in _HEADER_SUFFIXES:
+        return None
+    found: list[Path] = []
+    for visited, candidate in enumerate(_iter_files(root, recursive=True), start=1):
+        if visited > _MAX_HINT_SEARCH_FILES:
+            return None
+        if not candidate.is_file() or not candidate.resolve().is_relative_to(root.resolve()):
+            continue
+        relative = candidate.relative_to(root).as_posix()
+        rooted = "/" + relative
+        marker = "/include/"
+        include_relative = rooted.split(marker, 1)[1] if marker in rooted else None
+        if include_relative == wanted:
+            found.append(candidate)
+            if len(found) > 1:
+                return None
+    return found[0] if len(found) == 1 else None
 
 
 def _iter_files(base: Path, *, recursive: bool) -> Iterator[Path]:
@@ -228,6 +251,11 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     )
     def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> ToolResult:
         target = resolve_in_repo(ctx.root, path)
+        resolved_from: str | None = None
+        if not target.is_file():
+            include_target = _unique_include_target(ctx.root, path)
+            if include_target is not None:
+                target, resolved_from = include_target, path
         if not target.is_file():
             raise NotFoundError(_missing_file_message(ctx.root, path))
 
@@ -243,10 +271,15 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             max_read_bytes=ctx.repo.policy.max_read_bytes,
         )
         shown_end = start + len(window) - 1
+        # Name the file actually read. An include-relative request resolves to a
+        # different repository path, and the model must patch that path, not its guess.
+        shown = path if resolved_from is None else relpath(ctx.root, target)
         if total_lines is None:
-            summary = f"{path} lines {start}-{shown_end} (bounded range)"
+            summary = f"{shown} lines {start}-{shown_end} (bounded range)"
         else:
-            summary = f"{path} lines {start}-{shown_end} of {total_lines}"
+            summary = f"{shown} lines {start}-{shown_end} of {total_lines}"
+        if resolved_from is not None:
+            summary += f" (resolved from {resolved_from!r})"
 
         return ToolResult(
             ok=True,
