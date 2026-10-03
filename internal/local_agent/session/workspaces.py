@@ -145,6 +145,9 @@ class CommitRefused:
     paths: tuple[str, ...] = ()
     branch: str | None = None
     existing_commit: str | None = None
+    # Paths this attempt staged that could not be unstaged because their index entry
+    # changed meanwhile; empty means the user's index is exactly as it was.
+    index_left: tuple[str, ...] = ()
 
 
 CommitResult = Committed | CommitMismatched | CommitDrifted | CommitRefused
@@ -181,6 +184,17 @@ def _parse_git_version(text: str) -> tuple[int, int] | None:
         return int(numbers[0]), int(numbers[1])
     except (IndexError, ValueError):
         return None
+
+
+def _failed_commit_reason(
+    done: subprocess.CompletedProcess[bytes], index_left: tuple[str, ...],
+) -> str:
+    detail = (done.stderr or done.stdout).decode("utf-8", "replace").strip()[:500]
+    reason = "git commit failed: " + detail
+    if index_left:
+        reason += ("; these files are still staged because their staged content changed "
+                   "meanwhile and was left alone: " + ", ".join(index_left))
+    return reason
 
 
 def _split_z(raw: bytes) -> tuple[str, ...]:
@@ -732,28 +746,52 @@ class GitWorkspaceManager:
             stdin=message.encode("utf-8"), check=False,
         )
         if done.returncode != 0:
-            detail = (done.stderr or done.stdout).decode("utf-8", "replace").strip()[:500]
-            return CommitRefused("git commit failed: " + detail, paths, branch_name)
+            # Staging the created paths was this attempt's own effect on the user's
+            # index; a refusal leaves the index as it found it (#395).
+            left = self._unstage_owned(user, created, post)
+            return CommitRefused(_failed_commit_reason(done, left), paths, branch_name,
+                                 index_left=left)
         commit = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
-        parents = self._out(user, "rev-parse", f"{commit}^@").split()
-        in_tree = {p: self._blob_at(user, commit, p) for p in paths}
-        # The commit's complete delta, not only the named blobs, must be the reviewed
-        # scope: an extra path means user work went into history under our name.
-        changed = set(_split_z(self._git(
-            user, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--no-renames",
-            parent, commit,
-        ).stdout))
-        if (
-            parents != [parent]
-            or changed != set(paths)
-            or any(in_tree[p] != post.get(p) for p in paths)
-        ):
+        if not self._commit_is_exactly(user, commit, parent, paths, post):
             return CommitMismatched(commit, branch_name, paths)
         record["committed"] = commit
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
         os.replace(tmp, path)
         return Committed(commit, branch_name, paths)
+
+    def _commit_is_exactly(
+        self, user: Path, commit: str, parent: str, paths: tuple[str, ...],
+        post: dict[str, str | None],
+    ) -> bool:
+        """The commit has one parent, changes exactly ``paths`` and holds their blobs.
+
+        The complete delta, not only the named blobs, must be the reviewed scope: an
+        extra path means user work went into history under the controller's name."""
+        if self._out(user, "rev-parse", f"{commit}^@").split() != [parent]:
+            return False
+        changed = set(_split_z(self._git(
+            user, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--no-renames",
+            parent, commit,
+        ).stdout))
+        return changed == set(paths) and all(
+            self._blob_at(user, commit, p) == post.get(p) for p in paths
+        )
+
+    def _unstage_owned(
+        self, user: Path, created: list[str], staged_blobs: dict[str, str | None],
+    ) -> tuple[str, ...]:
+        """Remove index entries this attempt added, only where they still hold what it
+        staged. Never a blind reset: anything else in the index is the user's."""
+        left: list[str] = []
+        for path in created:
+            entry = self._git(user, "ls-files", "--stage", "-z", "--", path).stdout
+            fields = entry.split(b"\t", 1)[0].split() if entry else []
+            if len(fields) == 3 and fields[1].decode() == staged_blobs.get(path):
+                self._git(user, "rm", "--cached", "--quiet", "--", path)
+            elif entry:
+                left.append(path)
+        return tuple(left)
 
     def undo_applied(self, task_id: str, repository_root: Path) -> UndoResult:
         """Undo one applied candidate, only where files still hold exactly what it wrote.

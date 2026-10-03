@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import pytest
 
-from local_agent.session.workspaces import CommitMismatched, Committed, GitWorkspaceManager
+from local_agent.session.workspaces import CommitMismatched, Committed, CommitRefused, GitWorkspaceManager
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -107,3 +107,64 @@ def test_git_stage_tool_stages_only_the_named_file(sandbox):
     registry.get("git_stage").handler(paths=["note[1].txt"])
     staged = _git(sandbox.root, "diff", "--cached", "--name-only", "-z").split("\0")
     assert [p for p in staged if p] == ["note[1].txt"]
+
+
+# ------------------------------------------------------------------ #395
+
+
+def _status(user: Path) -> str:
+    return _git(user, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+
+
+def test_a_refused_commit_leaves_the_users_index_exactly_as_it_was(tmp_path):
+    """git refuses an empty message after the created file was staged."""
+    user = _repo(tmp_path, {"a.txt": "old\n", "keep.txt": "old\n"})
+    manager, task_id = _apply(tmp_path, user, {"new.txt": "candidate\n", "a.txt": "candidate\n"})
+    (user / "keep.txt").write_text("user staged\n", encoding="utf-8")
+    _git(user, "add", "--", "keep.txt")
+    head = _git(user, "rev-parse", "HEAD")
+    before = (_status(user), _git(user, "ls-files", "--stage"))
+
+    done = manager.commit_applied(task_id, user, "")
+
+    assert isinstance(done, CommitRefused), done
+    assert done.index_left == ()
+    assert (_status(user), _git(user, "ls-files", "--stage")) == before
+    assert _git(user, "rev-parse", "HEAD") == head
+
+
+def test_a_signing_failure_is_refused_with_the_index_restored(tmp_path):
+    user = _repo(tmp_path, {"a.txt": "old\n"})
+    manager, task_id = _apply(tmp_path, user, {"new.txt": "candidate\n"})
+    # A signer that always fails: a genuine git commit failure after staging.
+    _git(user, "config", "commit.gpgsign", "true")
+    _git(user, "config", "gpg.format", "openpgp")
+    _git(user, "config", "gpg.program", "false")
+    before = _status(user)
+
+    done = manager.commit_applied(task_id, user, "candidate")
+
+    assert isinstance(done, CommitRefused), done
+    assert "git commit failed" in done.reason
+    assert _status(user) == before
+
+
+def test_a_staged_entry_changed_meanwhile_is_left_and_reported(tmp_path, monkeypatch):
+    user = _repo(tmp_path, {"a.txt": "old\n"})
+    manager, task_id = _apply(tmp_path, user, {"new.txt": "candidate\n"})
+    real_git = manager._git
+
+    def user_restages_then_commit_fails(cwd, *args, **kwargs):
+        if args and args[0] == "commit":
+            (user / "new.txt").write_text("user changed it\n", encoding="utf-8")
+            real_git(cwd, "add", "--", "new.txt")
+            # A pathspec git cannot match makes the commit fail, as a real failure would.
+            return real_git(cwd, "commit", "--only", "-F", "-", "--", "no-such-file", **kwargs)
+        return real_git(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(manager, "_git", user_restages_then_commit_fails)
+    done = manager.commit_applied(task_id, user, "candidate")
+    assert isinstance(done, CommitRefused), done
+    assert done.index_left == ("new.txt",)
+    assert "still staged" in done.reason
+    assert "A  new.txt" in _git(user, "status", "--porcelain=v1")
