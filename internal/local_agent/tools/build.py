@@ -113,7 +113,6 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 "target": {
                     "type": "string",
                     "minLength": 1,
-                    "pattern": r".*\S.*",
                     "description": "Optional single target; builds everything if omitted.",
                 },
             },
@@ -133,7 +132,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         # later receiving an untargeted/full-build proof.
         full_build = target is None
         command = list(prof.build)
-        if not full_build:
+        if target is not None:
             if not is_valid_build_target(target):
                 raise ToolError("target name must be a plain identifier")
             command += ["--target", target]
