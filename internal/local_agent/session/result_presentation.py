@@ -41,11 +41,7 @@ def render_result_summary(task: TaskSnapshot) -> str:
 
     if verdict == "VERIFIED":
         detail = scope or "controller verification passed"
-        if (
-            task.candidate is not None
-            and task.candidate.role == "prepared"
-            and task.candidate.retained
-        ):
+        if task.candidate_not_applied:
             return (
                 f"Result: VERIFIED — isolated candidate has {detail}; "
                 "it is retained for review and is not applied to your checkout."
@@ -97,7 +93,7 @@ def render_result_evidence(task: TaskSnapshot) -> str:
         f"  Evidence IDs: {evidence}",
         f"  Verification: {verification}",
     ]
-    if task.candidate is not None and task.candidate.role == "prepared" and task.candidate.retained:
+    if task.candidate_not_applied:
         lines.extend((
             "  Proof target: isolated candidate tree",
             "  Checkout effect: not applied by this task",
