@@ -395,7 +395,7 @@ def _fail_apply_after(manager, write):
     real = manager._git
 
     def faulty(cwd, *args, **kwargs):
-        if args and args[0] == "apply" and "--check" not in args:
+        if args and args[0] == "apply" and not {"--check", "--summary"} & set(args):
             write()
             return subprocess.CompletedProcess(["git", *args], 1, b"", b"injected: disk full")
         return real(cwd, *args, **kwargs)

@@ -541,6 +541,16 @@ class GitWorkspaceManager:
                 resolve_in_repo(user, path)
             except SandboxError as exc:
                 raise WorkspaceError(f"candidate path {path!r} is outside the repository") from exc
+        unsupported = self._unsupported_entry_changes(user, candidate.patch)
+        if unsupported:
+            # Undo restores bytes and proves blobs; it does not carry modes or file types.
+            # A candidate that changes either is refused before anything is written (#396).
+            return ImportResult(
+                False, candidate.paths, (),
+                "the candidate changes file permissions or file types, which apply and undo "
+                "do not support: " + ", ".join(unsupported) + ". Nothing was written.",
+                False,
+            )
         conflicts: list[str] = []
         pre: list[tuple[str, str | None]] = []
         for path in candidate.paths:
@@ -777,6 +787,27 @@ class GitWorkspaceManager:
         return changed == set(paths) and all(
             self._blob_at(user, commit, p) == post.get(p) for p in paths
         )
+
+    def _unsupported_entry_changes(self, user: Path, patch: bytes) -> tuple[str, ...]:
+        """Entries in the reviewed patch that are not plain file content (#396).
+
+        Read from the patch that will actually be applied (``git apply --summary``
+        writes nothing). Supported: a regular file (100644 or 100755) created, deleted
+        or edited with its mode unchanged. Refused: any mode change, and creating or
+        deleting a symlink or submodule (which is also how a type change appears).
+        """
+        summary = self._git(user, "apply", "--summary", "-", stdin=patch).stdout
+        regular = ("100644", "100755")
+        refused: list[str] = []
+        for line in summary.decode("utf-8", "surrogateescape").splitlines():
+            words = line.split(" ", 3)
+            if line.startswith(" mode change "):
+                refused.append(line.strip())
+            elif line.startswith((" create mode ", " delete mode ")) and len(words) == 4:
+                mode_and_path = words[3].split(" ", 1)
+                if mode_and_path[0] not in regular:
+                    refused.append(line.strip())
+        return tuple(refused)
 
     def _unstage_owned(
         self, user: Path, created: list[str], staged_blobs: dict[str, str | None],
