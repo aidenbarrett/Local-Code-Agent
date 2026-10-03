@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `b9839b5efb11fb04e410fb61f061f7fb42d6954d`
+Reconciled against GitHub `main` at `2d89fc0027c90b7224016c5c921a74f49685fade`
 on 2026-10-03 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -133,7 +133,11 @@ Astra's 3 Oct adversarial review (#403) opened #392-#402; repairs so far: every 
 Git path is literal (no pathspec magic), and a candidate commit's complete delta must equal
 the reviewed scope, so `note[1].txt` can no longer sweep `note1.txt` into a commit (#404,
 fixes #393); a refused `/commit` removes exactly the index entries it added and names any it
-had to leave (#406, fixes #395). The remaining #403 defects are open and tracked there.
+had to leave (#406, fixes #395). Build and run directories are validated once at config load
+(relative, inside the repository, not the root or `.git`), and a full rebuild deletes only a
+build tree carrying Local Code Agent's ownership marker; an existing unmarked `build/` is
+refused with guidance instead of deleted (#408, fixes #392). The remaining #403 defects are
+open and tracked there.
 Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
