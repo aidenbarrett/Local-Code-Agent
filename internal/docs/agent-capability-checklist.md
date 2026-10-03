@@ -48,7 +48,7 @@ All boxes stay unchecked until their row's evidence is linked.
 
 | Check | User request | Current coverage | Required acceptance evidence |
 |---|---|---|---|
-| [ ] R01 | Explain this repo and how to build it | Foundation: repo_info, list/read/search | Real repo; accurate entry points and configured commands, file references; no invented architecture |
+| [ ] R01 | Explain this repo and how to build it | Foundation: repo_info, list/read/search; J22 scripted journey; J12/R01 model runs now measure invented files | Real repo; accurate entry points and configured commands, file references; no invented architecture |
 | [ ] R02 | Find the implementation and callers | Foundation: search_text, find_definition | Duplicate symbols, qualified C++ names and include-relative paths; find real file without guessing loops |
 | [ ] R03 | Explain this function/error | Fixture: J12; Foundation: reads/logs | Answer anchored to actual lines/log; absent evidence explicitly stated |
 | [ ] R04 | What have I changed? | Foundation: git_status/git_diff; J15 and J15b scripted journeys | Staged, unstaged, untracked, rename and binary cases; index and bytes unchanged |

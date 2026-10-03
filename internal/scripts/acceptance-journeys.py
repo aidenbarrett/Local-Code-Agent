@@ -769,6 +769,75 @@ class ScriptedTestTruth(ScriptedCompileFix):
         return self._finish("diagnosis", content, evidence)
 
 
+class ScriptedRepoExplain(ScriptedCompileFix):
+    """Explain the repository from what repo_info and list_files actually returned."""
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:
+        latest = max(i for i, m in enumerate(messages) if m.get("role") == "user")
+        request = str(messages[latest].get("content", ""))
+        if "repository" not in request:
+            return super().chat(messages, tools, max_tokens)
+        results = [m for m in messages[latest + 1:] if m.get("role") == "tool"]
+        if not results:
+            return ChatResponse(tool_calls=[tool_call("repo_info", {}, "info")])
+        if len(results) == 1:
+            return ChatResponse(tool_calls=[tool_call("list_files", {
+                "path": ".", "pattern": "*", "recursive": False}, "files")])
+        info = json.loads(str(results[0]["content"])).get("data", {})
+        listing = json.loads(str(results[1]["content"])).get("data", {})
+        profile = info.get("profiles", {}).get(info.get("default_profile"), {})
+        commands = [" ".join(profile.get(step) or []) for step in ("configure", "build", "test")]
+        files = [f for f in listing.get("files", []) if isinstance(f, str)][:8]
+        summary = (f"Entry files: {', '.join(files)}. "
+                   f"Configure: {commands[0]}. Build: {commands[1]}. Test: {commands[2]}.")
+        return self._finish("diagnosis", summary, ["repo_info:0", "list_files:1"])
+
+
+# A file reference in an answer: a path or name ending in a source/build-file suffix.
+_PATH_REFERENCE = re.compile(
+    r"(?<![\w/.-])((?:[\w.-]+/)*[\w.-]+\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx|ipp|inl|cmake|toml"
+    r"|md|py|json|ya?ml))(?![\w/])"
+)
+
+
+def invented_paths(answer: str, repo: Path) -> list[str]:
+    """File references in an answer that name nothing in the repository.
+
+    A full path must exist; a bare file name must exist somewhere in the tree. This is
+    the measurable part of "no invented architecture": made-up files.
+    """
+    names = {p.name for p in repo.rglob("*") if p.is_file() and ".git" not in p.parts}
+    missing = []
+    for ref in sorted(set(_PATH_REFERENCE.findall(answer))):
+        exists = (repo / ref).is_file() if "/" in ref else ref in names
+        if not exists:
+            missing.append(ref)
+    return missing
+
+
+def configured_commands(repo: Path) -> list[str]:
+    """The default profile's configure/build/test commands, as an answer would print them."""
+    config = load_repo_config(repo)
+    profile = config.profile(config.default_profile)
+    return [" ".join(cmd) for cmd in (profile.configure, profile.build, profile.test) if cmd]
+
+
+def j_repo_explain(s: Session) -> None:
+    """R01: explaining the repository names real files and the configured commands."""
+    before = _git(s.repo, "status", "--porcelain=v1")
+    for question in ("explain this repository", "how is this repository built and tested?"):
+        answer, result = s.turn(question)
+        expect(result is not None, f"{question!r} admitted no task")
+        missing = invented_paths(answer, s.repo)
+        expect(not missing, f"{question!r}: the answer named files that do not exist: {missing}")
+        for command in configured_commands(s.repo):
+            expect(command in answer, f"{question!r}: the answer omitted the configured command {command!r}")
+    expect(_git(s.repo, "status", "--porcelain=v1") == before, "explaining changed the repository")
+    s.journey.passed("named only existing files and every configured configure/build/test "
+                     "command; repository unchanged")
+
+
 def dirty_work_snapshot(repo: Path, tracked: str, untracked: str) -> dict[str, bytes]:
     """Index content/modes, both diffs and owned dirty bytes, without index stat-cache noise."""
     return {
@@ -1198,20 +1267,32 @@ def j_test_policy(s: Session) -> None:
 
 
 def j_questions(s: Session) -> None:
+    invented: list[str] = []
     for question in ("what does this repository do?", "where is the ring buffer implemented?"):
         answer, _ = s.turn(question)
         s.journey.measured[question] = answer[:800]
-    s.journey.measured_as("answered", "read the answers in the transcript")
+        invented += invented_paths(answer, s.repo)
+    s.journey.measured["invented_paths"] = invented
+    if invented:
+        s.journey.measured_as("ungrounded", f"named files that do not exist: {invented}")
+    else:
+        s.journey.measured_as("answered", "every file the answers named exists; read them in the transcript")
 
 
 def r_questions(s: Session) -> None:
     before = _git(s.repo, "status", "--porcelain=v1")
+    invented: list[str] = []
     for question in ("what does this repository do?", "how is this repository built and tested?",
                      "what changed on my branch?"):
         answer, _ = s.turn(question)
         s.journey.measured[question] = answer[:800]
+        invented += invented_paths(answer, s.repo)
     expect(_git(s.repo, "status", "--porcelain=v1") == before, "answering questions changed the repository")
-    s.journey.measured_as("answered", "read the answers in the transcript; repository unchanged")
+    s.journey.measured["invented_paths"] = invented
+    if invented:
+        s.journey.measured_as("ungrounded", f"named files that do not exist: {invented}; repository unchanged")
+    else:
+        s.journey.measured_as("answered", "every file the answers named exists; repository unchanged")
 
 
 def r_build(s: Session) -> None:
@@ -1242,7 +1323,8 @@ SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
                     "J17-branch-review": ScriptedBranchReview,
                     "J19-test-truth": ScriptedTestTruth,
                     "J19b-test-policy": ScriptedTestTruth,
-                    "J20-conflict-explain": ScriptedConflictExplain}
+                    "J20-conflict-explain": ScriptedConflictExplain,
+                    "J22-repo-explain": ScriptedRepoExplain}
 # (id, title, kind, scenario, needs_model, repo options, function)
 JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Session], None]]] = [
     ("J01-build-pass", "build it on a clean tree", "product", "clean", False, {}, j_build_pass),
@@ -1278,6 +1360,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
      "compile_error", False, {"allow_commit": True}, j_exact_candidate_commit),
     ("J21b-commit-policy", "typed refusal when repository policy disables commit", "product",
      "compile_error", False, {}, j_commit_policy),
+    ("J22-repo-explain", "explain the repository and how it is built, with real files only",
+     "product", "clean", False, {}, j_repo_explain),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]
