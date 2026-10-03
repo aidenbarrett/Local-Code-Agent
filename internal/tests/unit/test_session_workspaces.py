@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -135,6 +136,69 @@ def test_user_hooks_never_run_for_controller_git_operations(tmp_path):
     finally:
         manager.close(ws)
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("path", ["../outside.cpp", "..\\outside.cpp"])
+def test_candidate_import_refuses_traversal_without_writing(tmp_path, path):
+    user = _user_repo(tmp_path)
+    outside = tmp_path / "outside.cpp"
+    outside.write_text("outside bytes\n", encoding="utf-8")
+    manager = _manager(tmp_path)
+    workspace = manager.create(user, str(uuid4()))
+    try:
+        (workspace.root / "src" / "a.cpp").write_text(
+            "int a() { return 3; }\n", encoding="utf-8",
+        )
+        candidate = manager.candidate_patch(workspace)
+        forged = replace(candidate, paths=(path,))
+        with pytest.raises(WorkspaceError, match="outside the repository"):
+            manager.import_patch(workspace, forged)
+    finally:
+        manager.close(workspace)
+    assert outside.read_text(encoding="utf-8") == "outside bytes\n"
+
+
+def test_candidate_import_refuses_outside_symlink_without_writing(tmp_path):
+    user = _user_repo(tmp_path)
+    outside = tmp_path / "outside.cpp"
+    outside.write_text("outside bytes\n", encoding="utf-8")
+    link = user / "src" / "outside-link.cpp"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    manager = _manager(tmp_path)
+    workspace = manager.create(user, str(uuid4()))
+    try:
+        (workspace.root / "src" / "a.cpp").write_text(
+            "int a() { return 3; }\n", encoding="utf-8",
+        )
+        candidate = manager.candidate_patch(workspace)
+        forged = replace(candidate, paths=("src/outside-link.cpp",))
+        with pytest.raises(WorkspaceError, match="outside the repository"):
+            manager.import_patch(workspace, forged)
+    finally:
+        manager.close(workspace)
+    assert outside.read_text(encoding="utf-8") == "outside bytes\n"
+
+
+def test_candidate_import_refuses_absolute_path_without_writing(tmp_path):
+    user = _user_repo(tmp_path)
+    outside = tmp_path / "outside.cpp"
+    outside.write_text("outside bytes\n", encoding="utf-8")
+    manager = _manager(tmp_path)
+    workspace = manager.create(user, str(uuid4()))
+    try:
+        (workspace.root / "src" / "a.cpp").write_text(
+            "int a() { return 3; }\n", encoding="utf-8",
+        )
+        candidate = manager.candidate_patch(workspace)
+        forged = replace(candidate, paths=(str(outside.resolve()),))
+        with pytest.raises(WorkspaceError, match="outside the repository"):
+            manager.import_patch(workspace, forged)
+    finally:
+        manager.close(workspace)
+    assert outside.read_text(encoding="utf-8") == "outside bytes\n"
 
 
 def test_candidate_excludes_build_and_run_dirs_and_records_new_files(tmp_path):

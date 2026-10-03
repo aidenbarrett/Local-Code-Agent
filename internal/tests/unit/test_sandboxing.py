@@ -20,6 +20,9 @@ def test_relative_path_resolves(tmp_path: Path):
         "../outside.txt",
         "/etc/passwd",
         "src/../../escape",
+        "..\\outside.txt",
+        "src\\..\\..\\outside.txt",
+        r"C:\\outside.txt",
     ],
 )
 def test_escape_blocked(tmp_path: Path, attempt: str):
@@ -40,6 +43,65 @@ def test_symlink_escape_blocked(tmp_path: Path):
     (root / "link").symlink_to(outside)
     with pytest.raises(SandboxError):
         resolve_in_repo(root, "link")
+
+
+def test_absolute_path_inside_repository_resolves_and_outside_is_refused(tmp_path: Path):
+    """Compiler output prints absolute paths; containment, not shape, is the rule."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "inside.txt"
+    target.write_text("inside", encoding="utf-8")
+    (tmp_path / "outside.txt").write_text("outside", encoding="utf-8")
+    assert resolve_in_repo(root, str(target.resolve())) == target.resolve()
+    with pytest.raises(SandboxError):
+        resolve_in_repo(root, str((tmp_path / "outside.txt").resolve()))
+
+
+@pytest.mark.parametrize("attempt", ["C:outside.txt", "D:\\x\\y.txt"])
+def test_drive_paths_that_cannot_be_inside_are_refused(tmp_path: Path, attempt: str):
+    with pytest.raises(SandboxError):
+        resolve_in_repo(tmp_path, attempt)
+
+
+@pytest.mark.parametrize("tool_name", ["read_file", "propose_patch"])
+def test_file_tools_refuse_outside_symlink_without_reading_or_writing(loaded, tmp_path, tool_name):
+    sandbox, _, registry, _, _ = loaded
+    outside = tmp_path / "outside.cpp"
+    outside.write_text("secret outside bytes\n", encoding="utf-8")
+    link = sandbox.root / "src" / "outside-link.cpp"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+
+    before = outside.read_bytes()
+    handler = registry.get(tool_name).handler
+    kwargs = {"path": "src/outside-link.cpp"}
+    if tool_name == "propose_patch":
+        kwargs.update(find="secret", replace="changed")
+    with pytest.raises(SandboxError):
+        handler(**kwargs)
+    assert outside.read_bytes() == before
+
+
+@pytest.mark.parametrize("path", ["../outside.cpp", "..\\outside.cpp"])
+@pytest.mark.parametrize("tool_name", ["read_file", "propose_patch"])
+def test_file_tools_refuse_cross_platform_traversal(loaded, path, tool_name):
+    _, _, registry, _, _ = loaded
+    handler = registry.get(tool_name).handler
+    kwargs = {"path": path}
+    if tool_name == "propose_patch":
+        kwargs.update(find="secret", replace="changed")
+    with pytest.raises(SandboxError):
+        handler(**kwargs)
+
+
+def test_read_file_accepts_an_absolute_path_inside_the_repository(loaded):
+    """The model copies paths out of compiler errors; an in-repo one must still read."""
+    sandbox, _, registry, _, _ = loaded
+    path = str((sandbox.root / "src" / "ring_buffer.cpp").resolve())
+    result = registry.get("read_file").handler(path=path)
+    assert "RingBuffer" in result.data["content"]
 
 
 def test_tool_result_truncates_over_budget():

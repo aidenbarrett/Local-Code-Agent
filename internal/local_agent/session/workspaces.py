@@ -38,6 +38,8 @@ from uuid import UUID, uuid4
 
 import psutil
 
+from ..tools.tool_primitives import SandboxError, resolve_in_repo
+
 _GIT_TIMEOUT_S = 300
 # Untracked files above this size stay out of the candidate base and are reported. The
 # base commit's objects are written to the user's object store; a stray dataset or
@@ -517,6 +519,11 @@ class GitWorkspaceManager:
             return ImportResult(False, (), (), "candidate changes nothing", False)
 
         user = workspace.repository_root
+        for path in candidate.paths:
+            try:
+                resolve_in_repo(user, path)
+            except SandboxError as exc:
+                raise WorkspaceError(f"candidate path {path!r} is outside the repository") from exc
         conflicts: list[str] = []
         pre: list[tuple[str, str | None]] = []
         for path in candidate.paths:

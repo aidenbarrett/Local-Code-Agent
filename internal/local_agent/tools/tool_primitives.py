@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import wraps
 from pathlib import Path
+from pathlib import PureWindowsPath
 from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
@@ -399,8 +400,17 @@ def resolve_in_repo(root: Path, candidate: str | os.PathLike[str]) -> Path:
     because `Path.resolve()` follows symlinks before the containment check.
     """
     root_resolved = root.resolve()
-    raw = Path(candidate)
-    joined = raw if raw.is_absolute() else (root_resolved / raw)
+    supplied = os.fspath(candidate)
+    windows = PureWindowsPath(supplied)
+    if windows.drive and (os.name != "nt" or not windows.is_absolute()):
+        # A drive path names nothing on POSIX, and a drive-relative path (C:foo) on
+        # Windows would silently re-anchor the join onto another drive's cwd.
+        raise SandboxError(f"path {supplied!r} is not inside the repository")
+    # Either separator means a separator: on POSIX ``..\\x`` is traversal, not a
+    # filename. Absolute paths stay allowed (compiler output prints them) and are
+    # judged by the same containment check below.
+    raw = Path(supplied.replace("\\", "/")) if os.name != "nt" else Path(supplied)
+    joined = raw if raw.is_absolute() else root_resolved / raw
     resolved = joined.resolve()
 
     if resolved == root_resolved:
