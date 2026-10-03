@@ -154,6 +154,7 @@ def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
             if effect == "apply":
                 assert gateway.last_result.reason_code == "scope_changed", answer
                 assert "No change was applied" in answer and RING in answer, answer
+                assert "already holds exactly this change" in answer, answer
             else:
                 assert gateway.last_result.reason_code == "invalid_input", answer
                 assert "already what HEAD contains" in answer, answer
