@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Mapping
+import math
 
 
-def require_integer(value: object, *, minimum: int, message: str) -> int:
+def require_integer(value: object, *, minimum: int | None, message: str) -> int:
     """Validate an integer bound without accepting bool as an execution identity."""
-    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or (minimum is not None and value < minimum)
+    ):
         raise ValueError(message)
     return value
 
@@ -18,9 +23,35 @@ def require_nonempty_string(value: object, *, message: str) -> str:
     return value
 
 
+def require_sha256(value: object, *, message: str) -> str:
+    """Validate one lowercase SHA-256 digest without coercing boundary input."""
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(message)
+    return value
+
+
+def require_nonnegative_number(value: object, *, message: str) -> int | float:
+    """Validate a nonnegative, finite real timeout while refusing bool as a number."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError(message)
+    return value
+
+
 def require_string_tuple(values: object, *, message: str) -> tuple[str, ...]:
-    """Copy an iterable of nonempty strings into an immutable typed value."""
-    if not isinstance(values, Iterable):
+    """Copy an iterable of nonempty strings into an immutable typed value.
+
+    A bare string is iterable too, and would otherwise be split into one "id" per
+    character; it is refused as the wrong shape."""
+    if not isinstance(values, Iterable) or isinstance(values, (str, bytes)):
         raise ValueError(message)
     checked: list[str] = []
     for value in values:

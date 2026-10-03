@@ -32,9 +32,6 @@
     "no-untyped-def": 1,
     "redundant-expr": 1
    },
-   "internal/local_agent/session/contracts.py": {
-    "redundant-expr": 1
-   },
    "internal/local_agent/session/conversation_gateway.py": {
     "attr-defined": 1,
     "no-any-return": 3,
@@ -45,7 +42,6 @@
     "assignment": 1,
     "attr-defined": 4,
     "no-untyped-call": 2,
-    "redundant-expr": 1,
     "return-value": 1
    },
    "internal/local_agent/session/durable_activity.py": {
@@ -71,12 +67,10 @@
     "exit-return": 1
    },
    "internal/local_agent/session/endpoint_client.py": {
-    "no-untyped-def": 3,
-    "redundant-expr": 2
+    "no-untyped-def": 3
    },
    "internal/local_agent/session/endpoint_runtime.py": {
-    "exit-return": 1,
-    "redundant-expr": 2
+    "exit-return": 1
    },
    "internal/local_agent/session/event_buffer.py": {
     "no-any-return": 1
@@ -91,8 +85,7 @@
     "misc": 2
    },
    "internal/local_agent/session/proof_binding.py": {
-    "no-untyped-def": 2,
-    "redundant-expr": 2
+    "no-untyped-def": 2
    },
    "internal/local_agent/session/results.py": {
     "union-attr": 2
@@ -113,7 +106,7 @@
    },
    "internal/local_agent/session/task_admission.py": {
     "no-untyped-def": 4,
-    "redundant-expr": 2
+    "redundant-expr": 1
    },
    "internal/local_agent/session/terminal_truth.py": {
     "no-untyped-def": 1
@@ -140,9 +133,6 @@
     "redundant-expr": 2
    },
    "internal/local_agent/session/textual_turn_app.py": {
-    "redundant-expr": 1
-   },
-   "internal/local_agent/session/watch_read_model.py": {
     "redundant-expr": 1
    },
    "internal/local_agent/session/watch_task_admission.py": {
@@ -226,9 +216,6 @@
     "no-untyped-def": 1,
     "redundant-expr": 1
    },
-   "internal/local_agent/session/contracts.py": {
-    "redundant-expr": 1
-   },
    "internal/local_agent/session/conversation_gateway.py": {
     "attr-defined": 1,
     "no-any-return": 3,
@@ -238,8 +225,7 @@
    "internal/local_agent/session/conversation_store.py": {
     "attr-defined": 5,
     "func-returns-value": 1,
-    "no-untyped-call": 2,
-    "redundant-expr": 1
+    "no-untyped-call": 2
    },
    "internal/local_agent/session/durable_activity.py": {
     "no-untyped-def": 2,
@@ -264,12 +250,10 @@
     "exit-return": 1
    },
    "internal/local_agent/session/endpoint_client.py": {
-    "no-untyped-def": 3,
-    "redundant-expr": 2
+    "no-untyped-def": 3
    },
    "internal/local_agent/session/endpoint_runtime.py": {
-    "exit-return": 1,
-    "redundant-expr": 2
+    "exit-return": 1
    },
    "internal/local_agent/session/event_buffer.py": {
     "no-any-return": 1
@@ -284,8 +268,7 @@
     "misc": 2
    },
    "internal/local_agent/session/proof_binding.py": {
-    "no-untyped-def": 2,
-    "redundant-expr": 2
+    "no-untyped-def": 2
    },
    "internal/local_agent/session/results.py": {
     "union-attr": 2
@@ -306,7 +289,7 @@
    },
    "internal/local_agent/session/task_admission.py": {
     "no-untyped-def": 4,
-    "redundant-expr": 2
+    "redundant-expr": 1
    },
    "internal/local_agent/session/terminal_truth.py": {
     "no-untyped-def": 1
@@ -333,9 +316,6 @@
     "redundant-expr": 2
    },
    "internal/local_agent/session/textual_turn_app.py": {
-    "redundant-expr": 1
-   },
-   "internal/local_agent/session/watch_read_model.py": {
     "redundant-expr": 1
    },
    "internal/local_agent/session/watch_task_admission.py": {
@@ -587,8 +567,7 @@
    "internal/local_agent/session/endpoint_runtime.py": {
     "F401": 1,
     "N818": 2,
-    "UP037": 2,
-    "W292": 1
+    "UP037": 2
    },
    "internal/local_agent/session/event_buffer.py": {
     "BLE001": 1,
@@ -841,5 +820,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 812
+ "total": 791
 }

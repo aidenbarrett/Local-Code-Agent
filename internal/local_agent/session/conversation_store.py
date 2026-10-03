@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any, Iterator
 import uuid
 
+from .value_validation import require_integer
+
 
 SCHEMA_VERSION = 1
 DEFAULT_BUDGET_CHARS = 24_000
@@ -136,8 +138,10 @@ def canonical_turn_bytes(turn: Turn) -> bytes:
 
 def turn_ref(session: Session, turn_index: int) -> dict[str, object]:
     """Stable reference to one append-only stored turn."""
-    if not isinstance(turn_index, int) or isinstance(turn_index, bool):
-        raise ContextRefusal("turn index must be an integer")
+    try:
+        require_integer(turn_index, minimum=None, message="turn index must be an integer")
+    except ValueError as exc:
+        raise ContextRefusal("turn index must be an integer") from exc
     if not 0 <= turn_index < len(session.turns):
         raise ContextRefusal(f"turn index {turn_index} is outside stored history")
     return {

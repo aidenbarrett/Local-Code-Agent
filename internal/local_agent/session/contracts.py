@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from .value_validation import require_nonempty_string
+
 MAX_MESSAGE_CHARS = 8_000
 
 
@@ -157,9 +159,11 @@ class TaskResult:
         ran = bool(self.verified_at_completion) if self.verification_ran is None else bool(self.verification_ran)
         object.__setattr__(self, "verification_ran", ran)
         if self.reason_code is not None:
-            if not isinstance(self.reason_code, str) or not self.reason_code.strip():
-                raise ValueError("task result reason_code must be a nonempty string or None")
-            object.__setattr__(self, "reason_code", self.reason_code.strip())
+            reason_code = require_nonempty_string(
+                self.reason_code,
+                message="task result reason_code must be a nonempty string or None",
+            )
+            object.__setattr__(self, "reason_code", reason_code.strip())
         if self.verified_at_completion and not ran:
             raise ValueError("verified_at_completion requires verification_ran")
         if outcome.succeeded != bool(self.verified_at_completion):

@@ -23,6 +23,7 @@ from .endpoint_lease import (
     EndpointRequest,
     EndpointUnavailable,
 )
+from .value_validation import require_nonempty_string, require_nonnegative_number
 
 
 class EndpointAcquireTimeout(EndpointLeaseError):
@@ -80,9 +81,9 @@ class EndpointRuntime:
         if request.endpoint_id != self.endpoint_id:
             raise ValueError("request belongs to a different physical endpoint")
         if timeout is not None:
-            if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout < 0:
-                raise ValueError("endpoint acquire timeout must be non-negative or None")
-            timeout = float(timeout)
+            timeout = float(require_nonnegative_number(
+                timeout, message="endpoint acquire timeout must be non-negative or None",
+            ))
 
         started = monotonic()
         with self._condition:
@@ -135,8 +136,7 @@ class EndpointRuntime:
         active-call quarantine/reconciliation path because Python-side cancellation is
         not proof that inference stopped.
         """
-        if not isinstance(request_id, str) or not request_id.strip():
-            raise ValueError("endpoint request id must be nonempty")
+        require_nonempty_string(request_id, message="endpoint request id must be nonempty")
         with self._condition:
             granted = self._granted.get(request_id)
             active = self.arbiter.active_lease
