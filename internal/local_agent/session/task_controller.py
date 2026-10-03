@@ -299,6 +299,12 @@ class TaskController:
             # The profile could not hold the task. Nothing about the code was decided,
             # so this is not a FAILED verdict, whatever the worker's own outcome was.
             return TaskOutcome.BLOCKED
+        if run.state.claim == "diagnosis" and any(item.blocked for item in run.state.history):
+            # A configured multi-step check may have proved its prerequisite
+            # (for example, a build) before policy blocked the requested step
+            # (the tests). The prerequisite proof must not turn that refusal
+            # into PASS; project the typed blocked tool result to the task.
+            return TaskOutcome.BLOCKED
         if outcome.succeeded and not run.state.verified:
             # The worker completed its job, but the tree is not proven. If the last
             # current-epoch proof is an observed build or test failure, the honest

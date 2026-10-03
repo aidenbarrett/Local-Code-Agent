@@ -24,7 +24,8 @@ SPEC.loader.exec_module(journeys)
 
 DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambiguous", "J05-stop-build",
                  "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree", "J15b-rename-binary",
-                 "J16-malformed-calls", "J17-branch-review", "J20-conflict-explain"]
+                 "J16-malformed-calls", "J17-branch-review", "J19-test-truth", "J19b-test-policy",
+                 "J20-conflict-explain"]
 
 
 def _report(output: Path) -> dict[str, dict[str, object]]:
@@ -114,7 +115,7 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert by_id["J08-fix-build"]["status"] == "UNKNOWN"
     assert "--allow-model" in by_id["J08-fix-build"]["reason"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "Product   PASS 12 / FAIL 0" in summary
+    assert "Product   PASS 14 / FAIL 0" in summary
     assert "Model     not used" in summary
 
     report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))
