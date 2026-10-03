@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 from uuid import UUID
 
+from .value_validation import require_sha256
+
 
 class WatchReadModelError(RuntimeError):
     pass
@@ -71,12 +73,7 @@ def _require_uuid(name: str, value: str) -> None:
 
 
 def _require_sha(name: str, value: str) -> None:
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(ch not in "0123456789abcdef" for ch in value)
-    ):
-        raise ValueError(f"{name} must be lowercase SHA-256")
+    require_sha256(value, message=f"{name} must be lowercase SHA-256")
 
 
 def _activity(sequence: int, occurred_utc: str, kind: str, summary: str) -> WatchActivity:

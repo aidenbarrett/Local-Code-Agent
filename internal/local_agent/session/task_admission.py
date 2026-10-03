@@ -18,6 +18,7 @@ from ..provenance import source_sha256
 from .contracts import RouteSource, TaskResult
 from .session_event_service import DurableTaskExecutor
 from .terminal_truth import CancelUnreconciled
+from .value_validation import require_nonempty_string
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -132,8 +133,7 @@ def _deadline_utc(controller) -> str:
 def _optional_label(value: str | None, *, name: str) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{name} must be a nonempty string when present")
+    require_nonempty_string(value, message=f"{name} must be a nonempty string when present")
     if len(value) > 128:
         raise ValueError(f"{name} exceeds size limit")
     return value

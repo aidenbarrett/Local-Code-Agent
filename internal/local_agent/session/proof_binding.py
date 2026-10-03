@@ -15,6 +15,7 @@ from typing import Mapping
 
 from ..tools.tool_primitives import resolve_in_repo
 from ..verification import CURRENT_TREE_PROOFS, ProofKind
+from .value_validation import require_sha256, require_string_tuple
 
 
 class ProofScope(str, Enum):
@@ -82,16 +83,11 @@ class ProofBinding:
             ("request_sha256", self.request_sha256),
             ("tree_sha256", self.tree_sha256),
         ):
-            if (
-                not isinstance(value, str)
-                or len(value) != 64
-                or any(ch not in "0123456789abcdef" for ch in value)
-            ):
-                raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+            require_sha256(value, message=f"{name} must be a lowercase SHA-256 digest")
         object.__setattr__(self, "scope", ProofScope(self.scope))
-        ids = tuple(self.evidence_ids)
-        if any(not isinstance(value, str) or not value for value in ids):
-            raise ValueError("proof evidence ids must be nonempty strings")
+        ids = require_string_tuple(
+            self.evidence_ids, message="proof evidence ids must be nonempty strings",
+        )
         object.__setattr__(self, "evidence_ids", ids)
 
     def as_dict(self) -> dict[str, object]:

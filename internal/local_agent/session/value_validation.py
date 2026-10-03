@@ -4,9 +4,13 @@ from __future__ import annotations
 from collections.abc import Collection, Iterable, Mapping
 
 
-def require_integer(value: object, *, minimum: int, message: str) -> int:
+def require_integer(value: object, *, minimum: int | None, message: str) -> int:
     """Validate an integer bound without accepting bool as an execution identity."""
-    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or (minimum is not None and value < minimum)
+    ):
         raise ValueError(message)
     return value
 
@@ -14,6 +18,24 @@ def require_integer(value: object, *, minimum: int, message: str) -> int:
 def require_nonempty_string(value: object, *, message: str) -> str:
     """Validate text without normalising the identity it represents."""
     if not isinstance(value, str) or not value.strip():
+        raise ValueError(message)
+    return value
+
+
+def require_sha256(value: object, *, message: str) -> str:
+    """Validate one lowercase SHA-256 digest without coercing boundary input."""
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(message)
+    return value
+
+
+def require_nonnegative_number(value: object, *, message: str) -> int | float:
+    """Validate a nonnegative real timeout while refusing bool as a number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
         raise ValueError(message)
     return value
 

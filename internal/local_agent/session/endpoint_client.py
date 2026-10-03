@@ -14,6 +14,7 @@ from ..llm.client import LLMClient
 from ..llm.protocol import LLMTransportError
 from .endpoint_call import EndpointCallAdapter
 from .endpoint_lease import EndpointRequest, EndpointRole, EndpointUnavailable
+from .value_validation import require_integer, require_nonempty_string
 
 
 class ModelEndpointQuarantinedError(LLMTransportError):
@@ -95,8 +96,9 @@ class ManagedWorkerClientFactory:
     def __init__(self, raw_factory, adapter: EndpointCallAdapter, *, session_id: str):
         if not callable(raw_factory):
             raise TypeError("managed worker client factory requires a callable raw factory")
-        if not isinstance(session_id, str) or not session_id.strip():
-            raise ValueError("managed worker client factory requires a session id")
+        require_nonempty_string(
+            session_id, message="managed worker client factory requires a session id",
+        )
         self._raw_factory = raw_factory
         self._adapter = adapter
         self._session_id = session_id
@@ -105,12 +107,10 @@ class ManagedWorkerClientFactory:
     @contextmanager
     def bind_task(self, task_id: str, execution_epoch: int):
         UUID(task_id)
-        if (
-            not isinstance(execution_epoch, int)
-            or isinstance(execution_epoch, bool)
-            or execution_epoch < 0
-        ):
-            raise ValueError("worker endpoint authority requires a nonnegative execution epoch")
+        require_integer(
+            execution_epoch, minimum=0,
+            message="worker endpoint authority requires a nonnegative execution epoch",
+        )
         previous = getattr(self._authority, "value", None)
         self._authority.value = (task_id, execution_epoch)
         try:
