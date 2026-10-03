@@ -19,7 +19,7 @@ from local_agent.session.workspaces import CommitMismatched, Committed, GitWorks
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args],
-        cwd=str(cwd), check=True, capture_output=True, text=True,
+        cwd=str(cwd), check=True, capture_output=True, text=True, encoding="utf-8",
     ).stdout
 
 
