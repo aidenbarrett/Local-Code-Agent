@@ -165,7 +165,8 @@ def _git(root: Path, *args: str, check: bool = True) -> str:
     return done.stdout
 
 
-def make_repo(dest: Path, scenario: str, *, allow_commit: bool = False, slow_build: bool = False) -> Path:
+def make_repo(dest: Path, scenario: str, *, allow_commit: bool = False, slow_build: bool = False,
+              deny_test: bool = False) -> Path:
     """A private git repository of the fixture with one scenario committed as HEAD."""
     if dest.exists():
         shutil.rmtree(dest)
@@ -176,6 +177,8 @@ def make_repo(dest: Path, scenario: str, *, allow_commit: bool = False, slow_bui
     text = config.read_text(encoding="utf-8")
     if allow_commit:
         text = text.replace("allow_commit = false", "allow_commit = true")
+    if deny_test:
+        text = text.replace("allow_test = true", "allow_test = false")
     if slow_build:
         # A configured build that takes minutes, so Stop can be exercised mid-command.
         text = text.replace('default_profile = "debug"', 'default_profile = "slow"')
@@ -732,6 +735,40 @@ class ScriptedMalformedCalls(ScriptedCompileFix):
         return self._finish("success", "the compile error is fixed", [])
 
 
+class ScriptedTestTruth(ScriptedCompileFix):
+    """Ask the real test tool for one precise fact, then report its typed result."""
+
+    modes: dict[str, int] = {}
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:  # noqa: ARG002 - LLMClient shape
+        latest_user = max(i for i, message in enumerate(messages) if message.get("role") == "user")
+        results = [message for message in messages[latest_user + 1:] if message.get("role") == "tool"]
+        request = str(messages[latest_user].get("content", ""))
+        referenced = re.search(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", request)
+        mode = self.modes.get(referenced.group(0) if referenced else "", 0)
+        if not results:
+            return ChatResponse(tool_calls=[tool_call("build_target", {}, "build")])
+        if mode == 2 and len(results) == 1:
+            return ChatResponse(tool_calls=[tool_call("propose_patch", {
+                "path": RING, "find": '#include "sandbox/ring_buffer.hpp"',
+                "replace": '#include "sandbox/ring_buffer.hpp"\n// changed after build',
+                "rationale": "make the just-built binary stale",
+            }, "propose")])
+        if mode == 2 and len(results) == 2:
+            found = re.search(r'"patch_id":\s*"([^"]+)"', str(results[-1].get("content")))
+            if found is None:
+                return self._finish("diagnosis", "the stale-source patch was not proposed", [])
+            return ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": found.group(1)}, "apply")])
+        test_step = 3 if mode == 2 else 1
+        if len(results) == test_step:
+            name_filter = "definitely_no_such_test" if mode == 1 else "text_util"
+            return ChatResponse(tool_calls=[tool_call("run_test", {"name_filter": name_filter}, "test")])
+        content = str(results[-1].get("content", ""))
+        evidence = [f"{message.get('name')}:{index}" for index, message in enumerate(results)]
+        return self._finish("diagnosis", content, evidence)
+
+
 def dirty_work_snapshot(repo: Path, tracked: str, untracked: str) -> dict[str, bytes]:
     """Index content/modes, both diffs and owned dirty bytes, without index stat-cache noise."""
     return {
@@ -1054,6 +1091,48 @@ def j_malformed_calls(s: Session) -> None:
     s.journey.passed("malformed calls refused with typed durable reasons; false success did not pass")
 
 
+def j_test_truth(s: Session) -> None:
+    """R07/J19: filtered, empty and stale runs retain their actual denominator."""
+    failures = []
+    for _ in range(3):
+        _, failed = s.turn("run the tests")
+        expect(failed is not None and failed.outcome is TaskOutcome.FAIL,
+               "fixture test failure was not observed")
+        failures.append(failed.task_id)
+    ScriptedTestTruth.modes = {task_id: mode for mode, task_id in enumerate(failures)}
+
+    answer, matched = s.turn(f"fix task {failures[0]}")
+    expect(matched is not None, "filtered test admitted no task")
+    expect("all tests passed (1 test(s))" in answer,
+           "one-test filter did not report denominator 1")
+
+    answer, empty = s.turn(f"fix task {failures[1]}")
+    expect(empty is not None and empty.outcome is not TaskOutcome.PASS,
+           "zero-test run manufactured a PASS")
+    expect("ran 0 tests" in answer and "Nothing was verified" in answer,
+           "zero-test result did not say that nothing was verified")
+
+    answer, stale = s.turn(f"fix task {failures[2]}")
+    expect(stale is not None and stale.outcome is not TaskOutcome.PASS,
+           "stale test run manufactured a PASS")
+    expect("STALE:" in answer and "OLD binary" in answer,
+           "stale run did not identify the old binary")
+    s.journey.passed("one-test filter reported 1; zero-test and stale-binary runs were non-PASS "
+                     "and said that they verified nothing")
+
+
+def j_test_policy(s: Session) -> None:
+    """R07/J19: repository policy denial is typed and cannot become test evidence."""
+    answer, result = s.turn("run the tests")
+    expect(result is not None, "policy test admitted no task")
+    expect((result.outcome, result.reason_code) == (TaskOutcome.BLOCKED, "policy_denied"),
+           f"policy refusal was {result.outcome.value}/{result.reason_code}")
+    expect("allow_test" in answer or "policy" in answer.lower(),
+           "policy refusal did not name the disabled capability")
+    expect(not result.verified_at_completion, "policy refusal manufactured verification")
+    s.journey.passed("allow_test=false: BLOCKED/policy_denied, named policy, no verification")
+
+
 def j_questions(s: Session) -> None:
     for question in ("what does this repository do?", "where is the ring buffer implemented?"):
         answer, _ = s.turn(question)
@@ -1095,6 +1174,8 @@ SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
                     "J15b-rename-binary": ScriptedDirtyReview,
                     "J16-malformed-calls": ScriptedMalformedCalls,
                     "J17-branch-review": ScriptedBranchReview,
+                    "J19-test-truth": ScriptedTestTruth,
+                    "J19b-test-policy": ScriptedTestTruth,
                     "J20-conflict-explain": ScriptedConflictExplain}
 # (id, title, kind, scenario, needs_model, repo options, function)
 JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Session], None]]] = [
@@ -1121,6 +1202,10 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
      "compile_error", False, {}, j_malformed_calls),
     ("J17-branch-review", "review my branch: merge base, upstream, detached HEAD", "product",
      "clean", False, {}, j_branch_review),
+    ("J19-test-truth", "filtered, empty and stale test-run truth", "product",
+     "test_failure", False, {}, j_test_truth),
+    ("J19b-test-policy", "typed refusal when repository policy disables tests", "product",
+     "clean", False, {"deny_test": True}, j_test_policy),
     ("J20-conflict-explain", "explain a stopped merge or rebase without touching it", "product",
      "clean", False, {}, j_conflict_explain),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",

@@ -189,3 +189,22 @@ def test_run_the_tests_observes_a_test_failure_and_fix_it_picks_the_test_fix(san
         assert [e["payload"]["skill"] for e in admitted] == ["fix-test-failure"]
     finally:
         service.close()
+
+
+def test_run_the_tests_is_policy_denied_even_after_its_prerequisite_build_passes(sandbox, tmp_path):
+    sandbox.scenario("clean")
+    config = sandbox.root / ".local-agent.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("allow_test = true", "allow_test = false"),
+        encoding="utf-8",
+    )
+    service, gateway, _history = _session(sandbox, tmp_path, _no_model_factory)
+    try:
+        answer = gateway.turn("run the tests")
+        result = gateway.last_result
+        assert (result.outcome, result.reason_code) == (TaskOutcome.BLOCKED, "policy_denied")
+        assert result.verified_at_completion is False
+        assert "allow_test" in answer
+        assert [e.split(":")[0] for e in result.evidence_ids] == ["build_target", "run_test"]
+    finally:
+        service.close()
