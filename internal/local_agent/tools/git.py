@@ -35,12 +35,15 @@ def _no_hooks_dir(ctx: ToolContext) -> Path:
     return path
 
 
-def _git(ctx: ToolContext, args: list[str]) -> tuple[int, str, str]:
+def _git(
+    ctx: ToolContext, args: list[str], *, literal_paths: bool = False,
+) -> tuple[int, str, str]:
     if not args or args[0] not in _ALLOWED_SUBCOMMANDS:
         raise ToolError(f"git subcommand {args[:1]} is not permitted by this agent")
     proc = subprocess.run(
         [
             "git",
+            *(["--literal-pathspecs"] if literal_paths else []),
             "-c", f"core.hooksPath={_no_hooks_dir(ctx)}",
             "-c", "core.fsmonitor=false",
             "-c", "diff.external=",
@@ -414,7 +417,8 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         for p in paths:
             if p in (".", "-A", "--all", "*"):
                 raise ToolError("blanket staging is not permitted; name the files")
-        code, _, err = _git(ctx, ["add", "--", *paths])
+        # Named files only: a name like `note[1].txt` must not also stage `note1.txt`.
+        code, _, err = _git(ctx, ["add", "--", *paths], literal_paths=True)
         if code != 0:
             raise ToolError(f"git add failed: {err.strip()}")
         return ToolResult(ok=True, summary=f"staged {len(paths)} path(s)",

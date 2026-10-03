@@ -216,6 +216,9 @@ class GitWorkspaceManager:
             "GIT_OPTIONAL_LOCKS": "0",
             "GIT_PAGER": "cat",
             "LC_ALL": "C",
+            # Every path the controller hands git is a file name, never a pattern.
+            # Without this, `note[1].txt` after `--` also matches `note1.txt` (#393).
+            "GIT_LITERAL_PATHSPECS": "1",
         })
         argv = [
             "git",
@@ -734,7 +737,17 @@ class GitWorkspaceManager:
         commit = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
         parents = self._out(user, "rev-parse", f"{commit}^@").split()
         in_tree = {p: self._blob_at(user, commit, p) for p in paths}
-        if parents != [parent] or any(in_tree[p] != post.get(p) for p in paths):
+        # The commit's complete delta, not only the named blobs, must be the reviewed
+        # scope: an extra path means user work went into history under our name.
+        changed = set(_split_z(self._git(
+            user, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--no-renames",
+            parent, commit,
+        ).stdout))
+        if (
+            parents != [parent]
+            or changed != set(paths)
+            or any(in_tree[p] != post.get(p) for p in paths)
+        ):
             return CommitMismatched(commit, branch_name, paths)
         record["committed"] = commit
         tmp = path.with_suffix(".tmp")
