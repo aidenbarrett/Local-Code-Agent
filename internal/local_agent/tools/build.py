@@ -40,8 +40,10 @@ def _claim_or_require_build_root(ctx: ToolContext) -> Path:
     if resolved.exists():
         if not resolved.is_dir() or not marker.is_file() or marker.is_symlink():
             raise ToolError(
-                "configured build directory already exists without LCA ownership; "
-                "refusing to delete or write it"
+                f"the build directory {ctx.repo.build_dir!r} already exists and was not "
+                f"created by Local Code Agent (no {_BUILD_OWNER} marker), so it is neither "
+                "deleted nor written. Set repo.build_dir in .local-agent.toml to a "
+                "directory Local Code Agent may own, or remove this one yourself."
             )
     else:
         resolved.mkdir(parents=True)

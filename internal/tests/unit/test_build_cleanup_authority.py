@@ -117,3 +117,33 @@ def test_public_doctor_reports_unsafe_build_path_without_deleting_it(tmp_path, c
     assert cmd_doctor(args) == 2
     assert 'config          : FAILED' in capsys.readouterr().out
     assert sentinel.read_bytes() == b'user work'
+
+
+def test_a_repository_reached_through_a_symlink_still_loads(tmp_path):
+    """Containment compares resolved paths: a symlinked or 8.3-named root is not 'outside'."""
+    real = tmp_path / 'real'
+    real.mkdir()
+    (real / '.local-agent.toml').write_text(
+        '[repo]\nbuild_dir = "out"\n[profiles.debug]\nbuild = ["true"]\n', encoding='utf-8')
+    link = tmp_path / 'link'
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip('symlink creation unavailable')
+    assert load_repo_config(link).build_dir == 'out'
+
+
+def test_an_unowned_build_directory_refusal_says_how_to_proceed(tmp_path):
+    root = tmp_path / 'repo'
+    (root / 'build').mkdir(parents=True)
+    (root / 'build' / 'mine.txt').write_text('user data', encoding='utf-8')
+    (root / '.local-agent.toml').write_text(
+        '[repo]\nbuild_dir = "build"\n[profiles.debug]\nconfigure = ["cmake", "-S", ".", "-B", "build"]\n'
+        'build = ["cmake", "--build", "build"]\n', encoding='utf-8')
+    registry, ctx, _store = build_registry(load_repo_config(root))
+    with pytest.raises(ToolError) as refused:
+        registry.get('configure_project').handler()
+    message = str(refused.value)
+    assert "'build'" in message and 'repo.build_dir' in message
+    assert (root / 'build' / 'mine.txt').read_text(encoding='utf-8') == 'user data'
+    assert ctx.processes_started == 0

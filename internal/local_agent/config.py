@@ -467,8 +467,10 @@ def _repo_directory(root: Path, value: object, where: str) -> str:
         raise ConfigError(f"{where} must be inside the repository")
     if supplied in (".", "./") or ".git" in candidate.parts:
         raise ConfigError(f"{where} cannot name the repository root or Git metadata")
+    # Compare resolved with resolved: a root reached through a symlink or a Windows
+    # 8.3 short name would otherwise make every valid directory look outside.
     resolved = (root / candidate).resolve()
-    if root not in resolved.parents:
+    if root.resolve() not in resolved.parents:
         raise ConfigError(f"{where} resolves outside the repository")
     return candidate.as_posix()
 
