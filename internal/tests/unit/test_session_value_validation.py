@@ -89,7 +89,7 @@ def test_exact_keys_validator_rejects_malformed_values(value):
         require_exact_keys(value, {"name"}, message="invalid mapping")
 
 
-@pytest.mark.parametrize("value", [None, False, -1, -0.5, "0", []])
+@pytest.mark.parametrize("value", [None, False, -1, -0.5, "0", [], float("nan"), float("inf")])
 def test_nonnegative_number_validator_rejects_malformed_values(value):
     with pytest.raises(ValueError, match="invalid timeout"):
         require_nonnegative_number(value, message="invalid timeout")
@@ -106,3 +106,9 @@ def test_new_scalar_validators_preserve_valid_values():
     timeout = 0.5
     assert require_sha256(digest, message="bad") is digest
     assert require_nonnegative_number(timeout, message="bad") is timeout
+
+
+@pytest.mark.parametrize("value", ["build_target:0", b"build_target:0"])
+def test_string_tuple_validator_refuses_a_bare_string_instead_of_splitting_it(value):
+    with pytest.raises(ValueError, match="invalid ids"):
+        require_string_tuple(value, message="invalid ids")

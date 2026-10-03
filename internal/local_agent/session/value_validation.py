@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Mapping
+import math
 
 
 def require_integer(value: object, *, minimum: int | None, message: str) -> int:
@@ -34,15 +35,23 @@ def require_sha256(value: object, *, message: str) -> str:
 
 
 def require_nonnegative_number(value: object, *, message: str) -> int | float:
-    """Validate a nonnegative real timeout while refusing bool as a number."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+    """Validate a nonnegative, finite real timeout while refusing bool as a number."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
         raise ValueError(message)
     return value
 
 
 def require_string_tuple(values: object, *, message: str) -> tuple[str, ...]:
-    """Copy an iterable of nonempty strings into an immutable typed value."""
-    if not isinstance(values, Iterable):
+    """Copy an iterable of nonempty strings into an immutable typed value.
+
+    A bare string is iterable too, and would otherwise be split into one "id" per
+    character; it is refused as the wrong shape."""
+    if not isinstance(values, Iterable) or isinstance(values, (str, bytes)):
         raise ValueError(message)
     checked: list[str] = []
     for value in values:
