@@ -1458,3 +1458,46 @@ def test_the_edit_reminder_never_applies_to_read_only_or_unnarrowed_runs():
     assert _edit_reminder(editing, "diagnosis") is None
     editing.mutation_epoch = 1
     assert _edit_reminder(editing, "success") is None
+
+
+def _bracket_file_turns():
+    return [
+        ChatResponse(tool_calls=[tool_call("propose_file", {
+            "path": "note[1].txt", "content": "candidate note\n"}, "n1")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": _patch_id(m)}, "n2")]),
+        ChatResponse(tool_calls=[tool_call("build_target", {}, "n3")]),
+        lambda m: ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "added note[1].txt", "evidence_ids": ["build_target:2"]}, "n4")]),
+        ChatResponse(content="Added note[1].txt."),
+    ]
+
+
+def test_public_commit_of_a_bracket_named_candidate_leaves_the_matching_user_file(sandbox, tmp_path):
+    """#393 through the public /commit: Git would read note[1].txt as a pattern matching note1.txt."""
+    sandbox.scenario("clean")
+    (sandbox.root / "note1.txt").write_text("original\n", encoding="utf-8")
+    subprocess.run(["git", "add", "note1.txt"], cwd=sandbox.root, check=True)
+    _allow_commits(sandbox.root)
+    controller, _manager = _controller(sandbox.root, tmp_path, _bracket_file_turns())
+    candidate_task = str(uuid4())
+    prepared = controller.run("change: add note[1].txt", task_id=candidate_task,
+                              skill_name="implement-change")
+    assert prepared.metrics["candidate"]["retained"] is True, prepared.answer
+    assert _apply(controller, candidate_task).outcome is TaskOutcome.PASS
+    # The user's unrelated work on the file the pattern would match, staged and unstaged.
+    note1 = sandbox.root / "note1.txt"
+    note1.write_text("user staged\n", encoding="utf-8")
+    subprocess.run(["git", "add", "note1.txt"], cwd=sandbox.root, check=True)
+    note1.write_text("user unstaged\n", encoding="utf-8")
+    head_blob = _git_out(sandbox.root, "rev-parse", "HEAD:note1.txt")
+    index_entry = _git_out(sandbox.root, "ls-files", "--stage", "--", "note1.txt")
+
+    result = _commit(controller, candidate_task)
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    commit = result.metrics["candidate_commit"]["commit"]
+    assert _git_out(sandbox.root, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z",
+                    commit).split("\0")[:-1] == ["note[1].txt"]
+    assert _git_out(sandbox.root, "rev-parse", "HEAD:note1.txt") == head_blob
+    assert _git_out(sandbox.root, "ls-files", "--stage", "--", "note1.txt") == index_entry
+    assert note1.read_text(encoding="utf-8") == "user unstaged\n"
