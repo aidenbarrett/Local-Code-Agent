@@ -28,6 +28,7 @@ import base64
 import contextlib
 import hashlib
 import json
+import re
 import os
 import shutil
 import stat
@@ -190,6 +191,9 @@ def _parse_git_version(text: str) -> tuple[int, int] | None:
         return int(numbers[0]), int(numbers[1])
     except (IndexError, ValueError):
         return None
+
+
+_OWNER_TOKEN = re.compile(r"[0-9]+:[0-9]+\.[0-9]{6}")
 
 
 def _failed_commit_reason(
@@ -421,13 +425,13 @@ class GitWorkspaceManager:
         """``live``, ``gone`` (exited, or its PID now belongs to another process) or
         ``unknown``. Only ``gone`` is evidence that a workspace has no owner (#397):
         an unreadable process, a malformed or missing token is not."""
-        if not isinstance(owner, str):
+        # Only the exact form _owner_token writes ("<pid>:<seconds with 6 decimals>")
+        # is evidence; anything else, including nan, inf or a differently rounded
+        # time, cannot prove a mismatch and so cannot authorise deletion.
+        if not isinstance(owner, str) or _OWNER_TOKEN.fullmatch(owner) is None:
             return "unknown"
-        pid_text, sep, started = owner.partition(":")
-        if not sep or not pid_text.isdigit():
-            return "unknown"
+        pid_text = owner.split(":", 1)[0]
         try:
-            float(started)
             created = psutil.Process(int(pid_text)).create_time()
         except psutil.NoSuchProcess:  # includes ZombieProcess: the owner has exited
             return "gone"

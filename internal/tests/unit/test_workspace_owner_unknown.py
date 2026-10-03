@@ -60,9 +60,13 @@ def test_an_owner_that_cannot_be_read_keeps_its_workspace(tmp_path, monkeypatch)
     assert manager.unreconciled_leases == (task_id,)
 
 
-@pytest.mark.parametrize("owner", [None, "", "not-a-token", "123", "abc:1.0", "12:not-a-time", 7])
+@pytest.mark.parametrize("owner", [None, "", "not-a-token", "123", "abc:1.0", "12:not-a-time", 7,
+                                   "LIVE:nan", "LIVE:inf", "LIVE:-1.000000", "LIVE:1.0", "LIVE:1e3"])
 def test_a_missing_or_malformed_owner_keeps_its_workspace(tmp_path, owner):
+    """Sol's #410 review: a non-canonical token for a LIVE pid must not read as 'gone'."""
     manager, task_id, ws = _setup(tmp_path)
+    if isinstance(owner, str) and owner.startswith("LIVE:"):
+        owner = owner.replace("LIVE", str(os.getpid()), 1)
     _set_owner(manager, task_id, owner)
     assert manager.reap_orphans() == ()
     assert _kept(manager, task_id, ws)
