@@ -98,6 +98,10 @@ class ImportResult:
     # a path the candidate creates). Restores are byte-exact, never re-filtered by git,
     # and the same bytes are kept so an applied change can later be undone.
     pre_contents: tuple[tuple[str, bytes | None], ...] = ()
+    # Refused because every touched path already holds exactly the candidate's
+    # post-image: the change is in the checkout already (for example an earlier import
+    # interrupted before it was recorded). Nothing was written.
+    already_applied: bool = False
 
 
 # The outcome of committing one applied candidate is one of four distinct states. Each is
@@ -522,9 +526,12 @@ class GitWorkspaceManager:
             if current != expected:
                 conflicts.append(path)
         if conflicts:
+            already = dict(pre) == dict(candidate.post_blobs)
             return ImportResult(
                 False, candidate.paths, tuple(conflicts),
-                "files changed in your checkout since the candidate's base", False, tuple(pre),
+                "your checkout already holds exactly this change" if already
+                else "files changed in your checkout since the candidate's base",
+                False, tuple(pre), already_applied=already,
             )
 
         check = self._git(

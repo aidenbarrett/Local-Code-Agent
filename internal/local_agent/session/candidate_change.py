@@ -350,10 +350,18 @@ def apply_candidate(
             False, metrics={"candidate_import": facts}, reason_code="cleanup_unknown",
         )
     if not imported.applied:
-        detail = (
-            "Changed since the candidate was prepared: " + ", ".join(imported.conflicts)
-            if imported.conflicts else (imported.refused_reason or "refused")
-        )
+        if imported.already_applied:
+            detail = (
+                "Your checkout already holds exactly this change in "
+                + ", ".join(imported.conflicts)
+                + ". An earlier apply of it may have been interrupted before it was "
+                "recorded, so /undo cannot reverse it; inspect it with git."
+            )
+        elif imported.conflicts:
+            detail = "Changed since the candidate was prepared: " + ", ".join(imported.conflicts)
+        else:
+            detail = imported.refused_reason or "refused"
+        facts["already_applied"] = imported.already_applied
         return TaskResult(
             task_id, TaskOutcome.FAIL,
             (

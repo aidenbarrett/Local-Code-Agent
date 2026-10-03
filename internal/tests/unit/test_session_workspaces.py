@@ -226,6 +226,36 @@ def test_outside_edit_to_a_touched_file_refuses_the_whole_import(tmp_path):
         manager.close(ws)
 
 
+def test_reimporting_a_change_already_in_the_checkout_is_named_not_called_a_conflict(tmp_path):
+    """An import interrupted before its receipt leaves the change in place; re-issuing it
+    must say the checkout already holds this exact change, write nothing, and only say so
+    when every touched path (including created files) matches the candidate exactly."""
+    user = _user_repo(tmp_path)
+    manager = _manager(tmp_path)
+    ws = manager.create(user, str(uuid4()))
+    try:
+        (ws.root / "src" / "a.cpp").write_text("int a() { return 42; }\n", encoding="utf-8")
+        (ws.root / "src" / "new.cpp").write_text("int n() { return 0; }\n", encoding="utf-8")
+        candidate = manager.candidate_patch(ws)
+        assert manager.import_patch(ws, candidate).applied
+        before = _state(user)
+
+        again = manager.import_patch(ws, candidate)
+
+        assert again.applied is False and again.already_applied is True
+        assert set(again.conflicts) == {"src/a.cpp", "src/new.cpp"}
+        assert "already holds exactly this change" in (again.refused_reason or "")
+        assert _state(user) == before
+
+        # One touched path differs from the candidate: an ordinary conflict, not "already applied".
+        (user / "src" / "new.cpp").write_text("int n() { return 5; }\n", encoding="utf-8")
+        differs = manager.import_patch(ws, candidate)
+        assert differs.applied is False and differs.already_applied is False
+        assert "changed in your checkout" in (differs.refused_reason or "")
+    finally:
+        manager.close(ws)
+
+
 def test_user_creating_a_file_the_candidate_adds_is_a_conflict(tmp_path):
     user = _user_repo(tmp_path)
     manager = _manager(tmp_path)
