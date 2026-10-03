@@ -142,6 +142,26 @@ def test_no_edit_means_no_retained_candidate_and_no_orphan_worktree(sandbox, tmp
         manager.load(task_id)
 
 
+def test_worker_empty_build_target_cannot_produce_verified_candidate(sandbox, tmp_path):
+    turns = [
+        ChatResponse(tool_calls=[tool_call("build_target", {"target": ""}, "c1")]),
+        ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "success", "summary": "built", "evidence_ids": ["build_target:0"]}, "c2")]),
+        ChatResponse(content="Built successfully."),
+    ]
+    controller, manager = _controller(sandbox.root, tmp_path, turns)
+
+    result = controller.run(
+        "fix the build", task_id=str(uuid4()), skill_name="fix-build-failure"
+    )
+
+    assert result.outcome is not TaskOutcome.PASS
+    assert result.verified_at_completion is False
+    assert result.reason_code == "missing_evidence"
+    assert result.metrics["candidate"]["retained"] is False
+    assert _worktrees(sandbox.root) == 1
+
+
 def test_worker_crash_discards_the_workspace(sandbox, tmp_path):
     class Exploding:
         def __init__(self):
