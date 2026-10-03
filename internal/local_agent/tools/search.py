@@ -22,10 +22,15 @@ _EXCLUDES = [
 
 # Rough C++ definition shapes. Deliberately crude; it feeds `read_file`, it does
 # not pretend to be a compiler front end.
-_DEF_TEMPLATES = (
-    r"(class|struct|enum class|enum|union)\s+{sym}\b",
+# A qualified name (``RingBuffer::full``) is defined out of line as a function body
+# or a static member initialiser; the type, macro and namespace shapes do not apply.
+_QUALIFIED_DEF_TEMPLATES = (
     r"\b{sym}\s*\([^;]*\)\s*(const)?\s*(noexcept)?\s*\{{",
     r"\b{sym}\s*=",
+)
+_DEF_TEMPLATES = (
+    r"(class|struct|enum class|enum|union)\s+{sym}\b",
+    *_QUALIFIED_DEF_TEMPLATES,
     r"#define\s+{sym}\b",
     r"using\s+{sym}\s*=",
     r"namespace\s+{sym}\b",
@@ -49,7 +54,7 @@ def _definition_pattern(symbol: str) -> str:
         # the member qualification, but never fall back to bare ``full`` where
         # unrelated classes would become indistinguishable.
         forms = (symbol,) if len(parts) == 2 else (symbol, "::".join(parts[-2:]))
-        templates = _DEF_TEMPLATES[1:3]
+        templates = _QUALIFIED_DEF_TEMPLATES
     return "|".join(
         template.format(sym=re.escape(form))
         for form in dict.fromkeys(forms)

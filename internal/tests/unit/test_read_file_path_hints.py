@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from local_agent.tools import files
@@ -36,8 +38,18 @@ def test_no_match_has_no_invented_hint(tmp_path):
 def test_unique_include_relative_header_is_read_without_a_guessing_loop(loaded, requested):
     _, _, registry, _, _ = loaded
     result = registry.get("read_file").handler(path=requested)
-    assert result.data["path"] == "include/sandbox/ring_buffer.hpp"
+    assert Path(result.data["path"]) == Path("include/sandbox/ring_buffer.hpp")
     assert "class RingBuffer" in result.data["content"]
+    # The summary names the file actually read, so a later patch targets the real path.
+    assert result.summary.startswith(str(Path("include/sandbox/ring_buffer.hpp")))
+    assert f"(resolved from {requested!r})" in result.summary
+
+
+def test_a_direct_read_summary_is_unchanged(loaded):
+    _, _, registry, _, _ = loaded
+    result = registry.get("read_file").handler(path="include/sandbox/ring_buffer.hpp")
+    assert result.summary.startswith("include/sandbox/ring_buffer.hpp lines 1-")
+    assert "resolved from" not in result.summary
 
 
 def test_qualified_definition_excludes_duplicate_short_names(loaded):

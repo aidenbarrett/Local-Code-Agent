@@ -251,8 +251,11 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     )
     def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> ToolResult:
         target = resolve_in_repo(ctx.root, path)
+        resolved_from: str | None = None
         if not target.is_file():
-            target = _unique_include_target(ctx.root, path) or target
+            include_target = _unique_include_target(ctx.root, path)
+            if include_target is not None:
+                target, resolved_from = include_target, path
         if not target.is_file():
             raise NotFoundError(_missing_file_message(ctx.root, path))
 
@@ -268,10 +271,15 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             max_read_bytes=ctx.repo.policy.max_read_bytes,
         )
         shown_end = start + len(window) - 1
+        # Name the file actually read. An include-relative request resolves to a
+        # different repository path, and the model must patch that path, not its guess.
+        shown = path if resolved_from is None else relpath(ctx.root, target)
         if total_lines is None:
-            summary = f"{path} lines {start}-{shown_end} (bounded range)"
+            summary = f"{shown} lines {start}-{shown_end} (bounded range)"
         else:
-            summary = f"{path} lines {start}-{shown_end} of {total_lines}"
+            summary = f"{shown} lines {start}-{shown_end} of {total_lines}"
+        if resolved_from is not None:
+            summary += f" (resolved from {resolved_from!r})"
 
         return ToolResult(
             ok=True,
