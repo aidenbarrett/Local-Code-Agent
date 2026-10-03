@@ -93,8 +93,123 @@ def test_a_reused_pid_is_a_different_owner_and_is_reaped(tmp_path):
     assert not ws.root.exists()
 
 
-def test_the_live_owner_keeps_its_workspace_and_is_not_unknown(tmp_path):
+def test_the_real_live_owner_keeps_its_workspace(tmp_path):
+    """On the real process table. Kept is unconditional. Whether the owner reads as live
+    or unknown depends on the host's process permissions (Sol's restricted host cannot
+    read its own start time); both are correct, and the deterministic test above proves
+    a readable live owner is never unknown."""
+    manager, task_id, ws = _setup(tmp_path)
+    assert manager.reap_orphans() == ()
+    assert _kept(manager, task_id, ws)
+    readable = GitWorkspaceManager._owner_token(os.getpid()) is not None
+    assert manager.unreconciled_leases == (() if readable else (task_id,))
+
+
+class _Processes:
+    """A deterministic process table for psutil.Process: pid -> start time or error."""
+
+    def __init__(self, table):
+        self.table = table
+
+    def __call__(self, pid):
+        entry = self.table.get(pid, psutil.NoSuchProcess(pid))
+        if isinstance(entry, BaseException):
+            raise entry
+        return _FakeProcess(entry)
+
+
+class _FakeProcess:
+    def __init__(self, started):
+        self._started = started
+
+    def create_time(self):
+        return self._started
+
+
+def test_a_readable_live_owner_is_live_not_unknown(tmp_path, monkeypatch):
+    """Sol's #410 re-review: live-owner observation independent of the host's process
+    permissions. The real-process test below cannot be 'not unknown' everywhere."""
+    monkeypatch.setattr(psutil, "Process", _Processes({os.getpid(): 1700000000.25}))
     manager, task_id, ws = _setup(tmp_path)
     assert manager.reap_orphans() == ()
     assert _kept(manager, task_id, ws)
     assert manager.unreconciled_leases == ()
+
+
+def test_a_deterministically_gone_owner_is_reaped(tmp_path, monkeypatch):
+    processes = _Processes({os.getpid(): 1700000000.25})
+    monkeypatch.setattr(psutil, "Process", processes)
+    manager, task_id, ws = _setup(tmp_path)
+    del processes.table[os.getpid()]
+    assert manager.reap_orphans() == (task_id,)
+    assert not ws.root.exists()
+    assert manager.unreconciled_leases == ()
+
+
+@pytest.mark.parametrize("error", [psutil.AccessDenied(1), psutil.Error(), OSError("EIO"),
+                                   PermissionError("denied")])
+def test_a_transient_observation_error_keeps_the_workspace(tmp_path, monkeypatch, error):
+    processes = _Processes({os.getpid(): 1700000000.25})
+    monkeypatch.setattr(psutil, "Process", processes)
+    manager, task_id, ws = _setup(tmp_path)
+    processes.table[os.getpid()] = error
+    assert manager.reap_orphans() == ()
+    assert _kept(manager, task_id, ws)
+    assert manager.unreconciled_leases == (task_id,)
+
+
+@pytest.mark.parametrize("error", [psutil.AccessDenied(1), psutil.Error(), OSError("EIO")])
+def test_a_workspace_created_without_a_readable_owner_is_kept_as_unknown(
+    tmp_path, monkeypatch, error,
+):
+    """Creation: an unreadable own start time is recorded as unknown, never guessed."""
+    processes = _Processes({os.getpid(): error})
+    monkeypatch.setattr(psutil, "Process", processes)
+    manager, task_id, ws = _setup(tmp_path)
+    processes.table[os.getpid()] = 1700000000.25  # readable again at reap time
+    assert manager.reap_orphans() == ()
+    assert _kept(manager, task_id, ws)
+    assert manager.unreconciled_leases == (task_id,)
+
+
+def test_session_hub_startup_keeps_an_unknown_workspace_and_says_so(sandbox, tmp_path, capsys):
+    """The public composition: the Hub's own startup reap over its own workspace root."""
+    from test_session_hub_product_path import _load_hub
+
+    from local_agent.config import ModelConfig, load_repo_config
+    from local_agent.session.conversation_gateway import conversation_budgets
+    from local_agent.session.conversation_store import (
+        conversation, create_session, ensure_runtime, new_session,
+    )
+    from local_agent.session.runtime_facts import RuntimeFacts
+
+    hub = _load_hub()
+    runtime = tmp_path / "runtime"
+    left = GitWorkspaceManager(runtime / "ws", controller_commit="c" * 40)
+    task_id = str(uuid4())
+    ws = left.create(sandbox.root, task_id)
+    _set_owner(left, task_id, None)
+    capsys.readouterr()
+
+    chat = ModelConfig()
+    budgets = conversation_budgets(chat.context_budget_tokens)
+    session = new_session("fixture", chat.model, chat.device, budget_chars=budgets["request_chars"])
+    create_session(runtime, session)
+    facts = RuntimeFacts.observe("fixture", chat, execution_enabled=True,
+                                 fetch=lambda _url: b'{"data":[{"id":"m"}]}')
+    with conversation(runtime, session.conversation_id) as opened:
+        runtime_index = ensure_runtime(opened.session, "fixture", chat.model, chat.device)
+        service, _recovered = hub._open_durable_service(runtime, session.conversation_id)
+        try:
+            graph = hub.compose_session_graph(
+                service, load_repo_config(sandbox.root), chat, chat,
+                runtime_facts=facts, opened=opened, runtime_index=runtime_index,
+                runtime_root=runtime, allow_execution=True, budgets=budgets,
+            )
+        finally:
+            service.close()
+
+    err = capsys.readouterr().err
+    assert "1 candidate workspace(s)" in err and "were kept" in err, err
+    assert ws.root.exists()
+    assert graph.workspaces.unreconciled_leases == (task_id,)

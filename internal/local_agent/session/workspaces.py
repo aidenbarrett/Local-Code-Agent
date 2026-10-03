@@ -417,7 +417,9 @@ class GitWorkspaceManager:
         """PID plus process start time: a reused PID is a different owner."""
         try:
             return f"{pid}:{psutil.Process(pid).create_time():.6f}"
-        except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
+        except (psutil.Error, OSError):
+            # Unreadable for any reason: the lease records an unknown owner, which
+            # the reaper keeps (#397), rather than failing the workspace or guessing.
             return None
 
     @staticmethod
