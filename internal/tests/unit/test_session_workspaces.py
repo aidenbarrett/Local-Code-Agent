@@ -423,7 +423,7 @@ def test_partial_import_restores_modified_files_and_removes_created_ones(tmp_pat
         real = manager._git
 
         def faulty(cwd, *args, **kwargs):
-            if args and args[0] == "apply" and "--check" not in args:
+            if args and args[0] == "apply" and not {"--check", "--summary"} & set(args):
                 (user / "src" / "a.cpp").write_bytes((ws.root / "src" / "a.cpp").read_bytes())
                 (user / "src" / "new.cpp").write_bytes((ws.root / "src" / "new.cpp").read_bytes())
                 return subprocess.CompletedProcess(["git", *args], 128, b"", b"injected")
@@ -458,7 +458,7 @@ def test_rollback_restores_exact_bytes_even_when_git_would_rewrite_line_endings(
         real = manager._git
 
         def faulty(cwd, *args, **kwargs):
-            if args and args[0] == "apply" and "--check" not in args:
+            if args and args[0] == "apply" and not {"--check", "--summary"} & set(args):
                 (user / "src" / "a.cpp").write_bytes(post)
                 return subprocess.CompletedProcess(["git", *args], 128, b"", b"injected")
             return real(cwd, *args, **kwargs)
