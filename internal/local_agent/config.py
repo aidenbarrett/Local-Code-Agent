@@ -16,6 +16,7 @@ import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from pathlib import PureWindowsPath
 
 DEFAULT_CONFIG_NAME = ".local-agent.toml"
 
@@ -450,6 +451,27 @@ class RepoConfig:
     def run_path(self) -> Path:
         return self.root / self.run_dir
 
+    @property
+    def build_path(self) -> Path:
+        return self.root / self.build_dir
+
+
+def _repo_directory(root: Path, value: object, where: str) -> str:
+    """Validate a configured product directory before any write or deletion."""
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{where} must be a non-empty relative path")
+    supplied = value.replace("\\", "/")
+    windows = PureWindowsPath(supplied)
+    candidate = Path(supplied)
+    if candidate.is_absolute() or windows.is_absolute() or windows.drive:
+        raise ConfigError(f"{where} must be inside the repository")
+    if supplied in (".", "./") or ".git" in candidate.parts:
+        raise ConfigError(f"{where} cannot name the repository root or Git metadata")
+    resolved = (root / candidate).resolve()
+    if root not in resolved.parents:
+        raise ConfigError(f"{where} resolves outside the repository")
+    return candidate.as_posix()
+
 
 def _as_cmd(value: object, where: str) -> list[str]:
     if value is None:
@@ -492,8 +514,8 @@ def load_repo_config(root: Path) -> RepoConfig:
     return RepoConfig(
         root=root,
         name=repo.get("name", root.name),
-        build_dir=repo.get("build_dir", "build"),
-        run_dir=repo.get("run_dir", ".local-agent/runs"),
+        build_dir=_repo_directory(root, repo.get("build_dir", "build"), "repo.build_dir"),
+        run_dir=_repo_directory(root, repo.get("run_dir", ".local-agent/runs"), "repo.run_dir"),
         profiles=profiles,
         default_profile=default_profile,
         skills_dir=repo.get("skills_dir", "skills"),

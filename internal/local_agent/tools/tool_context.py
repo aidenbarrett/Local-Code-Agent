@@ -39,7 +39,9 @@ class ToolContext:
 
     @property
     def run_root(self) -> Path:
-        path = self.repo.run_path
+        path = self.repo.run_path.resolve()
+        if self.root.resolve() not in path.parents:
+            raise ToolError("configured run directory is outside the repository")
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -49,6 +51,20 @@ class ToolContext:
 
     def _note_process_started(self) -> None:
         self.processes_started += 1
+
+    def refuse_if_cancelled(self) -> None:
+        """Fence controller-owned filesystem effects before they begin."""
+        if self.cancellation_probe is None:
+            return
+        requested = self.cancellation_probe.requested
+        if not isinstance(requested, bool):
+            raise TypeError("cancellation probe requested state must be boolean")
+        if requested:
+            from .tool_primitives import BlockedError, Reason
+            raise BlockedError(
+                "Stop was requested before this filesystem effect; nothing changed.",
+                Reason.COMMAND_CANCELLED,
+            )
 
     def run_configured(
         self, command: list[str], env: dict[str, str] | None = None
