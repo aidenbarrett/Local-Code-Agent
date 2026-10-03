@@ -1501,3 +1501,23 @@ def test_public_commit_of_a_bracket_named_candidate_leaves_the_matching_user_fil
     assert _git_out(sandbox.root, "rev-parse", "HEAD:note1.txt") == head_blob
     assert _git_out(sandbox.root, "ls-files", "--stage", "--", "note1.txt") == index_entry
     assert note1.read_text(encoding="utf-8") == "user unstaged\n"
+def test_public_commit_refused_by_git_leaves_head_and_index_alone(sandbox, tmp_path):
+    """#395: a genuine git failure (a signer that always fails) is a refusal with no effect."""
+    sandbox.scenario("compile_error")
+    _allow_commits(sandbox.root)
+    controller, manager, candidate_task = _prepare(sandbox, tmp_path)
+    _apply(controller, candidate_task)
+    for key, value in (("commit.gpgsign", "true"), ("gpg.format", "openpgp"),
+                       ("gpg.program", "false")):
+        subprocess.run(["git", "config", key, value], cwd=sandbox.root, check=True)
+    head = _git_out(sandbox.root, "rev-parse", "HEAD")
+    index = _git_out(sandbox.root, "ls-files", "--stage")
+    status = _git_out(sandbox.root, "status", "--porcelain=v1")
+
+    result = _commit(controller, candidate_task)
+
+    assert result.outcome is TaskOutcome.BLOCKED, result.answer
+    assert "Nothing was committed" in result.answer and "git commit failed" in result.answer
+    assert _git_out(sandbox.root, "rev-parse", "HEAD") == head
+    assert _git_out(sandbox.root, "ls-files", "--stage") == index
+    assert _git_out(sandbox.root, "status", "--porcelain=v1") == status
