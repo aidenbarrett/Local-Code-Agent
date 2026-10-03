@@ -36,6 +36,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import psutil
@@ -51,6 +52,10 @@ MAX_UNTRACKED_BYTES = 5 * 1024 * 1024
 
 class WorkspaceError(RuntimeError):
     """A workspace precondition failed or git refused a controller operation."""
+
+
+class CandidateRefusedError(WorkspaceError):
+    """The candidate's own content cannot be snapshotted or imported safely."""
 
 
 @dataclass(frozen=True)
@@ -209,6 +214,18 @@ def _failed_commit_reason(
 
 def _split_z(raw: bytes) -> tuple[str, ...]:
     return tuple(item.decode("utf-8", "surrogateescape") for item in raw.split(b"\0") if item)
+
+
+# A candidate that changes .gitattributes changes which programs git runs on the user's
+# files (filters) and what their bytes mean (eol, encoding). Neither is a source change
+# that apply, undo or commit can make safely, so it is refused before anything runs.
+_ATTRIBUTES_REFUSAL = (
+    "the candidate changes Git attributes, which candidate changes do not support: "
+)
+
+
+def _attribute_files(paths: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    return tuple(p for p in paths if p.rsplit("/", 1)[-1] == ".gitattributes")
 
 
 def _mode_of(path: Path) -> int | None:
@@ -405,7 +422,66 @@ class GitWorkspaceManager:
             problems.append(
                 f"the candidate workspaces folder is not writable: {exc.strerror or exc}"
             )
+        if not problems:
+            refusal = self._filter_refusal(root)
+            if refusal:
+                problems.append(refusal)
         return WorkspaceReadiness(not problems, version_text, tuple(problems))
+
+    # -- external helpers ---------------------------------------------------
+
+    def filter_drivers_in_use(self, repository_root: Path) -> tuple[str, ...]:
+        """Configured Git filter drivers that this repository's files actually use.
+
+        Trust policy (#398): candidate checks, snapshots, apply, undo and commit never
+        run a program a repository's configuration names. Hooks are pinned off, and a
+        repository whose files use a configured clean/smudge/process filter is refused
+        for candidate changes rather than having the filter run or silently stripped
+        (stripping would change what the checkout bytes mean). Built-in end-of-line
+        handling is not a filter and stays supported. /commit still uses the user's own
+        commit-signing configuration: committing is an effect the user asked for.
+
+        Reading this needs only `git config` and `git check-attr`, neither of which runs
+        a filter.
+        """
+        root = Path(repository_root)
+        drivers = set()
+        found = self._git(
+            root, "config", "--null", "--name-only", "--get-regexp",
+            r"^filter\..*\.(clean|smudge|process)$", check=False,
+        )
+        if found.returncode not in (0, 1):  # 1 is "no such key"; anything else is unknown
+            message = found.stderr.decode("utf-8", "replace").strip()
+            raise WorkspaceError(f"git config could not be read ({found.returncode}): {message}")
+        for entry in _split_z(found.stdout):
+            name = entry.split(".", 1)[1].rsplit(".", 1)[0] if "." in entry else ""
+            if name:
+                drivers.add(name)
+        if not drivers:
+            return ()
+        # Failure to read either is unknown, never "no filter in use" (#411 review).
+        files = self._git(root, "ls-files", "-z", "--cached", "--others",
+                          "--exclude-standard").stdout
+        if not files:
+            return ()
+        attrs = _split_z(self._git(root, "check-attr", "-z", "--stdin", "filter",
+                                   stdin=files).stdout)
+        if len(attrs) % 3:
+            raise WorkspaceError("git check-attr returned an incomplete answer")
+        used = {attrs[i + 2] for i in range(0, len(attrs), 3)}
+        return tuple(sorted(used & drivers))
+
+    def _filter_refusal(self, repository_root: Path) -> str | None:
+        try:
+            used = self.filter_drivers_in_use(repository_root)
+        except WorkspaceError as exc:
+            return ("whether this repository's files use Git filters could not be checked "
+                    f"({exc}), so candidate changes are unavailable here")
+        if not used:
+            return None
+        return ("this repository's files use the Git filter(s) " + ", ".join(used)
+                + ", which run programs from Git configuration; candidate changes do not "
+                "run them, so they are unavailable here")
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -494,6 +570,9 @@ class GitWorkspaceManager:
         top = Path(self._out(repository_root, "rev-parse", "--show-toplevel")).resolve()
         if top != repository_root:
             raise WorkspaceError(f"{repository_root} is not the top of its git checkout ({top})")
+        refusal = self._filter_refusal(repository_root)
+        if refusal:
+            raise WorkspaceError(refusal)
         if repository_root == self.workspaces_root or self.workspaces_root.is_relative_to(
             repository_root
         ):
@@ -552,6 +631,12 @@ class GitWorkspaceManager:
         # build/run output whether or not the user's .gitignore covers it, and keeps any
         # base-tracked files under them unchanged. (Exclude pathspecs cannot be used: git
         # refuses them outright when they name ignored directories.)
+        # Staging runs the clean filter of every attribute in effect, including any
+        # .gitattributes the worker wrote. Check the candidate's own attributes first, so
+        # no configured filter program runs (#398, Sol's #411 review).
+        refusal = self._filter_refusal(workspace.root)
+        if refusal:
+            raise CandidateRefusedError("in the candidate, " + refusal)
         self._git(workspace.root, "add", "-A", "--", ".")
         if workspace.excluded_dirs:
             self._git(
@@ -566,6 +651,9 @@ class GitWorkspaceManager:
             workspace.root, "diff", *diff_args, "--binary", "--full-index",
             workspace.base_commit, "--",
         ).stdout
+        attributes = _attribute_files(paths)
+        if attributes:
+            raise CandidateRefusedError(_ATTRIBUTES_REFUSAL + ", ".join(attributes))
         post = []
         for path in paths:
             done = self._git(
@@ -598,16 +686,10 @@ class GitWorkspaceManager:
                 resolve_in_repo(user, path)
             except SandboxError as exc:
                 raise WorkspaceError(f"candidate path {path!r} is outside the repository") from exc
-        unsupported = self._unsupported_entry_changes(user, candidate.patch)
-        if unsupported:
-            # Undo restores bytes and proves blobs; it does not carry modes or file types.
-            # A candidate that changes either is refused before anything is written (#396).
-            return ImportResult(
-                False, candidate.paths, (),
-                "the candidate changes file permissions or file types, which apply and undo "
-                "do not support: " + ", ".join(unsupported) + ". Nothing was written.",
-                False,
-            )
+        refusal = self._import_refusal(user, candidate)
+        if refusal:
+            return ImportResult(False, candidate.paths, (), refusal + ". Nothing was written.",
+                                False)
         conflicts: list[str] = []
         pre: list[tuple[str, str | None]] = []
         for path in candidate.paths:
@@ -790,16 +872,9 @@ class GitWorkspaceManager:
         if branch.returncode != 0:
             return CommitRefused("HEAD is detached; check out a branch first", paths)
         branch_name = branch.stdout.decode().strip()
-        in_progress = (
-            "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply",
-        )
-        for marker in in_progress:
-            marker_path = Path(self._out(user, "rev-parse", "--git-path", marker))
-            if not marker_path.is_absolute():
-                marker_path = user / marker_path
-            if marker_path.exists():
-                return CommitRefused("a merge, rebase, cherry-pick or revert is in progress",
-                                     paths, branch_name)
+        blocked = self._commit_state_refusal(user)
+        if blocked:
+            return CommitRefused(blocked, paths, branch_name)
         post = {p: b for p, b in record["post_blobs"]}
         drifted = tuple(p for p in paths if self._worktree_blob(user, p) != post.get(p))
         if drifted:
@@ -834,6 +909,17 @@ class GitWorkspaceManager:
         os.replace(tmp, path)
         return Committed(commit, branch_name, paths)
 
+    def _commit_state_refusal(self, user: Path) -> str | None:
+        """Why the checkout cannot take a controller commit now, or None."""
+        for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD",
+                       "rebase-merge", "rebase-apply"):
+            marker_path = Path(self._out(user, "rev-parse", "--git-path", marker))
+            if not marker_path.is_absolute():
+                marker_path = user / marker_path
+            if marker_path.exists():
+                return "a merge, rebase, cherry-pick or revert is in progress"
+        return self._filter_refusal(user)
+
     def _commit_is_exactly(
         self, user: Path, commit: str, parent: str, paths: tuple[str, ...],
         post: dict[str, str | None],
@@ -851,6 +937,22 @@ class GitWorkspaceManager:
         return changed == set(paths) and all(
             self._blob_at(user, commit, p) == post.get(p) for p in paths
         )
+
+    def _import_refusal(self, user: Path, candidate: CandidatePatch) -> str | None:
+        """Why this candidate cannot be imported at all, checked before any write."""
+        refusal = self._filter_refusal(user)
+        if refusal:
+            return refusal
+        attributes = _attribute_files(candidate.paths)
+        if attributes:
+            return _ATTRIBUTES_REFUSAL + ", ".join(attributes)
+        unsupported = self._unsupported_entry_changes(user, candidate.patch)
+        if unsupported:
+            # Undo restores bytes and proves blobs; it does not carry modes or file types.
+            # A candidate that changes either is refused before anything is written (#396).
+            return ("the candidate changes file permissions or file types, which apply and "
+                    "undo do not support: " + ", ".join(unsupported))
+        return None
 
     def _unsupported_entry_changes(self, user: Path, patch: bytes) -> tuple[str, ...]:
         """Entries in the reviewed patch that are not plain file content (#396).
@@ -888,6 +990,21 @@ class GitWorkspaceManager:
                 left.append(path)
         return tuple(left)
 
+    def _undo_refusal(self, user: Path, record: dict[str, Any]) -> str | None:
+        """Why a recorded apply cannot be undone at all, checked before any write."""
+        refusal = self._filter_refusal(user)
+        if refusal:
+            return refusal
+        if record.get("committed"):
+            return (f"that change was committed as {record['committed'][:12]}; undoing files "
+                    "would leave the commit in place, so revert the commit with git instead")
+        if "pre_modes" not in record or "post_modes" not in record:
+            # Recorded before permission bits were kept: undo could restore the bytes
+            # but not a deleted file's mode, so it is refused rather than half done.
+            return ("that change was recorded before file permissions were kept, so undo "
+                    "cannot restore it exactly; nothing was changed")
+        return None
+
     def undo_applied(self, task_id: str, repository_root: Path) -> UndoResult:
         """Undo one applied candidate, only where files still hold exactly what it wrote.
 
@@ -902,21 +1019,10 @@ class GitWorkspaceManager:
         user = Path(repository_root).resolve()
         if Path(record["repository_root"]) != user:
             return UndoResult(False, (), (), (), "that change was applied to another repository")
-        if record.get("committed"):
-            return UndoResult(
-                False, tuple(record["paths"]), (), (),
-                f"that change was committed as {record['committed'][:12]}; undoing files "
-                "would leave the commit in place, so revert the commit with git instead",
-            )
         paths = tuple(record["paths"])
-        if "pre_modes" not in record or "post_modes" not in record:
-            # Recorded before permission bits were kept: undo could restore the bytes
-            # but not a deleted file's mode, so it is refused rather than half done.
-            return UndoResult(
-                False, paths, (), (),
-                "that change was recorded before file permissions were kept, so undo "
-                "cannot restore it exactly; nothing was changed",
-            )
+        refusal = self._undo_refusal(user, record)
+        if refusal:
+            return UndoResult(False, paths, (), (), refusal)
         pre_mode: dict[str, int | None] = dict(record["pre_modes"])
         post_mode: dict[str, int | None] = dict(record["post_modes"])
         post = {p: b for p, b in record["post_blobs"]}
