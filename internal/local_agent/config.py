@@ -483,6 +483,39 @@ def _as_cmd(value: object, where: str) -> list[str]:
     return list(value)
 
 
+def _as_mapping(value: object, where: str) -> dict[str, object]:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise ConfigError(f"{where} must be a table")
+    return value
+
+
+def _as_nonempty_string(value: object, where: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{where} must be a non-empty string")
+    return value
+
+
+def _as_bool(value: object, where: str) -> bool:
+    if type(value) is not bool:
+        raise ConfigError(f"{where} must be a boolean")
+    return value
+
+
+def _as_positive_int(value: object, where: str) -> int:
+    if type(value) is not int or value <= 0 or value > 2_147_483_647:
+        raise ConfigError(f"{where} must be a positive 32-bit integer")
+    return value
+
+
+def _as_environment(value: object, where: str) -> dict[str, str]:
+    if value is None:
+        return {}
+    table = _as_mapping(value, where)
+    if not all(isinstance(item, str) for item in table.values()):
+        raise ConfigError(f"{where} values must be strings")
+    return {key: item for key, item in table.items() if isinstance(item, str)}
+
+
 def load_repo_config(root: Path) -> RepoConfig:
     root = root.resolve()
     path = root / DEFAULT_CONFIG_NAME
@@ -495,42 +528,63 @@ def load_repo_config(root: Path) -> RepoConfig:
     with path.open("rb") as fh:
         raw = tomllib.load(fh)
 
-    repo = raw.get("repo", {})
-    profiles_raw = raw.get("profiles", {})
+    repo = _as_mapping(raw.get("repo", {}), "repo")
+    profiles_raw = _as_mapping(raw.get("profiles", {}), "profiles")
     if not profiles_raw:
         raise ConfigError(f"{path} defines no [profiles.*] section")
 
     profiles: dict[str, BuildProfile] = {}
     for name, body in profiles_raw.items():
+        _as_nonempty_string(name, "profiles profile name")
+        profile = _as_mapping(body, f"profiles.{name}")
         profiles[name] = BuildProfile(
             name=name,
-            configure=_as_cmd(body.get("configure"), f"profiles.{name}.configure"),
-            build=_as_cmd(body.get("build"), f"profiles.{name}.build"),
-            test=_as_cmd(body.get("test"), f"profiles.{name}.test"),
-            env={str(k): str(v) for k, v in (body.get("env") or {}).items()},
+            configure=_as_cmd(profile.get("configure"), f"profiles.{name}.configure"),
+            build=_as_cmd(profile.get("build"), f"profiles.{name}.build"),
+            test=_as_cmd(profile.get("test"), f"profiles.{name}.test"),
+            env=_as_environment(profile.get("env"), f"profiles.{name}.env"),
         )
 
-    default_profile = repo.get("default_profile") or next(iter(profiles))
-    pol = raw.get("policy", {})
+    default_value = repo.get("default_profile")
+    default_profile = (
+        next(iter(profiles)) if default_value is None
+        else _as_nonempty_string(default_value, "repo.default_profile")
+    )
+    if default_profile not in profiles:
+        raise ConfigError(
+            f"repo.default_profile names unknown profile {default_profile!r}; "
+            f"configured: {sorted(profiles)}"
+        )
+    pol = _as_mapping(raw.get("policy", {}), "policy")
 
     return RepoConfig(
         root=root,
-        name=repo.get("name", root.name),
+        name=_as_nonempty_string(repo.get("name", root.name), "repo.name"),
         build_dir=_repo_directory(root, repo.get("build_dir", "build"), "repo.build_dir"),
         run_dir=_repo_directory(root, repo.get("run_dir", ".local-agent/runs"), "repo.run_dir"),
         profiles=profiles,
         default_profile=default_profile,
-        skills_dir=repo.get("skills_dir", "skills"),
+        skills_dir=_as_nonempty_string(repo.get("skills_dir", "skills"), "repo.skills_dir"),
         policy=Policy(
-            allow_build=bool(pol.get("allow_build", True)),
-            allow_test=bool(pol.get("allow_test", True)),
-            allow_patch=bool(pol.get("allow_patch", False)),
-            allow_commit=bool(pol.get("allow_commit", False)),
-            command_timeout_seconds=int(pol.get("command_timeout_seconds", 900)),
-            max_tool_calls=int(pol.get("max_tool_calls", 40)),
-            max_repeat_calls=int(pol.get("max_repeat_calls", 3)),
-            max_tool_result_bytes=int(pol.get("max_tool_result_bytes", 16_000)),
-            max_read_bytes=int(pol.get("max_read_bytes", 400_000)),
+            allow_build=_as_bool(pol.get("allow_build", True), "policy.allow_build"),
+            allow_test=_as_bool(pol.get("allow_test", True), "policy.allow_test"),
+            allow_patch=_as_bool(pol.get("allow_patch", False), "policy.allow_patch"),
+            allow_commit=_as_bool(pol.get("allow_commit", False), "policy.allow_commit"),
+            command_timeout_seconds=_as_positive_int(
+                pol.get("command_timeout_seconds", 900), "policy.command_timeout_seconds"
+            ),
+            max_tool_calls=_as_positive_int(
+                pol.get("max_tool_calls", 40), "policy.max_tool_calls"
+            ),
+            max_repeat_calls=_as_positive_int(
+                pol.get("max_repeat_calls", 3), "policy.max_repeat_calls"
+            ),
+            max_tool_result_bytes=_as_positive_int(
+                pol.get("max_tool_result_bytes", 16_000), "policy.max_tool_result_bytes"
+            ),
+            max_read_bytes=_as_positive_int(
+                pol.get("max_read_bytes", 400_000), "policy.max_read_bytes"
+            ),
         ),
     )
 
