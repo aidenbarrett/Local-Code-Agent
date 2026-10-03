@@ -1001,6 +1001,70 @@ def j_candidate_lifecycle(s: Session) -> None:
     s.journey.passed("diff, stale refusal, apply, independent build, preserved work, exact undo, re-apply, commit")
 
 
+def _prepare_applied_candidate(s: Session) -> str:
+    """Create and apply one scripted verified candidate through the public Hub path."""
+    _, built = s.turn("build it")
+    expect(built is not None and built.outcome is TaskOutcome.FAIL, "fixture did not fail")
+    _, fixed = s.turn("fix it")
+    expect(fixed is not None and fixed.outcome is TaskOutcome.PASS, "no verified candidate")
+    assert fixed is not None
+    _, applied = s.turn(f"/apply {fixed.task_id}")
+    expect(applied is not None and applied.outcome is TaskOutcome.PASS, "/apply failed")
+    return fixed.task_id
+
+
+def j_exact_candidate_commit(s: Session) -> None:
+    """Commit only the candidate while preserving the user's index and hook boundary."""
+    candidate_id = _prepare_applied_candidate(s)
+    notes = s.repo / "NOTES.md"
+    notes.write_text("unrelated staged work\n", encoding="utf-8")
+    _git(s.repo, "add", "NOTES.md")
+    staged_before = _git(s.repo, "ls-files", "--stage", "--", "NOTES.md")
+
+    marker = s.repo / "hook-ran"
+    hooks = s.repo / ".test-hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-commit"
+    hook.write_text(f"#!/bin/sh\necho ran > {marker.as_posix()}\n", encoding="utf-8")
+    hook.chmod(0o755)
+    _git(s.repo, "config", "core.hooksPath", str(hooks))
+
+    remote = s.repo.parent / "remote.git"
+    _git(s.repo.parent, "init", "--bare", "-q", str(remote))
+    _git(s.repo, "remote", "add", "origin", str(remote))
+    remote_before = _git(remote, "for-each-ref", "--format=%(refname):%(objectname)")
+    head = _git(s.repo, "rev-parse", "HEAD").strip()
+
+    _, committed = s.turn(f"/commit {candidate_id}")
+    expect(committed is not None and committed.outcome is TaskOutcome.PASS, "/commit failed")
+    files = _git(s.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split()
+    expect(files == [RING], f"the commit contains {files}")
+    expect(_git(s.repo, "rev-parse", "HEAD^").strip() == head, "commit has the wrong parent")
+    expect(_git(s.repo, "ls-files", "--stage", "--", "NOTES.md") == staged_before,
+           "/commit changed the unrelated staged entry")
+    expect(not marker.exists(), "/commit ran the repository pre-commit hook")
+    expect(_git(remote, "for-each-ref", "--format=%(refname):%(objectname)") == remote_before,
+           "/commit pushed a ref to the remote")
+    s.journey.passed("candidate-only commit; unrelated index preserved; no hook; no push")
+
+
+def j_commit_policy(s: Session) -> None:
+    """A public /commit remains a typed refusal when repository policy disables it."""
+    candidate_id = _prepare_applied_candidate(s)
+    head = _git(s.repo, "rev-parse", "HEAD").strip()
+    answer, refused = s.turn(f"/commit {candidate_id}")
+    expect(refused is not None and refused.outcome is TaskOutcome.BLOCKED,
+           "disabled /commit was not BLOCKED")
+    assert refused is not None
+    expect(refused.reason_code == "policy_denied",
+           f"disabled /commit reason is {refused.reason_code!r}")
+    expect(_git(s.repo, "rev-parse", "HEAD").strip() == head,
+           "disabled /commit changed HEAD")
+    expect("disabled" in answer.lower() or "policy" in answer.lower(),
+           "disabled /commit did not explain the policy refusal")
+    s.journey.passed("allow_commit=false is BLOCKED/policy_denied and leaves HEAD unchanged")
+
+
 def j_fix_tests(s: Session) -> None:
     s.turn("run the tests")
     _, result = s.turn("fix it")
@@ -1170,6 +1234,8 @@ REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
 
 # Product journeys with scripted workers instead of the model.
 SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
+                    "J21-exact-commit": ScriptedCompileFix,
+                    "J21b-commit-policy": ScriptedCompileFix,
                     "J15-dirty-worktree": ScriptedDirtyReview,
                     "J15b-rename-binary": ScriptedDirtyReview,
                     "J16-malformed-calls": ScriptedMalformedCalls,
@@ -1208,6 +1274,10 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
      "clean", False, {"deny_test": True}, j_test_policy),
     ("J20-conflict-explain", "explain a stopped merge or rebase without touching it", "product",
      "clean", False, {}, j_conflict_explain),
+    ("J21-exact-commit", "commit only an applied candidate and preserve the index", "product",
+     "compile_error", False, {"allow_commit": True}, j_exact_candidate_commit),
+    ("J21b-commit-policy", "typed refusal when repository policy disables commit", "product",
+     "compile_error", False, {}, j_commit_policy),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]
