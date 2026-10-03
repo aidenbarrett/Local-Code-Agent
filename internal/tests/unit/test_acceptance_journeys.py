@@ -572,3 +572,19 @@ def test_conflict_explanation_fails_when_it_aborts_the_merge(tmp_path, monkeypat
     out = tmp_path / "acc"
     assert journeys.main(["--output", str(out), "--only", "J20-conflict-explain"]) == 1
     assert "merge: explaining the conflict resolved" in _report(out)["J20-conflict-explain"]["reason"]
+
+
+def test_exact_commit_journey_fails_when_the_unrelated_staged_entry_is_lost(tmp_path, monkeypatch):
+    original_turn = journeys.Session.turn
+
+    def unstage(session, text, **kwargs):
+        answer, result = original_turn(session, text, **kwargs)
+        if text.startswith("/commit "):
+            journeys._git(session.repo, "reset", "-q", "--", "NOTES.md")
+        return answer, result
+
+    monkeypatch.setattr(journeys.Session, "turn", unstage)
+    _skip_redundant_fixture_probe(monkeypatch)
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J21-exact-commit"]) == 1
+    assert "changed the unrelated staged entry" in _report(out)["J21-exact-commit"]["reason"]
