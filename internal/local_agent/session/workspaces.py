@@ -38,9 +38,19 @@ from uuid import UUID, uuid4
 
 import psutil
 
+from ..tools.process_runner import (
+    CommandOutputLimitError,
+    CommandSpawnError,
+    OwnedLifecycle,
+    run_owned,
+)
 from ..tools.tool_primitives import SandboxError, resolve_in_repo
 
 _GIT_TIMEOUT_S = 300
+# Every workspace git process runs as an owned process tree (``run_owned``): a timeout
+# ends the whole tree, including a commit signer's descendants, and output past this
+# size is refused rather than truncated or held in memory without bound.
+_GIT_OUTPUT_LIMIT = 256 * 1024 * 1024
 # Untracked files above this size stay out of the candidate base and are reported. The
 # base commit's objects are written to the user's object store; a stray dataset or
 # binary must not bloat it.
@@ -201,6 +211,10 @@ def _split_z(raw: bytes) -> tuple[str, ...]:
     return tuple(item.decode("utf-8", "surrogateescape") for item in raw.split(b"\0") if item)
 
 
+def _confirmation(*, confirmed: bool | None) -> str:
+    return {True: "yes", False: "no", None: "not needed"}[confirmed]
+
+
 class GitWorkspaceManager:
     """Create, inspect, import from and remove per-task candidate worktrees."""
 
@@ -244,17 +258,25 @@ class GitWorkspaceManager:
             *args,
         ]
         try:
-            done = subprocess.run(
-                argv,
-                cwd=str(cwd),
-                env=env,
-                input=stdin,
-                capture_output=True,
-                timeout=_GIT_TIMEOUT_S,
-                check=False,
+            run = run_owned(
+                argv, cwd, OwnedLifecycle(_GIT_TIMEOUT_S, output_limit=_GIT_OUTPUT_LIMIT),
+                env=env, stdin=stdin,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except (CommandSpawnError, CommandOutputLimitError) as exc:
             raise WorkspaceError(f"git {args[0]} could not run: {exc}") from exc
+        if run.timed_out:
+            cleanup = _confirmation(confirmed=run.cleanup_confirmed)
+            raise WorkspaceError(
+                f"git {args[0]} did not finish within {_GIT_TIMEOUT_S} s and was ended "
+                f"(process-tree cleanup confirmed: {cleanup})"
+            )
+        if run.strays_unconfirmed:
+            # git exited, but something it started is still inside the job and could
+            # not be confirmed ended. Its effects are unowned, so the step is not done.
+            raise WorkspaceError(
+                f"git {args[0]} exited but left a process running that could not be ended"
+            )
+        done = subprocess.CompletedProcess(argv, run.exit_code, run.stdout, run.stderr)
         if check and done.returncode != 0:
             message = done.stderr.decode("utf-8", "replace").strip()
             raise WorkspaceError(f"git {args[0]} failed ({done.returncode}): {message}")
