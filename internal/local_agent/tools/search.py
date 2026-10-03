@@ -90,6 +90,21 @@ def _run_git_grep(args: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
     return proc.returncode, proc.stdout
 
 
+def _git_grep_pathspecs(root: Path, base: Path, glob: str | None) -> list[str]:
+    """Translate the rg search scope to git pathspecs without widening it."""
+    base_path = relpath(root, base)
+    include = (
+        (glob or ".")
+        if base_path == "."
+        else f"{base_path}/{glob}" if glob else base_path
+    )
+    pathspecs = [include]
+    for excluded in _EXCLUDES:
+        pattern = excluded.removeprefix("!").removesuffix("/")
+        pathspecs.append(f":(top,exclude,glob){pattern}/**")
+    return pathspecs
+
+
 def _parse_matches(stdout: str, limit: int) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     for raw in stdout.splitlines():
@@ -168,9 +183,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             args = ["-n", "-I", "-E", "--untracked"]
             if not case_sensitive:
                 args.append("-i")
-            args += [pattern]
-            if glob:
-                args += ["--", glob]
+            args += [pattern, "--", *_git_grep_pathspecs(ctx.root, base, glob)]
             code, stdout = _run_git_grep(args, ctx.root, timeout=60)
 
         # rg/git grep both return 1 for "no matches", which is not an error.
