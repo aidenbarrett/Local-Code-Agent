@@ -178,6 +178,14 @@ def compose_session_graph(
     # Worktrees left by a controller that died mid-task, with nothing
     # retained to apply. Live owners (including another Hub) are untouched.
     workspaces.reap_orphans()
+    if workspaces.unreconciled_leases:
+        # Bounded: the count and where to look, never a deletion on a guess.
+        print(
+            f"Note: {len(workspaces.unreconciled_leases)} candidate workspace(s) under "
+            f"{workspaces.workspaces_root} could not be checked for a live owner and were "
+            "kept. Remove them by hand once no Session Hub is using them.",
+            file=sys.stderr,
+        )
     controller = TaskController(
         repo, worker_factory, events,
         allow_execution=allow_execution,
