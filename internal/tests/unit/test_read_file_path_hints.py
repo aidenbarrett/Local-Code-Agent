@@ -60,9 +60,11 @@ def test_qualified_definition_excludes_duplicate_short_names(loaded):
         encoding="utf-8",
     )
 
-    qualified = registry.get("find_definition").handler(symbol="RingBuffer::full")
-    fully_qualified = registry.get("find_definition").handler(symbol="sandbox::RingBuffer::full")
-    short = registry.get("find_definition").handler(symbol="full")
+    qualified = registry.get("find_definition").handler(symbol="RingBuffer::full", limit=200)
+    fully_qualified = registry.get("find_definition").handler(symbol="sandbox::RingBuffer::full", limit=200)
+    # The fixture holds scenario copies of the source; ask for enough sites that the
+    # default limit (20) cannot truncate away the planted duplicates.
+    short = registry.get("find_definition").handler(symbol="full", limit=200)
 
     # Search order differs between ripgrep and the Python fallback; the fixture also
     # carries scenario copies of the source. Membership, not position, is the fact.
