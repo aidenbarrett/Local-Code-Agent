@@ -8,6 +8,7 @@ changes when this agent moves from a synthetic sandbox to a real work tree.
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 from .tool_primitives import (
     BlockedError,
@@ -23,6 +24,31 @@ from .tool_primitives import (
 from .tool_context import ToolContext
 from .testing_tools import configured_profile, set_configured_profile, touch_build_stamp
 from .logs import parse_build_log
+
+_BUILD_OWNER = ".local-agent-owned-build-dir"
+
+
+def _claim_or_require_build_root(ctx: ToolContext) -> Path:
+    """Return an LCA-owned build root, refusing pre-existing user directories."""
+    ctx.refuse_if_cancelled()
+    build_root = ctx.repo.build_path
+    root = ctx.root.resolve()
+    resolved = build_root.resolve()
+    if root not in resolved.parents:
+        raise ToolError("configured build directory is outside the repository")
+    marker = resolved / _BUILD_OWNER
+    if resolved.exists():
+        if not resolved.is_dir() or not marker.is_file() or marker.is_symlink():
+            raise ToolError(
+                f"the build directory {ctx.repo.build_dir!r} already exists and was not "
+                f"created by Local Code Agent (no {_BUILD_OWNER} marker), so it is neither "
+                "deleted nor written. Set repo.build_dir in .local-agent.toml to a "
+                "directory Local Code Agent may own, or remove this one yourself."
+            )
+    else:
+        resolved.mkdir(parents=True)
+        marker.write_text("Local Code Agent owned build directory\n", encoding="utf-8")
+    return resolved
 
 
 def _profile_names(ctx: ToolContext) -> list[str]:
@@ -53,6 +79,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         if not prof.configure:
             raise ToolError(f"profile {prof.name!r} defines no configure step")
 
+        _claim_or_require_build_root(ctx)
         outcome = ctx.run_configured(prof.configure, prof.env)
         if outcome.ok:
             set_configured_profile(ctx.root, ctx.repo.build_dir, prof.name)
@@ -110,9 +137,12 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         # so start it from an empty build tree. The successful build stamp is
         # written only after this clean configure+build completes.
         if target is None:
-            build_root = ctx.root / ctx.repo.build_dir
-            if build_root.exists():
-                shutil.rmtree(build_root)
+            build_root = _claim_or_require_build_root(ctx)
+            shutil.rmtree(build_root)
+            build_root.mkdir()
+            (build_root / _BUILD_OWNER).write_text(
+                "Local Code Agent owned build directory\n", encoding="utf-8",
+            )
 
         # Configure on demand rather than making the model remember to, and
         # also when the tree is configured for a DIFFERENT profile. Both

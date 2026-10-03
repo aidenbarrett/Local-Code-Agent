@@ -452,8 +452,7 @@
     "T201": 25
    },
    "internal/local_agent/config.py": {
-    "UP037": 1,
-    "W292": 1
+    "UP037": 1
    },
    "internal/local_agent/llm/__init__.py": {
     "RUF022": 1
@@ -723,9 +722,6 @@
    "internal/local_agent/tools/__init__.py": {
     "RUF022": 1
    },
-   "internal/local_agent/tools/build.py": {
-    "PLR0912": 1
-   },
    "internal/local_agent/tools/files.py": {
     "E501": 4,
     "FBT001": 1,
@@ -820,5 +816,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 791
+ "total": 789
 }
