@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `3581c7232a78b1a0defe14ea8f383c4ab6ad0b69`
+Reconciled against GitHub `main` at `b36797b90a1e8ba17d277ffdac8338880410c0a4`
 on 2026-10-03 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -115,7 +115,14 @@ conflict, and writes nothing (#382). With `allow_test = false`, `run the tests` 
 returns PASS from its prerequisite build: a configured check with a policy-refused step is
 BLOCKED / `policy_denied`. J19 proves a one-test filter reports 1, and zero-match and
 stale-binary runs are non-PASS and say nothing was verified; J19b proves the policy case
-(#383). Live
+(#383). A task that prepared a verified candidate says its proof is about the isolated candidate
+tree and that the checkout was not changed, ahead of any worker prose claiming otherwise (#385).
+`find_definition` accepts qualified C++ names without falling back to the bare name, and
+`read_file` resolves a unique include-relative header, naming the file it actually read; when
+ripgrep is absent, `search_text` now also searches untracked files instead of only what git
+tracks (#386). The remaining session boundary checks use the shared validators, which now also
+refuse a bare string as an id list and a non-finite timeout; static findings 812 to 791 (#387).
+Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
