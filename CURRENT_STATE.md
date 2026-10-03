@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `b36797b90a1e8ba17d277ffdac8338880410c0a4`
+Reconciled against GitHub `main` at `28f040fc8d57202773427b28836d3007d52529b7`
 on 2026-10-03 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -122,6 +122,12 @@ tree and that the checkout was not changed, ahead of any worker prose claiming o
 ripgrep is absent, `search_text` now also searches untracked files instead of only what git
 tracks (#386). The remaining session boundary checks use the shared validators, which now also
 refuse a bare string as an id list and a non-finite timeout; static findings 812 to 791 (#387).
+Path containment treats either separator as a separator, so `..\x` is traversal on POSIX too;
+absolute paths are judged by containment (in-repo ones, as compilers print them, still work),
+drive paths that cannot be inside are refused, and candidate import checks every declared path
+before reading or applying anything (#389). J21 proves `/commit` of an applied candidate
+commits exactly its paths, keeps an unrelated staged entry, runs no hook and pushes nothing;
+J21b proves `allow_commit = false` is BLOCKED / `policy_denied` (#390).
 Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
