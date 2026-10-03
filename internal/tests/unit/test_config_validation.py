@@ -1,6 +1,7 @@
 """Repository configuration is validated before it grants authority (#399)."""
 
 from pathlib import Path
+import re
 
 import pytest
 
@@ -109,3 +110,28 @@ def test_valid_typed_configuration_is_preserved(tmp_path: Path) -> None:
     assert config.policy.allow_build is False
     assert config.policy.allow_patch is True
     assert config.policy.max_tool_calls == 2
+
+
+@pytest.mark.parametrize(
+    ("body", "key", "place"),
+    [
+        (BASE + "[policy]\nallow_bulid = false\n", "allow_bulid", "[policy]"),
+        (BASE + '[repo]\nbuild_directory = "out"\n', "build_directory", "[repo]"),
+        ('[profiles.debug]\nbuild = ["true"]\ntests = ["ctest"]\n', "tests", "[profiles.debug]"),
+        (BASE + "[polcy]\nallow_patch = true\n", "polcy", "the top level"),
+    ],
+)
+def test_an_unknown_key_is_refused_not_ignored(tmp_path: Path, body: str, key: str, place: str) -> None:
+    """A misspelt key used to leave its default in force: `allow_bulid = false` kept
+    building allowed without a word (#399 relay review)."""
+    root = tmp_path / "repo"
+    _write(root, body)
+
+    with pytest.raises(ConfigError, match=re.escape(f"unknown key(s) {key} in {place}")):
+        load_repo_config(root)
+
+
+def test_every_key_the_shipped_configs_use_is_known(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[3]
+    for config in (repo, repo / "internal" / "benchmark_fixture" / "cpp_project"):
+        load_repo_config(config)

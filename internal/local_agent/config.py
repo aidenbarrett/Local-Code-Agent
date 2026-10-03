@@ -489,6 +489,29 @@ def _as_mapping(value: object, where: str) -> dict[str, object]:
     return value
 
 
+# Every key the repository configuration may contain. Anything else is refused: a
+# misspelt key (``allow_bulid = false``) would otherwise leave its default in force
+# without a word, which is an unknown silently converted into a permission.
+_KNOWN_KEYS: dict[str, frozenset[str]] = {
+    "": frozenset({"repo", "profiles", "policy"}),
+    "repo": frozenset({"name", "build_dir", "run_dir", "default_profile", "skills_dir"}),
+    "profile": frozenset({"configure", "build", "test", "env"}),
+    "policy": frozenset({
+        "allow_build", "allow_test", "allow_patch", "allow_commit",
+        "command_timeout_seconds", "max_tool_calls", "max_repeat_calls",
+        "max_tool_result_bytes", "max_read_bytes",
+    }),
+}
+
+
+def _refuse_unknown_keys(table: dict[str, object], kind: str, where: str) -> None:
+    unknown = sorted(set(table) - _KNOWN_KEYS[kind])
+    if unknown:
+        known = ", ".join(sorted(_KNOWN_KEYS[kind]))
+        place = f"[{where}]" if where else "the top level"
+        raise ConfigError(f"unknown key(s) {', '.join(unknown)} in {place}; known: {known}")
+
+
 def _as_nonempty_string(value: object, where: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{where} must be a non-empty string")
@@ -528,7 +551,9 @@ def load_repo_config(root: Path) -> RepoConfig:
     with path.open("rb") as fh:
         raw = tomllib.load(fh)
 
+    _refuse_unknown_keys(raw, "", "")
     repo = _as_mapping(raw.get("repo", {}), "repo")
+    _refuse_unknown_keys(repo, "repo", "repo")
     profiles_raw = _as_mapping(raw.get("profiles", {}), "profiles")
     if not profiles_raw:
         raise ConfigError(f"{path} defines no [profiles.*] section")
@@ -537,6 +562,7 @@ def load_repo_config(root: Path) -> RepoConfig:
     for name, body in profiles_raw.items():
         _as_nonempty_string(name, "profiles profile name")
         profile = _as_mapping(body, f"profiles.{name}")
+        _refuse_unknown_keys(profile, "profile", f"profiles.{name}")
         profiles[name] = BuildProfile(
             name=name,
             configure=_as_cmd(profile.get("configure"), f"profiles.{name}.configure"),
@@ -556,6 +582,7 @@ def load_repo_config(root: Path) -> RepoConfig:
             f"configured: {sorted(profiles)}"
         )
     pol = _as_mapping(raw.get("policy", {}), "policy")
+    _refuse_unknown_keys(pol, "policy", "policy")
 
     return RepoConfig(
         root=root,
