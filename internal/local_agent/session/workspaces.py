@@ -28,6 +28,7 @@ import base64
 import contextlib
 import hashlib
 import json
+import re
 import os
 import shutil
 import stat
@@ -192,6 +193,9 @@ def _parse_git_version(text: str) -> tuple[int, int] | None:
         return None
 
 
+_OWNER_TOKEN = re.compile(r"[0-9]+:[0-9]+\.[0-9]{6}")
+
+
 def _failed_commit_reason(
     done: subprocess.CompletedProcess[bytes], index_left: tuple[str, ...],
 ) -> str:
@@ -234,6 +238,8 @@ class GitWorkspaceManager:
         self.controller_commit = controller_commit
         self._empty_hooks = self.workspaces_root / ".no-hooks"
         self._empty_hooks.mkdir(exist_ok=True)
+        # Leases the last reap_orphans() could not decide about; never deleted.
+        self.unreconciled_leases: tuple[str, ...] = ()
 
     # -- git ----------------------------------------------------------------
 
@@ -411,8 +417,29 @@ class GitWorkspaceManager:
         """PID plus process start time: a reused PID is a different owner."""
         try:
             return f"{pid}:{psutil.Process(pid).create_time():.6f}"
-        except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
+        except (psutil.Error, OSError):
+            # Unreadable for any reason: the lease records an unknown owner, which
+            # the reaper keeps (#397), rather than failing the workspace or guessing.
             return None
+
+    @staticmethod
+    def _owner_state(owner: object) -> str:
+        """``live``, ``gone`` (exited, or its PID now belongs to another process) or
+        ``unknown``. Only ``gone`` is evidence that a workspace has no owner (#397):
+        an unreadable process, a malformed or missing token is not."""
+        # Only the exact form _owner_token writes ("<pid>:<seconds with 6 decimals>")
+        # is evidence; anything else, including nan, inf or a differently rounded
+        # time, cannot prove a mismatch and so cannot authorise deletion.
+        if not isinstance(owner, str) or _OWNER_TOKEN.fullmatch(owner) is None:
+            return "unknown"
+        pid_text = owner.split(":", 1)[0]
+        try:
+            created = psutil.Process(int(pid_text)).create_time()
+        except psutil.NoSuchProcess:  # includes ZombieProcess: the owner has exited
+            return "gone"
+        except (psutil.Error, OSError, ValueError, OverflowError):
+            return "unknown"
+        return "live" if owner == f"{pid_text}:{created:.6f}" else "gone"
 
     def reap_orphans(self) -> tuple[str, ...]:
         """Remove worktrees whose owning controller process is gone and left nothing to apply.
@@ -420,9 +447,12 @@ class GitWorkspaceManager:
         A lease is reaped only when its recorded owner process is provably not the same
         live process (by PID and start time) and no retained candidate exists for its
         task. Leases held by a live process, including another Session Hub, are never
-        touched. Unreadable leases are left for a human rather than guessed at.
+        touched. Unreadable leases, and owners whose state cannot be observed, are left
+        for a human rather than guessed at; their task ids are kept in
+        ``unreconciled_leases`` so the caller can say so.
         """
         reaped: list[str] = []
+        unknown: list[str] = []
         for lease in sorted(self.workspaces_root.glob("*.lease")):
             task_id = lease.name[: -len(".lease")]
             try:
@@ -432,10 +462,14 @@ class GitWorkspaceManager:
                 root = Path(record["root"])
                 repository_root = Path(record["repository_root"])
             except (ValueError, KeyError, TypeError, OSError):
+                unknown.append(task_id)
                 continue
             if self._record_path(task_id).exists():
                 continue
-            if isinstance(owner, str) and owner == self._owner_token(int(owner.split(":", 1)[0])):
+            state = self._owner_state(owner)
+            if state != "gone":
+                if state == "unknown":
+                    unknown.append(task_id)
                 continue
             if repository_root.is_dir():
                 self._git(repository_root, "worktree", "remove", "--force", str(root), check=False)
@@ -445,6 +479,7 @@ class GitWorkspaceManager:
             if not root.exists():
                 lease.unlink(missing_ok=True)
                 reaped.append(task_id)
+        self.unreconciled_leases = tuple(unknown)
         return tuple(reaped)
 
     def create(
