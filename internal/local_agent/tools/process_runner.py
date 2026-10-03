@@ -167,15 +167,6 @@ def _bounded_reap(proc: subprocess.Popen[bytes]) -> None:
         proc.wait(timeout=_POST_KILL_FORCE_WAIT_S)
 
 
-def _snapshot_capture(capture: IO[bytes]) -> str:
-    """Read a fixed-length snapshot without moving an inherited file offset."""
-    size = os.fstat(capture.fileno()).st_size
-    if size == 0:
-        return ""
-    with mmap.mmap(capture.fileno(), length=size, access=mmap.ACCESS_READ) as view:
-        return view[:].decode("utf-8", errors="replace")
-
-
 def _probe_requested(probe: CancellationProbe | None) -> bool:
     if probe is None:
         return False
@@ -183,6 +174,233 @@ def _probe_requested(probe: CancellationProbe | None) -> bool:
     if not isinstance(requested, bool):
         raise TypeError("cancellation probe requested state must be boolean")
     return requested
+
+
+class CommandSpawnError(RuntimeError):
+    """The command could not be started; nothing ran."""
+
+    def __init__(self, message: str, *, missing_executable: bool) -> None:
+        super().__init__(message)
+        self.missing_executable = missing_executable
+
+
+class CommandOutputLimitError(RuntimeError):
+    """The command wrote more than the caller agreed to read; its output is not evidence."""
+
+
+@dataclass(frozen=True)
+class OwnedRun:
+    """One owned process tree's result, with its output in memory."""
+
+    exit_code: int
+    stdout: bytes
+    stderr: bytes
+    elapsed_s: float
+    timed_out: bool
+    cancel_requested: bool
+    # Same meaning as RunOutcome.process_cleanup_confirmed.
+    cleanup_confirmed: bool | None
+    containment: str
+    stray_descendants_at_exit: int | None
+    # Descendants outlived a normally exiting command and their end was not confirmed.
+    strays_unconfirmed: bool
+
+
+def _snapshot_bytes(capture: IO[bytes], limit: int | None) -> bytes:
+    """Read a fixed-length snapshot without moving an inherited file offset."""
+    size = os.fstat(capture.fileno()).st_size
+    if limit is not None and size > limit:
+        raise CommandOutputLimitError(f"command wrote {size} bytes, over the {limit}-byte limit")
+    if size == 0:
+        return b""
+    with mmap.mmap(capture.fileno(), length=size, access=mmap.ACCESS_READ) as view:
+        return view[:]
+
+
+@dataclass
+class _Tree:
+    """Mutable lifecycle state of one owned run."""
+
+    job: windows_job.ProcessTreeJob | None
+    containment: str
+    timed_out: bool = False
+    cancel_requested: bool = False
+    cleanup_confirmed: bool | None = None
+    stray_descendants: int | None = None
+    strays_unconfirmed: bool = False
+
+
+def _open_tree() -> _Tree:
+    job: windows_job.ProcessTreeJob | None = None
+    if windows_job.supported():
+        try:
+            job = windows_job.ProcessTreeJob()
+        except windows_job.JobContainmentError:
+            job = None
+    containment = (
+        "job_object" if job is not None
+        else ("visible_tree" if os.name == "nt" else "process_group")
+    )
+    return _Tree(job, containment)
+
+
+def _start(spawn: Callable[[bool], subprocess.Popen[bytes]], tree: _Tree,
+           on_spawn: Callable[[], None] | None) -> subprocess.Popen[bytes]:
+    proc = spawn(tree.job is not None)
+    if on_spawn is not None:
+        # From here a process has existed, so cleanup is a real question.
+        on_spawn()
+    if tree.job is not None:
+        try:
+            tree.job.adopt_suspended(proc.pid)
+        except windows_job.JobContainmentError:
+            # adopt_suspended already terminated the suspended child, which never
+            # executed an instruction, so running the command again is not a
+            # replayed effect. Without a job, cleanup can no longer be proven.
+            _bounded_reap(proc)
+            tree.job.close()
+            tree.job = None
+            tree.containment = "visible_tree"
+            proc = spawn(False)
+    return proc
+
+
+def _wait(proc: subprocess.Popen[bytes], tree: _Tree, deadline: float,
+          probe: CancellationProbe | None) -> int:
+    while True:
+        try:
+            if _probe_requested(probe):
+                tree.cancel_requested = True
+                tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
+                _bounded_reap(proc)
+                return 130
+        except BaseException:
+            # A broken cancellation source must not strand a child process.
+            _kill_process_tree_best_effort(proc, tree.job)
+            _bounded_reap(proc)
+            raise
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            tree.timed_out = True
+            tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
+            _bounded_reap(proc)
+            return 124
+        try:
+            return int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _end_strays(tree: _Tree) -> None:
+    """End descendants a normally exiting command abandoned inside its job."""
+    if tree.job is None or tree.timed_out or tree.cancel_requested:
+        return
+    # The direct child is gone. Anything left in the job is a descendant it
+    # abandoned; it may still hold the captures open, so end it now rather
+    # than let it outlive the result.
+    try:
+        tree.stray_descendants = tree.job.active_processes()
+    except windows_job.JobContainmentError:
+        tree.stray_descendants = None
+    if tree.stray_descendants != 0:
+        # Confirmed only by the job's own accounting reaching zero. On a
+        # loaded machine that can take longer than a kill after a timeout
+        # is allowed, and the result used to be ignored: the run then
+        # reported job containment with the descendant still running.
+        tree.cleanup_confirmed = tree.job.terminate_and_confirm(_STRAY_DRAIN_S)
+        tree.strays_unconfirmed = not tree.cleanup_confirmed
+
+
+@dataclass(frozen=True)
+class OwnedLifecycle:
+    """How long an owned run may last, who may stop it and how much output is read."""
+
+    timeout_s: float
+    cancellation_probe: CancellationProbe | None = None
+    on_spawn: Callable[[], None] | None = None
+    output_limit: int | None = None
+
+
+def run_owned(
+    command: list[str],
+    cwd: Path,
+    lifecycle: OwnedLifecycle,
+    *,
+    env: dict[str, str],
+    stdin: bytes | None = None,
+) -> OwnedRun:
+    """Run one command as an owned process tree and return its output in memory.
+
+    This is the one owner of spawn, containment, timeout, cancellation, reap and stray
+    accounting; ``run_command`` adds the public run-directory evidence on top of it.
+    ``lifecycle`` bounds it; ``env`` is the complete environment. ``stdin`` is given to
+    the child as a file, so feeding it can never block past the deadline; ``None``
+    inherits the caller's stdin. Output beyond ``output_limit`` bytes raises
+    ``CommandOutputLimitError`` rather than being truncated.
+    """
+    if not command:
+        raise ValueError("empty command")
+    if lifecycle.timeout_s <= 0:
+        raise ValueError("command timeout must be positive")
+    if _probe_requested(lifecycle.cancellation_probe):
+        raise CommandCancellationRequested("command cancellation was requested before spawn")
+    exe = shutil.which(command[0])
+    if exe is None:
+        raise CommandSpawnError(f"{command[0]!r} is not on PATH", missing_executable=True)
+
+    started = time.monotonic()
+    tree = _open_tree()
+    try:
+        # These captures never live inside a public run directory. If an escaped
+        # descendant retains its inherited descriptor, it can only keep writing to the
+        # private temporary object; the result is a bounded snapshot of fixed length.
+        with (
+            tempfile.TemporaryFile(mode="w+b") as stdout_capture,
+            tempfile.TemporaryFile(mode="w+b") as stderr_capture,
+            tempfile.TemporaryFile(mode="w+b") as stdin_file,
+        ):
+            if stdin is not None:
+                stdin_file.write(stdin)
+                stdin_file.seek(0)
+
+            def spawn(suspended: bool) -> subprocess.Popen[bytes]:
+                return subprocess.Popen(
+                    [exe, *command[1:]],
+                    cwd=str(cwd),
+                    env=env,
+                    stdin=(stdin_file if stdin is not None else None),
+                    stdout=stdout_capture,
+                    stderr=stderr_capture,
+                    start_new_session=(os.name != "nt"),
+                    creationflags=(windows_job.CREATE_SUSPENDED if suspended else 0),
+                )
+
+            proc = _start(spawn, tree, lifecycle.on_spawn)
+            code = _wait(proc, tree, started + lifecycle.timeout_s, lifecycle.cancellation_probe)
+            _end_strays(tree)
+            stdout = _snapshot_bytes(stdout_capture, lifecycle.output_limit)
+            stderr = _snapshot_bytes(stderr_capture, lifecycle.output_limit)
+    except OSError as exc:
+        raise CommandSpawnError(
+            f"could not start {exe!r}: {exc.strerror or exc}", missing_executable=False
+        ) from exc
+    finally:
+        if tree.job is not None:
+            tree.job.close()
+
+    return OwnedRun(
+        exit_code=code,
+        stdout=stdout,
+        stderr=stderr,
+        elapsed_s=time.monotonic() - started,
+        timed_out=tree.timed_out,
+        cancel_requested=tree.cancel_requested,
+        cleanup_confirmed=tree.cleanup_confirmed,
+        containment=tree.containment,
+        stray_descendants_at_exit=tree.stray_descendants,
+        strays_unconfirmed=tree.strays_unconfirmed,
+    )
 
 
 def run_command(
@@ -204,8 +422,7 @@ def run_command(
 
     from .tool_primitives import BlockedError, Reason
 
-    exe = shutil.which(command[0])
-    if exe is None:
+    if shutil.which(command[0]) is None:
         raise BlockedError(
             f"{command[0]!r} is not on PATH. Fix the build profile, do not ask "
             "the model to improvise.",
@@ -223,154 +440,69 @@ def run_command(
     env.setdefault("NO_COLOR", "1")
     env.setdefault("GIT_PAGER", "cat")
 
-    started = time.monotonic()
-    deadline = started + timeout_s
-    timed_out = False
-    cancel_requested = False
-    cleanup_confirmed: bool | None = None
-    stray_descendants: int | None = None
-    stray_note = ""
-    job: windows_job.ProcessTreeJob | None = None
-    if windows_job.supported():
-        try:
-            job = windows_job.ProcessTreeJob()
-        except windows_job.JobContainmentError:
-            job = None
-    containment = (
-        "job_object" if job is not None
-        else ("visible_tree" if os.name == "nt" else "process_group")
-    )
     try:
-        # These captures never live inside the public run directory. If an
-        # escaped descendant retains its inherited descriptor, it can only keep
-        # writing to the private temporary object; the public evidence below is
-        # a bounded snapshot of a fixed byte length.
-        with (
-            tempfile.TemporaryFile(mode="w+b") as stdout_capture,
-            tempfile.TemporaryFile(mode="w+b") as stderr_capture,
-        ):
-            def spawn(suspended: bool) -> subprocess.Popen[bytes]:
-                return subprocess.Popen(
-                    [exe, *command[1:]],
-                    cwd=str(cwd),
-                    env=env,
-                    stdout=stdout_capture,
-                    stderr=stderr_capture,
-                    start_new_session=(os.name != "nt"),
-                    creationflags=(windows_job.CREATE_SUSPENDED if suspended else 0),
-                )
-
-            proc = spawn(job is not None)
-            if on_spawn is not None:
-                # From here a process has existed, so cleanup is a real question.
-                on_spawn()
-            if job is not None:
-                try:
-                    job.adopt_suspended(proc.pid)
-                except windows_job.JobContainmentError:
-                    # adopt_suspended already terminated the suspended child, which never
-                    # executed an instruction, so running the command again is not a
-                    # replayed effect. Without a job, cleanup can no longer be proven.
-                    _bounded_reap(proc)
-                    job.close()
-                    job = None
-                    containment = "visible_tree"
-                    proc = spawn(False)
-            code: int | None = None
-            while code is None:
-                try:
-                    if _probe_requested(cancellation_probe):
-                        cancel_requested = True
-                        cleanup_confirmed = _kill_process_tree_best_effort(proc, job)
-                        _bounded_reap(proc)
-                        code = 130
-                        break
-                except BaseException:
-                    # A broken cancellation source must not strand a child process.
-                    _kill_process_tree_best_effort(proc, job)
-                    _bounded_reap(proc)
-                    raise
-
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    timed_out = True
-                    cleanup_confirmed = _kill_process_tree_best_effort(proc, job)
-                    _bounded_reap(proc)
-                    code = 124
-                    break
-                try:
-                    code = int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
-                except subprocess.TimeoutExpired:
-                    continue
-
-            if job is not None and not timed_out and not cancel_requested:
-                # The direct child is gone. Anything left in the job is a descendant it
-                # abandoned; it may still hold the captures open, so end it now rather
-                # than let it outlive the result.
-                try:
-                    stray_descendants = job.active_processes()
-                except windows_job.JobContainmentError:
-                    stray_descendants = None
-                if stray_descendants != 0:
-                    # Confirmed only by the job's own accounting reaching zero. On a
-                    # loaded machine that can take longer than a kill after a timeout
-                    # is allowed, and the result used to be ignored: the run then
-                    # reported job containment with the descendant still running.
-                    cleanup_confirmed = job.terminate_and_confirm(_STRAY_DRAIN_S)
-                    if not cleanup_confirmed:
-                        stray_note = (
-                            "\n[local-agent] the command exited but left descendant "
-                            f"process(es) in its job; termination was not confirmed "
-                            f"within {_STRAY_DRAIN_S:.0f}s\n"
-                        )
-
-            stdout = _snapshot_capture(stdout_capture)
-            stderr = _snapshot_capture(stderr_capture)
-    except OSError as exc:
-        raise BlockedError(
-            f"could not start {exe!r}: {exc.strerror or exc}", Reason.SPAWN_FAILURE
-        ) from exc
-    finally:
-        if job is not None:
-            job.close()
-
-    stderr += stray_note
-    if timed_out:
-        stderr += (
-            f"\n[local-agent] command exceeded {timeout_s}s; "
-            f"process-tree cleanup confirmed={str(cleanup_confirmed).lower()}\n"
+        run = run_owned(
+            command, cwd,
+            OwnedLifecycle(timeout_s, cancellation_probe=cancellation_probe, on_spawn=on_spawn),
+            env=env,
         )
-    if cancel_requested:
-        stderr += (
-            "\n[local-agent] command cancellation requested; "
-            f"process-tree cleanup confirmed={str(cleanup_confirmed).lower()}\n"
-        )
+    except CommandSpawnError as exc:
+        reason = Reason.MISSING_EXECUTABLE if exc.missing_executable else Reason.SPAWN_FAILURE
+        raise BlockedError(str(exc), reason) from exc
 
-    elapsed = time.monotonic() - started
-
-    stdout_path.write_text(stdout, encoding="utf-8")
-    stderr_path.write_text(stderr, encoding="utf-8")
-    combined_path.write_text(stdout + stderr, encoding="utf-8")
-    (run_dir / "command.txt").write_text(
-        " ".join(command)
-        + f"\nexit={code} elapsed={elapsed:.2f}s timed_out={str(timed_out).lower()} "
-        + f"cancel_requested={str(cancel_requested).lower()} "
-        + f"cleanup_confirmed={cleanup_confirmed} containment={containment} "
-        + f"stray_descendants_at_exit={stray_descendants}\n",
-        encoding="utf-8",
-    )
+    stdout = run.stdout.decode("utf-8", errors="replace")
+    stderr = run.stderr.decode("utf-8", errors="replace")
+    stderr += _lifecycle_note(run, timeout_s)
+    _write_run_evidence(run_dir, command, run, stdout, stderr)
 
     return RunOutcome(
         command=command,
-        exit_code=code,
-        elapsed_s=elapsed,
-        timed_out=timed_out,
+        exit_code=run.exit_code,
+        elapsed_s=run.elapsed_s,
+        timed_out=run.timed_out,
         run_id=run_id,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
         combined_path=combined_path,
-        process_cleanup_confirmed=cleanup_confirmed,
-        cancel_requested=cancel_requested,
-        containment=containment,
-        stray_descendants_at_exit=stray_descendants,
+        process_cleanup_confirmed=run.cleanup_confirmed,
+        cancel_requested=run.cancel_requested,
+        containment=run.containment,
+        stray_descendants_at_exit=run.stray_descendants_at_exit,
+    )
+
+
+def _lifecycle_note(run: OwnedRun, timeout_s: float) -> str:
+    note = ""
+    if run.strays_unconfirmed:
+        note += (
+            "\n[local-agent] the command exited but left descendant "
+            f"process(es) in its job; termination was not confirmed "
+            f"within {_STRAY_DRAIN_S:.0f}s\n"
+        )
+    if run.timed_out:
+        note += (
+            f"\n[local-agent] command exceeded {timeout_s}s; "
+            f"process-tree cleanup confirmed={str(run.cleanup_confirmed).lower()}\n"
+        )
+    if run.cancel_requested:
+        note += (
+            "\n[local-agent] command cancellation requested; "
+            f"process-tree cleanup confirmed={str(run.cleanup_confirmed).lower()}\n"
+        )
+    return note
+
+
+def _write_run_evidence(run_dir: Path, command: list[str], run: OwnedRun,
+                        stdout: str, stderr: str) -> None:
+    (run_dir / "stdout.log").write_text(stdout, encoding="utf-8")
+    (run_dir / "stderr.log").write_text(stderr, encoding="utf-8")
+    (run_dir / "combined.log").write_text(stdout + stderr, encoding="utf-8")
+    (run_dir / "command.txt").write_text(
+        " ".join(command)
+        + f"\nexit={run.exit_code} elapsed={run.elapsed_s:.2f}s "
+        + f"timed_out={str(run.timed_out).lower()} "
+        + f"cancel_requested={str(run.cancel_requested).lower()} "
+        + f"cleanup_confirmed={run.cleanup_confirmed} containment={run.containment} "
+        + f"stray_descendants_at_exit={run.stray_descendants_at_exit}\n",
+        encoding="utf-8",
     )

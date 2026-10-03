@@ -716,8 +716,7 @@
    "internal/local_agent/session/workspaces.py": {
     "C416": 3,
     "PLR0911": 1,
-    "RUF022": 1,
-    "S603": 1
+    "RUF022": 1
    },
    "internal/local_agent/tools/__init__.py": {
     "RUF022": 1
@@ -747,9 +746,7 @@
    "internal/local_agent/tools/process_runner.py": {
     "FBT001": 1,
     "N818": 1,
-    "PLR0912": 1,
     "PLR0913": 1,
-    "PLR0915": 1,
     "S603": 1
    },
    "internal/local_agent/tools/search.py": {
@@ -816,5 +813,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 789
+ "total": 786
 }
