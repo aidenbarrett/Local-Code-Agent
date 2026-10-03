@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `28f040fc8d57202773427b28836d3007d52529b7`
+Reconciled against GitHub `main` at `b9839b5efb11fb04e410fb61f061f7fb42d6954d`
 on 2026-10-03 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -127,7 +127,13 @@ absolute paths are judged by containment (in-repo ones, as compilers print them,
 drive paths that cannot be inside are refused, and candidate import checks every declared path
 before reading or applying anything (#389). J21 proves `/commit` of an applied candidate
 commits exactly its paths, keeps an unrelated staged entry, runs no hook and pushes nothing;
-J21b proves `allow_commit = false` is BLOCKED / `policy_denied` (#390).
+J21b proves `allow_commit = false` is BLOCKED / `policy_denied` (#390). Without ripgrep,
+`search_text` honours the requested path and excludes build output at any depth (#405).
+Astra's 3 Oct adversarial review (#403) opened #392-#402; repairs so far: every controller
+Git path is literal (no pathspec magic), and a candidate commit's complete delta must equal
+the reviewed scope, so `note[1].txt` can no longer sweep `note1.txt` into a commit (#404,
+fixes #393); a refused `/commit` removes exactly the index entries it added and names any it
+had to leave (#406, fixes #395). The remaining #403 defects are open and tracked there.
 Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
