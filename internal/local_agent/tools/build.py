@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from ..build_arguments import is_valid_build_target
 from .tool_primitives import (
     BlockedError,
     DomainStatus,
@@ -111,6 +112,8 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 "profile": {"type": "string"},
                 "target": {
                     "type": "string",
+                    "minLength": 1,
+                    "pattern": r".*\S.*",
                     "description": "Optional single target; builds everything if omitted.",
                 },
             },
@@ -125,9 +128,13 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         if not prof.build:
             raise ToolError(f"profile {prof.name!r} defines no build step")
 
+        # Presence has one meaning all the way through this operation.  An
+        # empty value must not take the targeted-build execution path while
+        # later receiving an untargeted/full-build proof.
+        full_build = target is None
         command = list(prof.build)
-        if target:
-            if not target.replace("_", "").replace("-", "").replace(".", "").isalnum():
+        if not full_build:
+            if not is_valid_build_target(target):
                 raise ToolError("target name must be a plain identifier")
             command += ["--target", target]
 
@@ -136,7 +143,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         # were compiled. An untargeted build is the proof-producing operation,
         # so start it from an empty build tree. The successful build stamp is
         # written only after this clean configure+build completes.
-        if target is None:
+        if full_build:
             build_root = _claim_or_require_build_root(ctx)
             shutil.rmtree(build_root)
             build_root.mkdir()
@@ -175,7 +182,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         outcome = ctx.run_configured(command, prof.env)
         report = parse_build_log(outcome.combined_path.read_text(errors="replace"))
 
-        if outcome.ok and not outcome.timed_out and not target:
+        if outcome.ok and not outcome.timed_out and full_build:
             # Untargeted only. The stamp means "every source is represented by
             # a current binary", which a targeted build cannot support.
             #

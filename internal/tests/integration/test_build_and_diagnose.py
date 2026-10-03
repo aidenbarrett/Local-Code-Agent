@@ -6,6 +6,7 @@ here really compiles, really links and really runs ctest.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from local_agent.config import load_repo_config
 from local_agent.llm.client import ScriptedClient, tool_call
 from local_agent.llm.protocol import ChatResponse
 from local_agent.tools import build_registry
+from local_agent.tools.tool_primitives import Reason, ToolError
+from local_agent.tools.testing_tools import BUILD_STAMP
 
 REPO = Path(__file__).resolve().parent.parent.parent
 
@@ -51,6 +54,31 @@ def test_clean_build_and_test(loaded):
     # The failed-test list is the stable contract. Some CTest versions omit the
     # aggregate summary line on a completely clean run, leaving totals sparse.
     assert tests.data["failed"] == []
+
+
+def test_empty_target_cannot_stamp_equal_mtime_uncompilable_source(loaded):
+    """Regression for #394 using the fixture's real C++ compiler.
+
+    The old handler treated an empty target as targeted for cleanup, but full
+    for stamping.  Preserving the source mtime made the incremental compiler
+    skip invalid bytes and the stale binary was certified as a fresh full
+    build.  Rejection now happens before any configured process or stamp write.
+    """
+    sandbox, _, registry, _, _ = loaded
+    assert registry.get("build_target").handler().ok
+    stamp = sandbox.root / "build" / BUILD_STAMP
+    before_stamp = stamp.read_bytes()
+
+    source = sandbox.root / "src" / "text_util.cpp"
+    before_stat = source.stat()
+    source.write_text("this is not valid C++\n")
+    os.utime(source, ns=(before_stat.st_atime_ns, before_stat.st_mtime_ns))
+
+    with pytest.raises(ToolError) as caught:
+        registry.get("build_target").handler(target="")
+
+    assert caught.value.reason is Reason.BAD_ARGUMENTS
+    assert stamp.read_bytes() == before_stamp
 
 
 def test_compile_error_is_reduced_to_diagnostics(loaded):
