@@ -64,9 +64,11 @@ def test_qualified_definition_excludes_duplicate_short_names(loaded):
     fully_qualified = registry.get("find_definition").handler(symbol="sandbox::RingBuffer::full")
     short = registry.get("find_definition").handler(symbol="full")
 
-    assert (qualified.data["matches"][0]["file"], qualified.data["matches"][0]["line"]) == (
-        "src/ring_buffer.cpp", 29,
-    )
+    # Search order differs between ripgrep and the Python fallback; the fixture also
+    # carries scenario copies of the source. Membership, not position, is the fact.
+    sites = {(Path(m["file"]).as_posix(), m["line"]) for m in qualified.data["matches"]}
+    assert ("src/ring_buffer.cpp", 29) in sites
+    assert not any(Path(m["file"]).as_posix() == "src/other.cpp" for m in qualified.data["matches"])
     assert all("RingBuffer::full" in m["text"] for m in qualified.data["matches"])
     assert {
         (m["file"], m["line"], m["text"]) for m in fully_qualified.data["matches"]
