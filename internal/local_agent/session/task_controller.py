@@ -299,12 +299,6 @@ class TaskController:
             # The profile could not hold the task. Nothing about the code was decided,
             # so this is not a FAILED verdict, whatever the worker's own outcome was.
             return TaskOutcome.BLOCKED
-        if run.state.claim == "diagnosis" and any(item.blocked for item in run.state.history):
-            # A configured multi-step check may have proved its prerequisite
-            # (for example, a build) before policy blocked the requested step
-            # (the tests). The prerequisite proof must not turn that refusal
-            # into PASS; project the typed blocked tool result to the task.
-            return TaskOutcome.BLOCKED
         if outcome.succeeded and not run.state.verified:
             # The worker completed its job, but the tree is not proven. If the last
             # current-epoch proof is an observed build or test failure, the honest
@@ -397,6 +391,13 @@ class TaskController:
         )
         run = worker.run(task, skill_name=skill_name)
         task_outcome = self._product_outcome(run)
+        if skill_name == CONFIGURED_CHECK_SKILL and any(item.blocked for item in run.state.history):
+            # A configured check is a fixed plan: every step is the one requested. If
+            # policy refused a step (the tests), proof from an earlier step (the build)
+            # must not turn the refusal into PASS. Only the configured plan gets this
+            # rule; a model-driven task that also tried a refused tool is judged on the
+            # proof it actually has.
+            task_outcome = TaskOutcome.BLOCKED
         verified = bool(task_outcome.succeeded and run.state.verified)
         metrics = run.state.metrics.as_dict()
         metrics["proof_binding"] = binding_from_run(task, run, self.repo.root).as_dict()
