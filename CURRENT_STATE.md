@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `27e2210d6132952466555481a1ff77a693b15d3f`
+Reconciled against GitHub `main` at `3581c7232a78b1a0defe14ea8f383c4ab6ad0b69`
 on 2026-10-03 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -107,7 +107,15 @@ A worker that obeys instructions planted in a source file or a build log still c
 commit or push: policy refuses, approval is never asked and nothing changes (#377, worker/tool
 boundary only). Death inside a real `/apply` or `/commit` after its effect recovers through the
 Hub's own startup path as UNKNOWN with no verdict, and re-issuing is refused with the exact
-reason and no second effect (#378). Live
+reason and no second effect (#378). A model server that drops mid-task leaves a durable
+UNKNOWN / NO_VERDICT `endpoint_unavailable` result with the transport cause, and the next turn
+recovers normally (#381). A re-issued `/apply` whose change is already in the checkout (an
+earlier apply interrupted before it was recorded) says so instead of calling it a foreign
+conflict, and writes nothing (#382). With `allow_test = false`, `run the tests` no longer
+returns PASS from its prerequisite build: a configured check with a policy-refused step is
+BLOCKED / `policy_denied`. J19 proves a one-test filter reports 1, and zero-match and
+stale-binary runs are non-PASS and say nothing was verified; J19b proves the policy case
+(#383). Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
 
