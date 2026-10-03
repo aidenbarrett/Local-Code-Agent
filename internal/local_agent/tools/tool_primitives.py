@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import wraps
 from pathlib import Path
+from pathlib import PureWindowsPath
 from typing import Any, Callable
 
 from jsonschema import Draft202012Validator
@@ -399,8 +400,14 @@ def resolve_in_repo(root: Path, candidate: str | os.PathLike[str]) -> Path:
     because `Path.resolve()` follows symlinks before the containment check.
     """
     root_resolved = root.resolve()
-    raw = Path(candidate)
-    joined = raw if raw.is_absolute() else (root_resolved / raw)
+    supplied = os.fspath(candidate)
+    windows = PureWindowsPath(supplied)
+    raw = Path(supplied.replace("\\", "/"))
+    if raw.is_absolute() or windows.is_absolute() or windows.drive:
+        raise SandboxError(
+            f"absolute path {supplied!r} is not allowed; use a repository-relative path"
+        )
+    joined = root_resolved / raw
     resolved = joined.resolve()
 
     if resolved == root_resolved:
