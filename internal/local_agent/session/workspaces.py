@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -104,6 +105,11 @@ class ImportResult:
     # post-image: the change is in the checkout already (for example an earlier import
     # interrupted before it was recorded). Nothing was written.
     already_applied: bool = False
+    # Permission bits (stat.S_IMODE) each touched path had before import, None for a
+    # path the candidate creates, and after a successful import, None for a path it
+    # deleted. Bytes alone do not restore a deleted executable (#396 review).
+    pre_modes: tuple[tuple[str, int | None], ...] = ()
+    post_modes: tuple[tuple[str, int | None], ...] = ()
 
 
 # The outcome of committing one applied candidate is one of four distinct states. Each is
@@ -199,6 +205,22 @@ def _failed_commit_reason(
 
 def _split_z(raw: bytes) -> tuple[str, ...]:
     return tuple(item.decode("utf-8", "surrogateescape") for item in raw.split(b"\0") if item)
+
+
+def _mode_of(path: Path) -> int | None:
+    """Permission bits of a regular file at ``path``, or None when there is none."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    return stat.S_IMODE(info.st_mode) if stat.S_ISREG(info.st_mode) else None
+
+
+def _restore_file(target: Path, data: bytes, mode: int | None) -> None:
+    """Write ``data`` to ``target`` and, when given, set its permission bits."""
+    target.write_bytes(data)
+    if mode is not None:
+        os.chmod(target, mode)
 
 
 class GitWorkspaceManager:
@@ -583,6 +605,7 @@ class GitWorkspaceManager:
             (path, (user / path).read_bytes() if before is not None else None)
             for path, before in pre
         )
+        pre_modes = tuple((path, _mode_of(user / path)) for path, _before in pre)
         applied = self._git(
             user, "apply", "--whitespace=nowarn", "-", stdin=candidate.patch, check=False,
         )
@@ -590,13 +613,13 @@ class GitWorkspaceManager:
             # git apply can stop part-way through writing. Put back exactly what this
             # import wrote, and nothing else: a path is restored only if it now holds
             # the candidate's post-image. Anything else is reported, never overwritten.
-            unresolved = self._rollback_owned(user, candidate, pre_contents)
+            unresolved = self._rollback_owned(user, candidate, pre_contents, dict(pre_modes))
             reason = "git apply failed while writing: " + applied.stderr.decode(
                 "utf-8", "replace"
             ).strip()[:500]
             return ImportResult(
                 False, candidate.paths, (), reason, False, tuple(pre), unresolved,
-                rolled_back=not unresolved, pre_contents=pre_contents,
+                rolled_back=not unresolved, pre_contents=pre_contents, pre_modes=pre_modes,
             )
 
         verified = all(
@@ -604,6 +627,8 @@ class GitWorkspaceManager:
         )
         return ImportResult(
             True, candidate.paths, (), None, verified, tuple(pre), pre_contents=pre_contents,
+            pre_modes=pre_modes,
+            post_modes=tuple((path, _mode_of(user / path)) for path in candidate.paths),
         )
 
     def _rollback_owned(
@@ -611,8 +636,10 @@ class GitWorkspaceManager:
         user: Path,
         candidate: CandidatePatch,
         pre_contents: tuple[tuple[str, bytes | None], ...],
+        pre_modes: dict[str, int | None],
     ) -> tuple[str, ...]:
-        """Restore paths this import wrote to their exact pre-import bytes; return the rest.
+        """Restore paths this import wrote to their exact pre-import bytes and permission
+        bits; return the rest.
 
         Restoration is byte-exact from the snapshot taken just before writing. Content
         re-filtered through git could differ in line endings from what the user had
@@ -636,12 +663,12 @@ class GitWorkspaceManager:
                 if before is None:
                     target.unlink()
                 else:
-                    target.write_bytes(before)
+                    _restore_file(target, before, pre_modes.get(path))
                 restored = target.read_bytes() if target.is_file() else None
             except OSError:
                 unresolved.append(path)
                 continue
-            if restored != before:
+            if restored != before or _mode_of(target) != pre_modes.get(path):
                 unresolved.append(path)
         return tuple(unresolved)
 
@@ -693,6 +720,8 @@ class GitWorkspaceManager:
                 [p, None if data is None else base64.b64encode(data).decode("ascii")]
                 for p, data in result.pre_contents
             ],
+            "pre_modes": [[p, m] for p, m in result.pre_modes],
+            "post_modes": [[p, m] for p, m in result.post_modes],
         }
         path = self._applied_path(task_id)
         tmp = path.with_suffix(".tmp")
@@ -845,6 +874,16 @@ class GitWorkspaceManager:
                 "would leave the commit in place, so revert the commit with git instead",
             )
         paths = tuple(record["paths"])
+        if "pre_modes" not in record or "post_modes" not in record:
+            # Recorded before permission bits were kept: undo could restore the bytes
+            # but not a deleted file's mode, so it is refused rather than half done.
+            return UndoResult(
+                False, paths, (), (),
+                "that change was recorded before file permissions were kept, so undo "
+                "cannot restore it exactly; nothing was changed",
+            )
+        pre_mode: dict[str, int | None] = dict(record["pre_modes"])
+        post_mode: dict[str, int | None] = dict(record["post_modes"])
         post = {p: b for p, b in record["post_blobs"]}
         pre_blob = {p: b for p, b in record["pre_blobs"]}
         pre_bytes = {
@@ -860,16 +899,23 @@ class GitWorkspaceManager:
         unresolved: list[str] = []
         for rel in paths:
             target = user / rel
+            # A permission change made after the apply is the user's, like an edit
+            # would be: the pre-import mode is restored only over what the apply left.
+            current_mode = _mode_of(target)
+            restore_mode = pre_mode.get(rel) if current_mode == post_mode.get(rel) else None
+            data = pre_bytes.get(rel)
             try:
-                if pre_bytes.get(rel) is None:
+                if data is None:
                     target.unlink()
                 else:
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(pre_bytes[rel])
+                    _restore_file(target, data, restore_mode)
             except OSError:
                 unresolved.append(rel)
                 continue
-            if self._worktree_blob(user, rel) != pre_blob.get(rel):
+            if self._worktree_blob(user, rel) != pre_blob.get(rel) or (
+                restore_mode is not None and _mode_of(target) != restore_mode
+            ):
                 unresolved.append(rel)
         if not unresolved:
             path.unlink(missing_ok=True)

@@ -6,6 +6,7 @@ applied, and /undo reported success after restoring the bytes while the file sta
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import stat
@@ -122,3 +123,78 @@ def test_undo_leaves_a_later_user_chmod_alone(tmp_path):
     assert undone.undone, undone
     assert (user / "base.txt").read_text(encoding="utf-8") == "base\n"
     assert os.access(user / "base.txt", os.X_OK), "undo overwrote the user's chmod"
+
+
+def _repo_with_tool(tmp_path: Path) -> Path:
+    root = _repo(tmp_path)
+    (root / "tool.sh").write_text("#!/bin/sh\necho tool\n", encoding="utf-8")
+    _chmod_x(root / "tool.sh")
+    _git(root, "add", "tool.sh")
+    _git(root, "commit", "-qm", "tool")
+    return root
+
+
+def test_undo_restores_a_deleted_executable_with_its_mode(tmp_path):
+    """Sol's #407 review: undo recreated a deleted 100755 file as 0644."""
+    user = _repo_with_tool(tmp_path)
+    mode = (user / "tool.sh").stat().st_mode
+    manager, task_id, ws, candidate = _candidate(
+        tmp_path, user, lambda root: (root / "tool.sh").unlink())
+    before = _state(user)
+    result = manager.import_patch(ws, candidate)
+    assert result.applied and result.verified, result.refused_reason
+    assert not (user / "tool.sh").exists()
+    manager.record_applied(task_id, user, candidate, result)
+    manager.discard(ws)
+
+    undone = manager.undo_applied(task_id, user)
+
+    assert undone.undone, undone
+    assert _state(user) == before, "mode change left behind"
+    assert stat.S_IMODE((user / "tool.sh").stat().st_mode) == stat.S_IMODE(mode)
+
+
+def test_a_failed_apply_restores_a_deleted_executable_with_its_mode(tmp_path, monkeypatch):
+    user = _repo_with_tool(tmp_path)
+    mode = stat.S_IMODE((user / "tool.sh").stat().st_mode)
+
+    def change(root: Path) -> None:
+        (root / "tool.sh").unlink()
+        (root / "base.txt").write_text("changed\n", encoding="utf-8")
+
+    manager, _task, ws, candidate = _candidate(tmp_path, user, change)
+    before = _state(user)
+    real = manager._git
+
+    def faulty(cwd, *args, **kwargs):
+        if args and args[0] == "apply" and not {"--check", "--summary"} & set(args):
+            (user / "tool.sh").unlink()  # git deleted it, then failed
+            return subprocess.CompletedProcess(["git", *args], 1, b"", b"injected failure")
+        return real(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(manager, "_git", faulty)
+    result = manager.import_patch(ws, candidate)
+
+    assert result.applied is False and result.rolled_back, result
+    assert result.unresolved == ()
+    assert _state(user) == before
+    assert stat.S_IMODE((user / "tool.sh").stat().st_mode) == mode
+
+
+def test_undo_of_a_record_without_modes_is_refused_and_writes_nothing(tmp_path):
+    user = _repo_with_tool(tmp_path)
+    manager, task_id, ws, candidate = _candidate(
+        tmp_path, user, lambda root: (root / "tool.sh").unlink())
+    result = manager.import_patch(ws, candidate)
+    record = manager.record_applied(task_id, user, candidate, result)
+    manager.discard(ws)
+    data = json.loads(record.read_text(encoding="utf-8"))
+    del data["pre_modes"], data["post_modes"]
+    record.write_text(json.dumps(data), encoding="utf-8")
+    after_apply = _state(user)
+
+    undone = manager.undo_applied(task_id, user)
+
+    assert undone.undone is False
+    assert "permissions were kept" in (undone.refused_reason or "")
+    assert _state(user) == after_apply and not (user / "tool.sh").exists()
