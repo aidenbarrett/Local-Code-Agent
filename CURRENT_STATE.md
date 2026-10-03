@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `2d89fc0027c90b7224016c5c921a74f49685fade`
+Reconciled against GitHub `main` at `7eff84f9ca640548cc52055aed5bd645687ffe5b`
 on 2026-10-03 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -136,8 +136,13 @@ fixes #393); a refused `/commit` removes exactly the index entries it added and 
 had to leave (#406, fixes #395). Build and run directories are validated once at config load
 (relative, inside the repository, not the root or `.git`), and a full rebuild deletes only a
 build tree carrying Local Code Agent's ownership marker; an existing unmarked `build/` is
-refused with guidance instead of deleted (#408, fixes #392). The remaining #403 defects are
-open and tracked there.
+refused with guidance instead of deleted (#408, fixes #392). Apply refuses a candidate that
+changes a file mode or type before writing anything, and undo or a failed apply's rollback
+restores a deleted file's permission bits, keeping a later user chmod (#407, fixes #396).
+Orphan cleanup deletes a workspace only when its owner is provably gone; an unreadable,
+malformed or non-canonical owner is kept and reported at Session Hub startup (#410, fixes
+#397). The remaining #403 defects are open and tracked there; the overnight work orders
+(owned workspace Git runner, R01, capability ledger, real-repository qualification) are #419.
 Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
