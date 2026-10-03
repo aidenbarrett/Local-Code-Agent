@@ -51,6 +51,7 @@ from .configured_checks import (
     configured_check_sha256,
 )
 from .proof_binding import binding_from_run
+from .workspaces import WorkspaceStoppedError
 
 if TYPE_CHECKING:
     from ..agent.orchestrator import RunResult
@@ -58,7 +59,7 @@ if TYPE_CHECKING:
     from ..llm.client import LLMClient
     from ..tools.process_runner import CancellationProbe
     from .durable_activity import DurableToolActivity
-    from .workspaces import GitWorkspaceManager
+    from .workspaces import GitWorkspaceManager, Workspace
 
 # A controller action is deterministic and model-free: (manager, declared repository,
 # task id, request text) -> result. One table owns which names are actions and what
@@ -165,6 +166,25 @@ def _current_tree_observed_failure(run: RunResult) -> bool:
         if record.proof != ProofKind.NO_CURRENT_PROOF.value:
             last = record.proof
     return last in {k.value for k in CONTRADICTS_CURRENT_TREE}
+
+
+def _create_stoppable(
+    manager: GitWorkspaceManager, repo: RepoConfig, task_id: str,
+    cancellation_probe: CancellationProbe | None,
+) -> Workspace | TaskResult:
+    """Create the candidate workspace under the task's Stop, or the stopped result."""
+    try:
+        with manager.stoppable(cancellation_probe):
+            return manager.create(repo.root, task_id, excluded_dirs=excluded_dirs(repo))
+    except WorkspaceStoppedError:
+        return TaskResult(
+            task_id, TaskOutcome.BLOCKED,
+            "Stopped before the isolated copy was ready. Nothing was created and your "
+            "checkout was not modified.",
+            False,
+            metrics={"candidate": {"retained": False, "stopped": True}},
+            reason_code="cancelled",
+        )
 
 
 class TaskController:
@@ -410,12 +430,10 @@ class TaskController:
             reason_code=self._reason_code(run, task_outcome),
         )
 
-    def _run_candidate_change(
-        self, task: str, task_id: str, resolved_skill: str,
-        durable_activity: DurableToolActivity | None,
-        cancellation_probe: CancellationProbe | None = None,
-    ) -> TaskResult:
-        """Run a source-changing skill in its own worktree and retain the candidate."""
+    def _candidate_preflight(
+        self, task_id: str, resolved_skill: str,
+    ) -> GitWorkspaceManager | TaskResult:
+        """The workspace manager, or why no candidate can be prepared, before any effect."""
         manager = self.workspaces
         blockers = candidate_blockers(
             self.declared_repo, allow_execution=self.allow_execution, skill=resolved_skill,
@@ -454,9 +472,22 @@ class TaskController:
                 }},
                 reason_code="missing_dependency",
             )
-        workspace = manager.create(
-            self.declared_repo.root, task_id, excluded_dirs=excluded_dirs(self.declared_repo),
+        return manager
+
+    def _run_candidate_change(
+        self, task: str, task_id: str, resolved_skill: str,
+        durable_activity: DurableToolActivity | None,
+        cancellation_probe: CancellationProbe | None = None,
+    ) -> TaskResult:
+        """Run a source-changing skill in its own worktree and retain the candidate."""
+        manager = self._candidate_preflight(task_id, resolved_skill)
+        if isinstance(manager, TaskResult):
+            return manager
+        workspace = _create_stoppable(
+            manager, self.declared_repo, task_id, cancellation_probe,
         )
+        if isinstance(workspace, TaskResult):
+            return workspace
         settled = False
         try:
             work_repo = candidate_repo(
@@ -516,10 +547,15 @@ class TaskController:
                 task, proof_run, workspace.root,
                 evidence_offset=len(run.state.history) if proof_run is check else 0,
             ).as_dict()
-            outcome, _candidate = settle_candidate(
-                manager, workspace, task_id=task_id, verified=verified,
-                proof=CANDIDATE_PROOF[resolved_skill],
-            )
+            try:
+                with manager.stoppable(cancellation_probe):
+                    outcome, _candidate = settle_candidate(
+                        manager, workspace, task_id=task_id, verified=verified,
+                        proof=CANDIDATE_PROOF[resolved_skill],
+                    )
+            except WorkspaceStoppedError:
+                settled = True
+                return stopped()
             settled = True
             metrics["candidate"] = outcome.as_metrics(workspace)
             history = list(run.state.history)

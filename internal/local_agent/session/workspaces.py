@@ -32,6 +32,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -39,6 +41,8 @@ from uuid import UUID, uuid4
 import psutil
 
 from ..tools.process_runner import (
+    CancellationProbe,
+    CommandCancellationRequested,
     CommandOutputLimitError,
     CommandSpawnError,
     OwnedLifecycle,
@@ -51,6 +55,21 @@ _GIT_TIMEOUT_S = 300
 # ends the whole tree, including a commit signer's descendants, and output past this
 # size is refused rather than truncated or held in memory without bound.
 _GIT_OUTPUT_LIMIT = 256 * 1024 * 1024
+# Git commands that only read. Stop ends one of these at once; any other command writes
+# (an index, the object store, a worktree, a ref or the user's files) and is never
+# interrupted part-way: Stop takes effect before the next step instead.
+_READ_ONLY_GIT = frozenset({
+    "status", "diff", "diff-tree", "ls-files", "ls-tree", "check-attr", "rev-parse",
+    "cat-file", "log", "show", "merge-base", "for-each-ref", "symbolic-ref", "version",
+})
+
+
+def _reads_only(args: tuple[str, ...]) -> bool:
+    if not args:
+        return False
+    if args[0] == "apply":
+        return bool({"--check", "--summary"} & set(args))
+    return args[0] in _READ_ONLY_GIT
 # Untracked files above this size stay out of the candidate base and are reported. The
 # base commit's objects are written to the user's object store; a stray dataset or
 # binary must not bloat it.
@@ -59,6 +78,14 @@ MAX_UNTRACKED_BYTES = 5 * 1024 * 1024
 
 class WorkspaceError(RuntimeError):
     """A workspace precondition failed or git refused a controller operation."""
+
+
+class WorkspaceStoppedError(WorkspaceError):
+    """Stop was requested while a stoppable workspace operation ran (#415).
+
+    Nothing after the Stop started. A git step that only reads was ended; a step that
+    writes was allowed to finish, because killing a write part-way is how a checkout or
+    an index ends up half changed."""
 
 
 @dataclass(frozen=True)
@@ -226,6 +253,24 @@ class GitWorkspaceManager:
         self.controller_commit = controller_commit
         self._empty_hooks = self.workspaces_root / ".no-hooks"
         self._empty_hooks.mkdir(exist_ok=True)
+        # The Stop token of the stoppable operation running on this thread, if any.
+        self._stop_scope = threading.local()
+
+    @contextlib.contextmanager
+    def stoppable(self, stop: CancellationProbe | None) -> Iterator[None]:
+        """Let ``stop`` end the workspace operations run inside this block (#415).
+
+        Before each git step a requested Stop raises ``WorkspaceStoppedError``; a step
+        that only reads is also ended while it runs. A step that writes always finishes.
+        Removing a worktree (``close``, ``discard``) is never stoppable: a Stop must not
+        be able to leave a half-removed worktree behind.
+        """
+        previous = getattr(self._stop_scope, "probe", None)
+        self._stop_scope.probe = stop
+        try:
+            yield
+        finally:
+            self._stop_scope.probe = previous
 
     # -- git ----------------------------------------------------------------
 
@@ -257,13 +302,25 @@ class GitWorkspaceManager:
             "-c", "diff.mnemonicPrefix=false",
             *args,
         ]
+        stop: CancellationProbe | None = getattr(self._stop_scope, "probe", None)
+        lifecycle = OwnedLifecycle(
+            _GIT_TIMEOUT_S,
+            cancellation_probe=stop if _reads_only(args) else None,
+            output_limit=_GIT_OUTPUT_LIMIT,
+        )
         try:
-            run = run_owned(
-                argv, cwd, OwnedLifecycle(_GIT_TIMEOUT_S, output_limit=_GIT_OUTPUT_LIMIT),
-                env=env, stdin=stdin,
-            )
+            if stop is not None and stop.requested:
+                raise CommandCancellationRequested("Stop was requested")
+            run = run_owned(argv, cwd, lifecycle, env=env, stdin=stdin)
+        except CommandCancellationRequested as exc:
+            raise WorkspaceStoppedError(f"Stop was requested; git {args[0]} did not start") from exc
         except (CommandSpawnError, CommandOutputLimitError) as exc:
             raise WorkspaceError(f"git {args[0]} could not run: {exc}") from exc
+        if run.cancel_requested:
+            cleanup = _confirmation(confirmed=run.cleanup_confirmed)
+            raise WorkspaceStoppedError(
+                f"Stop ended git {args[0]} (process-tree cleanup confirmed: {cleanup})"
+            )
         if run.timed_out:
             cleanup = _confirmation(confirmed=run.cleanup_confirmed)
             raise WorkspaceError(
@@ -971,7 +1028,11 @@ class GitWorkspaceManager:
             self._record_path(workspace.task_id).unlink(missing_ok=True)
 
     def close(self, workspace: Workspace) -> None:
-        """Remove the candidate worktree and release the task's lease."""
+        """Remove the candidate worktree and release the task's lease. Never stoppable."""
+        with self.stoppable(None):
+            self._close(workspace)
+
+    def _close(self, workspace: Workspace) -> None:
         try:
             if workspace.root.exists():
                 self._git(
