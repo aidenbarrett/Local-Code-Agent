@@ -36,6 +36,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import psutil
@@ -51,6 +52,10 @@ MAX_UNTRACKED_BYTES = 5 * 1024 * 1024
 
 class WorkspaceError(RuntimeError):
     """A workspace precondition failed or git refused a controller operation."""
+
+
+class CandidateRefusedError(WorkspaceError):
+    """The candidate's own content cannot be snapshotted or imported safely."""
 
 
 @dataclass(frozen=True)
@@ -209,6 +214,18 @@ def _failed_commit_reason(
 
 def _split_z(raw: bytes) -> tuple[str, ...]:
     return tuple(item.decode("utf-8", "surrogateescape") for item in raw.split(b"\0") if item)
+
+
+# A candidate that changes .gitattributes changes which programs git runs on the user's
+# files (filters) and what their bytes mean (eol, encoding). Neither is a source change
+# that apply, undo or commit can make safely, so it is refused before anything runs.
+_ATTRIBUTES_REFUSAL = (
+    "the candidate changes Git attributes, which candidate changes do not support: "
+)
+
+
+def _attribute_files(paths: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    return tuple(p for p in paths if p.rsplit("/", 1)[-1] == ".gitattributes")
 
 
 def _mode_of(path: Path) -> int | None:
@@ -429,26 +446,37 @@ class GitWorkspaceManager:
         """
         root = Path(repository_root)
         drivers = set()
-        for entry in _split_z(self._git(
+        found = self._git(
             root, "config", "--null", "--name-only", "--get-regexp",
             r"^filter\..*\.(clean|smudge|process)$", check=False,
-        ).stdout):
+        )
+        if found.returncode not in (0, 1):  # 1 is "no such key"; anything else is unknown
+            message = found.stderr.decode("utf-8", "replace").strip()
+            raise WorkspaceError(f"git config could not be read ({found.returncode}): {message}")
+        for entry in _split_z(found.stdout):
             name = entry.split(".", 1)[1].rsplit(".", 1)[0] if "." in entry else ""
             if name:
                 drivers.add(name)
         if not drivers:
             return ()
+        # Failure to read either is unknown, never "no filter in use" (#411 review).
         files = self._git(root, "ls-files", "-z", "--cached", "--others",
-                          "--exclude-standard", check=False).stdout
+                          "--exclude-standard").stdout
         if not files:
             return ()
         attrs = _split_z(self._git(root, "check-attr", "-z", "--stdin", "filter",
-                                   stdin=files, check=False).stdout)
-        used = {attrs[i + 2] for i in range(0, len(attrs) - 2, 3)}
+                                   stdin=files).stdout)
+        if len(attrs) % 3:
+            raise WorkspaceError("git check-attr returned an incomplete answer")
+        used = {attrs[i + 2] for i in range(0, len(attrs), 3)}
         return tuple(sorted(used & drivers))
 
     def _filter_refusal(self, repository_root: Path) -> str | None:
-        used = self.filter_drivers_in_use(repository_root)
+        try:
+            used = self.filter_drivers_in_use(repository_root)
+        except WorkspaceError as exc:
+            return ("whether this repository's files use Git filters could not be checked "
+                    f"({exc}), so candidate changes are unavailable here")
         if not used:
             return None
         return ("this repository's files use the Git filter(s) " + ", ".join(used)
@@ -603,6 +631,12 @@ class GitWorkspaceManager:
         # build/run output whether or not the user's .gitignore covers it, and keeps any
         # base-tracked files under them unchanged. (Exclude pathspecs cannot be used: git
         # refuses them outright when they name ignored directories.)
+        # Staging runs the clean filter of every attribute in effect, including any
+        # .gitattributes the worker wrote. Check the candidate's own attributes first, so
+        # no configured filter program runs (#398, Sol's #411 review).
+        refusal = self._filter_refusal(workspace.root)
+        if refusal:
+            raise CandidateRefusedError("in the candidate, " + refusal)
         self._git(workspace.root, "add", "-A", "--", ".")
         if workspace.excluded_dirs:
             self._git(
@@ -617,6 +651,9 @@ class GitWorkspaceManager:
             workspace.root, "diff", *diff_args, "--binary", "--full-index",
             workspace.base_commit, "--",
         ).stdout
+        attributes = _attribute_files(paths)
+        if attributes:
+            raise CandidateRefusedError(_ATTRIBUTES_REFUSAL + ", ".join(attributes))
         post = []
         for path in paths:
             done = self._git(
@@ -906,6 +943,9 @@ class GitWorkspaceManager:
         refusal = self._filter_refusal(user)
         if refusal:
             return refusal
+        attributes = _attribute_files(candidate.paths)
+        if attributes:
+            return _ATTRIBUTES_REFUSAL + ", ".join(attributes)
         unsupported = self._unsupported_entry_changes(user, candidate.patch)
         if unsupported:
             # Undo restores bytes and proves blobs; it does not carry modes or file types.
@@ -950,6 +990,21 @@ class GitWorkspaceManager:
                 left.append(path)
         return tuple(left)
 
+    def _undo_refusal(self, user: Path, record: dict[str, Any]) -> str | None:
+        """Why a recorded apply cannot be undone at all, checked before any write."""
+        refusal = self._filter_refusal(user)
+        if refusal:
+            return refusal
+        if record.get("committed"):
+            return (f"that change was committed as {record['committed'][:12]}; undoing files "
+                    "would leave the commit in place, so revert the commit with git instead")
+        if "pre_modes" not in record or "post_modes" not in record:
+            # Recorded before permission bits were kept: undo could restore the bytes
+            # but not a deleted file's mode, so it is refused rather than half done.
+            return ("that change was recorded before file permissions were kept, so undo "
+                    "cannot restore it exactly; nothing was changed")
+        return None
+
     def undo_applied(self, task_id: str, repository_root: Path) -> UndoResult:
         """Undo one applied candidate, only where files still hold exactly what it wrote.
 
@@ -964,24 +1019,10 @@ class GitWorkspaceManager:
         user = Path(repository_root).resolve()
         if Path(record["repository_root"]) != user:
             return UndoResult(False, (), (), (), "that change was applied to another repository")
-        refusal = self._filter_refusal(user)
-        if refusal:
-            return UndoResult(False, tuple(record["paths"]), (), (), refusal)
-        if record.get("committed"):
-            return UndoResult(
-                False, tuple(record["paths"]), (), (),
-                f"that change was committed as {record['committed'][:12]}; undoing files "
-                "would leave the commit in place, so revert the commit with git instead",
-            )
         paths = tuple(record["paths"])
-        if "pre_modes" not in record or "post_modes" not in record:
-            # Recorded before permission bits were kept: undo could restore the bytes
-            # but not a deleted file's mode, so it is refused rather than half done.
-            return UndoResult(
-                False, paths, (), (),
-                "that change was recorded before file permissions were kept, so undo "
-                "cannot restore it exactly; nothing was changed",
-            )
+        refusal = self._undo_refusal(user, record)
+        if refusal:
+            return UndoResult(False, paths, (), (), refusal)
         pre_mode: dict[str, int | None] = dict(record["pre_modes"])
         post_mode: dict[str, int | None] = dict(record["post_modes"])
         post = {p: b for p, b in record["post_blobs"]}
