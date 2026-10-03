@@ -197,8 +197,10 @@ def _retained_result_lines(task: TaskSnapshot) -> tuple[str, ...]:
     if task.result_answer is None:
         return ()
     label = (
-        "Retained result:" if _retained_result_verified(task)
-        else "Retained result (unverified as completion):"
+        "Retained candidate detail (not checkout proof):"
+        if task.candidate_not_applied
+        else ("Retained result:" if _retained_result_verified(task)
+              else "Retained result (unverified as completion):")
     )
     if task.result_verified_at_completion is True:
         verification = "Result verification: passed at task completion"

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from local_agent.session.candidate_facts import CandidateFacts
 from local_agent.session.result_presentation import render_result_evidence, render_result_summary
-from local_agent.session.task_read_model import TaskSnapshot
+from local_agent.session.task_read_model import TaskSnapshot, ToolActivity
 from local_agent.session.textual_hub import HubViewState
 from local_agent.session.textual_live_app import render_live_activity
 
@@ -170,3 +171,49 @@ def test_recent_failed_result_preview_keeps_unverified_label():
     current.closed_sequence = 2
     rendered = render_live_activity(HubViewState(tasks=(prior, current)))
     assert "Unverified result detail: The fix was applied" in rendered
+
+
+def test_verified_candidate_proof_cannot_be_presented_as_a_checkout_change():
+    task = _task(verdict="VERIFIED", reason="verification_passed", scope="full_build")
+    task.candidate = CandidateFacts(
+        role="prepared",
+        candidate_task_id=task.task_id,
+        retained=True,
+        paths=("src/ring_buffer.cpp",),
+        patch_sha256="a" * 64,
+        base_commit="b" * 40,
+        commit=None,
+    )
+    task.result_answer = "I applied the fix to your checkout and the build passed."
+    task.result_verification_ran = True
+    task.result_verified_at_completion = True
+
+    rendered = render_live_activity(HubViewState(tasks=(task,)))
+
+    assert rendered.startswith(
+        "Result: VERIFIED — isolated candidate has full current-tree build proof; "
+        "it is retained for review and is not applied to your checkout."
+    )
+    assert "Proof target: isolated candidate tree" in rendered
+    assert "Checkout effect: not applied by this task" in rendered
+    assert "Retained candidate detail (not checkout proof):" in rendered
+    assert rendered.index("not applied to your checkout") < rendered.index(
+        "I applied the fix to your checkout"
+    )
+
+
+def test_failed_tool_keeps_typed_domain_reason_exit_and_exact_scope():
+    task = _task(verdict="FAILED", reason="verification_failed", scope="targeted_test")
+    task.last_tool = ToolActivity(
+        call_id="call-1",
+        tool_name="run_test",
+        execution="ok",
+        domain="fail",
+        reason_code="verification_failed",
+        exit_code=8,
+    )
+
+    rendered = render_result_evidence(task)
+
+    assert "Proof scope: targeted test evidence" in rendered
+    assert "Last tool: run_test · ok/fail · reason verification_failed · exit 8" in rendered

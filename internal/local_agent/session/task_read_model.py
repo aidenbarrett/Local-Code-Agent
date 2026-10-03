@@ -78,6 +78,16 @@ class TaskSnapshot:
     activity: list[TaskActivity] = field(default_factory=list)
 
     @property
+    def candidate_not_applied(self) -> bool:
+        """This task prepared a retained candidate: its proof is about the isolated
+        candidate tree, and nothing it did changed the user's checkout."""
+        return (
+            self.candidate is not None
+            and self.candidate.role == "prepared"
+            and self.candidate.retained
+        )
+
+    @property
     def terminal(self) -> bool:
         return self.closed_sequence is not None
 

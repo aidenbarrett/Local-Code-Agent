@@ -41,6 +41,11 @@ def render_result_summary(task: TaskSnapshot) -> str:
 
     if verdict == "VERIFIED":
         detail = scope or "controller verification passed"
+        if task.candidate_not_applied:
+            return (
+                f"Result: VERIFIED — isolated candidate has {detail}; "
+                "it is retained for review and is not applied to your checkout."
+            )
         return f"Result: VERIFIED — {detail}."
 
     if verdict == "FAILED":
@@ -88,11 +93,21 @@ def render_result_evidence(task: TaskSnapshot) -> str:
         f"  Evidence IDs: {evidence}",
         f"  Verification: {verification}",
     ]
+    if task.candidate_not_applied:
+        lines.extend((
+            "  Proof target: isolated candidate tree",
+            "  Checkout effect: not applied by this task",
+        ))
     if task.last_tool is not None:
         tool = task.last_tool
         execution = tool.execution or "finished"
+        domain = tool.domain or "unknown"
+        reason = "none" if not tool.reason_code else tool.reason_code
         exit_text = "unknown" if tool.exit_code is None else str(tool.exit_code)
-        lines.append(f"  Last tool: {tool.tool_name} · {execution} · exit {exit_text}")
+        lines.append(
+            f"  Last tool: {tool.tool_name} · {execution}/{domain} · "
+            f"reason {reason} · exit {exit_text}"
+        )
     return "\n".join(lines)
 
 
