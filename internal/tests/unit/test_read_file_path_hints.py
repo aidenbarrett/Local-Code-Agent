@@ -175,3 +175,18 @@ def test_excluded_directories_do_not_consume_hint_search_budget(tmp_path, monkey
     assert "existing paths to try: ring.hpp" in message
     assert "build/" not in message
     assert "search stopped" not in message
+
+
+@pytest.mark.parametrize("ripgrep", [True, False], ids=["ripgrep", "git-grep"])
+def test_definition_search_sees_untracked_files_with_either_backend(loaded, monkeypatch, ripgrep):
+    """CI runners without ripgrep fell back to git grep, which skipped untracked files."""
+    from local_agent.tools import search
+
+    if ripgrep and not search._rg_available():
+        pytest.skip("ripgrep is not installed here")
+    monkeypatch.setattr(search, "_rg_available", lambda: ripgrep)
+    sandbox, _, registry, _, _ = loaded
+    (sandbox.root / "src" / "fresh.cpp").write_text("int brand_new_symbol() { return 1; }\n",
+                                                    encoding="utf-8")
+    found = registry.get("find_definition").handler(symbol="brand_new_symbol")
+    assert [Path(m["file"]).as_posix() for m in found.data["matches"]] == ["src/fresh.cpp"]

@@ -162,7 +162,10 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             args += [pattern, str(base)]
             code, stdout = _run_rg(args, ctx.root, timeout=60)
         else:
-            args = ["-n", "-I", "-E"]
+            # --untracked: a file the user (or the agent) has just created is part of
+            # the working tree. Without it the fallback silently searched only what
+            # git already tracks, while ripgrep searched everything.
+            args = ["-n", "-I", "-E", "--untracked"]
             if not case_sensitive:
                 args.append("-i")
             args += [pattern]
