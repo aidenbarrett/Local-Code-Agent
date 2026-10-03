@@ -24,6 +24,29 @@ _TEXT_SUFFIXES = {
     ".txt", ".md", ".cmake", ".toml", ".yaml", ".yml", ".json", ".py", ".sh",
     ".ps1", ".ini", ".cfg", ".in", ".s", ".asm",
 }
+_HEADER_SUFFIXES = {".h", ".hh", ".hpp", ".hxx", ".ipp", ".inl"}
+
+
+def _unique_include_target(root: Path, requested: str) -> Path | None:
+    """Resolve one C/C++ include-relative header, never an ambiguous suffix."""
+    wanted = requested.replace("\\", "/").removeprefix("./")
+    if Path(wanted).suffix.lower() not in _HEADER_SUFFIXES:
+        return None
+    found: list[Path] = []
+    for visited, candidate in enumerate(_iter_files(root, recursive=True), start=1):
+        if visited > _MAX_HINT_SEARCH_FILES:
+            return None
+        if not candidate.is_file() or not candidate.resolve().is_relative_to(root.resolve()):
+            continue
+        relative = candidate.relative_to(root).as_posix()
+        rooted = "/" + relative
+        marker = "/include/"
+        include_relative = rooted.split(marker, 1)[1] if marker in rooted else None
+        if include_relative == wanted:
+            found.append(candidate)
+            if len(found) > 1:
+                return None
+    return found[0] if len(found) == 1 else None
 
 
 def _iter_files(base: Path, *, recursive: bool) -> Iterator[Path]:
@@ -228,6 +251,8 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
     )
     def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> ToolResult:
         target = resolve_in_repo(ctx.root, path)
+        if not target.is_file():
+            target = _unique_include_target(ctx.root, path) or target
         if not target.is_file():
             raise NotFoundError(_missing_file_message(ctx.root, path))
 

@@ -4,7 +4,7 @@ import pytest
 
 from local_agent.tools import files
 from local_agent.tools.files import _missing_file_message
-from local_agent.tools.tool_primitives import NotFoundError, ToolError
+from local_agent.tools.tool_primitives import NotFoundError
 
 
 def test_suffix_hint_is_preferred_over_basename(tmp_path):
@@ -32,16 +32,53 @@ def test_no_match_has_no_invented_hint(tmp_path):
     assert _missing_file_message(tmp_path, "missing.hpp") == "'missing.hpp' is not a file"
 
 
-def test_missing_read_remains_not_found(loaded):
+@pytest.mark.parametrize("requested", ["sandbox/ring_buffer.hpp", "sandbox\\ring_buffer.hpp"])
+def test_unique_include_relative_header_is_read_without_a_guessing_loop(loaded, requested):
     _, _, registry, _, _ = loaded
-    with pytest.raises(NotFoundError, match="include/sandbox/ring_buffer.hpp"):
+    result = registry.get("read_file").handler(path=requested)
+    assert result.data["path"] == "include/sandbox/ring_buffer.hpp"
+    assert "class RingBuffer" in result.data["content"]
+
+
+def test_qualified_definition_excludes_duplicate_short_names(loaded):
+    sandbox, _, registry, _, _ = loaded
+    duplicate = sandbox.root / "src" / "other.cpp"
+    duplicate.write_text(
+        "bool Other::full() const { return true; }\nbool full() { return false; }\n",
+        encoding="utf-8",
+    )
+
+    qualified = registry.get("find_definition").handler(symbol="RingBuffer::full")
+    fully_qualified = registry.get("find_definition").handler(symbol="sandbox::RingBuffer::full")
+    short = registry.get("find_definition").handler(symbol="full")
+
+    assert (qualified.data["matches"][0]["file"], qualified.data["matches"][0]["line"]) == (
+        "src/ring_buffer.cpp", 29,
+    )
+    assert all("RingBuffer::full" in m["text"] for m in qualified.data["matches"])
+    assert {
+        (m["file"], m["line"], m["text"]) for m in fully_qualified.data["matches"]
+    } == {
+        (m["file"], m["line"], m["text"]) for m in qualified.data["matches"]
+    }
+    assert {m["text"] for m in short.data["matches"]} >= {
+        "bool RingBuffer::full() const { return count_ == slots_.size(); }",
+        "bool Other::full() const { return true; }",
+        "bool full() { return false; }",
+    }
+
+
+def test_ambiguous_include_relative_header_is_not_chosen(loaded):
+    sandbox, _, registry, _, _ = loaded
+    duplicate = sandbox.root / "vendor" / "include" / "sandbox" / "ring_buffer.hpp"
+    duplicate.parent.mkdir(parents=True)
+    duplicate.write_text("class WrongRingBuffer {};\n", encoding="utf-8")
+
+    with pytest.raises(NotFoundError, match="existing paths to try") as refused:
         registry.get("read_file").handler(path="sandbox/ring_buffer.hpp")
 
-
-def test_qualified_definition_names_the_identifier_to_use(loaded):
-    _, _, registry, _, _ = loaded
-    with pytest.raises(ToolError, match="use 'full'"):
-        registry.get("find_definition").handler(symbol="RingBuffer::full")
+    assert "include/sandbox/ring_buffer.hpp" in str(refused.value)
+    assert "vendor/include/sandbox/ring_buffer.hpp" in str(refused.value)
 
 
 def test_suffix_matches_are_bounded(tmp_path):

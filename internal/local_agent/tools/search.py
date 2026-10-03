@@ -31,6 +31,31 @@ _DEF_TEMPLATES = (
     r"namespace\s+{sym}\b",
 )
 
+_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
+_QUALIFIED_IDENTIFIER = re.compile(rf"{_IDENTIFIER}(?:::{_IDENTIFIER})*")
+
+
+def _definition_pattern(symbol: str) -> str:
+    """Build a bounded textual definition query without discarding qualification."""
+    parts = symbol.split("::")
+    forms: tuple[str, ...]
+    templates: tuple[str, ...]
+    if len(parts) == 1:
+        forms = (symbol,)
+        templates = _DEF_TEMPLATES
+    else:
+        # A definition inside ``namespace sandbox`` is commonly spelt
+        # ``RingBuffer::full`` rather than ``sandbox::RingBuffer::full``. Keep
+        # the member qualification, but never fall back to bare ``full`` where
+        # unrelated classes would become indistinguishable.
+        forms = (symbol,) if len(parts) == 2 else (symbol, "::".join(parts[-2:]))
+        templates = _DEF_TEMPLATES[1:3]
+    return "|".join(
+        template.format(sym=re.escape(form))
+        for form in dict.fromkeys(forms)
+        for template in templates
+    )
+
 
 def _rg_available() -> bool:
     return shutil.which("rg") is not None
@@ -171,14 +196,10 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         Risk.READ,
     )
     def find_definition(symbol: str, limit: int = 20) -> ToolResult:
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", symbol):
-            message = "symbol must be a plain C++ identifier"
-            unqualified = symbol.rsplit("::", 1)[-1]
-            if "::" in symbol and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", unqualified):
-                message += f"; use {unqualified!r} and inspect the matches for {symbol!r}"
-            raise ToolError(message)
+        if not _QUALIFIED_IDENTIFIER.fullmatch(symbol):
+            raise ToolError("symbol must be a C++ identifier, optionally qualified with ::")
 
-        pattern = "|".join(t.format(sym=re.escape(symbol)) for t in _DEF_TEMPLATES)
+        pattern = _definition_pattern(symbol)
         result = search_text(pattern=pattern, limit=limit)
         result.summary = (
             f"{len(result.data['matches'])} candidate definition site(s) for "
