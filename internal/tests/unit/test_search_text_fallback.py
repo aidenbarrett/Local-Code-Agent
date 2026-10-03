@@ -25,8 +25,9 @@ def test_git_grep_fallback_honours_path_and_excludes(tmp_path, monkeypatch):
     _write(repo / "docs" / "outside.md", "fallback_scope_token\n")
     _write(repo / "build" / "generated.cpp", "fallback_scope_token\n")
     _write(repo / "cmake-build-debug" / "generated.cpp", "fallback_scope_token\n")
+    _write(repo / "src" / "build" / "nested.cpp", "fallback_scope_token\n")
     run(["git", "add", "src/tracked.cpp", "docs/outside.md", "build/generated.cpp",
-         "cmake-build-debug/generated.cpp"], cwd=repo, check=True)
+         "cmake-build-debug/generated.cpp", "src/build/nested.cpp"], cwd=repo, check=True)
 
     registry = ToolRegistry()
     search.register(registry, ToolContext(repo=SimpleNamespace(root=repo)))
