@@ -41,19 +41,6 @@ from .logs import parse_test_log
 _FILTER_FORBIDDEN = re.compile(r"[;&`<>\n\r\x00\"']")
 _FILTER_MAX = 200
 
-# What a C or C++ build turns into a binary. A change to any of these makes the
-# artefacts in the build directory older than the truth.
-_SOURCE_SUFFIXES = (
-    ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
-    ".txt", ".cmake", ".in", ".inc", ".ipp", ".tpp", ".def", ".s",
-    ".asm", ".py", ".sh",
-)
-_SOURCE_NAMES = frozenset({
-    "CMakeLists.txt", "CMakePresets.json", "CMakeUserPresets.json",
-    ".local-agent.toml",
-})
-
-
 BUILD_STAMP = ".local-agent-build-ok"
 PROFILE_STAMP = ".local-agent-configured-profile"
 
@@ -98,9 +85,14 @@ def _source_hashes(root: Any, build_dir: str) -> dict[str, str]:
             pass
         if path.name in (BUILD_STAMP, PROFILE_STAMP):
             continue
-        if path.is_symlink() or not path.is_file():
+        if path.is_symlink():
+            # The link itself is repository input identity. Internal targets are also
+            # visited and hashed normally; external targets are rejected by
+            # `_stale_sources` because their bytes are outside this evidence tree.
+            target = path.readlink().as_posix().encode("utf-8", "surrogateescape")
+            out[rel.as_posix()] = hashlib.sha256(b"symlink\0" + target).hexdigest()
             continue
-        if path.name not in _SOURCE_NAMES and path.suffix.lower() not in _SOURCE_SUFFIXES:
+        if not path.is_file():
             continue
         out[rel.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return dict(sorted(out.items()))
@@ -225,10 +217,29 @@ def _stale_sources(root: Any, build_dir: str, record: BuildRecord | None) -> lis
 
     current = _source_hashes(root, build_dir)
     names = set(record.source_hashes) | set(current)
-    return sorted(
+    stale = {
         name for name in names
         if record.source_hashes.get(name) != current.get(name)
-    )
+    }
+    root_path = Path(root).resolve()
+    for path in root_path.rglob("*"):
+        if not path.is_symlink():
+            continue
+        rel = path.relative_to(root_path)
+        if ".git" in rel.parts or ".local-agent" in rel.parts:
+            continue
+        try:
+            rel.relative_to(Path(build_dir))
+            continue
+        except ValueError:
+            pass
+        try:
+            path.resolve().relative_to(root_path)
+        except ValueError:
+            # A target outside the repository cannot be part of the retained build
+            # evidence. Unknown stays stale rather than certifying an old binary.
+            stale.add(rel.as_posix())
+    return sorted(stale)
 
 
 def register(reg: ToolRegistry, ctx: ToolContext) -> None:

@@ -610,6 +610,46 @@ def test_run_test_says_when_it_is_reporting_a_stale_binary(tmp_path):
     assert rebuilt.ok, rebuilt.summary
 
 
+def test_run_test_refuses_changed_non_suffix_build_input_with_equal_mtime(tmp_path):
+    """Build inputs are repository content, not a filename-extension allowlist."""
+    import os
+
+    from run_evaluation import establish, prepare
+    from local_agent.config import load_repo_config
+    from local_agent.tools import build_registry
+
+    case = _case("test-failure-diagnose")
+    root, _ = prepare(tmp_path, case.scenario)
+    resource = root / "weights.bin"
+    resource.write_bytes(b"old model bytes")
+    registry, _, _ = build_registry(load_repo_config(root))
+    establish(case, registry)
+
+    before = resource.stat().st_mtime_ns
+    resource.write_bytes(b"new model bytes")
+    os.utime(resource, ns=(before, before))
+
+    stale = registry.get("run_test").handler(name_filter="ring_buffer")
+    assert stale.summary.startswith("STALE:")
+    assert stale.data["stale_sources"] == ["weights.bin"]
+    assert not stale.ok
+
+
+def test_external_symlink_never_certifies_complete_build_freshness(tmp_path):
+    """Bytes outside the evidence tree remain unknown even when the link is unchanged."""
+    from local_agent.tools.testing_tools import BuildRecord, _source_hashes, _stale_sources
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"first")
+    (root / "input.bin").symlink_to(outside)
+    hashes = _source_hashes(root, "build")
+    record = BuildRecord("debug", 1, hashes)
+
+    assert _stale_sources(root, "build", record) == ["input.bin"]
+
+
 # ------------------------------------------------- Slice 4: a fixture that
 # ------------------------------------------------- keeps its own answers
 
