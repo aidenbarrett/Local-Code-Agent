@@ -142,6 +142,24 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     }
 
 
+def test_acceptance_source_line_changes_when_live_powershell_changes(tmp_path, monkeypatch):
+    """The user-visible acceptance identity is bound to PowerShell runtime code."""
+    helper = tmp_path / "internal" / "scripts" / "runtime-root.ps1"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("# original runtime root\n", encoding="utf-8")
+
+    from local_agent import provenance
+
+    monkeypatch.setattr(provenance, "_ROOT", tmp_path)
+    first = journeys.source_line(journeys.package_identity())
+    helper.write_text("# changed runtime root\n", encoding="utf-8")
+    second = journeys.source_line(journeys.package_identity())
+
+    assert first != second
+    assert "source sha256" in first
+    assert "source sha256" in second
+
+
 def test_a_journey_whose_claim_does_not_hold_fails_the_run(tmp_path, monkeypatch):
     # The clean-build journey pointed at a compile error must FAIL, not pass or skip.
     monkeypatch.setattr(journeys, "JOURNEYS", [

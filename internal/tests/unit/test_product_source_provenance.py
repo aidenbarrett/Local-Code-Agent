@@ -22,6 +22,31 @@ def test_product_source_identity_covers_live_product_surfaces():
     assert "internal/docs/session-contract/v1/events.schema.json" in keys
     assert "local-code-agent.ps1" in keys
     assert "install.ps1" in keys
+    assert "internal/scripts/runtime-root.ps1" in keys
+    assert "internal/bootstrap-work-laptop-core.ps1" in keys
+
+
+def test_every_internal_powershell_helper_changes_source_identity(tmp_path, monkeypatch):
+    """New executable helpers inherit the provenance boundary automatically."""
+    helpers = (
+        "internal/scripts/runtime-root.ps1",
+        "internal/bootstrap-work-laptop-core.ps1",
+        "internal/future/runtime-helper.ps1",
+    )
+    for name in helpers:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# original\n", encoding="utf-8")
+    monkeypatch.setattr(provenance, "_ROOT", tmp_path)
+
+    baseline = provenance.source_sha256()
+    for name in helpers:
+        path = tmp_path / name
+        original = path.read_bytes()
+        path.write_bytes(original + b"# changed\n")
+        assert provenance.source_sha256() != baseline, name
+        path.write_bytes(original)
+        assert provenance.source_sha256() == baseline, name
 
 
 def test_archived_research_trees_are_not_part_of_product_identity():
