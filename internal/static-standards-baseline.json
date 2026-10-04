@@ -765,8 +765,7 @@
     "FBT001": 1,
     "FBT002": 1,
     "PLR0912": 1,
-    "PLR0915": 1,
-    "W292": 1
+    "PLR0915": 1
    },
    "internal/local_agent/tools/tool_primitives.py": {
     "S105": 1,
@@ -816,5 +815,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 789
+ "total": 788
 }
