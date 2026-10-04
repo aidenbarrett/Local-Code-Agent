@@ -454,6 +454,15 @@ def assert_writable(root: Path, target: Path, protected: tuple[str, ...]) -> Pat
     """
     resolved = target.resolve()
     root_resolved = root.resolve()
+    if resolved.name == ".gitattributes" or target.name == ".gitattributes":
+        # Attributes decide which programs git runs on files (filters) and what their
+        # bytes mean. A worker-written one would run a configured filter at the next
+        # git call in its tree (#398, Sol's #411 review), so the agent never writes it.
+        raise ProtectedPathError(
+            f"{relpath(root, target)!r} is a Git attributes file. It controls which "
+            "programs git runs on the project's files, so the agent does not change it; "
+            "ask the user to make that change."
+        )
     for name in protected:
         if not name:
             continue

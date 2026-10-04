@@ -29,6 +29,7 @@ from .intents import (
 from .proof_binding import repository_tree_sha256
 from .workspaces import (
     CandidatePatch,
+    CandidateRefusedError,
     CommitDrifted,
     CommitMismatched,
     CommitRefused,
@@ -223,6 +224,9 @@ class CandidateOutcome:
     paths: tuple[str, ...]
     patch_sha256: str | None
     summary: str
+    # The candidate was produced but cannot be kept safely (for example it uses Git
+    # filters or changes Git attributes). Nothing is retained; the task is blocked.
+    refused: bool = False
 
     def as_metrics(self, workspace: Workspace) -> dict[str, Any]:
         return {
@@ -247,7 +251,16 @@ def settle_candidate(
     proof: str = "full build",
 ) -> tuple[CandidateOutcome, CandidatePatch | None]:
     """Retain a candidate with changes for review and import; discard an empty one."""
-    candidate = manager.candidate_patch(workspace)
+    try:
+        candidate = manager.candidate_patch(workspace)
+    except CandidateRefusedError as exc:
+        manager.discard(workspace)
+        return CandidateOutcome(
+            False, (), None,
+            f"The candidate was discarded: {exc}. Nothing is available to apply and your "
+            "checkout has not been modified.",
+            refused=True,
+        ), None
     if not candidate.paths:
         manager.discard(workspace)
         nothing = "No source change was produced; nothing to apply."
