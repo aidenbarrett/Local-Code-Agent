@@ -24,6 +24,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Mapping
 
+from .build_arguments import is_valid_build_target
+
 VERIFYING_TOOLS = frozenset({"build_target", "run_test"})
 
 
@@ -126,9 +128,15 @@ def classify_proof(
             return ProofKind.OBSERVED_BUILD_FAIL
         if domain != "pass":
             return ProofKind.NO_CURRENT_PROOF
-        if args.get("target"):
+        if "target" not in args:
+            return ProofKind.FULL_BUILD_PASS
+        target = args["target"]
+        if is_valid_build_target(target):
             return ProofKind.TARGETED_BUILD_PASS
-        return ProofKind.FULL_BUILD_PASS
+        # Invalid explicit targets violate the tool contract.
+        # Even if an old worker reports success for one, it cannot be promoted
+        # into full-build proof at this independent boundary.
+        return ProofKind.NO_CURRENT_PROOF
 
     # run_test
     if domain == "fail":

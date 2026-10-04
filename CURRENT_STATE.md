@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `7eff84f9ca640548cc52055aed5bd645687ffe5b`
-on 2026-10-03 after the isolated candidate-change journeys (#197-#215: build/test fixes,
+Reconciled against GitHub `main` at `d2c98455c9c411642b52885076e72f737a00b37e`
+on 2026-10-04 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
 #217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
@@ -151,6 +151,23 @@ Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rational
 [TRICKS.md](TRICKS.md) for first-release public journeys and acceptance evidence, and
 [product-execution-priorities.md](internal/docs/product-execution-priorities.md) for the
 priority ladder after the immediate first-release gate.
+
+### Review update, 4 October
+
+Main through `d2c9845` includes fail-closed Git-filter discovery (#424), strict
+configuration and executable-token admission (#426), conservative build-input hashing
+(#427), and internal PowerShell helpers in product source identity (#428).
+The build-input repair does not yet prove that inputs stayed unchanged during the
+build or test: an independent review reproduced a successful compile followed by a
+source edit before stamping, with the new invalid source incorrectly reported fresh
+(#400). That acceptance item remains open.
+
+The current change rebuilds #414 on that main: explicit empty or invalid build targets
+are refused before effects and cannot carry full-build proof (#394). Workspace Git
+containment/Stop (#420/#423) and repository explanation qualification (#413) are still
+unmerged; their old branch CI does not qualify the current integration tree.
+Static coverage expansion (#401) and the capability/evidence ledger (#417) remain open.
+Physical offline qualification remains open independently of these code repairs.
 
 ## Direction and public path
 
@@ -317,12 +334,14 @@ supports:
   the last verified GitHub read, `main` was unprotected and no active required-status-check
   ruleset existed. The checker can prove configuration after an owner applies it; it does
   not possess repository-admin authority itself.
-- **Real-model coding is measured, not yet demonstrated.** Every source-changing journey
+- **Real-model coding has bounded configuration-specific evidence.** Every source-changing journey
   is exercised end to end with real git, CMake and CTest and scripted workers. CI now also
   drives `build it -> fix it -> /apply` with a real Qwen3-1.7B on CPU through the native
   endpoint: the first runs observed the failure and reported the unfixed candidate truthfully
-  as FAILED; no real model has yet produced a verified fix. The Session Hub's "candidate
-  ready, not applied" presentation is still open. Candidate verification belongs to the candidate tree; `/apply` claims it for
+  as FAILED. Separately, the recorded physical GPU 30B run solved J08/J10/J11/J12
+  3/3 each (#293); that small sample does not qualify other models, repositories or
+  offline operation. Candidate-ready presentation was repaired (#236/#385), but is
+  distinct from applied-checkout proof. Candidate verification belongs to the candidate tree; `/apply` claims it for
   the checkout only when the checkout's source then equals the candidate tree exactly.
 - **Push, Watch creation and richer automation remain later product work.**
 

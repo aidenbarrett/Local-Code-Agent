@@ -363,15 +363,13 @@ def test_every_honest_workflow_is_accepted(tmp_path):
     assert len(accepted) == 12
 
 
-def test_explicitly_false_arguments_do_not_narrow_anything(tmp_path):
+def test_explicitly_false_test_arguments_do_not_narrow_anything(tmp_path):
     """The sharpest false-negative candidate in the classifier.
 
-    A model that sends `rerun_failed: false` or `target: ""` has asked for the
-    full thing. The tools agree: `if target:` and `if rerun_failed:` mean the
-    command carries no `--target` and no `--rerun-failed`. So the classifier
-    must read truthiness too. Testing membership instead (`"rerun_failed" in
-    arguments`) would reject a full suite for the crime of mentioning the
-    parameter, and Qwen-class models fill in defaults constantly.
+    A model that sends `rerun_failed: false` has asked for the full test suite.
+    Testing membership instead (`"rerun_failed" in arguments`) would reject a
+    full suite for the crime of mentioning the parameter, and Qwen-class
+    models fill in defaults constantly.
     """
     from local_agent.verification import ProofKind, classify_proof
 
@@ -382,9 +380,18 @@ def test_explicitly_false_arguments_do_not_narrow_anything(tmp_path):
         assert classify_proof(name="run_test", arguments=args, execution="ok",
                               domain="pass", evidence=full) is ProofKind.FULL_TEST_PASS, args
 
-    for args in ({}, {"target": ""}, {"target": None}, {"profile": "release"}):
+    for args in ({}, {"profile": "release"}):
         assert classify_proof(name="build_target", arguments=args, execution="ok",
                               domain="pass", evidence={}) is ProofKind.FULL_BUILD_PASS, args
+
+    for args in ({"target": None}, {"target": ""}, {"target": " \t"},
+                 {"target": "bad target"}):
+        assert classify_proof(name="build_target", arguments=args, execution="ok",
+                              domain="pass", evidence={}) is ProofKind.NO_CURRENT_PROOF, args
+
+    for args in ({"target": "sandbox"}, {"target": "test-ring_buffer.1"}):
+        assert classify_proof(name="build_target", arguments=args, execution="ok",
+                              domain="pass", evidence={}) is ProofKind.TARGETED_BUILD_PASS, args
 
     # And the real narrowings still narrow.
     for args in ({"rerun_failed": True}, {"name_filter": "ring"}):
