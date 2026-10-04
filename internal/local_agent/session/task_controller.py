@@ -522,6 +522,9 @@ class TaskController:
             )
             settled = True
             metrics["candidate"] = outcome.as_metrics(workspace)
+            if outcome.refused:
+                # Whatever the build said, there is no change the user can take.
+                task_outcome, verified, reason_code = TaskOutcome.BLOCKED, False, "policy_denied"
             history = list(run.state.history)
             if check is not None:
                 history += check.state.history
