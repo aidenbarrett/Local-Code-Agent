@@ -12,6 +12,11 @@ _HASHED = (
     ("internal/local_agent", "*.py"),
     ("internal/serving", "*.py"),
     ("internal/scripts", "*.py"),
+    # PowerShell launch, runtime-location, and workstation bootstrap helpers are
+    # executable product inputs too. Keep this recursive boundary broad so a new
+    # live helper cannot evade identity merely by being added in another internal
+    # subdirectory.
+    ("internal", "*.ps1"),
     ("internal/skills", "*"),
     ("internal/docs/session-contract/v1", "*.json"),
     ("internal/ui", "*"),
