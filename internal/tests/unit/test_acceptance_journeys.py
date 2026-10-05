@@ -25,7 +25,8 @@ SPEC.loader.exec_module(journeys)
 DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambiguous", "J05-stop-build",
                  "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree", "J15b-rename-binary",
                  "J16-malformed-calls", "J17-branch-review", "J19-test-truth", "J19b-test-policy",
-                 "J20-conflict-explain", "J21-exact-commit", "J21b-commit-policy"]
+                 "J20-conflict-explain", "J21-exact-commit", "J21b-commit-policy",
+                 "J22-repo-explain"]
 
 
 def _report(output: Path) -> dict[str, dict[str, object]]:
@@ -115,7 +116,7 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert by_id["J08-fix-build"]["status"] == "UNKNOWN"
     assert "--allow-model" in by_id["J08-fix-build"]["reason"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "Product   PASS 16 / FAIL 0" in summary
+    assert "Product   PASS 17 / FAIL 0" in summary
     assert "Model     not used" in summary
 
     report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))
@@ -606,3 +607,42 @@ def test_exact_commit_journey_fails_when_the_unrelated_staged_entry_is_lost(tmp_
     out = tmp_path / "acc"
     assert journeys.main(["--output", str(out), "--only", "J21-exact-commit"]) == 1
     assert "changed the unrelated staged entry" in _report(out)["J21-exact-commit"]["reason"]
+
+
+def test_repo_explanation_fails_when_the_answer_names_a_file_that_does_not_exist(tmp_path, monkeypatch):
+    original_turn = journeys.Session.turn
+
+    def invent(session, text, **kwargs):
+        answer, result = original_turn(session, text, **kwargs)
+        if text == "explain this repository":
+            answer += " The core logic lives in src/imaginary_engine.cpp."
+        return answer, result
+
+    monkeypatch.setattr(journeys.Session, "turn", invent)
+    _skip_redundant_fixture_probe(monkeypatch)
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J22-repo-explain"]) == 1
+    assert "src/imaginary_engine.cpp" in _report(out)["J22-repo-explain"]["reason"]
+
+
+def test_repo_explanation_fails_when_a_configured_command_is_omitted(tmp_path, monkeypatch):
+    original_turn = journeys.Session.turn
+
+    def drop_test(session, text, **kwargs):
+        answer, result = original_turn(session, text, **kwargs)
+        return answer.split(" Test:")[0], result
+
+    monkeypatch.setattr(journeys.Session, "turn", drop_test)
+    _skip_redundant_fixture_probe(monkeypatch)
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J22-repo-explain"]) == 1
+    assert "omitted the configured command" in _report(out)["J22-repo-explain"]["reason"]
+
+
+def test_invented_paths_accepts_real_files_and_bare_names_and_flags_the_rest(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "real.cpp").write_text("x", encoding="utf-8")
+    (tmp_path / "CMakeLists.txt").write_text("x", encoding="utf-8")
+    answer = ("See src/real.cpp and real.cpp; config in CMakeLists.txt; "
+              "also src/fake.cpp, gone.hpp and https://example.com/a.md")
+    assert journeys.invented_paths(answer, tmp_path) == ["gone.hpp", "src/fake.cpp"]
