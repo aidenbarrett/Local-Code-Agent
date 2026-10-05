@@ -96,7 +96,9 @@ jobs:
           path: ci-job-evidence.json
           if-no-files-found: error
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        # This suite includes an integration regression that invokes the real pinned
+        # mypy/Ruff gate against temporary copies of every live Python root.
+        run: python -m pip install -e ".[dev,lint]"
       - name: Authoritative test suite
         # The slowest tests are listed so a suite drifting toward the job timeout is
         # visible before it goes red (Windows runs near 35 of its 45 minutes).
@@ -151,7 +153,8 @@ jobs:
           path: ci-job-evidence.json
           if-no-files-found: error
       - name: Install
-        run: python -m pip install -e ".[coverage]"
+        # Coverage collects the same suite, including the real static-gate regression.
+        run: python -m pip install -e ".[coverage,lint]"
       - name: Measure coverage
         run: python -m pytest -q --cov --cov-report=xml --cov-report=term-missing:skip-covered --junitxml=pytest-junit.xml
       - name: Annotate failed tests

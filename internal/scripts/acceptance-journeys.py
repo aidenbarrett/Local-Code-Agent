@@ -832,7 +832,10 @@ def j_repo_explain(s: Session) -> None:
         missing = invented_paths(answer, s.repo)
         expect(not missing, f"{question!r}: the answer named files that do not exist: {missing}")
         for command in configured_commands(s.repo):
-            expect(command in answer, f"{question!r}: the answer omitted the configured command {command!r}")
+            expect(
+                command in answer,
+                f"{question!r}: the answer omitted the configured command {command!r}",
+            )
     expect(_git(s.repo, "status", "--porcelain=v1") == before, "explaining changed the repository")
     s.journey.passed("named only existing files and every configured configure/build/test "
                      "command; repository unchanged")
@@ -1276,7 +1279,9 @@ def j_questions(s: Session) -> None:
     if invented:
         s.journey.measured_as("ungrounded", f"named files that do not exist: {invented}")
     else:
-        s.journey.measured_as("answered", "every file the answers named exists; read them in the transcript")
+        s.journey.measured_as(
+            "answered", "every file the answers named exists; read them in the transcript"
+        )
 
 
 def r_questions(s: Session) -> None:
@@ -1287,12 +1292,20 @@ def r_questions(s: Session) -> None:
         answer, _ = s.turn(question)
         s.journey.measured[question] = answer[:800]
         invented += invented_paths(answer, s.repo)
-    expect(_git(s.repo, "status", "--porcelain=v1") == before, "answering questions changed the repository")
+    expect(
+        _git(s.repo, "status", "--porcelain=v1") == before,
+        "answering questions changed the repository",
+    )
     s.journey.measured["invented_paths"] = invented
     if invented:
-        s.journey.measured_as("ungrounded", f"named files that do not exist: {invented}; repository unchanged")
+        s.journey.measured_as(
+            "ungrounded",
+            f"named files that do not exist: {invented}; repository unchanged",
+        )
     else:
-        s.journey.measured_as("answered", "every file the answers named exists; repository unchanged")
+        s.journey.measured_as(
+            "answered", "every file the answers named exists; repository unchanged"
+        )
 
 
 def r_build(s: Session) -> None:

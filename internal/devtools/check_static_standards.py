@@ -28,6 +28,13 @@ from typing import Final
 BASELINE_SCHEMA: Final = "lca.static-standards-baseline/1"
 BASELINE_PATH: Final = PurePosixPath("internal/static-standards-baseline.json")
 MYPY_PLATFORMS: Final = ("linux", "win32")
+STATIC_ROOTS: Final = (
+    "internal/local_agent",
+    "internal/devtools",
+    "internal/serving",
+    "internal/scripts",
+    "internal/terminal_ui.py",
+)
 
 # (checker, posix path, code) -> count
 FindingKey = tuple[str, str, str]
@@ -113,12 +120,16 @@ def _run(command: list[str], root: Path) -> subprocess.CompletedProcess[str]:
 def measure(root: Path, mypy: list[str], ruff: list[str]) -> Counter[FindingKey]:
     counts: Counter[FindingKey] = Counter()
     for platform in MYPY_PLATFORMS:
-        done = _run([*mypy, "--platform", platform, "--output", "json", "--no-incremental"], root)
+        done = _run([
+            *mypy, "--platform", platform, "--output", "json", "--no-incremental", *STATIC_ROOTS,
+        ], root)
         # mypy exits 1 when it reports findings and 2 when it could not run at all.
         if done.returncode not in (0, 1):
             raise RuntimeError(f"mypy ({platform}) failed to run:\n{done.stderr}{done.stdout}")
         counts.update(parse_mypy_json(done.stdout.splitlines(), platform))
-    done = _run([*ruff, "check", "--no-cache", "--output-format", "json", "--exit-zero"], root)
+    done = _run([
+        *ruff, "check", "--no-cache", "--output-format", "json", "--exit-zero", *STATIC_ROOTS,
+    ], root)
     if done.returncode != 0:
         raise RuntimeError(f"ruff failed to run:\n{done.stderr}")
     counts.update(parse_ruff_json(done.stdout))
