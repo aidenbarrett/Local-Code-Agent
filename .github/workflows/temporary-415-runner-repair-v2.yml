@@ -102,18 +102,23 @@ jobs:
 
 
           def _posix_exit_ready(proc: subprocess.Popen[bytes]) -> bool | None:
-              """Observe exit without reaping the group leader when the OS supports it."""
+              """Observe exit without reaping the group leader when supported."""
               waitid = getattr(os, "waitid", None)
               p_pid = _os_int("P_PID")
               wexited = _os_int("WEXITED")
               wnohang = _os_int("WNOHANG")
               wnowait = _os_int("WNOWAIT")
-              if not callable(waitid) or None in (p_pid, wexited, wnohang, wnowait):
+              if (
+                  not callable(waitid)
+                  or p_pid is None
+                  or wexited is None
+                  or wnohang is None
+                  or wnowait is None
+              ):
                   return None
-              assert p_pid is not None and wexited is not None
-              assert wnohang is not None and wnowait is not None
               try:
-                  return waitid(p_pid, proc.pid, wexited | wnohang | wnowait) is not None
+                  flags = int(wexited) | int(wnohang) | int(wnowait)
+                  return waitid(int(p_pid), proc.pid, flags) is not None
               except ChildProcessError:
                   return None
 
@@ -174,165 +179,173 @@ jobs:
 
 
           ''')
-          wait_context = tree_anchor + dedent('''\
-          @dataclass(frozen=True)
-          class _WaitContext:
-              deadline: float
-              probe: CancellationProbe | None
-              captures: tuple[IO[bytes], IO[bytes]]
-              output_limit: int | None
+          once(
+              tree_anchor,
+              tree_anchor + dedent('''\
+              @dataclass(frozen=True)
+              class _WaitContext:
+                  deadline: float
+                  probe: CancellationProbe | None
+                  captures: tuple[IO[bytes], IO[bytes]]
+                  output_limit: int | None
 
 
-          ''')
-          once(tree_anchor, wait_context, "wait context")
+              '''),
+              "wait context",
+          )
 
           start_sig = dedent('''\
           def _start(spawn: Callable[[bool], subprocess.Popen[bytes]], tree: _Tree,
                      on_spawn: Callable[[], None] | None) -> subprocess.Popen[bytes]:
           ''')
           wait_sig = 'def _wait(proc: subprocess.Popen[bytes], tree: _Tree, deadline: float,\n'
-          new_start = dedent('''\
-          def _start(spawn: Callable[[bool], subprocess.Popen[bytes]], tree: _Tree,
-                     on_spawn: Callable[[], None] | None) -> subprocess.Popen[bytes]:
-              proc = spawn(tree.job is not None)
-              try:
-                  if on_spawn is not None:
-                      on_spawn()
-              except BaseException:
-                  if tree.job is not None:
-                      with contextlib.suppress(OSError):
-                          proc.kill()
-                  else:
-                      _kill_process_tree_best_effort(proc)
-                  _bounded_reap(proc)
-                  raise
-              if tree.job is not None:
+          between(
+              start_sig,
+              wait_sig,
+              dedent('''\
+              def _start(spawn: Callable[[bool], subprocess.Popen[bytes]], tree: _Tree,
+                         on_spawn: Callable[[], None] | None) -> subprocess.Popen[bytes]:
+                  proc = spawn(tree.job is not None)
                   try:
-                      tree.job.adopt_suspended(proc.pid)
-                  except windows_job.JobContainmentError:
+                      if on_spawn is not None:
+                          on_spawn()
+                  except BaseException:
+                      if tree.job is not None:
+                          with contextlib.suppress(OSError):
+                              proc.kill()
+                      else:
+                          _kill_process_tree_best_effort(proc)
                       _bounded_reap(proc)
-                      tree.job.close()
-                      tree.job = None
-                      tree.containment = "visible_tree"
-                      proc = spawn(False)
-              return proc
+                      raise
+                  if tree.job is not None:
+                      try:
+                          tree.job.adopt_suspended(proc.pid)
+                      except windows_job.JobContainmentError:
+                          _bounded_reap(proc)
+                          tree.job.close()
+                          tree.job = None
+                          tree.containment = "visible_tree"
+                          proc = spawn(False)
+                  return proc
 
 
-          ''')
-          between(start_sig, wait_sig, new_start, "start ownership")
+              '''),
+              "start ownership",
+          )
 
-          new_wait = dedent('''\
-          def _wait(
-              proc: subprocess.Popen[bytes], tree: _Tree, context: _WaitContext,
-          ) -> int | None:
-              """Wait while preserving safe POSIX group identity until stray cleanup."""
-              while True:
-                  try:
+          between(
+              wait_sig,
+              'def _end_strays(tree: _Tree) -> None:\n',
+              dedent('''\
+              def _wait(
+                  proc: subprocess.Popen[bytes], tree: _Tree, context: _WaitContext,
+              ) -> int | None:
+                  """Wait while preserving safe POSIX group identity until stray cleanup."""
+                  while True:
+                      try:
+                          _enforce_output_limit(
+                              proc, tree, context.captures, context.output_limit
+                          )
+                          if _probe_requested(context.probe):
+                              tree.cancel_requested = True
+                              tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
+                              _bounded_reap(proc)
+                              return 130
+                      except BaseException:
+                          if proc.poll() is None:
+                              _kill_process_tree_best_effort(proc, tree.job)
+                              _bounded_reap(proc)
+                          raise
+
+                      remaining = context.deadline - time.monotonic()
+                      if remaining <= 0:
+                          tree.timed_out = True
+                          tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
+                          _bounded_reap(proc)
+                          return 124
+
+                      if os.name != "nt":
+                          ready = _posix_exit_ready(proc)
+                          if ready is True:
+                              _enforce_output_limit(
+                                  proc, tree, context.captures, context.output_limit
+                              )
+                              return None
+                          if ready is None:
+                              try:
+                                  code = int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
+                              except subprocess.TimeoutExpired:
+                                  continue
+                              _enforce_output_limit(
+                                  proc, tree, context.captures, context.output_limit
+                              )
+                              tree.strays_unconfirmed = True
+                              return code
+                          time.sleep(min(_CANCEL_POLL_S, remaining))
+                          continue
+
+                      try:
+                          code = int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
+                      except subprocess.TimeoutExpired:
+                          continue
                       _enforce_output_limit(
                           proc, tree, context.captures, context.output_limit
                       )
-                      if _probe_requested(context.probe):
-                          tree.cancel_requested = True
-                          tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
-                          _bounded_reap(proc)
-                          return 130
-                  except BaseException:
-                      if proc.poll() is None:
-                          _kill_process_tree_best_effort(proc, tree.job)
-                          _bounded_reap(proc)
-                      raise
-
-                  remaining = context.deadline - time.monotonic()
-                  if remaining <= 0:
-                      tree.timed_out = True
-                      tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
-                      _bounded_reap(proc)
-                      return 124
-
-                  if os.name != "nt":
-                      ready = _posix_exit_ready(proc)
-                      if ready is True:
-                          _enforce_output_limit(
-                              proc, tree, context.captures, context.output_limit
-                          )
-                          return None
-                      if ready is None:
-                          try:
-                              code = int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
-                          except subprocess.TimeoutExpired:
-                              continue
-                          _enforce_output_limit(
-                              proc, tree, context.captures, context.output_limit
-                          )
-                          tree.strays_unconfirmed = True
-                          return code
-                      time.sleep(min(_CANCEL_POLL_S, remaining))
-                      continue
-
-                  try:
-                      code = int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
-                  except subprocess.TimeoutExpired:
-                      continue
-                  _enforce_output_limit(
-                      proc, tree, context.captures, context.output_limit
-                  )
-                  return code
+                      return code
 
 
-          ''')
-          between(wait_sig, 'def _end_strays(tree: _Tree) -> None:\n', new_wait, "wait loop")
-
-          new_strays = dedent('''\
-          def _end_strays(proc: subprocess.Popen[bytes], tree: _Tree) -> None:
-              """End descendants abandoned by a normally exiting direct child."""
-              if tree.timed_out or tree.cancel_requested:
-                  return
-              if tree.job is not None:
-                  try:
-                      tree.stray_descendants = tree.job.active_processes()
-                  except windows_job.JobContainmentError:
-                      tree.stray_descendants = None
-                  if tree.stray_descendants != 0:
-                      tree.cleanup_confirmed = tree.job.terminate_and_confirm(_STRAY_DRAIN_S)
-                      tree.strays_unconfirmed = not tree.cleanup_confirmed
-                  return
-              if os.name == "nt":
-                  tree.stray_descendants = None
-                  tree.strays_unconfirmed = True
-                  return
-              if tree.strays_unconfirmed:
-                  return
-
-              members = _posix_group_members(proc.pid, proc.pid)
-              tree.stray_descendants = len(members)
-              if not members:
-                  return
-              killpg = getattr(os, "killpg", None)
-              sigkill = getattr(signal, "SIGKILL", None)
-              if callable(killpg) and sigkill is not None:
-                  with contextlib.suppress(ProcessLookupError):
-                      killpg(proc.pid, sigkill)
-              _wait_members_gone(members, _POST_KILL_WAIT_S)
-              # POSIX groups are escapable, so observed cleanup is not proof that every
-              # descendant stayed in the group. Workspace callers fail closed on this.
-              tree.cleanup_confirmed = False
-              tree.strays_unconfirmed = True
-
-
-          ''')
-          between(
-              'def _end_strays(tree: _Tree) -> None:\n',
-              '@dataclass(frozen=True)\nclass OwnedLifecycle:\n', new_strays, "stray cleanup",
+              '''),
+              "wait loop",
           )
 
-          old_run = (
+          between(
+              'def _end_strays(tree: _Tree) -> None:\n',
+              '@dataclass(frozen=True)\nclass OwnedLifecycle:\n',
+              dedent('''\
+              def _end_strays(proc: subprocess.Popen[bytes], tree: _Tree) -> None:
+                  """End descendants abandoned by a normally exiting direct child."""
+                  if tree.timed_out or tree.cancel_requested:
+                      return
+                  if tree.job is not None:
+                      try:
+                          tree.stray_descendants = tree.job.active_processes()
+                      except windows_job.JobContainmentError:
+                          tree.stray_descendants = None
+                      if tree.stray_descendants != 0:
+                          tree.cleanup_confirmed = tree.job.terminate_and_confirm(_STRAY_DRAIN_S)
+                          tree.strays_unconfirmed = not tree.cleanup_confirmed
+                      return
+                  if os.name == "nt":
+                      tree.stray_descendants = None
+                      tree.strays_unconfirmed = True
+                      return
+                  if tree.strays_unconfirmed:
+                      return
+
+                  members = _posix_group_members(proc.pid, proc.pid)
+                  tree.stray_descendants = len(members)
+                  if not members:
+                      return
+                  killpg = getattr(os, "killpg", None)
+                  sigkill = getattr(signal, "SIGKILL", None)
+                  if callable(killpg) and sigkill is not None:
+                      with contextlib.suppress(ProcessLookupError):
+                          killpg(proc.pid, sigkill)
+                  _wait_members_gone(members, _POST_KILL_WAIT_S)
+                  tree.cleanup_confirmed = False
+                  tree.strays_unconfirmed = True
+
+
+              '''),
+              "stray cleanup",
+          )
+
+          once(
               '            proc = _start(spawn, tree, lifecycle.on_spawn)\n'
               '            code = _wait(proc, tree, started + lifecycle.timeout_s, lifecycle.cancellation_probe)\n'
               '            _end_strays(tree)\n'
               '            stdout = _snapshot_bytes(stdout_capture, lifecycle.output_limit)\n'
-              '            stderr = _snapshot_bytes(stderr_capture, lifecycle.output_limit)\n'
-          )
-          new_run = (
+              '            stderr = _snapshot_bytes(stderr_capture, lifecycle.output_limit)\n',
               '            proc = _start(spawn, tree, lifecycle.on_spawn)\n'
               '            captures = (stdout_capture, stderr_capture)\n'
               '            wait = _WaitContext(\n'
@@ -344,9 +357,9 @@ jobs:
               '            if code is None:\n'
               '                code = int(proc.wait(timeout=_POST_KILL_FORCE_WAIT_S))\n'
               '            stdout = _snapshot_bytes(stdout_capture)\n'
-              '            stderr = _snapshot_bytes(stderr_capture)\n'
+              '            stderr = _snapshot_bytes(stderr_capture)\n',
+              "run_owned lifecycle",
           )
-          once(old_run, new_run, "run_owned lifecycle")
           once(
               '    output_limit: int | None = None\n',
               '    # Aggregate stdout + stderr execution bound, checked while running.\n'
@@ -361,8 +374,9 @@ jobs:
           python -m compileall -q internal/local_agent/tools internal/tests/unit/test_owned_process_runner.py
       - name: Install focused dependencies
         run: python -m pip install -e ".[dev,lint]"
-      - name: Lower static baseline only if there are no regressions
+      - name: Show static drift and lower only improvements
         run: |
+          python internal/devtools/check_static_standards.py || true
           python internal/devtools/check_static_standards.py --update
           python internal/devtools/check_static_standards.py
       - name: Run owned-runner adversarial tests
