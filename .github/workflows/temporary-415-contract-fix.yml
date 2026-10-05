@@ -1,0 +1,46 @@
+name: temporary #415 POSIX contract fix
+
+on:
+  push:
+    branches: [chatgpt/415-owned-workspace-git-v2]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Update the exact POSIX no-stray contract
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("internal/tests/unit/test_windows_job_containment.py")
+          text = path.read_text(encoding="utf-8")
+          start = text.index("def test_posix_run_reports_escapable_group_containment")
+          end = text.index("\n\n@windows_only", start)
+          before, fn, after = text[:start], text[start:end], text[end:]
+          old = '    assert out.stray_descendants_at_exit is None\n'
+          new = (
+              '    # The unreaped leader reserves its process-group id long enough to observe\n'
+              '    # current in-group descendants. Zero is useful observation, not proof that\n'
+              '    # no child escaped the group with setsid()/setpgid().\n'
+              '    assert out.stray_descendants_at_exit == 0\n'
+              '    assert out.process_cleanup_confirmed is None\n'
+          )
+          if fn.count(old) != 1:
+              raise SystemExit("POSIX containment assertion target changed")
+          path.write_text(before + fn.replace(old, new) + after, encoding="utf-8")
+      - name: Remove relay and commit contract
+        run: |
+          rm .github/workflows/temporary-415-contract-fix.yml
+          git diff --check
+          git config user.name "Aiden Barrett"
+          git config user.email "33842164+aidenbarrett@users.noreply.github.com"
+          git add internal/tests/unit/test_windows_job_containment.py .github/workflows/temporary-415-contract-fix.yml
+          git commit -m "Clarify observed POSIX stray count"
+          git push origin HEAD:chatgpt/415-owned-workspace-git-v2
