@@ -873,9 +873,7 @@
    "internal/local_agent/tools/process_runner.py": {
     "FBT001": 1,
     "N818": 1,
-    "PLR0912": 1,
     "PLR0913": 1,
-    "PLR0915": 1,
     "S603": 1
    },
    "internal/local_agent/tools/search.py": {
@@ -1084,5 +1082,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1464
+ "total": 1462
 }

@@ -185,7 +185,18 @@ class CommandSpawnError(RuntimeError):
 
 
 class CommandOutputLimitError(RuntimeError):
-    """The command wrote more than the caller agreed to read; its output is not evidence."""
+    """Aggregate command output crossed the execution bound."""
+
+    def __init__(
+        self, observed_bytes: int, limit: int, *, cleanup_confirmed: bool | None,
+    ) -> None:
+        self.observed_bytes = observed_bytes
+        self.limit = limit
+        self.cleanup_confirmed = cleanup_confirmed
+        super().__init__(
+            f"command wrote {observed_bytes} aggregate bytes, over the {limit}-byte "
+            f"limit; process-tree cleanup confirmed={cleanup_confirmed}"
+        )
 
 
 @dataclass(frozen=True)
@@ -206,15 +217,97 @@ class OwnedRun:
     strays_unconfirmed: bool
 
 
-def _snapshot_bytes(capture: IO[bytes], limit: int | None) -> bytes:
+def _snapshot_bytes(capture: IO[bytes]) -> bytes:
     """Read a fixed-length snapshot without moving an inherited file offset."""
     size = os.fstat(capture.fileno()).st_size
-    if limit is not None and size > limit:
-        raise CommandOutputLimitError(f"command wrote {size} bytes, over the {limit}-byte limit")
     if size == 0:
         return b""
     with mmap.mmap(capture.fileno(), length=size, access=mmap.ACCESS_READ) as view:
         return view[:]
+
+
+def _capture_size(captures: tuple[IO[bytes], IO[bytes]]) -> int:
+    return sum(os.fstat(capture.fileno()).st_size for capture in captures)
+
+
+def _enforce_output_limit(
+    proc: subprocess.Popen[bytes],
+    tree: _Tree,
+    captures: tuple[IO[bytes], IO[bytes]],
+    limit: int | None,
+) -> None:
+    if limit is None:
+        return
+    observed = _capture_size(captures)
+    if observed <= limit:
+        return
+    tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
+    _bounded_reap(proc)
+    raise CommandOutputLimitError(
+        observed, limit, cleanup_confirmed=tree.cleanup_confirmed
+    )
+
+
+def _os_int(name: str) -> int | None:
+    value = getattr(os, name, None)
+    return value if isinstance(value, int) else None
+
+
+def _posix_exit_ready(proc: subprocess.Popen[bytes]) -> bool | None:
+    """Observe exit without reaping the group leader when supported."""
+    waitid = getattr(os, "waitid", None)
+    p_pid = _os_int("P_PID")
+    wexited = _os_int("WEXITED")
+    wnohang = _os_int("WNOHANG")
+    wnowait = _os_int("WNOWAIT")
+    if (
+        not callable(waitid)
+        or p_pid is None
+        or wexited is None
+        or wnohang is None
+        or wnowait is None
+    ):
+        return None
+    try:
+        flags = int(wexited) | int(wnohang) | int(wnowait)
+        return waitid(int(p_pid), proc.pid, flags) is not None
+    except ChildProcessError:
+        return None
+
+
+def _posix_group_members(pgid: int, leader_pid: int) -> tuple[int, ...]:
+    getpgid = getattr(os, "getpgid", None)
+    if not callable(getpgid):
+        return ()
+    members: list[int] = []
+    for process in psutil.process_iter(["pid", "status"]):
+        if process.pid == leader_pid:
+            continue
+        try:
+            if getpgid(process.pid) == pgid and process.status() != psutil.STATUS_ZOMBIE:
+                members.append(process.pid)
+        except (OSError, psutil.Error):
+            continue
+    return tuple(members)
+
+
+def _wait_members_gone(pids: tuple[int, ...], timeout_s: float) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while True:
+        alive: list[int] = []
+        for pid in pids:
+            try:
+                if psutil.Process(pid).status() != psutil.STATUS_ZOMBIE:
+                    alive.append(pid)
+            except psutil.NoSuchProcess:
+                continue
+            except psutil.Error:
+                alive.append(pid)
+        if not alive:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(_CANCEL_POLL_S)
 
 
 @dataclass
@@ -228,6 +321,14 @@ class _Tree:
     cleanup_confirmed: bool | None = None
     stray_descendants: int | None = None
     strays_unconfirmed: bool = False
+
+
+@dataclass(frozen=True)
+class _WaitContext:
+    deadline: float
+    probe: CancellationProbe | None
+    captures: tuple[IO[bytes], IO[bytes]]
+    output_limit: int | None
 
 
 def _open_tree() -> _Tree:
@@ -247,16 +348,21 @@ def _open_tree() -> _Tree:
 def _start(spawn: Callable[[bool], subprocess.Popen[bytes]], tree: _Tree,
            on_spawn: Callable[[], None] | None) -> subprocess.Popen[bytes]:
     proc = spawn(tree.job is not None)
-    if on_spawn is not None:
-        # From here a process has existed, so cleanup is a real question.
-        on_spawn()
+    try:
+        if on_spawn is not None:
+            on_spawn()
+    except BaseException:
+        if tree.job is not None:
+            with contextlib.suppress(OSError):
+                proc.kill()
+        else:
+            _kill_process_tree_best_effort(proc)
+        _bounded_reap(proc)
+        raise
     if tree.job is not None:
         try:
             tree.job.adopt_suspended(proc.pid)
         except windows_job.JobContainmentError:
-            # adopt_suspended already terminated the suspended child, which never
-            # executed an instruction, so running the command again is not a
-            # replayed effect. Without a job, cleanup can no longer be proven.
             _bounded_reap(proc)
             tree.job.close()
             tree.job = None
@@ -265,51 +371,95 @@ def _start(spawn: Callable[[bool], subprocess.Popen[bytes]], tree: _Tree,
     return proc
 
 
-def _wait(proc: subprocess.Popen[bytes], tree: _Tree, deadline: float,
-          probe: CancellationProbe | None) -> int:
+def _wait(
+    proc: subprocess.Popen[bytes], tree: _Tree, context: _WaitContext,
+) -> int | None:
+    """Wait while preserving safe POSIX group identity until stray cleanup."""
     while True:
         try:
-            if _probe_requested(probe):
+            _enforce_output_limit(
+                proc, tree, context.captures, context.output_limit
+            )
+            if _probe_requested(context.probe):
                 tree.cancel_requested = True
                 tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
                 _bounded_reap(proc)
                 return 130
         except BaseException:
-            # A broken cancellation source must not strand a child process.
-            _kill_process_tree_best_effort(proc, tree.job)
-            _bounded_reap(proc)
+            if proc.poll() is None:
+                _kill_process_tree_best_effort(proc, tree.job)
+                _bounded_reap(proc)
             raise
 
-        remaining = deadline - time.monotonic()
+        remaining = context.deadline - time.monotonic()
         if remaining <= 0:
             tree.timed_out = True
             tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
             _bounded_reap(proc)
             return 124
-        try:
-            return int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
-        except subprocess.TimeoutExpired:
+
+        if os.name != "nt":
+            ready = _posix_exit_ready(proc)
+            if ready is True:
+                _enforce_output_limit(
+                    proc, tree, context.captures, context.output_limit
+                )
+                return None
+            if ready is None:
+                try:
+                    code = int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
+                except subprocess.TimeoutExpired:
+                    continue
+                _enforce_output_limit(
+                    proc, tree, context.captures, context.output_limit
+                )
+                tree.strays_unconfirmed = True
+                return code
+            time.sleep(min(_CANCEL_POLL_S, remaining))
             continue
 
+        try:
+            code = int(proc.wait(timeout=min(_CANCEL_POLL_S, remaining)))
+        except subprocess.TimeoutExpired:
+            continue
+        _enforce_output_limit(
+            proc, tree, context.captures, context.output_limit
+        )
+        return code
 
-def _end_strays(tree: _Tree) -> None:
-    """End descendants a normally exiting command abandoned inside its job."""
-    if tree.job is None or tree.timed_out or tree.cancel_requested:
+
+def _end_strays(proc: subprocess.Popen[bytes], tree: _Tree) -> None:
+    """End descendants abandoned by a normally exiting direct child."""
+    if tree.timed_out or tree.cancel_requested:
         return
-    # The direct child is gone. Anything left in the job is a descendant it
-    # abandoned; it may still hold the captures open, so end it now rather
-    # than let it outlive the result.
-    try:
-        tree.stray_descendants = tree.job.active_processes()
-    except windows_job.JobContainmentError:
+    if tree.job is not None:
+        try:
+            tree.stray_descendants = tree.job.active_processes()
+        except windows_job.JobContainmentError:
+            tree.stray_descendants = None
+        if tree.stray_descendants != 0:
+            tree.cleanup_confirmed = tree.job.terminate_and_confirm(_STRAY_DRAIN_S)
+            tree.strays_unconfirmed = not tree.cleanup_confirmed
+        return
+    if os.name == "nt":
         tree.stray_descendants = None
-    if tree.stray_descendants != 0:
-        # Confirmed only by the job's own accounting reaching zero. On a
-        # loaded machine that can take longer than a kill after a timeout
-        # is allowed, and the result used to be ignored: the run then
-        # reported job containment with the descendant still running.
-        tree.cleanup_confirmed = tree.job.terminate_and_confirm(_STRAY_DRAIN_S)
-        tree.strays_unconfirmed = not tree.cleanup_confirmed
+        tree.strays_unconfirmed = True
+        return
+    if tree.strays_unconfirmed:
+        return
+
+    members = _posix_group_members(proc.pid, proc.pid)
+    tree.stray_descendants = len(members)
+    if not members:
+        return
+    killpg = getattr(os, "killpg", None)
+    sigkill = getattr(signal, "SIGKILL", None)
+    if callable(killpg) and sigkill is not None:
+        with contextlib.suppress(ProcessLookupError):
+            killpg(proc.pid, sigkill)
+    _wait_members_gone(members, _POST_KILL_WAIT_S)
+    tree.cleanup_confirmed = False
+    tree.strays_unconfirmed = True
 
 
 @dataclass(frozen=True)
@@ -319,6 +469,7 @@ class OwnedLifecycle:
     timeout_s: float
     cancellation_probe: CancellationProbe | None = None
     on_spawn: Callable[[], None] | None = None
+    # Aggregate stdout + stderr execution bound, checked while running.
     output_limit: int | None = None
 
 
@@ -377,10 +528,17 @@ def run_owned(
                 )
 
             proc = _start(spawn, tree, lifecycle.on_spawn)
-            code = _wait(proc, tree, started + lifecycle.timeout_s, lifecycle.cancellation_probe)
-            _end_strays(tree)
-            stdout = _snapshot_bytes(stdout_capture, lifecycle.output_limit)
-            stderr = _snapshot_bytes(stderr_capture, lifecycle.output_limit)
+            captures = (stdout_capture, stderr_capture)
+            wait = _WaitContext(
+                started + lifecycle.timeout_s, lifecycle.cancellation_probe,
+                captures, lifecycle.output_limit,
+            )
+            code = _wait(proc, tree, wait)
+            _end_strays(proc, tree)
+            if code is None:
+                code = int(proc.wait(timeout=_POST_KILL_FORCE_WAIT_S))
+            stdout = _snapshot_bytes(stdout_capture)
+            stderr = _snapshot_bytes(stderr_capture)
     except OSError as exc:
         raise CommandSpawnError(
             f"could not start {exe!r}: {exc.strerror or exc}", missing_executable=False
