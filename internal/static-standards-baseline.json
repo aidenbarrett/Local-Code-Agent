@@ -842,8 +842,7 @@
    "internal/local_agent/session/workspaces.py": {
     "C416": 3,
     "PLR0911": 1,
-    "RUF022": 1,
-    "S603": 1
+    "RUF022": 1
    },
    "internal/local_agent/tools/__init__.py": {
     "RUF022": 1
@@ -1082,5 +1081,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1462
+ "total": 1461
 }

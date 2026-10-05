@@ -42,10 +42,17 @@ from uuid import UUID, uuid4
 
 import psutil
 
+from ..tools.process_runner import (
+    CommandOutputLimitError,
+    CommandSpawnError,
+    OwnedLifecycle,
+    run_owned,
+)
 from ..tools.tool_primitives import SandboxError, resolve_in_repo
 from .commit_index_hook import hook_environment, install_post_commit_hook, prepare_transaction
 
 _GIT_TIMEOUT_S = 300
+_GIT_OUTPUT_LIMIT = 256 * 1024 * 1024
 # Untracked files above this size stay out of the candidate base and are reported. The
 # base commit's objects are written to the user's object store; a stray dataset or
 # binary must not bloat it.
@@ -313,17 +320,28 @@ class GitWorkspaceManager:
             *args,
         ]
         try:
-            done = subprocess.run(
+            run = run_owned(
                 argv,
-                cwd=str(cwd),
+                cwd,
+                OwnedLifecycle(_GIT_TIMEOUT_S, output_limit=_GIT_OUTPUT_LIMIT),
                 env=env,
-                input=stdin,
-                capture_output=True,
-                timeout=_GIT_TIMEOUT_S,
-                check=False,
+                stdin=stdin,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except (CommandSpawnError, CommandOutputLimitError) as exc:
             raise WorkspaceError(f"git {args[0]} could not run: {exc}") from exc
+        if run.timed_out:
+            cleanup = {True: "yes", False: "no", None: "not needed"}[
+                run.cleanup_confirmed
+            ]
+            raise WorkspaceError(
+                f"git {args[0]} did not finish within {_GIT_TIMEOUT_S} s and was ended "
+                f"(process-tree cleanup confirmed: {cleanup})"
+            )
+        if run.strays_unconfirmed:
+            raise WorkspaceError(
+                f"git {args[0]} exited but descendant cleanup could not be proven"
+            )
+        done = subprocess.CompletedProcess(argv, run.exit_code, run.stdout, run.stderr)
         if check and done.returncode != 0:
             message = done.stderr.decode("utf-8", "replace").strip()
             raise WorkspaceError(f"git {args[0]} failed ({done.returncode}): {message}")
