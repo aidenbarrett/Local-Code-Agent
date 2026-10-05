@@ -53,7 +53,13 @@ addopts = "-q"
 # internal/static-standards-baseline.json: no file may gain a finding, new files start clean.
 [tool.mypy]
 python_version = "3.11"
-files = ["internal/local_agent", "internal/devtools"]
+files = [
+    "internal/local_agent",
+    "internal/devtools",
+    "internal/serving",
+    "internal/scripts",
+    "internal/terminal_ui.py",
+]
 mypy_path = "internal"
 explicit_package_bases = true
 strict = true
@@ -80,7 +86,13 @@ ignore_missing_imports = true
 target-version = "py311"
 line-length = 100
 src = ["internal"]
-include = ["internal/local_agent/**/*.py", "internal/devtools/**/*.py"]
+include = [
+    "internal/local_agent/**/*.py",
+    "internal/devtools/**/*.py",
+    "internal/serving/**/*.py",
+    "internal/scripts/**/*.py",
+    "internal/terminal_ui.py",
+]
 
 [tool.ruff.lint]
 select = [

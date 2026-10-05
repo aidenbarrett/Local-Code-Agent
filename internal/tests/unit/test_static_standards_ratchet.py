@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import json
+import shutil
+import sys
 from pathlib import Path
 
 import pytest
 
 from devtools.check_static_standards import (
     BASELINE_SCHEMA,
+    STATIC_ROOTS,
     compare,
     dump_baseline,
     load_baseline,
     lowered,
+    main,
+    measure,
     parse_mypy_json,
     parse_ruff_json,
 )
@@ -125,3 +130,55 @@ def test_the_recorded_baseline_is_well_formed() -> None:
     assert all(checker in {"mypy-linux", "mypy-win32", "ruff"} for checker, _, _ in counts)
     # The gate itself is held to the standard it enforces.
     assert not any(file.startswith("internal/devtools/check_static_standards") for _, file, _ in counts)
+
+
+@pytest.mark.parametrize("root", STATIC_ROOTS)
+def test_every_static_root_is_explicitly_checked(root: str) -> None:
+    """Serving and launcher files cannot evade the gate through include globs."""
+    assert root in {
+        "internal/local_agent",
+        "internal/devtools",
+        "internal/serving",
+        "internal/scripts",
+        "internal/terminal_ui.py",
+    }
+
+
+def test_known_finding_in_each_static_root_reaches_the_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A live root cannot disappear behind checker-default discovery or include globs."""
+    repository = Path(__file__).resolve().parents[3]
+    shutil.copy2(repository / "pyproject.toml", tmp_path / "pyproject.toml")
+    expected: set[str] = set()
+    for root in STATIC_ROOTS:
+        path = tmp_path / root
+        if path.suffix == ".py":
+            path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+            path /= "injected_static_finding.py"
+        path.write_text("import os\n", encoding="utf-8")
+        expected.add(path.relative_to(tmp_path).as_posix())
+
+    monkeypatch.chdir(tmp_path)
+    counts = measure(
+        tmp_path,
+        [sys.executable, "-m", "mypy"],
+        [sys.executable, "-m", "ruff"],
+    )
+
+    found = {file for checker, file, code in counts if checker == "ruff" and code == "F401"}
+    assert found == expected
+
+    baseline = tmp_path / "internal" / "static-standards-baseline.json"
+    baseline.parent.mkdir(parents=True, exist_ok=True)
+    baseline.write_text(dump_baseline({}), encoding="utf-8")
+    assert main([
+        "--root", str(tmp_path),
+    ]) == 1
+    output = capsys.readouterr()
+    assert "New static-standard findings" in output.err
+    assert all(path in output.err for path in expected)
