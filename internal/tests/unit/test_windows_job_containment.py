@@ -71,7 +71,11 @@ def test_posix_run_reports_escapable_group_containment(tmp_path):
     out = run_command([sys.executable, "-c", "print('ok')"], tmp_path, tmp_path / "runs", 10)
     assert out.ok
     assert out.containment == "process_group"
-    assert out.stray_descendants_at_exit is None
+    # The unreaped leader reserves its process-group id long enough to observe
+    # current in-group descendants. Zero is useful observation, not proof that
+    # no child escaped the group with setsid()/setpgid().
+    assert out.stray_descendants_at_exit == 0
+    assert out.process_cleanup_confirmed is None
     assert "containment=process_group" in (out.stdout_path.parent / "command.txt").read_text(
         encoding="utf-8"
     )
