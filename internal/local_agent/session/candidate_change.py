@@ -566,6 +566,18 @@ def commit_candidate(
     done = manager.commit_applied(referent, declared.root, message)
     facts = _commit_facts(referent, done)
     match done:
+        case Committed(
+            commit=commit, branch=branch, paths=paths, index_left=index_left
+        ) if index_left:
+            return TaskResult(
+                task_id, TaskOutcome.NO_VERDICT,
+                f"Committed the exact change from task {referent} as {commit[:12]} on "
+                f"{branch}, but Git index reconciliation is incomplete for: "
+                + ", ".join(index_left)
+                + ". Inspect git status before continuing. Nothing was pushed.",
+                False, metrics={"candidate_commit": facts},
+                verification_ran=True, reason_code="verification_failed",
+            )
         case Committed(commit=commit, branch=branch, paths=paths):
             return TaskResult(
                 task_id, TaskOutcome.PASS,
