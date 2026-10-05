@@ -1,0 +1,125 @@
+name: temporary #415 workspace integration
+
+on:
+  push:
+    branches: [chatgpt/415-owned-workspace-git-v2]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Wire current workspace Git into owned runner
+        shell: python
+        run: |
+          from pathlib import Path
+          from textwrap import dedent
+
+          path = Path("internal/local_agent/session/workspaces.py")
+          text = path.read_text(encoding="utf-8")
+
+          old_import = "from ..tools.tool_primitives import SandboxError, resolve_in_repo\n"
+          new_import = dedent('''\
+          from ..tools.process_runner import (
+              CommandOutputLimitError,
+              CommandSpawnError,
+              OwnedLifecycle,
+              run_owned,
+          )
+          from ..tools.tool_primitives import SandboxError, resolve_in_repo
+          ''')
+          if text.count(old_import) != 1:
+              raise SystemExit("workspace import target changed")
+          text = text.replace(old_import, new_import)
+
+          old_constant = "_GIT_TIMEOUT_S = 300\n"
+          new_constant = (
+              "_GIT_TIMEOUT_S = 300\n"
+              "_GIT_OUTPUT_LIMIT = 256 * 1024 * 1024\n"
+          )
+          if text.count(old_constant) != 1:
+              raise SystemExit("git timeout constant target changed")
+          text = text.replace(old_constant, new_constant)
+
+          old_run = dedent('''\
+                  try:
+                      done = subprocess.run(
+                          argv,
+                          cwd=str(cwd),
+                          env=env,
+                          input=stdin,
+                          capture_output=True,
+                          timeout=_GIT_TIMEOUT_S,
+                          check=False,
+                      )
+                  except (OSError, subprocess.TimeoutExpired) as exc:
+                      raise WorkspaceError(f"git {args[0]} could not run: {exc}") from exc
+                  if check and done.returncode != 0:
+              ''')
+          new_run = dedent('''\
+                  try:
+                      run = run_owned(
+                          argv,
+                          cwd,
+                          OwnedLifecycle(_GIT_TIMEOUT_S, output_limit=_GIT_OUTPUT_LIMIT),
+                          env=env,
+                          stdin=stdin,
+                      )
+                  except (CommandSpawnError, CommandOutputLimitError) as exc:
+                      raise WorkspaceError(f"git {args[0]} could not run: {exc}") from exc
+                  if run.timed_out:
+                      cleanup = {True: "yes", False: "no", None: "not needed"}[
+                          run.cleanup_confirmed
+                      ]
+                      raise WorkspaceError(
+                          f"git {args[0]} did not finish within {_GIT_TIMEOUT_S} s and was ended "
+                          f"(process-tree cleanup confirmed: {cleanup})"
+                      )
+                  if run.strays_unconfirmed:
+                      raise WorkspaceError(
+                          f"git {args[0]} exited but descendant cleanup could not be proven"
+                      )
+                  done = subprocess.CompletedProcess(argv, run.exit_code, run.stdout, run.stderr)
+                  if check and done.returncode != 0:
+              ''')
+          if text.count(old_run) != 1:
+              raise SystemExit("workspace subprocess target changed")
+          path.write_text(text.replace(old_run, new_run), encoding="utf-8")
+      - name: Remove temporary files and compile
+        run: |
+          rm .github/workflows/temporary-415-workspace-integration.yml
+          rm -f internal/.temporary-415-trigger
+          git diff --check
+          python -m compileall -q internal/local_agent/session internal/local_agent/tools
+      - name: Install focused dependencies
+        run: python -m pip install -e ".[dev,lint]"
+      - name: Lower static baseline only for real improvements
+        run: |
+          python internal/devtools/check_static_standards.py --update
+          python internal/devtools/check_static_standards.py
+      - name: Run workspace and runner trust regressions
+        run: >-
+          python -m pytest -q
+          internal/tests/unit/test_workspace_git_owned_runner.py
+          internal/tests/unit/test_owned_process_runner.py
+          internal/tests/unit/test_runner_process_tree.py
+          internal/tests/unit/test_process_runner_cancellation.py
+          internal/tests/unit/test_windows_job_containment.py
+          internal/tests/unit/test_commit_index_hook.py
+          internal/tests/unit/test_commit_literal_paths.py
+          internal/tests/unit/test_public_candidate_restart.py
+      - name: Commit integration
+        run: |
+          git config user.name "Aiden Barrett"
+          git config user.email "33842164+aidenbarrett@users.noreply.github.com"
+          git add -A internal/local_agent/session/workspaces.py internal/static-standards-baseline.json internal/.temporary-415-trigger .github/workflows/temporary-415-workspace-integration.yml
+          git commit -m "Run workspace Git as owned process trees"
+          git push origin HEAD:chatgpt/415-owned-workspace-git-v2
