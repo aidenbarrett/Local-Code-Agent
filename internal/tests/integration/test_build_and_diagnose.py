@@ -19,6 +19,7 @@ from local_agent.llm.protocol import ChatResponse
 from local_agent.tools import build_registry
 from local_agent.tools.tool_primitives import Reason, ToolError
 from local_agent.tools.testing_tools import BUILD_STAMP
+from local_agent.verification import ProofKind, classify_proof
 
 REPO = Path(__file__).resolve().parent.parent.parent
 
@@ -79,6 +80,104 @@ def test_empty_target_cannot_stamp_equal_mtime_uncompilable_source(loaded):
 
     assert caught.value.reason is Reason.BAD_ARGUMENTS
     assert stamp.read_bytes() == before_stamp
+
+
+def test_build_refuses_proof_when_source_changes_during_command(sandbox, monkeypatch):
+    """A successful compiler exit cannot certify bytes it did not compile."""
+    from local_agent.config import load_repo_config
+
+    repo = load_repo_config(sandbox.root)
+    registry, ctx, _ = build_registry(repo)
+    original_run = ctx.run_configured
+    source = sandbox.root / "src" / "text_util.cpp"
+    calls = 0
+
+    def run_then_mutate(command, env):
+        nonlocal calls
+        outcome = original_run(command, env)
+        calls += 1
+        if calls == 2:  # configure is first; mutate after the real compile succeeds
+            before = source.stat()
+            source.write_text("this cannot compile\n")
+            os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+        return outcome
+
+    monkeypatch.setattr(ctx, "run_configured", run_then_mutate)
+    result = registry.get("build_target").handler()
+
+    assert not result.ok
+    assert result.reason is Reason.STALE_BINARY
+    assert result.domain_status.value == "unknown"
+    assert result.data["inputs_changed_during_build"] == ["src/text_util.cpp"]
+    assert "inputs changed while it ran" in result.summary
+    assert not (sandbox.root / "build" / BUILD_STAMP).exists()
+
+
+def test_targeted_build_refuses_proof_when_source_changes_during_command(
+    loaded, monkeypatch
+):
+    """Temporal invalidation applies to targeted proof as well as full stamps."""
+    sandbox, repo, registry, _, _ = loaded
+    assert registry.get("build_target").handler().ok
+    registry, ctx, _ = build_registry(repo)
+    original_run = ctx.run_configured
+    source = sandbox.root / "src" / "text_util.cpp"
+
+    def run_then_mutate(command, env):
+        outcome = original_run(command, env)
+        before = source.stat()
+        source.write_text("this cannot compile\n")
+        os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+        return outcome
+
+    monkeypatch.setattr(ctx, "run_configured", run_then_mutate)
+    result = registry.get("build_target").handler(target="sandbox")
+
+    assert not result.ok
+    assert result.reason is Reason.STALE_BINARY
+    assert result.domain_status.value == "unknown"
+    assert result.data["inputs_changed_during_build"] == ["src/text_util.cpp"]
+    assert classify_proof(
+        name="build_target",
+        arguments={"target": "sandbox"},
+        execution=result.execution_status.value,
+        domain=result.domain_status.value,
+        evidence=result.data,
+    ) is ProofKind.NO_CURRENT_PROOF
+
+
+def test_run_test_refuses_proof_when_input_is_added_during_command(
+    loaded, monkeypatch
+):
+    """The public test result is UNKNOWN if its admitted input set moves."""
+    sandbox, repo, registry, _, _ = loaded
+    assert registry.get("build_target").handler().ok
+
+    # Rebuild the registry so the test command alone is wrapped.
+    registry, ctx, _ = build_registry(repo)
+    original_run = ctx.run_configured
+
+    def run_then_add_input(command, env):
+        outcome = original_run(command, env)
+        (sandbox.root / "generated-resource.json").write_text('{"new": true}\n')
+        return outcome
+
+    monkeypatch.setattr(ctx, "run_configured", run_then_add_input)
+    result = registry.get("run_test").handler()
+
+    assert not result.ok
+    assert result.reason is Reason.STALE_BINARY
+    assert result.domain_status.value == "unknown"
+    assert result.data["inputs_changed_during_test"] == ["generated-resource.json"]
+    assert result.data["stale_sources"] == ["generated-resource.json"]
+    assert result.summary.startswith("STALE:")
+    assert classify_proof(
+        name="run_test",
+        arguments={},
+        execution=result.execution_status.value,
+        domain=result.domain_status.value,
+        evidence=result.data,
+    ) is ProofKind.NO_CURRENT_PROOF
 
 
 def test_compile_error_is_reduced_to_diagnostics(loaded):

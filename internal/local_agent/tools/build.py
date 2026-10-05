@@ -23,10 +23,46 @@ from .tool_primitives import (
     relpath,
 )
 from .tool_context import ToolContext
-from .testing_tools import configured_profile, set_configured_profile, touch_build_stamp
-from .logs import parse_build_log
+from .testing_tools import (
+    _source_hashes,
+    changed_build_inputs,
+    configured_profile,
+    set_configured_profile,
+    touch_build_stamp,
+)
+from .logs import BuildLogReport, parse_build_log
+from .process_runner import RunOutcome
 
 _BUILD_OWNER = ".local-agent-owned-build-dir"
+
+
+def _build_summary(
+    outcome: RunOutcome,
+    profile: str,
+    report: BuildLogReport,
+    changed: list[str],
+    timeout: int,
+) -> str:
+    if outcome.timed_out:
+        return f"build TIMED OUT after {timeout}s"
+    if changed:
+        shown = ", ".join(changed[:3])
+        extra = len(changed) - 3
+        suffix = f" and {extra} more" if extra > 0 else ""
+        return (
+            "build command succeeded, but build inputs changed while it ran "
+            f"({shown}{suffix}); no current build proof was recorded. Run "
+            "build_target again on a stable tree."
+        )
+    if outcome.ok:
+        return (
+            f"build ({profile}) succeeded in {outcome.elapsed_s:.1f}s with "
+            f"{len(report.warnings)} warning(s)"
+        )
+    return (
+        f"build ({profile}) FAILED with {len(report.errors)} compiler "
+        f"error(s) and {len(report.link_errors)} link error(s)"
+    )
 
 
 def _claim_or_require_build_root(ctx: ToolContext) -> Path:
@@ -161,6 +197,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         # someone deleted; in all three the cache may hold any profile at all,
         # and taking it on trust let a request for release compile against a
         # debug cache and label the result release.
+        inputs_before = _source_hashes(ctx.root, ctx.repo.build_dir)
         active = configured_profile(ctx.root, ctx.repo.build_dir)
         cache = (ctx.root / ctx.repo.build_dir / "CMakeCache.txt").is_file()
         needs_configure = not cache or active is None or active != prof.name
@@ -179,9 +216,19 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 )
 
         outcome = ctx.run_configured(command, prof.env)
+        inputs_after = _source_hashes(ctx.root, ctx.repo.build_dir)
+        changed_during_build = changed_build_inputs(inputs_before, inputs_after)
         report = parse_build_log(outcome.combined_path.read_text(errors="replace"))
 
-        if outcome.ok and not outcome.timed_out and full_build:
+        # Both full and targeted successful builds become proof at the independent
+        # classifier boundary. Moving inputs invalidate either proof kind; only stamp
+        # creation remains full-build-only. This is a boundary snapshot comparison,
+        # not a filesystem journal: a change and exact revert wholly between the two
+        # observations is outside the contract and is not claimed detectable.
+        proof_invalidated = bool(
+            outcome.ok and not outcome.timed_out and changed_during_build
+        )
+        if outcome.ok and not outcome.timed_out and full_build and not proof_invalidated:
             # Untargeted only. The stamp means "every source is represented by
             # a current binary", which a targeted build cannot support.
             #
@@ -194,25 +241,25 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             # that a full build succeeded but which profile it produced, and
             # the configure marker cannot answer that: configure moves the
             # marker without compiling anything.
-            touch_build_stamp(ctx.root, ctx.repo.build_dir, prof.name)
+            touch_build_stamp(
+                ctx.root,
+                ctx.repo.build_dir,
+                prof.name,
+                source_hashes=inputs_after,
+            )
 
-        if outcome.timed_out:
-            summary = f"build TIMED OUT after {ctx.timeout}s"
-        elif outcome.ok:
-            summary = (
-                f"build ({prof.name}) succeeded in {outcome.elapsed_s:.1f}s with "
-                f"{len(report.warnings)} warning(s)"
-            )
-        else:
-            summary = (
-                f"build ({prof.name}) FAILED with {len(report.errors)} compiler "
-                f"error(s) and {len(report.link_errors)} link error(s)"
-            )
+        summary = _build_summary(
+            outcome,
+            prof.name,
+            report,
+            changed_during_build if proof_invalidated else [],
+            ctx.timeout,
+        )
 
         # Our own wall clock killing the build is an orchestrator fact, not a
         # statement about the code. A build that fails to compile is evidence.
         return ToolResult(
-            ok=outcome.ok,
+            ok=outcome.ok and not proof_invalidated,
             exit_code=outcome.exit_code,
             summary=summary,
             artifacts=[relpath(ctx.root, outcome.combined_path)],
@@ -220,15 +267,20 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 ExecutionStatus.ERROR if outcome.timed_out else ExecutionStatus.OK
             ),
             domain_status=(
-                DomainStatus.UNKNOWN if outcome.timed_out
+                DomainStatus.UNKNOWN if (outcome.timed_out or proof_invalidated)
                 else (DomainStatus.PASS if outcome.ok else DomainStatus.FAIL)
             ),
-            reason=Reason.ORCHESTRATOR_TIMEOUT if outcome.timed_out else None,
+            reason=(
+                Reason.ORCHESTRATOR_TIMEOUT if outcome.timed_out
+                else Reason.STALE_BINARY if proof_invalidated
+                else None
+            ),
             data={
                 "command": command,
                 "profile": prof.name,
                 "elapsed_s": round(outcome.elapsed_s, 2),
                 "killed_by_orchestrator": outcome.timed_out,
+                "inputs_changed_during_build": changed_during_build,
                 **report.as_dict(),
             },
         )

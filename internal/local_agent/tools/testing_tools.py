@@ -98,7 +98,43 @@ def _source_hashes(root: Any, build_dir: str) -> dict[str, str]:
     return dict(sorted(out.items()))
 
 
-def touch_build_stamp(root: Any, build_dir: str, profile: str) -> None:
+def changed_build_inputs(
+    before: dict[str, str], after: dict[str, str]
+) -> list[str]:
+    """Return every admitted input whose identity changed across an operation."""
+    return sorted(
+        name for name in set(before) | set(after)
+        if before.get(name) != after.get(name)
+    )
+
+
+def finish_input_observation(
+    root: Any,
+    build_dir: str,
+    before: dict[str, str],
+    previously_stale: list[str],
+) -> tuple[list[str], list[str]]:
+    """Close an operation's input observation and combine prior staleness."""
+    changed = changed_build_inputs(before, _source_hashes(root, build_dir))
+    return changed, sorted(set(previously_stale) | set(changed))
+
+
+def start_test_input_observation(
+    root: Any, build_dir: str
+) -> tuple[BuildRecord | None, dict[str, str], list[str]]:
+    """Capture the test boundary and the pre-existing build mismatch together."""
+    record = build_record(root, build_dir)
+    identity = _source_hashes(root, build_dir)
+    return record, identity, _stale_from_identity(root, build_dir, record, identity)
+
+
+def touch_build_stamp(
+    root: Any,
+    build_dir: str,
+    profile: str,
+    *,
+    source_hashes: dict[str, str] | None = None,
+) -> None:
     """Record that a FULL compile of `profile` succeeded just now.
 
     Written only by an untargeted, successful build_target. A targeted build
@@ -122,14 +158,16 @@ def touch_build_stamp(root: Any, build_dir: str, profile: str) -> None:
         # freshness proof is the exact source-content snapshot. This makes an
         # edit stale even when the filesystem reports the same mtime before and
         # after it, which Windows CI demonstrated is a real case.
-        source_hashes = _source_hashes(root, build_dir)
+        recorded_hashes = (
+            _source_hashes(root, build_dir) if source_hashes is None else source_hashes
+        )
         stamp.write_text("{}\n", encoding="utf-8")
         at_ns = stamp.stat().st_mtime_ns
         stamp.write_text(
             json.dumps({
                 "profile": profile,
                 "at_ns": at_ns,
-                "source_hashes": source_hashes,
+                "source_hashes": recorded_hashes,
             }, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -201,13 +239,18 @@ def set_configured_profile(root: Any, build_dir: str, name: str) -> None:
         pass
 
 
-def _stale_sources(root: Any, build_dir: str, record: BuildRecord | None) -> list[str]:
-    """Source paths whose current bytes differ from the last full build.
+def _stale_from_identity(
+    root: Any,
+    build_dir: str,
+    record: BuildRecord | None,
+    current: dict[str, str],
+) -> list[str]:
+    """Paths whose one captured identity differs from retained build evidence.
 
-    ctest does not build. Freshness therefore has to be a content statement,
-    not a clock statement: equal mtimes must never make changed source look
-    represented by an older binary. Added and deleted build inputs are stale
-    for the same reason as modified ones.
+    The content identity is supplied by the caller so temporal comparison and
+    comparison with the build record cannot accidentally use different start
+    observations. The separate symlink containment walk adds unknown external
+    inputs but never substitutes a second content snapshot.
     """
     if record is None:
         # No content-bound successful full build is recorded. This is NOT
@@ -215,7 +258,6 @@ def _stale_sources(root: Any, build_dir: str, record: BuildRecord | None) -> lis
         # its own invalidating condition.
         return []
 
-    current = _source_hashes(root, build_dir)
     names = set(record.source_hashes) | set(current)
     stale = {
         name for name in names
@@ -240,6 +282,12 @@ def _stale_sources(root: Any, build_dir: str, record: BuildRecord | None) -> lis
             # evidence. Unknown stays stale rather than certifying an old binary.
             stale.add(rel.as_posix())
     return sorted(stale)
+
+
+def _stale_sources(root: Any, build_dir: str, record: BuildRecord | None) -> list[str]:
+    """Source paths whose current bytes differ from the last full build."""
+    current = _source_hashes(root, build_dir)
+    return _stale_from_identity(root, build_dir, record, current)
 
 
 def register(reg: ToolRegistry, ctx: ToolContext) -> None:
@@ -308,8 +356,9 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         # The configure marker answers none of them. It says how the tree is
         # CONFIGURED, which is a promise about the next build, not a fact about
         # the binaries sitting in the directory now.
-        record = build_record(ctx.root, ctx.repo.build_dir)
-        stale = _stale_sources(ctx.root, ctx.repo.build_dir, record)
+        record, inputs_before, stale = start_test_input_observation(
+            ctx.root, ctx.repo.build_dir
+        )
         no_build_record = record is None
         build_profile_mismatch = record is not None and record.profile != prof.name
 
@@ -321,6 +370,9 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         wrong_profile = active is not None and active != prof.name
 
         outcome = ctx.run_configured(command, prof.env)
+        changed_during_test, stale = finish_input_observation(
+            ctx.root, ctx.repo.build_dir, inputs_before, stale
+        )
         report = parse_test_log(outcome.combined_path.read_text(errors="replace"))
 
         ran_nothing = bool(
@@ -445,6 +497,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 "elapsed_s": round(outcome.elapsed_s, 2),
                 "killed_by_orchestrator": outcome.timed_out,
                 "stale_sources": stale,
+                "inputs_changed_during_test": changed_during_test,
                 "ran_nothing": ran_nothing,
                 "configured_profile": active,
                 "profile_mismatch": wrong_profile,
