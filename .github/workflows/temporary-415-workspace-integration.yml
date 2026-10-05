@@ -40,31 +40,21 @@ jobs:
               raise SystemExit("workspace import target changed")
           text = text.replace(old_import, new_import)
 
-          old_constant = "_GIT_TIMEOUT_S = 300\n"
-          new_constant = (
-              "_GIT_TIMEOUT_S = 300\n"
-              "_GIT_OUTPUT_LIMIT = 256 * 1024 * 1024\n"
+          timeout = "_GIT_TIMEOUT_S = 300\n"
+          if text.count(timeout) != 1:
+              raise SystemExit("git timeout target changed")
+          text = text.replace(
+              timeout,
+              timeout + "_GIT_OUTPUT_LIMIT = 256 * 1024 * 1024\n",
           )
-          if text.count(old_constant) != 1:
-              raise SystemExit("git timeout constant target changed")
-          text = text.replace(old_constant, new_constant)
 
-          old_run = dedent('''\
-                  try:
-                      done = subprocess.run(
-                          argv,
-                          cwd=str(cwd),
-                          env=env,
-                          input=stdin,
-                          capture_output=True,
-                          timeout=_GIT_TIMEOUT_S,
-                          check=False,
-                      )
-                  except (OSError, subprocess.TimeoutExpired) as exc:
-                      raise WorkspaceError(f"git {args[0]} could not run: {exc}") from exc
-                  if check and done.returncode != 0:
-              ''')
-          new_run = dedent('''\
+          method_start = text.index("    def _git(\n")
+          method_end = text.index("    def _out(", method_start)
+          before, method, after = text[:method_start], text[method_start:method_end], text[method_end:]
+
+          run_start = method.index("        try:\n            done = subprocess.run(\n")
+          run_end = method.index("        if check and done.returncode != 0:\n", run_start)
+          replacement = dedent('''\
                   try:
                       run = run_owned(
                           argv,
@@ -88,11 +78,14 @@ jobs:
                           f"git {args[0]} exited but descendant cleanup could not be proven"
                       )
                   done = subprocess.CompletedProcess(argv, run.exit_code, run.stdout, run.stderr)
-                  if check and done.returncode != 0:
               ''')
-          if text.count(old_run) != 1:
-              raise SystemExit("workspace subprocess target changed")
-          path.write_text(text.replace(old_run, new_run), encoding="utf-8")
+          # dedent above deliberately strips the method indentation; restore it exactly.
+          replacement = "".join(
+              ("        " + line if line.strip() else line)
+              for line in replacement.splitlines(keepends=True)
+          )
+          method = method[:run_start] + replacement + method[run_end:]
+          path.write_text(before + method + after, encoding="utf-8")
       - name: Remove temporary files and compile
         run: |
           rm .github/workflows/temporary-415-workspace-integration.yml
@@ -120,6 +113,6 @@ jobs:
         run: |
           git config user.name "Aiden Barrett"
           git config user.email "33842164+aidenbarrett@users.noreply.github.com"
-          git add -A internal/local_agent/session/workspaces.py internal/static-standards-baseline.json internal/.temporary-415-trigger .github/workflows/temporary-415-workspace-integration.yml
+          git add -A internal .github/workflows/temporary-415-workspace-integration.yml
           git commit -m "Run workspace Git as owned process trees"
           git push origin HEAD:chatgpt/415-owned-workspace-git-v2
