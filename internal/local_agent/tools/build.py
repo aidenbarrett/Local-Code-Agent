@@ -36,6 +36,27 @@ from .process_runner import RunOutcome
 _BUILD_OWNER = ".local-agent-owned-build-dir"
 
 
+def _error_location(root: Path, diagnostic_file: str) -> str:
+    """A compiler's path for a diagnostic, shown repository-relative when it is inside."""
+    raw = diagnostic_file.strip()
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        return raw.replace("\\", "/")
+    try:
+        return candidate.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return raw.replace("\\", "/")
+
+
+def _first_error_suffix(report: BuildLogReport, root: Path) -> str:
+    """Where the first compiler error is, so the user sees the location without asking."""
+    if not report.errors:
+        return ""
+    first = report.errors[0]
+    where = f"{_error_location(root, first.file)}:{first.line}"
+    return f"; first error at {where}: {first.message.strip()[:160]}"
+
+
 def _build_summary(
     outcome: RunOutcome,
     profile: str,
@@ -255,6 +276,8 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             changed_during_build if proof_invalidated else [],
             ctx.timeout,
         )
+        if not outcome.ok and not outcome.timed_out and not proof_invalidated:
+            summary += _first_error_suffix(report, ctx.root)
 
         # Our own wall clock killing the build is an orchestrator fact, not a
         # statement about the code. A build that fails to compile is evidence.

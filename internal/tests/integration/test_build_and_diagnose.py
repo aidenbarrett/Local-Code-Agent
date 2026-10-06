@@ -193,6 +193,9 @@ def test_compile_error_is_reduced_to_diagnostics(loaded):
     assert "count" in first["message"]
     # The raw log stayed on disk rather than in the context window.
     assert result.artifacts and (sandbox.root / result.artifacts[0]).is_file()
+    # The user-facing summary names where the first error is, repository-relative,
+    # on GCC and MSVC alike (#418: a real repository's diagnosis must say file:line).
+    assert "first error at src/ring_buffer.cpp:13:" in result.summary
 
 
 def test_link_error_is_identified_by_symbol(loaded):

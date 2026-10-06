@@ -112,6 +112,46 @@ jobs:
         if: always()
         run: python internal/devtools/ci_shards.py report pytest-junit.xml
 
+  qualification:
+    # Q01-Q05 on a pinned real repository (#418, internal/acceptance/corpus.toml):
+    # deterministic and model-free. The corpus is cached by commit; a miss fetches it
+    # here, because CI is online. Product runs never fetch silently.
+    name: qualification (${{ matrix.os }})
+    needs: gates
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # About ten full builds of a real project; MSVC is several times slower than GCC.
+    timeout-minutes: 90
+    env:
+      LCA_QUALIFICATION_CACHE: ${{ github.workspace }}/../lca-qualification-cache
+      LCA_REQUIRE_QUALIFICATION: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Corpus commit
+        id: corpus
+        shell: bash
+        run: |
+          echo "key=$(python -c "import sys; sys.path.insert(0, 'internal'); from scripts.acceptance_corpus import load_manifest; print('-'.join(f'{e.name}-{e.commit}' for e in load_manifest().values()))")" >> "$GITHUB_OUTPUT"
+      - name: Restore the pinned corpus
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LCA_QUALIFICATION_CACHE }}
+          key: qualification-corpus-${{ runner.os }}-${{ steps.corpus.outputs.key }}
+      - name: Fetch the pinned corpus (cache miss only fetches)
+        run: python internal/scripts/acceptance-journeys.py --corpus cxxopts --fetch --corpus-cache "${{ env.LCA_QUALIFICATION_CACHE }}"
+      - name: Q01-Q05 on the real repository
+        run: python -m pytest -q internal/tests/unit/test_corpus_journeys.py
+
   pytest:
     # One result per platform, named as before, green only if every shard passed.
     name: pytest (${{ matrix.os }})

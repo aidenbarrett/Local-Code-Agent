@@ -1,0 +1,35 @@
+Seeded fault for qualification journey Q02 (compile error at test/options.cpp:95).
+The context lines below are quoted from cxxopts (https://github.com/jarro2783/cxxopts)
+at 639cdbad93d45e74fd781e4cf6b0ac798eeec2aa under its licence, reproduced in full:
+
+    Copyright (c) 2014 Jarryd Beck
+    
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+    
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+    
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+    THE SOFTWARE.
+
+diff --git a/test/options.cpp b/test/options.cpp
+index 6bafd3d..b5afe22 100644
+--- a/test/options.cpp
++++ b/test/options.cpp
+@@ -93,5 +93,5 @@ TEST_CASE("Basic options", "[options]")
+   CHECK(result.count("long") == 1);
+   CHECK(result.contains("long"));
+-  CHECK(result.count("s") == 1);
++  CHECK(reslt.count("s") == 1);
+   CHECK(result.count("value") == 1);
+   CHECK(result.count("a") == 1);
