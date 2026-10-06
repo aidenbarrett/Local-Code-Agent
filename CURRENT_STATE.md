@@ -40,43 +40,6 @@ Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rational
 [product-execution-priorities.md](internal/docs/product-execution-priorities.md) for the
 priority ladder after the immediate first-release gate.
 
-### Review update, 6 October
-
-Main through `edf1ccf` closes the remaining #403 user-work and proof repairs on the
-release gate. Explicit empty or malformed build targets are refused before effects and
-cannot carry full-build proof (#429, fixes #394, superseding #414). Build and test proof
-is bound to stable inputs: a build or test whose admitted inputs change while it runs is
-UNKNOWN / `stale_binary`, full or targeted (#433, fixes #400). `/commit` builds the
-candidate commit from a private index and never borrows the user's live index; one locked
-reconciler (Git's post-commit hook, replayed by the controller) advances only clean
-candidate entries, leaves user-staged entries and a foreign `index.lock` untouched, and a
-restart after a failed hook reports UNKNOWN without replay (#434, fixes #395). R01 is
-measured: repository explanations are checked for invented files and for every configured
-configure/build/test command (J22, #413). Static standards now cover every live Python
-root, with the measured existing debt recorded in the baseline (#430, fixes #401).
-
-Still open: owned workspace Git runner and Stop (#436/#437, rebuilt from #420/#423 after
-review), real-repository qualification on cxxopts (#438, #418), the Windows
-public-launcher timeout (#432) and phantom job stray (#435), and the capability/evidence
-ledger (#417). Physical offline qualification remains open independently.
-
-### Review update, 4 October
-
-Main through `d2c9845` includes fail-closed Git-filter discovery (#424), strict
-configuration and executable-token admission (#426), conservative build-input hashing
-(#427), and internal PowerShell helpers in product source identity (#428).
-The build-input repair does not yet prove that inputs stayed unchanged during the
-build or test: an independent review reproduced a successful compile followed by a
-source edit before stamping, with the new invalid source incorrectly reported fresh
-(#400). That acceptance item remains open.
-
-The current change rebuilds #414 on that main: explicit empty or invalid build targets
-are refused before effects and cannot carry full-build proof (#394). Workspace Git
-containment/Stop (#420/#423) and repository explanation qualification (#413) are still
-unmerged; their old branch CI does not qualify the current integration tree.
-Static coverage expansion (#401) and the capability/evidence ledger (#417) remain open.
-Physical offline qualification remains open independently of these code repairs.
-
 ## Direction and public path
 
 Local Code Agent is a dependable local/offline worker for repository inspection, Git,
@@ -93,7 +56,8 @@ in [TRICKS.md](TRICKS.md), and the active priority ladder is in
 - Physical disconnected Panther Lake qualification is unknown: see
   `CAP-offline-physical` and #418.
 - Stop is bounded but descendant and endpoint cleanup proof is incomplete: see
-  `CAP-stop-command`, `CAP-stop-generation`, #436 and #437.
+  `CAP-stop-command`, `CAP-stop-generation` and #437 (the owned runner, #436, is merged;
+  POSIX cleanup is still never reported confirmed).
 - Native-endpoint deployment and cross-process endpoint ownership are not qualified serving
   capabilities: see #403.
 - Required-check merge policy has not been observed as enforced: see
