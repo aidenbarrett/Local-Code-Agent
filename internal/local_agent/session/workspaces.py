@@ -11,8 +11,9 @@ explicit commit. The user's checkout is never the place LCA edits:
   not see.
 - The candidate worktree lives outside the user's checkout and never receives the
   build or run directories.
-- The user's hooks never run: every controller git call pins ``core.hooksPath`` to an
-  empty directory owned by LCA.
+- The user's hooks never run: every controller git call pins ``core.hooksPath`` to a
+  controller-owned directory. Its only commit hook is LCA's crash-safe live-index
+  reconciler; repository hooks are never entered.
 - Importing a candidate into the user's checkout is a separate action with an exact
   precondition. Every path the candidate touches must still hold the base content,
   compared through git's own clean filters so line-ending conversion is not mistaken
@@ -42,6 +43,14 @@ from uuid import UUID, uuid4
 import psutil
 
 from ..tools.tool_primitives import SandboxError, resolve_in_repo
+from .commit_index_hook import (
+    IndexEntry,
+    hook_environment,
+    index_entry_from_listings,
+    install_post_commit_hook,
+    prepare_transaction,
+    reconcile_and_report,
+)
 
 _GIT_TIMEOUT_S = 300
 # Untracked files above this size stay out of the candidate base and are reported. The
@@ -128,6 +137,9 @@ class Committed:
     commit: str
     branch: str
     paths: tuple[str, ...]
+    # Paths whose live index could not be reconciled to the new HEAD without
+    # risking concurrent user work. The commit itself is still exact.
+    index_left: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,12 +169,22 @@ class CommitRefused:
     paths: tuple[str, ...] = ()
     branch: str | None = None
     existing_commit: str | None = None
-    # Paths this attempt staged that could not be unstaged because their index entry
-    # changed meanwhile; empty means the user's index is exactly as it was.
-    index_left: tuple[str, ...] = ()
 
 
 CommitResult = Committed | CommitMismatched | CommitDrifted | CommitRefused
+
+
+@dataclass(frozen=True, slots=True)
+class _PrivateCommit:
+    """One exact candidate commit plus the live-index transaction that follows it.
+
+    ``transaction`` is None when no candidate path was clean in the live index before
+    the attempt, so there is nothing LCA may advance.
+    """
+
+    commit: str
+    transaction: Path | None
+    owned_paths: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -201,15 +223,9 @@ def _parse_git_version(text: str) -> tuple[int, int] | None:
 _OWNER_TOKEN = re.compile(r"[0-9]+:[0-9]+\.[0-9]{6}")
 
 
-def _failed_commit_reason(
-    done: subprocess.CompletedProcess[bytes], index_left: tuple[str, ...],
-) -> str:
+def _failed_commit_reason(done: subprocess.CompletedProcess[bytes]) -> str:
     detail = (done.stderr or done.stdout).decode("utf-8", "replace").strip()[:500]
-    reason = "git commit failed: " + detail
-    if index_left:
-        reason += ("; these files are still staged because their staged content changed "
-                   "meanwhile and was left alone: " + ", ".join(index_left))
-    return reason
+    return "git commit failed: " + detail
 
 
 def _split_z(raw: bytes) -> tuple[str, ...]:
@@ -860,8 +876,9 @@ class GitWorkspaceManager:
         for this repository that is not already committed; every touched path still
         holds exactly what the import wrote; HEAD is on a branch; no merge, rebase,
         cherry-pick or revert is in progress. Only the touched paths are committed
-        (`git commit --only`), so anything else the user has staged stays staged and
-        uncommitted. User hooks do not run. Nothing is ever pushed.
+        from an LCA-owned private index, so the user's live index is never borrowed for
+        staging. Anything else the user has staged stays staged and uncommitted. User
+        hooks do not run. Nothing is ever pushed.
         """
         path = self._applied_path(task_id)
         if not path.is_file():
@@ -892,29 +909,103 @@ class GitWorkspaceManager:
                 "the applied change is already what HEAD contains; nothing to commit",
                 paths, branch_name,
             )
-        # Paths the candidate created are untracked, and `commit --only` accepts only
-        # paths git knows. Stage exactly those; every other index entry is left alone.
-        created = [p for p, b in record["pre_blobs"] if b is None and (user / p).exists()]
-        if created:
-            self._git(user, "add", "--", *created)
-        done = self._git(
-            user, "commit", "--quiet", "--no-verify", "--only", "-F", "-", "--", *paths,
-            stdin=message.encode("utf-8"), check=False,
+        private = self._commit_private_index(
+            user, parent, paths, branch_name, message,
         )
-        if done.returncode != 0:
-            # Staging the created paths was this attempt's own effect on the user's
-            # index; a refusal leaves the index as it found it (#395).
-            left = self._unstage_owned(user, created, post)
-            return CommitRefused(_failed_commit_reason(done, left), paths, branch_name,
-                                 index_left=left)
-        commit = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
-        if not self._commit_is_exactly(user, commit, parent, paths, post):
-            return CommitMismatched(commit, branch_name, paths)
+        if isinstance(private, CommitRefused):
+            return private
+        commit = private.commit
+        try:
+            if not self._commit_is_exactly(user, commit, parent, paths, post):
+                return CommitMismatched(commit, branch_name, paths)
+            index_left = self._reconcile_index_after_commit(private)
+        finally:
+            if private.transaction is not None:
+                private.transaction.unlink(missing_ok=True)
         record["committed"] = commit
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
         os.replace(tmp, path)
-        return Committed(commit, branch_name, paths)
+        return Committed(commit, branch_name, paths, index_left)
+
+    def _commit_private_index(
+        self,
+        user: Path,
+        parent: str,
+        paths: tuple[str, ...],
+        branch_name: str,
+        message: str,
+    ) -> CommitRefused | _PrivateCommit:
+        """Create the exact candidate commit without borrowing the user's live index."""
+        index_before = {p: self._index_entry(user, p) for p in paths}
+        fd, raw_index = tempfile.mkstemp(prefix="commit-index-", dir=self.workspaces_root)
+        os.close(fd)
+        commit_index = Path(raw_index)
+        commit_index.unlink(missing_ok=True)
+        index_env = {"GIT_INDEX_FILE": str(commit_index)}
+        transaction: Path | None = None
+        committed = False
+        try:
+            prepared = self._git(
+                user, "read-tree", parent, check=False, env_extra=index_env,
+            )
+            if prepared.returncode != 0:
+                return CommitRefused(
+                    "git refused to prepare the private commit index", paths, branch_name
+                )
+            index_base = {
+                p: self._index_entry(user, p, env_extra=index_env) for p in paths
+            }
+            staged = self._git(
+                user, "add", "-A", "--", *paths, check=False, env_extra=index_env,
+            )
+            if staged.returncode != 0:
+                return CommitRefused(
+                    "git refused to stage the candidate in its private index",
+                    paths,
+                    branch_name,
+                )
+            index_staged = {
+                p: self._index_entry(user, p, env_extra=index_env) for p in paths
+            }
+            live_index = Path(self._out(user, "rev-parse", "--git-path", "index"))
+            # Only a path whose live entry equalled the old HEAD is LCA's to advance; a
+            # path the user had staged differently is user work and is never touched.
+            owned = tuple(
+                (p, index_before[p].stage, index_staged[p].stage)
+                for p in paths
+                if index_before[p].stage == index_base[p].stage
+            )
+            try:
+                install_post_commit_hook(self._empty_hooks)
+                if owned:
+                    transaction = prepare_transaction(
+                        self.workspaces_root, user, live_index, parent, owned,
+                    )
+            except OSError as exc:
+                return CommitRefused(
+                    f"could not prepare crash-safe index reconciliation: {exc}",
+                    paths,
+                    branch_name,
+                )
+            commit_env = dict(index_env)
+            if transaction is not None:
+                commit_env.update(hook_environment(transaction))
+            done = self._git(
+                user, "commit", "--quiet", "--no-verify", "-F", "-",
+                stdin=message.encode("utf-8"), check=False, env_extra=commit_env,
+            )
+            if done.returncode != 0:
+                return CommitRefused(_failed_commit_reason(done), paths, branch_name)
+            commit = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
+            committed = True
+            return _PrivateCommit(commit, transaction, tuple(p for p, _, _ in owned))
+        finally:
+            # After a commit the caller owns the transaction for its own locked pass.
+            if transaction is not None and not committed:
+                transaction.unlink(missing_ok=True)
+            commit_index.unlink(missing_ok=True)
+            Path(str(commit_index) + ".lock").unlink(missing_ok=True)
 
     def _commit_state_refusal(self, user: Path) -> str | None:
         """Why the checkout cannot take a controller commit now, or None."""
@@ -925,6 +1016,11 @@ class GitWorkspaceManager:
                 marker_path = user / marker_path
             if marker_path.exists():
                 return "a merge, rebase, cherry-pick or revert is in progress"
+        unmerged = self._git(user, "ls-files", "--unmerged", "-z", check=False)
+        if unmerged.returncode != 0:
+            return "git could not inspect the index for unresolved entries"
+        if unmerged.stdout:
+            return "the index contains unresolved merge entries"
         return self._filter_refusal(user)
 
     def _commit_is_exactly(
@@ -982,20 +1078,33 @@ class GitWorkspaceManager:
                     refused.append(line.strip())
         return tuple(refused)
 
-    def _unstage_owned(
-        self, user: Path, created: list[str], staged_blobs: dict[str, str | None],
-    ) -> tuple[str, ...]:
-        """Remove index entries this attempt added, only where they still hold what it
-        staged. Never a blind reset: anything else in the index is the user's."""
-        left: list[str] = []
-        for path in created:
-            entry = self._git(user, "ls-files", "--stage", "-z", "--", path).stdout
-            fields = entry.split(b"\t", 1)[0].split() if entry else []
-            if len(fields) == 3 and fields[1].decode() == staged_blobs.get(path):
-                self._git(user, "rm", "--cached", "--quiet", "--", path)
-            elif entry:
-                left.append(path)
-        return tuple(left)
+    def _index_entry(
+        self, user: Path, path: str, *, env_extra: dict[str, str] | None = None,
+    ) -> IndexEntry:
+        """Read one literal path without invoking attributes, filters or hooks."""
+        return index_entry_from_listings(
+            self._git(user, "ls-files", "--stage", "-z", "--", path, env_extra=env_extra).stdout,
+            self._git(user, "ls-files", "-t", "-z", "--", path, env_extra=env_extra).stdout,
+            self._git(user, "ls-files", "-v", "-z", "--", path, env_extra=env_extra).stdout,
+        )
+
+    @staticmethod
+    def _reconcile_index_after_commit(private: _PrivateCommit) -> tuple[str, ...]:
+        """Second, controller-side pass over the hook's transaction, under Git's lock.
+
+        The hook normally advanced every clean candidate entry before Git returned; this
+        pass is then a no-op. If the hook could not run (lock held, interpreter missing,
+        controller killed and restarted), it applies the same locked compare-and-update.
+        Paths still at their pre-commit entry afterwards are reported, never forced.
+        """
+        if private.transaction is None:
+            return ()
+        try:
+            return reconcile_and_report(private.transaction)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+            # The commit is exact; only the index is unconfirmed. Name every owned path
+            # rather than claim a reconciliation nobody observed.
+            return private.owned_paths
 
     def _undo_refusal(self, user: Path, record: dict[str, Any]) -> str | None:
         """Why a recorded apply cannot be undone at all, checked before any write."""

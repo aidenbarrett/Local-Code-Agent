@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +17,7 @@ from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.task_admission import DurableTaskAdmissionRunner
 from local_agent.session.task_controller import TaskController
 from local_agent.session.task_history import DurableTaskHistory
+from local_agent.session import workspaces as workspaces_module
 from local_agent.session.workspaces import GitWorkspaceManager, WorkspaceError
 from test_public_path_code_journey import NoConversationModel, RING, _fix_turns, _git
 from test_session_hub_product_path import _load_hub
@@ -45,10 +47,20 @@ def _state(root):
     ))
 
 
-@pytest.mark.parametrize("effect", ["apply", "commit"])
+def _live_index(root) -> bytes:
+    path = Path(_git(root, "rev-parse", "--git-path", "index").strip())
+    return (path if path.is_absolute() else root / path).read_bytes()
+
+
+@pytest.mark.parametrize("case", ["apply", "commit", "commit-hook-failed"])
 def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
-    sandbox, tmp_path, monkeypatch, effect,
+    sandbox, tmp_path, monkeypatch, case,
 ):
+    """``commit-hook-failed``: the post-commit index reconciler does not run (any hook
+    failure), then the controller dies after Git returns and before its own locked
+    retry or receipt. Restart must leave the user's live index byte-exact, report
+    UNKNOWN and refuse to replay the commit (#434 review)."""
+    effect = "apply" if case == "apply" else "commit"
     hub = _load_hub()
     sandbox.scenario("compile_error")
     config = sandbox.root / ".local-agent.toml"
@@ -82,8 +94,11 @@ def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
             _git(sandbox.root, "add", "notes.txt")
             (sandbox.root / "scratch.txt").write_text("keep untracked\n", encoding="utf-8")
             index_before = _git(sandbox.root, "diff", "--cached", "--binary")
+            live_index_before = _live_index(sandbox.root)
             calls = []
             with monkeypatch.context() as death:
+                if case == "commit-hook-failed":
+                    death.setattr(workspaces_module, "hook_environment", lambda _txn: {})
                 if effect == "apply":
                     def die_before_receipt(*args, **kwargs):
                         calls.append("apply")
@@ -114,8 +129,16 @@ def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
                           and not service.store.task_record(event["task_id"])["terminal"]]
             assert len(unfinished) == 1
             interrupted_id = unfinished[0]
-            assert _git(sandbox.root, "diff", "--cached", "--binary") == index_before
+            if case == "commit-hook-failed":
+                # Nothing reconciled the index: it is exactly what the user had, so the
+                # committed candidate now shows as a staged reversal. That is the honest
+                # state; it is reported, never "fixed" by a guess on restart.
+                assert _live_index(sandbox.root) == live_index_before
+                assert not list(manager.workspaces_root.glob(".commit-index-*.json"))
+            else:
+                assert _git(sandbox.root, "diff", "--cached", "--binary") == index_before
             at_death = _state(sandbox.root)
+            live_index_at_death = _live_index(sandbox.root)
             if effect == "commit":
                 assert at_death[0] != before[0]
                 assert _git(sandbox.root, "rev-parse", "HEAD^") == before[0]
@@ -133,6 +156,7 @@ def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
         assert recovered == [interrupted_id]
         assert service.recover_unknown_tasks() == []
         assert _state(sandbox.root) == at_death
+        assert _live_index(sandbox.root) == live_index_at_death
         result = DurableTaskHistory(service.store, stream_id=service.stream_id).result_for_task(
             interrupted_id,
         )
@@ -159,6 +183,7 @@ def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
                 assert gateway.last_result.reason_code == "invalid_input", answer
                 assert "already what HEAD contains" in answer, answer
             assert _state(sandbox.root) == at_death
+            assert _live_index(sandbox.root) == live_index_at_death
             assert (sandbox.root / RING).read_bytes() == bytes_at_death
             assert (sandbox.root / "scratch.txt").read_text(encoding="utf-8") == "keep untracked\n"
     finally:
