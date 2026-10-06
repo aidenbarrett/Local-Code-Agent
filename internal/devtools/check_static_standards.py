@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 
+from local_agent.provenance import PRODUCT_PYTHON_FILES, PRODUCT_PYTHON_ROOTS
+
 BASELINE_SCHEMA: Final = "lca.static-standards-baseline/1"
 BASELINE_PATH: Final = PurePosixPath("internal/static-standards-baseline.json")
 MYPY_PLATFORMS: Final = ("linux", "win32")
@@ -33,8 +35,27 @@ STATIC_ROOTS: Final = (
     "internal/devtools",
     "internal/serving",
     "internal/scripts",
+    "internal/perf",
+    "internal/native_endpoint/ci",
+    "internal/evaluation",
+    "internal/benchmark_fixture",
     "internal/terminal_ui.py",
 )
+
+
+def validate_root_inventory(static_roots: tuple[str, ...] = STATIC_ROOTS) -> None:
+    """Refuse a gate that omits a live Python surface from source identity."""
+    covered = tuple(PurePosixPath(root) for root in static_roots)
+    required = (*PRODUCT_PYTHON_ROOTS, *PRODUCT_PYTHON_FILES)
+    omitted = tuple(
+        path for path in required
+        if not any(PurePosixPath(path) == root or PurePosixPath(path).is_relative_to(root)
+                   for root in covered)
+    )
+    if omitted:
+        raise RuntimeError(
+            "static root inventory omits live product Python surfaces: " + ", ".join(omitted)
+        )
 
 # (checker, posix path, code) -> count
 FindingKey = tuple[str, str, str]
@@ -118,6 +139,7 @@ def _run(command: list[str], root: Path) -> subprocess.CompletedProcess[str]:
 
 
 def measure(root: Path, mypy: list[str], ruff: list[str]) -> Counter[FindingKey]:
+    validate_root_inventory()
     counts: Counter[FindingKey] = Counter()
     for platform in MYPY_PLATFORMS:
         done = _run([
