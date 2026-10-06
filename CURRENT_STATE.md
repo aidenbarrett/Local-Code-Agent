@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `d2c98455c9c411642b52885076e72f737a00b37e`
-on 2026-10-04 after the isolated candidate-change journeys (#197-#215: build/test fixes,
+Reconciled against GitHub `main` at `edf1ccf60448641e6750a13502c7e43330bfd26d`
+on 2026-10-06 (review updates for 4 and 6 October below); first reconciled on 2026-10-04 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
 #217/#220/#222-#227), the native C++ endpoint (#214) and its C++ gates (#229), the
@@ -151,6 +151,26 @@ Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rational
 [TRICKS.md](TRICKS.md) for first-release public journeys and acceptance evidence, and
 [product-execution-priorities.md](internal/docs/product-execution-priorities.md) for the
 priority ladder after the immediate first-release gate.
+
+### Review update, 6 October
+
+Main through `edf1ccf` closes the remaining #403 user-work and proof repairs on the
+release gate. Explicit empty or malformed build targets are refused before effects and
+cannot carry full-build proof (#429, fixes #394, superseding #414). Build and test proof
+is bound to stable inputs: a build or test whose admitted inputs change while it runs is
+UNKNOWN / `stale_binary`, full or targeted (#433, fixes #400). `/commit` builds the
+candidate commit from a private index and never borrows the user's live index; one locked
+reconciler (Git's post-commit hook, replayed by the controller) advances only clean
+candidate entries, leaves user-staged entries and a foreign `index.lock` untouched, and a
+restart after a failed hook reports UNKNOWN without replay (#434, fixes #395). R01 is
+measured: repository explanations are checked for invented files and for every configured
+configure/build/test command (J22, #413). Static standards now cover every live Python
+root, with the measured existing debt recorded in the baseline (#430, fixes #401).
+
+Still open: owned workspace Git runner and Stop (#436/#437, rebuilt from #420/#423 after
+review), real-repository qualification on cxxopts (#438, #418), the Windows
+public-launcher timeout (#432) and phantom job stray (#435), and the capability/evidence
+ledger (#417). Physical offline qualification remains open independently.
 
 ### Review update, 4 October
 
