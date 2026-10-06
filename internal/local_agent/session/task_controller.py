@@ -91,6 +91,8 @@ _BLOCKED_REASON_CODES: Final[Mapping[str, str]] = {
     "approval_declined": "user_denied",
     "missing_executable": "missing_dependency",
     "orchestrator_timeout": "tool_timeout",
+    "output_limit": "tool_timeout",  # a tool-side bound ended it (v1 vocabulary)
+    "cleanup_unknown": "cleanup_unknown",
     "command_cancelled": "cancelled",
     "bad_arguments": "invalid_input",
     "invalid_model_response": "invalid_input",
@@ -153,6 +155,14 @@ def _needs_controller_check(run: RunResult) -> bool:
         and state.claim in (None, "success")
         and not _current_tree_observed_failure(run)
     )
+
+
+def _process_cleanup_unknown(run: RunResult) -> bool:
+    """Did any tool run end with a process tree the runner could not show ended?
+
+    Read from the typed tool record (Reason.CLEANUP_UNKNOWN), never from prose.
+    """
+    return any(item.reason == "cleanup_unknown" for item in run.state.history)
 
 
 def _current_tree_observed_failure(run: RunResult) -> bool:
@@ -299,6 +309,10 @@ class TaskController:
             # The profile could not hold the task. Nothing about the code was decided,
             # so this is not a FAILED verdict, whatever the worker's own outcome was.
             return TaskOutcome.BLOCKED
+        if _process_cleanup_unknown(run):
+            # A command's process tree could not be shown ended, so its effects are not
+            # owned: neither a pass nor an engineering failure (#436 review).
+            return TaskOutcome.NO_VERDICT
         if outcome.succeeded and not run.state.verified:
             # The worker completed its job, but the tree is not proven. If the last
             # current-epoch proof is an observed build or test failure, the honest
@@ -335,6 +349,8 @@ class TaskController:
             return "inference_timeout"
         if run.state.halt_cause is HaltCause.CONTEXT_BUDGET_EXHAUSTED:
             return "unavailable_capability"
+        if outcome is TaskOutcome.NO_VERDICT and _process_cleanup_unknown(run):
+            return "cleanup_unknown"
         if outcome.succeeded:
             return "verification_passed"
         if outcome in (TaskOutcome.FAIL, TaskOutcome.ESCALATED_FAIL):
@@ -571,6 +587,10 @@ class TaskController:
         # run the configured check this request requires on the candidate, through
         # the same tools and durable activity, and let its result decide.
         check = self._controller_check(resolved_skill, work_repo, registry)
+        if _process_cleanup_unknown(check):
+            # The check ran on the candidate after the worker changed it; a tree it
+            # could not show ended is the later, stronger fact and decides (#436 review).
+            return _CandidateProof(TaskOutcome.NO_VERDICT, False, "cleanup_unknown", check, check)
         if candidate_proof_satisfied(resolved_skill, check):
             return _CandidateProof(TaskOutcome.PASS, True, "verification_passed", check, check)
         if check.state.verification_attempted and _current_tree_observed_failure(check):
