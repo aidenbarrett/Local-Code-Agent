@@ -42,6 +42,12 @@ from uuid import UUID, uuid4
 
 import psutil
 
+from ..tools.process_runner import (
+    CommandOutputLimitError,
+    CommandSpawnError,
+    OwnedLifecycle,
+    run_owned,
+)
 from ..tools.tool_primitives import SandboxError, resolve_in_repo
 from .commit_index_hook import (
     IndexEntry,
@@ -53,6 +59,13 @@ from .commit_index_hook import (
 )
 
 _GIT_TIMEOUT_S = 300
+# Every workspace git process runs under ``run_owned``: a Windows Job Object, or a POSIX
+# process group (which a setsid() descendant can leave, so POSIX cleanup is never
+# reported confirmed). A timeout ends it, including a commit signer's descendants;
+# anything a normally exiting git leaves in it is ended before the step counts; and
+# stdout plus stderr past this size end it while it runs. On POSIX the output is a
+# drained pipe, so even an escaped writer cannot grow it after the step returns.
+_GIT_OUTPUT_LIMIT = 256 * 1024 * 1024
 # Untracked files above this size stay out of the candidate base and are reported. The
 # base commit's objects are written to the user's object store; a stray dataset or
 # binary must not bloat it.
@@ -228,6 +241,10 @@ def _failed_commit_reason(done: subprocess.CompletedProcess[bytes]) -> str:
     return "git commit failed: " + detail
 
 
+def _confirmation(*, confirmed: bool | None) -> str:
+    return {True: "yes", False: "no", None: "not needed"}[confirmed]
+
+
 def _split_z(raw: bytes) -> tuple[str, ...]:
     return tuple(item.decode("utf-8", "surrogateescape") for item in raw.split(b"\0") if item)
 
@@ -305,17 +322,29 @@ class GitWorkspaceManager:
             *args,
         ]
         try:
-            done = subprocess.run(
-                argv,
-                cwd=str(cwd),
-                env=env,
-                input=stdin,
-                capture_output=True,
-                timeout=_GIT_TIMEOUT_S,
-                check=False,
+            run = run_owned(
+                argv, cwd, OwnedLifecycle(_GIT_TIMEOUT_S, output_limit=_GIT_OUTPUT_LIMIT),
+                env=env, stdin=stdin,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except CommandSpawnError as exc:
             raise WorkspaceError(f"git {args[0]} could not run: {exc}") from exc
+        except CommandOutputLimitError as exc:
+            raise WorkspaceError(f"git {args[0]} was ended: {exc}") from exc
+        if run.timed_out:
+            cleanup = _confirmation(confirmed=run.cleanup_confirmed)
+            raise WorkspaceError(
+                f"git {args[0]} did not finish within {_GIT_TIMEOUT_S} s and was ended "
+                f"(process-tree cleanup confirmed: {cleanup})"
+            )
+        if run.strays_unconfirmed:
+            # git exited, but its tree could not be shown ended: something it started
+            # was still running, or (without a Job Object) could not be counted at all.
+            # Its effects are unowned, so the step is not done.
+            raise WorkspaceError(
+                f"git {args[0]} exited but its process tree could not be shown ended "
+                f"(containment: {run.containment})"
+            )
+        done = subprocess.CompletedProcess(argv, run.exit_code, run.stdout, run.stderr)
         if check and done.returncode != 0:
             message = done.stderr.decode("utf-8", "replace").strip()
             raise WorkspaceError(f"git {args[0]} failed ({done.returncode}): {message}")

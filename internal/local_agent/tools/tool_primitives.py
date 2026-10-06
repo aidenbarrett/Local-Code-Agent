@@ -96,6 +96,12 @@ class Reason(str, Enum):
     # The user's Stop reached a configured command: either before it spawned, or
     # while it ran and the runner ended its process tree.
     COMMAND_CANCELLED = "command_cancelled"
+    # OUR output bound ended a configured command: it wrote more than the controller
+    # reads. Like ORCHESTRATOR_TIMEOUT, a fact about our bound, not about the code.
+    OUTPUT_LIMIT = "output_limit"
+    # A command exited, but its process tree could not be shown ended: a descendant
+    # outlived it, or (without a Job Object) could not be counted. Not a result.
+    CLEANUP_UNKNOWN = "cleanup_unknown"
 
     @property
     def locus(self) -> Locus:
@@ -124,6 +130,8 @@ _LOCUS: dict[Reason, Locus] = {
     Reason.PROFILE_MISMATCH: Locus.MODEL,
     Reason.PROTECTED_PATH: Locus.MODEL,
     Reason.COMMAND_CANCELLED: Locus.USER,
+    Reason.OUTPUT_LIMIT: Locus.TOOL,
+    Reason.CLEANUP_UNKNOWN: Locus.TOOL,
 }
 if set(_LOCUS) != set(Reason):
     # An import-time invariant, so it must not disappear under `python -O`.

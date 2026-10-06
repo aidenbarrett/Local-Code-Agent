@@ -26,6 +26,8 @@ _TOOL_REASON_TO_EVENT_REASON = {
     "missing_executable": "missing_dependency",
     "spawn_failure": "unavailable_capability",
     "orchestrator_timeout": "tool_timeout",
+    "output_limit": "tool_timeout",  # a tool-side bound ended it (v1 vocabulary)
+    "cleanup_unknown": "cleanup_unknown",
     "bad_arguments": "invalid_input",
     "invalid_model_response": "invalid_input",
     "sandbox_violation": "policy_denied",

@@ -71,7 +71,10 @@ def test_posix_run_reports_escapable_group_containment(tmp_path):
     out = run_command([sys.executable, "-c", "print('ok')"], tmp_path, tmp_path / "runs", 10)
     assert out.ok
     assert out.containment == "process_group"
-    assert out.stray_descendants_at_exit is None
+    # The session's process group is counted after a normal exit (#420): nothing was
+    # left in it. That says nothing about a descendant that left the group via setsid().
+    assert out.stray_descendants_at_exit == 0
+    assert out.process_cleanup_confirmed is None
     assert "containment=process_group" in (out.stdout_path.parent / "command.txt").read_text(
         encoding="utf-8"
     )
@@ -204,11 +207,14 @@ def test_refused_adoption_reruns_uncontained_once_and_reports_unconfirmed(tmp_pa
         f"f=Path({str(runs)!r}).open('a', encoding='utf-8'); f.write('ran\\n'); f.close(); "
         "print('ok')"
     )
-    out = run_command([sys.executable, "-c", code], tmp_path, tmp_path / "runs", 30)
+    from local_agent.tools.tool_primitives import Reason, ToolError
 
-    assert out.ok
-    assert out.containment == "visible_tree"
-    assert out.stray_descendants_at_exit is None
+    # Without a Job Object the tree cannot be shown ended, so the public boundary
+    # refuses the run as a result (#436 review) rather than reporting it ok.
+    with pytest.raises(ToolError) as refused:
+        run_command([sys.executable, "-c", code], tmp_path, tmp_path / "runs", 30)
+    assert refused.value.reason is Reason.CLEANUP_UNKNOWN
+    assert "containment=visible_tree" in str(refused.value)
     # The suspended first attempt never executed; the command ran exactly once.
     assert runs.read_text(encoding="utf-8") == "ran\n"
 
