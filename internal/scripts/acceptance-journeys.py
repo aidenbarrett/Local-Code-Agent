@@ -69,6 +69,7 @@ from local_agent.session.conversation_store import (  # noqa: E402
     conversation, create_session, ensure_runtime, new_session,
 )
 from local_agent.session.runtime_facts import RuntimeFacts  # noqa: E402
+from scripts import acceptance_corpus as corpus  # noqa: E402
 from scripts.acceptance_compare import ComparisonError, comparison_text  # noqa: E402
 from serving.managed_runtime import endpoint_reachable  # noqa: E402
 from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
@@ -617,7 +618,10 @@ class ScriptedCompileFix:
     not a model manages the fix. It proves the product path, never the model.
     """
 
-    _EDITS = (("++count;", "++count_;"), ("return count_ == 0 }", "return count_ == 0; }"))
+    _PATH = RING
+    _EDITS: tuple[tuple[str, str], ...] = (
+        ("++count;", "++count_;"), ("return count_ == 0 }", "return count_ == 0; }"),
+    )
 
     def chat(self, messages: list[dict[str, Any]], tools: Any = None,
              max_tokens: int | None = None) -> ChatResponse:  # noqa: ARG002 - LLMClient shape
@@ -627,8 +631,8 @@ class ScriptedCompileFix:
             if step % 2 == 0:
                 find, replace = self._EDITS[step // 2]
                 return ChatResponse(tool_calls=[tool_call("propose_patch", {
-                    "path": RING, "find": find, "replace": replace,
-                    "rationale": "fixture compile error"}, f"p{step}")])
+                    "path": self._PATH, "find": find, "replace": replace,
+                    "rationale": "seeded compile error"}, f"p{step}")])
             found = re.search(r'"patch_id":\s*"([^"]+)"', str(results[-1].get("content")))
             if found is None:
                 return self._finish("diagnosis", "the patch was not proposed", [])
@@ -1380,6 +1384,329 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
 ]
 
 
+# ------------------------------------------------------------------ real repositories (#418)
+
+# Q journeys run on a pinned third-party repository from internal/acceptance/corpus.toml,
+# each in a disposable clone of the qualification cache (never the cache itself).
+CORPUS_COMPILE_PATH = "test/options.cpp"
+
+
+class ScriptedCorpusCompileFix(ScriptedCompileFix):
+    """Fix the cxxopts seeded compile fault with ordinary tools and no model."""
+
+    _PATH = CORPUS_COMPILE_PATH
+    _EDITS = (('CHECK(reslt.count("s") == 1);', 'CHECK(result.count("s") == 1);'),)
+
+
+# The harness's own builds run outside Local Code Agent's process ownership, so they must
+# not leave anything behind either: MSBuild otherwise keeps reusable worker nodes (and
+# the VS telemetry helper) alive after the build, which a CI runner then reports as
+# orphans that are not the product's (#438 review).
+_INDEPENDENT_ENV = {"MSBUILDDISABLENODEREUSE": "1", "VSCMD_SKIP_SENDTELEMETRY": "1"}
+# Short on purpose: cxxopts' package tests nest try-compile projects several levels
+# under the build directory, and MSBuild's file tracker fails past MAX_PATH (FTK1011).
+INDEPENDENT_BUILD_DIR = "build-i"  # matches upstream .gitignore build-*/
+
+
+def _independent_commands(repo: Path) -> list[list[str]]:
+    """The repository's own configured configure/build/test commands, aimed at a
+    separate build directory, so the check is independent of the agent's run but
+    uses the same configuration (build type, options) the repository declares."""
+    config = load_repo_config(repo)
+    profile = config.profile(config.default_profile)
+    return [[INDEPENDENT_BUILD_DIR if arg == config.build_dir else arg for arg in command]
+            for command in (profile.configure, profile.build, profile.test) if command]
+
+
+def independent_profile_suite(repo: Path) -> tuple[bool, str]:
+    """Configure, build and test with the repository's own profile; the agent is not
+    consulted. Every test is bounded; output goes to a file, never a pipe."""
+    shutil.rmtree(repo / INDEPENDENT_BUILD_DIR, ignore_errors=True)
+    env = {**os.environ, **_INDEPENDENT_ENV}
+    log = ""
+    for configured in _independent_commands(repo):
+        executable = shutil.which(configured[0])
+        if executable is None:
+            return False, f"{configured[0]!r} is not on PATH"
+        bound = (["--timeout", str(CTEST_PER_TEST_SECONDS)]
+                 if Path(configured[0]).name.lower().startswith("ctest") else [])
+        with tempfile.TemporaryFile(mode="w+b") as capture:
+            done = subprocess.run(  # noqa: S603 - the repository's configured argv, resolved
+                [executable, *configured[1:], *bound], cwd=repo, env=env, stdout=capture,
+                stderr=subprocess.STDOUT, check=False, timeout=1800)
+            capture.seek(0)
+            log = capture.read().decode("utf-8", errors="replace")
+        if done.returncode != 0:
+            return False, log[-4000:]
+    return True, log[-4000:]
+
+
+def ctest_failed_names(log: str) -> list[str]:
+    listing = log.partition("The following tests FAILED:")[2]
+    return sorted(re.findall(r"^\s*\d+\s*-\s*(\S+)", listing, re.M))
+
+
+def _corpus_fault(s: Session, kind: str) -> corpus.Fault:
+    if s.runner.corpus is None:
+        raise JourneyFailed("a corpus journey ran without a corpus")
+    return s.runner.corpus.fault_of_kind(kind)
+
+
+def _task(result: TaskResult | None, said: str) -> TaskResult:
+    """The task a turn admitted; a turn that admitted none fails the journey."""
+    if result is None:
+        raise JourneyFailed(f"{said!r} admitted no task")
+    return result
+
+
+def _outcome(result: TaskResult | None) -> str:
+    return f"{result.outcome.value}/{result.reason_code}" if result is not None else "no task"
+
+
+def q_build_and_test(s: Session) -> None:
+    """Q01: a clean real repository builds and its whole CTest suite passes."""
+    cold = time.monotonic()
+    built = _task(s.turn("build it")[1], "build it")
+    s.journey.measured["cold_build_s"] = round(time.monotonic() - cold, 1)
+    expect(built.outcome is TaskOutcome.PASS, f"clean build was {_outcome(built)}")
+    expect(built.verified_at_completion, "build PASS without verification")
+    expect(_task_facts(built)["proof_scope"] == "full_build", "PASS not bound to a full build")
+    warm = time.monotonic()
+    tested = _task(s.turn("run the tests")[1], "run the tests")
+    s.journey.measured["warm_test_s"] = round(time.monotonic() - warm, 1)
+    expect(tested.outcome is TaskOutcome.PASS, f"clean test run was {_outcome(tested)}")
+    expect(tested.verified_at_completion, "test PASS without verification")
+    ok, log = independent_profile_suite(s.repo)
+    expect(ok, "the clean baseline is not green under the repository's own profile "
+               f"(failed: {ctest_failed_names(log)}):\n" + log[-1500:])
+    s.runner.corpus_baseline_green = True
+    s.journey.measured["unrelated_work_preserved"] = True
+    s.journey.passed("clean real repository: build and full CTest suite PASS with proof; "
+                     "an independent run of the same profile is green")
+
+
+def q_compile_diagnosis(s: Session) -> None:
+    """Q02: a seeded compile error is reported with the right file and line."""
+    fault = _corpus_fault(s, "compile")
+    before = (s.repo / CORPUS_COMPILE_PATH).read_bytes()
+    answer, admitted = s.turn("build it")
+    result = _task(admitted, "build it")
+    expect((result.outcome, result.reason_code) == (TaskOutcome.FAIL, "verification_failed"),
+           f"compile error reported as {_outcome(result)}")
+    expect(s.graph.history.failure_kind(result.task_id) == "build", "failure kind is not build")
+    # The user reads the answer, so that is where the location must be (GNU and MSVC
+    # alike: the product prints it repository-relative as path:line).
+    for location in fault.expect:
+        expect(location in answer, f"the answer did not name {location}: {answer[-400:]!r}")
+    expect((s.repo / CORPUS_COMPILE_PATH).read_bytes() == before, "building changed a source file")
+    s.journey.measured["answer"] = answer[:600]
+    s.journey.measured["unrelated_work_preserved"] = True
+    s.journey.passed(f"seeded compile error: FAIL with diagnosis at {', '.join(fault.expect)}")
+
+
+def q_test_truth(s: Session) -> None:
+    """Q03: a seeded failing assertion is reported as exactly the failing CTest tests."""
+    fault = _corpus_fault(s, "test")
+    answer, admitted = s.turn("run the tests")
+    result = _task(admitted, "run the tests")
+    expect((result.outcome, result.reason_code) == (TaskOutcome.FAIL, "verification_failed"),
+           f"failing test reported as {_outcome(result)}")
+    expect(s.graph.history.failure_kind(result.task_id) == "test", "failure kind is not test")
+    named = [name for name in fault.expect if name in answer]
+    s.journey.measured["answer"] = answer[:800]
+    expect(named == list(fault.expect),
+           f"the answer named {named} of the failing tests {fault.expect}")
+    ok, log = independent_profile_suite(s.repo)
+    expect(not ok, "the independent CTest run passed on a seeded failing test")
+    failed = ctest_failed_names(log)
+    expect(failed == sorted(fault.expect),
+           f"independent CTest failed {failed}, expected exactly {sorted(fault.expect)}")
+    if not s.runner.corpus_baseline_green:
+        # The exact seeded delta needs a green baseline from the same machine and run.
+        s.journey.unknown(f"the seeded failure is exactly {', '.join(fault.expect)}, but no "
+                          "green clean baseline (Q01) was observed in this run")
+        return
+    s.journey.measured["unrelated_work_preserved"] = True
+    s.journey.passed(f"seeded test failure: FAIL naming exactly {', '.join(fault.expect)}")
+
+
+UNRELATED_NAME = "note[1] é.txt"
+
+
+def q_candidate_lifecycle(s: Session) -> None:
+    """Q04: scripted candidate fix; apply, undo, re-apply and exact commit amid user work."""
+    path = s.repo / CORPUS_COMPILE_PATH
+    broken = path.read_bytes()
+    built = _task(s.turn("build it")[1], "build it")
+    expect(built.outcome is TaskOutcome.FAIL, "the seeded fault did not fail")
+    fixed = _task(s.turn("fix it")[1], "fix it")
+    expect(fixed.outcome is TaskOutcome.PASS, f"the scripted fix gave {_outcome(fixed)}")
+    cid = fixed.task_id
+
+    # The user's own work, present for every control: staged, unstaged and an untracked
+    # file whose name a Git pathspec would treat as a pattern.
+    (s.repo / "STAGED.md").write_text("my staged notes\n", encoding="utf-8")
+    _git(s.repo, "add", "STAGED.md")
+    readme = s.repo / "README.md"
+    readme_before = readme.read_bytes()
+    readme.write_bytes(readme_before + b"\nmy unrelated edit\n")
+    odd = s.repo / UNRELATED_NAME
+    odd.write_text("untracked, pattern-like name\n", encoding="utf-8")
+    staged = _git(s.repo, "ls-files", "--stage", "--", "STAGED.md")
+
+    def user_work_intact() -> bool:
+        return (readme.read_bytes() == readme_before + b"\nmy unrelated edit\n"
+                and odd.read_text(encoding="utf-8") == "untracked, pattern-like name\n"
+                and _git(s.repo, "ls-files", "--stage", "--", "STAGED.md") == staged)
+
+    _, applied = s.turn(f"/apply {cid}")
+    expect(applied is not None and applied.outcome is TaskOutcome.PASS, "/apply failed")
+    ok, log = independent_profile_suite(s.repo)
+    expect(ok, "the applied fix is not green under the repository's own profile:\n"
+               + log[-1500:])
+    expect(user_work_intact(), "/apply touched unrelated user work")
+
+    _, undone = s.turn(f"/undo {cid}")
+    expect(undone is not None and undone.outcome is TaskOutcome.PASS, "/undo failed")
+    expect(path.read_bytes() == broken, "/undo did not restore the exact bytes")
+    expect(user_work_intact(), "/undo touched unrelated user work")
+
+    _, reapplied = s.turn(f"/apply {cid}")
+    if reapplied is None or reapplied.outcome is not TaskOutcome.PASS:
+        s.journey.notes.append("a candidate is single-use after /undo; a fresh one is prepared")
+        again = _task(s.turn(f"fix task {built.task_id}")[1], "fix task")
+        expect(again.outcome is TaskOutcome.PASS, "no second verified candidate")
+        cid = again.task_id
+        _, reapplied = s.turn(f"/apply {cid}")
+        expect(reapplied is not None and reapplied.outcome is TaskOutcome.PASS, "re-apply failed")
+    head = _git(s.repo, "rev-parse", "HEAD").strip()
+    _, committed = s.turn(f"/commit {cid}")
+    expect(committed is not None and committed.outcome is TaskOutcome.PASS, "/commit failed")
+    files = _git(s.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split()
+    expect(files == [CORPUS_COMPILE_PATH], f"the commit contains {files}")
+    expect(_git(s.repo, "rev-parse", "HEAD^").strip() == head, "the commit has the wrong parent")
+    expect(user_work_intact(), "/commit touched unrelated user work")
+    s.journey.measured["unrelated_work_preserved"] = True
+    s.journey.passed("scripted fix on a real repository: apply, independent build, exact undo, "
+                     "re-apply, exact commit; staged, unstaged and pattern-named work preserved")
+
+
+def q_stop_build(s: Session) -> None:
+    """Q05: Stop during the real repository's build: terminal in budget, no strays,
+    and the next task runs."""
+    thread = s.turn_async("build it")
+    started = s.wait_for(lambda e: e.get("kind") == "tool.started", timeout=120)
+    if started is None:
+        raise JourneyFailed("the build never started")
+    task_id = str(started["task_id"])
+    deadline = time.monotonic() + 60
+    running = processes_under(s.repo)
+    while not running and time.monotonic() < deadline and not s.terminal(task_id):
+        time.sleep(0.2)
+        running = processes_under(s.repo)
+    s.journey.measured["processes_before_stop"] = len(running)
+    if not running:
+        s.journey.unknown("the build finished before a running process was observed; Stop was "
+                          "not exercised mid-command")
+        return
+    seconds = s.stop(task_id)
+    finite = seconds != float("inf")
+    s.journey.measured["stop_to_terminal_s"] = round(seconds, 2) if finite else None
+    expect(finite, f"no terminal state within {s.runner.stop_budget:.0f}s of Stop")
+    thread.join(30)
+    expect(thread.error is None, f"the stopped build turn raised {thread.error!r}"[:300])
+    retained = s.graph.history.result_for_task(task_id)
+    expect(retained is not None and not retained.verified_at_completion,
+           "the stopped build has no unverified terminal result")
+    time.sleep(3)
+    alive = processes_under(s.repo)
+    s.journey.measured["surviving_processes"] = alive
+    expect(not alive, f"{len(alive)} process(es) still running after Stop")
+    after = _task(s.turn("build it")[1], "build it")
+    expect(after.outcome is TaskOutcome.PASS, f"the next build after Stop was {_outcome(after)}")
+    s.journey.measured["unrelated_work_preserved"] = True
+    s.journey.passed(f"Stop during the real build: terminal in {seconds:.1f}s, no surviving "
+                     "processes, the next build passed")
+
+
+def q_repo_explain(s: Session) -> None:
+    """Q06 (model): R01/J22 grounded explanation of a real repository."""
+    before = _git(s.repo, "status", "--porcelain=v1")
+    invented: list[str] = []
+    omitted: list[str] = []
+    for question in ("explain this repository", "how is this repository built and tested?"):
+        answer, _ = s.turn(question)
+        s.journey.measured[question] = answer[:800]
+        invented += invented_paths(answer, s.repo)
+        omitted += [c for c in configured_commands(s.repo) if c not in answer]
+    expect(_git(s.repo, "status", "--porcelain=v1") == before, "explaining changed the repository")
+    s.journey.measured.update(invented_paths=invented, omitted_commands=sorted(set(omitted)),
+                              unrelated_work_preserved=True)
+    if invented:
+        s.journey.measured_as("ungrounded", f"named files that do not exist: {invented}")
+    elif omitted:
+        s.journey.measured_as("incomplete", f"omitted configured commands: {sorted(set(omitted))}")
+    else:
+        s.journey.measured_as("grounded", "only real files and every configured command")
+
+
+def q_model_fix(s: Session) -> None:
+    """Q07 (model): fix the seeded compile error through the model worker."""
+    built = _task(s.turn("build it")[1], "build it")
+    expect(built.outcome is TaskOutcome.FAIL, "the seeded fault did not fail")
+    _, fixed = s.turn("fix it")
+    s.journey.measured["unrelated_work_preserved"] = True
+    if fixed is None:
+        s.journey.measured_as("unknown", "fix it admitted no task")
+        return
+    if fixed.outcome is TaskOutcome.PASS:
+        expect(fixed.verified_at_completion, "a PASS fix without verification")
+        s.journey.measured_as("verified", "candidate fix verified by a full build")
+    else:
+        s.journey.measured_as("failed" if fixed.outcome is TaskOutcome.FAIL else "unknown",
+                              f"{fixed.outcome.value}/{fixed.reason_code}")
+
+
+# (id, title, kind, fault kind or None, needs_model, function)
+CORPUS_JOURNEYS: list[tuple[str, str, str, str | None, bool, Callable[[Session], None]]] = [
+    ("Q01-build-test", "build and test a real repository", "product", None, False,
+     q_build_and_test),
+    ("Q02-compile-diagnosis", "diagnose a seeded compile error with file and line", "product",
+     "compile", False, q_compile_diagnosis),
+    ("Q03-test-truth", "name the seeded failing CTest tests", "product", "test", False,
+     q_test_truth),
+    ("Q04-candidate-scripted", "scripted fix: apply, undo, re-apply, exact commit amid user work",
+     "product", "compile", False, q_candidate_lifecycle),
+    ("Q05-stop-build", "Stop during the real build", "product", None, False, q_stop_build),
+    ("Q06-repo-explain", "grounded explanation of a real repository", "model", None, True,
+     q_repo_explain),
+    ("Q07-fix-model", "fix the seeded compile error with the model", "model", "compile", True,
+     q_model_fix),
+]
+SCRIPTED_WORKERS["Q04-candidate-scripted"] = ScriptedCorpusCompileFix
+
+
+def corpus_metrics(journeys: list[Journey]) -> dict[str, Any]:
+    """Astra's qualification counts. Counts only: no rate from fewer than 10 attempts."""
+    ran = [j for j in journeys if j.reason != "not selected"]
+    verified = [j for j in ran if j.status in ("PASS", "MEASURED:verified", "MEASURED:grounded")]
+    refusals = [j for j in ran if j.status == "UNKNOWN" or j.status.startswith("MEASURED:unknown")]
+    return {
+        "attempted": len(ran),
+        "completed_verified": len(verified),
+        "correct_refusals_or_unknowns": len(refusals),
+        "user_interventions": 0,
+        "cold_build_s": next((j.measured.get("cold_build_s") for j in ran
+                              if "cold_build_s" in j.measured), None),
+        "warm_test_s": next((j.measured.get("warm_test_s") for j in ran
+                             if "warm_test_s" in j.measured), None),
+        "unrelated_work_preserved": {j.id: j.measured.get("unrelated_work_preserved") for j in ran},
+        "failure_reasons": {j.id: j.reason for j in ran if j.status not in ("PASS",)
+                            and not j.status.startswith("MEASURED:verified")},
+        "rate_claimed": False,
+    }
+
+
 # ------------------------------------------------------------------ runner
 
 
@@ -1402,6 +1729,11 @@ class Runner:
         self.runtime_facts: Any = None
         self.candidates: dict[str, Any] = {}
         self.preconditions: dict[str, Any] = {}
+        # A real repository from internal/acceptance/corpus.toml (#418), or None.
+        self.corpus: corpus.CorpusRepository | None = getattr(args, "corpus_entry", None)
+        self.corpus_cache: Path | None = getattr(args, "corpus_cache", None)
+        # Set by Q01 when the clean repository is green under its own profile here.
+        self.corpus_baseline_green = False
 
     def check_preconditions(self) -> None:
         facts: dict[str, Any] = {
@@ -1412,7 +1744,10 @@ class Runner:
             "git": shutil.which("git"),
             "cmake": shutil.which("cmake"),
         }
-        if facts["git"] and facts["cmake"]:
+        if self.corpus is not None:
+            # Corpus journeys never use the bundled fixture; its build is not a precondition.
+            facts["fixture_builds"] = None
+        elif facts["git"] and facts["cmake"]:
             ok, log = probe_fixture_build(self.output)
             facts["fixture_builds"] = ok
             if not ok:
@@ -1510,6 +1845,11 @@ class Runner:
         print(f"--> {jid}: {title}", flush=True)
         started = time.monotonic()
         repo = make_repo(self.output / "repos" / jid, scenario, **options)
+        self._execute(journey, repo, fn, started)
+        return journey
+
+    def _execute(self, journey: Journey, repo: Path, fn: Callable[[Session], None],
+                 started: float) -> None:
         try:
             with Session(self, journey, repo).open() as session:
                 fn(session)
@@ -1525,7 +1865,56 @@ class Runner:
         if journey.kind == "model":
             for line in failed_tool_lines(journey):
                 print("    " + line, flush=True)
-        return journey
+
+    def _corpus_problem(self) -> tuple[Path | None, str | None]:
+        """The verified cached copy, or why corpus journeys cannot run (UNKNOWN)."""
+        if self.corpus is None or self.corpus_cache is None:
+            return None, "no corpus selected"
+        try:
+            cached = corpus.cached_copy(self.corpus, self.corpus_cache)
+            if cached is None:
+                return None, (f"corpus {self.corpus.name} not fetched; run `acceptance --corpus "
+                              f"{self.corpus.name} --fetch` while online")
+            corpus.check_faults(self.corpus, cached)
+        except corpus.CorpusError as exc:
+            return None, f"corpus unusable: {exc}"
+        return cached, None
+
+    def run_corpus(self, selected: set[str] | None) -> list[Journey]:
+        """Q journeys on the selected real repository, each in a disposable clone."""
+        if self.corpus is None:
+            raise RuntimeError("run_corpus needs --corpus")
+        cached, problem = self._corpus_problem()
+        self.preconditions["corpus"] = {
+            "name": self.corpus.name, "commit": self.corpus.commit, "licence": self.corpus.licence,
+            "cache": str(self.corpus_cache), "ready": problem is None, "problem": problem,
+        }
+        results = []
+        model_ok = self.allow_model and self.preconditions.get("model_endpoint", {}).get("ok")
+        for jid, title, kind, fault_kind, needs_model, fn in CORPUS_JOURNEYS:
+            attempts = self.repeat if kind == "model" else 1
+            for attempt in range(1, attempts + 1):
+                aid = jid if attempts == 1 else f"{jid}.r{attempt}"
+                journey = Journey(aid, title, kind)
+                results.append(journey)
+                if selected and jid not in selected:
+                    journey.unknown("not selected")
+                elif problem is not None or cached is None:
+                    journey.unknown(problem or "corpus not available")
+                elif needs_model and not self.allow_model:
+                    journey.unknown("needs the model; run with --allow-model")
+                elif needs_model and not model_ok:
+                    journey.unknown("the model endpoint is not ready: "
+                                    + str(self.preconditions.get("model_endpoint")))
+                else:
+                    sys.stdout.write(f"--> {aid}: {title}\n")
+                    sys.stdout.flush()
+                    started = time.monotonic()
+                    fault = self.corpus.fault_of_kind(fault_kind) if fault_kind else None
+                    repo = corpus.disposable_copy(self.corpus, cached, self.output / "repos" / aid,
+                                                  fault=fault)
+                    self._execute(journey, repo, fn, started)
+        return results
 
 
 def failed_tool_lines(journey: Journey) -> list[str]:
@@ -1616,6 +2005,28 @@ def model_line(preconditions: dict[str, Any]) -> str:
     return f"NOT USABLE: {endpoint.get('message')}"
 
 
+def corpus_summary_lines(repo: corpus.CorpusRepository, metrics: dict[str, Any]) -> list[str]:
+    preserved = metrics["unrelated_work_preserved"]
+    lines = [
+        f"Real repository {repo.name} @ {repo.commit[:12]} ({repo.licence})",
+        f"  completed verified {metrics['completed_verified']} of {metrics['attempted']} "
+        "attempted; "
+        f"correct refusals/unknowns {metrics['correct_refusals_or_unknowns']}; "
+        f"user interventions {metrics['user_interventions']}",
+        "  cold build " + (f"{metrics['cold_build_s']}s" if metrics["cold_build_s"] is not None
+                           else "not measured")
+        + ", warm test " + (f"{metrics['warm_test_s']}s" if metrics["warm_test_s"] is not None
+                            else "not measured"),
+        "  unrelated work preserved: " + ", ".join(
+            f"{jid}={'yes' if ok else ('no' if ok is False else 'not run')}"
+            for jid, ok in preserved.items()),
+        "  counts only: no success rate is claimed from fewer than 10 attempts",
+    ]
+    for jid, reason in metrics["failure_reasons"].items():
+        lines.append(f"  {jid}: {reason}"[:160])
+    return lines
+
+
 def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> str:
     counts: dict[str, int] = {}
     for journey in journeys:
@@ -1646,6 +2057,9 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
     failures = [line for journey in journeys for line in failed_tool_lines(journey)]
     if failures:
         lines += ["", "Failed tool calls", *failures]
+    real_repository = getattr(runner, "corpus", None)
+    if real_repository is not None:
+        lines += ["", *corpus_summary_lines(real_repository, corpus_metrics(journeys))]
     lines += ["", f"Report SHA-256 {report_sha}"]
     return "\n".join(lines) + "\n"
 
@@ -1677,6 +2091,58 @@ def keep_system_awake() -> Iterator[None]:
             print("WARNING: Windows refused to release the keep-awake request", file=sys.stderr)
 
 
+def _write_report(output: Path, runner: Runner, journeys: list[Journey], started: float) -> int:
+    """Write journeys.json and summary.txt; the exit code is 1 when any claim failed."""
+    report = {
+        "schema": SCHEMA,
+        "started_unix": started,
+        "finished_unix": time.time(),
+        "profile": runner.profile,
+        "model": runner.chat_config.model,
+        "base_url": runner.chat_config.base_url,
+        "preconditions": runner.preconditions,
+        "journeys": [journey.__dict__ for journey in journeys],
+    }
+    if runner.corpus is not None:
+        report["corpus"] = {"name": runner.corpus.name, "commit": runner.corpus.commit,
+                            "licence": runner.corpus.licence,
+                            "metrics": corpus_metrics(journeys)}
+    report_path = output / "journeys.json"
+    report_path.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
+    sha = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    text = summary_text(runner, journeys, sha)
+    (output / "summary.txt").write_text(text, encoding="utf-8")
+    print("\n" + text)
+    return 1 if any(j.status == "FAIL" for j in journeys) else 0
+
+
+def _prepare_corpus_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int | None:
+    """Resolve --corpus/--corpus-cache; with --fetch, fetch and return the exit code."""
+    if args.corpus is None:
+        parser.error("--fetch needs --corpus NAME")
+    try:
+        entries = corpus.load_manifest()
+    except corpus.CorpusError as exc:
+        parser.error(str(exc))
+    if args.corpus not in entries:
+        known = ", ".join(sorted(entries))
+        parser.error(f"--corpus {args.corpus!r} is not in the manifest ({known})")
+    args.corpus_entry = entries[args.corpus]
+    if args.corpus_cache is None:
+        args.corpus_cache = corpus.cache_root(default_runtime_root())
+    args.corpus_cache = args.corpus_cache.resolve()
+    if not args.fetch:
+        return None
+    try:
+        fetched = corpus.fetch(args.corpus_entry, args.corpus_cache)
+        corpus.check_faults(args.corpus_entry, fetched)
+    except (corpus.CorpusError, OSError, subprocess.SubprocessError) as exc:
+        sys.stderr.write(f"fetch failed: {exc}\n")
+        return 2
+    sys.stdout.write(f"{args.corpus} {args.corpus_entry.commit} is cached at {fetched}\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--compare", nargs=2, type=Path, metavar=("OLD", "NEW"),
@@ -1698,7 +2164,18 @@ def main(argv: list[str] | None = None) -> int:
                         help="run each model journey this many times and report its outcome rate")
     parser.add_argument("--journey-timeout", type=float, default=900.0, help="seconds per user turn")
     parser.add_argument("--stop-budget", type=float, default=60.0, help="seconds Stop has to reach terminal")
+    parser.add_argument("--corpus", help="run the Q journeys on this real repository from "
+                        "internal/acceptance/corpus.toml instead of the bundled fixture")
+    parser.add_argument("--fetch", action="store_true",
+                        help="with --corpus: clone it at its pinned commit into the qualification "
+                             "cache (online), then exit")
+    parser.add_argument("--corpus-cache", type=Path,
+                        help="qualification cache directory (default: under the runtime root)")
     args = parser.parse_args(argv)
+    if args.corpus is not None or args.fetch:
+        fetched = _prepare_corpus_args(parser, args)
+        if fetched is not None:
+            return fetched
     if args.compare:
         if args.output is not None:
             parser.error("--compare cannot be combined with --output")
@@ -1727,26 +2204,11 @@ def main(argv: list[str] | None = None) -> int:
         runner.check_preconditions()
         print(json.dumps(runner.preconditions, indent=1), flush=True)
         selected = set(args.only) or None
-        journeys = runner.run(selected)
+        journeys = (runner.run_corpus(selected) if runner.corpus is not None
+                    else runner.run(selected))
         if args.repo:
             journeys += runner.run_repo(args.repo.resolve(), allow_build=args.allow_build, selected=selected)
-        report = {
-            "schema": SCHEMA,
-            "started_unix": started,
-            "finished_unix": time.time(),
-            "profile": runner.profile,
-            "model": runner.chat_config.model,
-            "base_url": runner.chat_config.base_url,
-            "preconditions": runner.preconditions,
-            "journeys": [journey.__dict__ for journey in journeys],
-        }
-        report_path = args.output / "journeys.json"
-        report_path.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
-        sha = hashlib.sha256(report_path.read_bytes()).hexdigest()
-        text = summary_text(runner, journeys, sha)
-        (args.output / "summary.txt").write_text(text, encoding="utf-8")
-        print("\n" + text)
-        return 1 if any(j.status == "FAIL" for j in journeys) else 0
+        return _write_report(args.output, runner, journeys, started)
 
 
 if __name__ == "__main__":

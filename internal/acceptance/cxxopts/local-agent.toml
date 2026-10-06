@@ -1,0 +1,22 @@
+# Our overlay for jarro2783/cxxopts (MIT). Written into each disposable copy as
+# .local-agent.toml; never into the qualification cache.
+[repo]
+name = "cxxopts"
+build_dir = "build"
+run_dir = ".local-agent/runs"
+default_profile = "debug"
+
+[profiles.debug]
+configure = ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug",
+             "-DCXXOPTS_BUILD_TESTS=ON", "-DCXXOPTS_BUILD_EXAMPLES=OFF"]
+build = ["cmake", "--build", "build", "--config", "Debug", "--parallel", "4"]
+test = ["ctest", "--test-dir", "build", "-C", "Debug", "--output-on-failure"]
+
+[policy]
+allow_build = true
+allow_test = true
+allow_patch = true
+allow_commit = true
+command_timeout_seconds = 600
+max_tool_calls = 30
+max_repeat_calls = 3

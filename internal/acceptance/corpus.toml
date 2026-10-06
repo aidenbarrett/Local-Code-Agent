@@ -1,0 +1,34 @@
+# Real third-party repositories used to qualify the core journeys (#418).
+#
+# Only our own files live here: this manifest, a .local-agent.toml overlay per
+# repository, and small fault patches that carry the upstream licence for the
+# context lines they quote. The third-party source itself is never vendored: it is
+# fetched once, at the pinned commit, into the runtime root's qualification cache.
+#
+# Each entry:
+#   name     short identifier used by --corpus
+#   url      where `fetch` clones from (online only)
+#   commit   the exact 40-hex commit every run uses
+#   licence  SPDX identifier; only permissive licences are accepted
+#   overlay  our .local-agent.toml for the repository (relative to this file)
+#   faults   seeded faults: id, patch (relative to this file), kind ("compile"|"test"),
+#            expect (compile: "path:line" of the error; test: failing CTest names)
+
+[[repository]]
+name = "cxxopts"
+url = "https://github.com/jarro2783/cxxopts"
+commit = "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa"
+licence = "MIT"
+overlay = "cxxopts/local-agent.toml"
+
+[[repository.faults]]
+id = "compile-error"
+patch = "cxxopts/compile-error.patch"
+kind = "compile"
+expect = ["test/options.cpp:95"]
+
+[[repository.faults]]
+id = "test-failure"
+patch = "cxxopts/test-failure.patch"
+kind = "test"
+expect = ["options", "options_no_regex"]
