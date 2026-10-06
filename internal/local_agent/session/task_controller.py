@@ -51,6 +51,7 @@ from .configured_checks import (
     configured_check_sha256,
 )
 from .proof_binding import binding_from_run
+from .workspaces import Workspace, WorkspaceError, WorkspaceStoppedError
 
 if TYPE_CHECKING:
     from ..agent.orchestrator import RunResult
@@ -58,7 +59,7 @@ if TYPE_CHECKING:
     from ..llm.client import LLMClient
     from ..tools.process_runner import CancellationProbe
     from .durable_activity import DurableToolActivity
-    from .workspaces import GitWorkspaceManager
+    from .workspaces import GitWorkspaceManager, WorkspaceReadiness
 
 # A controller action is deterministic and model-free: (manager, declared repository,
 # task id, request text) -> result. One table owns which names are actions and what
@@ -175,6 +176,100 @@ def _current_tree_observed_failure(run: RunResult) -> bool:
         if record.proof != ProofKind.NO_CURRENT_PROOF.value:
             last = record.proof
     return last in {k.value for k in CONTRADICTS_CURRENT_TREE}
+
+
+def _stopped_answer(
+    stopped: WorkspaceStoppedError | None, *, workspace_existed: bool, discarded: bool,
+) -> str:
+    """Say exactly what a Stop left behind, from typed evidence, never more."""
+    if not workspace_existed:
+        lead = "Stopped before the isolated copy was ready. No candidate exists."
+    elif discarded:
+        lead = "Stopped. The isolated candidate was discarded; nothing is available to apply."
+    else:
+        lead = (
+            "Stopped, but the isolated candidate could not be shown removed; nothing was "
+            "retained for apply, and the leftover is kept for orphan cleanup."
+        )
+    parts = [lead, "Your files, index and branches were not changed."]
+    if stopped is not None:
+        if stopped.worktree_removed is False:
+            parts[0] = (
+                "Stopped while the isolated copy was being made, and that half-made copy "
+                "could not be shown removed; it is kept for orphan cleanup."
+            )
+        if stopped.process_cleanup_confirmed is False:
+            parts.append(
+                f"A running git {stopped.step} was ended; that its whole process tree "
+                "ended could not be confirmed."
+            )
+        if stopped.writes_finished:
+            parts.append(
+                "Git steps that had already started writing were allowed to finish ("
+                + ", ".join(stopped.writes_finished)
+                + "); they can leave unreferenced objects in the repository's object "
+                "store, which git gc removes."
+            )
+    return " ".join(parts)
+
+
+def _stopped_metrics(
+    stopped: WorkspaceStoppedError | None, *, workspace_existed: bool, discarded: bool,
+) -> dict[str, object]:
+    candidate: dict[str, object] = {
+        "retained": False,
+        "stopped": True,
+        "workspace_existed": workspace_existed,
+        "workspace_removed": discarded if workspace_existed else None,
+    }
+    if stopped is not None:
+        candidate["stop"] = stopped.evidence()
+    return {"candidate": candidate}
+
+
+def _stopped_result(
+    task_id: str, stopped: WorkspaceStoppedError | None, *,
+    workspace_existed: bool, discarded: bool,
+) -> TaskResult:
+    # A Stop whose cleanup was not shown complete is not a clean "cancelled": it is
+    # the established terminal for unresolved cleanup, NO_VERDICT / cleanup_unknown,
+    # and the result carries the evidence of what is unknown (#437 review).
+    cleanup_unknown = (
+        (workspace_existed and not discarded)
+        or (stopped is not None and stopped.worktree_removed is False)
+        or (stopped is not None and stopped.process_cleanup_confirmed is False)
+    )
+    return TaskResult(
+        task_id, TaskOutcome.NO_VERDICT if cleanup_unknown else TaskOutcome.BLOCKED,
+        _stopped_answer(stopped, workspace_existed=workspace_existed, discarded=discarded),
+        False,
+        metrics=_stopped_metrics(
+            stopped, workspace_existed=workspace_existed, discarded=discarded,
+        ),
+        reason_code="cleanup_unknown" if cleanup_unknown else "cancelled",
+    )
+
+
+def _prepare_stoppable(
+    manager: GitWorkspaceManager, repo: RepoConfig, task_id: str,
+    cancellation_probe: CancellationProbe | None,
+) -> WorkspaceReadiness | Workspace | TaskResult:
+    """Readiness, then the candidate workspace, both under the task's Stop.
+
+    Returns the readiness when it failed (so the caller can report it), the workspace,
+    or the stopped result. Creation removes anything it began before raising.
+    """
+    try:
+        with manager.stoppable(cancellation_probe):
+            readiness = manager.readiness(repo.root)
+            if not readiness.ready:
+                return readiness
+            return manager.create(repo.root, task_id, excluded_dirs=excluded_dirs(repo))
+    except WorkspaceStoppedError as stopped:
+        return _stopped_result(
+            task_id, stopped,
+            workspace_existed=False, discarded=stopped.worktree_removed is not False,
+        )
 
 
 class TaskController:
@@ -426,12 +521,11 @@ class TaskController:
             reason_code=self._reason_code(run, task_outcome),
         )
 
-    def _run_candidate_change(
-        self, task: str, task_id: str, resolved_skill: str,
-        durable_activity: DurableToolActivity | None,
-        cancellation_probe: CancellationProbe | None = None,
-    ) -> TaskResult:
-        """Run a source-changing skill in its own worktree and retain the candidate."""
+    def _prepare_candidate(
+        self, task_id: str, resolved_skill: str,
+        cancellation_probe: CancellationProbe | None,
+    ) -> tuple[GitWorkspaceManager, Workspace] | TaskResult:
+        """The manager and a fresh candidate workspace, or why there is none."""
         manager = self.workspaces
         blockers = candidate_blockers(
             self.declared_repo, allow_execution=self.allow_execution, skill=resolved_skill,
@@ -456,8 +550,13 @@ class TaskController:
             )
         if manager is None:
             raise RuntimeError("candidate manager missing after blocker evaluation")
-        readiness = manager.readiness(self.declared_repo.root)
-        if not readiness.ready:
+        prepared = _prepare_stoppable(
+            manager, self.declared_repo, task_id, cancellation_probe,
+        )
+        if isinstance(prepared, TaskResult):
+            return prepared
+        if not isinstance(prepared, Workspace):
+            readiness = prepared
             # An environment limit, reported before any worktree or model call exists.
             return TaskResult(
                 task_id, TaskOutcome.BLOCKED,
@@ -470,9 +569,18 @@ class TaskController:
                 }},
                 reason_code="missing_dependency",
             )
-        workspace = manager.create(
-            self.declared_repo.root, task_id, excluded_dirs=excluded_dirs(self.declared_repo),
-        )
+        return manager, prepared
+
+    def _run_candidate_change(
+        self, task: str, task_id: str, resolved_skill: str,
+        durable_activity: DurableToolActivity | None,
+        cancellation_probe: CancellationProbe | None = None,
+    ) -> TaskResult:
+        """Run a source-changing skill in its own worktree and retain the candidate."""
+        prepared_candidate = self._prepare_candidate(task_id, resolved_skill, cancellation_probe)
+        if isinstance(prepared_candidate, TaskResult):
+            return prepared_candidate
+        manager, workspace = prepared_candidate
         settled = False
         try:
             work_repo = candidate_repo(
@@ -503,17 +611,17 @@ class TaskController:
             )
             run = worker.run(task, skill_name=resolved_skill)
 
-            def stopped() -> TaskResult:
+            def stopped(exc: WorkspaceStoppedError | None = None) -> TaskResult:
                 # A stopped task never leaves a reviewable change behind, whatever the
-                # worker did after the Stop landed. The candidate is discarded unseen.
-                manager.discard(workspace)
-                return TaskResult(
-                    task_id, TaskOutcome.BLOCKED,
-                    "Stopped. The isolated candidate was discarded; nothing is available "
-                    "to apply and your checkout was not modified.",
-                    False,
-                    metrics={"candidate": {"retained": False, "stopped": True}},
-                    reason_code="cancelled",
+                # worker did after the Stop landed. The candidate is discarded unseen;
+                # whether that removal is confirmed is part of the result.
+                discarded = True
+                try:
+                    manager.discard(workspace)
+                except WorkspaceError:
+                    discarded = False
+                return _stopped_result(
+                    task_id, exc, workspace_existed=True, discarded=discarded,
                 )
 
             if cancellation_probe is not None and cancellation_probe.requested:
@@ -532,10 +640,15 @@ class TaskController:
                 task, proof_run, workspace.root,
                 evidence_offset=len(run.state.history) if proof_run is check else 0,
             ).as_dict()
-            outcome, _candidate = settle_candidate(
-                manager, workspace, task_id=task_id, verified=verified,
-                proof=CANDIDATE_PROOF[resolved_skill],
-            )
+            try:
+                with manager.stoppable(cancellation_probe):
+                    outcome, _candidate = settle_candidate(
+                        manager, workspace, task_id=task_id, verified=verified,
+                        proof=CANDIDATE_PROOF[resolved_skill],
+                    )
+            except WorkspaceStoppedError as exc:
+                settled = True
+                return stopped(exc)
             settled = True
             metrics["candidate"] = outcome.as_metrics(workspace)
             if outcome.refused:

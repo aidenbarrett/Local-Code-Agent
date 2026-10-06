@@ -35,7 +35,9 @@ import shutil
 import stat
 import subprocess
 import tempfile
-from dataclasses import dataclass
+import threading
+from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -43,6 +45,8 @@ from uuid import UUID, uuid4
 import psutil
 
 from ..tools.process_runner import (
+    CancellationProbe,
+    CommandCancellationRequested,
     CommandOutputLimitError,
     CommandSpawnError,
     OwnedLifecycle,
@@ -66,6 +70,21 @@ _GIT_TIMEOUT_S = 300
 # stdout plus stderr past this size end it while it runs. On POSIX the output is a
 # drained pipe, so even an escaped writer cannot grow it after the step returns.
 _GIT_OUTPUT_LIMIT = 256 * 1024 * 1024
+# Git commands that only read. Stop ends one of these at once; any other command writes
+# (an index, the object store, a worktree, a ref or the user's files) and is never
+# interrupted part-way: it finishes, and the same call then reports the Stop.
+_READ_ONLY_GIT = frozenset({
+    "status", "diff", "diff-tree", "ls-files", "ls-tree", "check-attr", "rev-parse",
+    "cat-file", "log", "show", "merge-base", "for-each-ref", "symbolic-ref", "version",
+})
+
+
+def _reads_only(args: tuple[str, ...]) -> bool:
+    if not args:
+        return False
+    if args[0] == "apply":
+        return bool({"--check", "--summary"} & set(args))
+    return args[0] in _READ_ONLY_GIT
 # Untracked files above this size stay out of the candidate base and are reported. The
 # base commit's objects are written to the user's object store; a stray dataset or
 # binary must not bloat it.
@@ -74,6 +93,58 @@ MAX_UNTRACKED_BYTES = 5 * 1024 * 1024
 
 class WorkspaceError(RuntimeError):
     """A workspace precondition failed or git refused a controller operation."""
+
+
+class WorkspaceStoppedError(WorkspaceError):
+    """Stop was requested while a stoppable workspace operation ran (#415).
+
+    Typed evidence, so a result never says more than was observed:
+
+    - ``step``: the git subcommand during or before which Stop was seen.
+    - ``process_cleanup_confirmed``: None when no git process had to be ended (Stop
+      refused a step before it started, or arrived during a write that then finished);
+      otherwise whether the ended read's whole tree was shown gone.
+    - ``writes_finished``: git steps in this operation that wrote and completed before
+      Stop was acted on. They may have left unreferenced objects in the repository's
+      object store; they never touch the user's files, index or refs.
+    - ``worktree_removed``: None when no candidate worktree existed; otherwise whether
+      the half-made worktree and its lease were removed. False keeps the lease so
+      orphan cleanup can decide later.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        step: str,
+        process_cleanup_confirmed: bool | None,
+        writes_finished: tuple[str, ...],
+        worktree_removed: bool | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.step = step
+        self.process_cleanup_confirmed = process_cleanup_confirmed
+        self.writes_finished = writes_finished
+        self.worktree_removed = worktree_removed
+
+    def evidence(self) -> dict[str, object]:
+        return {
+            "step": self.step,
+            "process_cleanup_confirmed": self.process_cleanup_confirmed,
+            "writes_finished": list(self.writes_finished),
+            "worktree_removed": self.worktree_removed,
+        }
+
+
+@dataclass
+class _StopScope:
+    """The Stop token governing workspace git on one thread, and what already wrote."""
+
+    probe: CancellationProbe | None
+    writes_finished: list[str] = field(default_factory=list)
+
+    def stopped(self) -> bool:
+        return self.probe is not None and self.probe.requested
 
 
 class CandidateRefusedError(WorkspaceError):
@@ -288,10 +359,32 @@ class GitWorkspaceManager:
         self.controller_commit = controller_commit
         self._empty_hooks = self.workspaces_root / ".no-hooks"
         self._empty_hooks.mkdir(exist_ok=True)
+        # The Stop scope of the stoppable operation running on this thread, if any.
+        self._stop_scope = threading.local()
         # Leases the last reap_orphans() could not decide about; never deleted.
         self.unreconciled_leases: tuple[str, ...] = ()
 
     # -- git ----------------------------------------------------------------
+
+    @contextlib.contextmanager
+    def stoppable(self, stop: CancellationProbe | None) -> Iterator[None]:
+        """Let ``stop`` end the workspace operations run inside this block (#415).
+
+        A requested Stop refuses a git step before it starts and ends a step that only
+        reads. A step that writes always finishes, and the same call then raises, so a
+        Stop during the last write of an operation is never lost. Removing a worktree
+        (``close``, ``discard``) is never stoppable.
+        """
+        previous = getattr(self._stop_scope, "scope", None)
+        self._stop_scope.scope = _StopScope(stop)
+        try:
+            yield
+        finally:
+            self._stop_scope.scope = previous
+
+    def _active_stop(self) -> _StopScope | None:
+        scope: _StopScope | None = getattr(self._stop_scope, "scope", None)
+        return scope if scope is not None and scope.probe is not None else None
 
     def _git(
         self,
@@ -321,15 +414,44 @@ class GitWorkspaceManager:
             "-c", "diff.mnemonicPrefix=false",
             *args,
         ]
+        scope = self._active_stop()
+        step = args[0] if args else "git"
+        reads = _reads_only(args)
+        lifecycle = OwnedLifecycle(
+            _GIT_TIMEOUT_S,
+            cancellation_probe=scope.probe if scope is not None and reads else None,
+            output_limit=_GIT_OUTPUT_LIMIT,
+        )
         try:
-            run = run_owned(
-                argv, cwd, OwnedLifecycle(_GIT_TIMEOUT_S, output_limit=_GIT_OUTPUT_LIMIT),
-                env=env, stdin=stdin,
-            )
+            if scope is not None and scope.stopped():
+                raise CommandCancellationRequested("Stop was requested")
+            run = run_owned(argv, cwd, lifecycle, env=env, stdin=stdin)
+        except CommandCancellationRequested as exc:
+            raise WorkspaceStoppedError(
+                f"Stop was requested; git {step} did not start",
+                step=step, process_cleanup_confirmed=None,
+                writes_finished=tuple(scope.writes_finished) if scope is not None else (),
+            ) from exc
         except CommandSpawnError as exc:
             raise WorkspaceError(f"git {args[0]} could not run: {exc}") from exc
         except CommandOutputLimitError as exc:
             raise WorkspaceError(f"git {args[0]} was ended: {exc}") from exc
+        writes_so_far = tuple(scope.writes_finished) if scope is not None else ()
+        if run.cancel_requested or (scope is not None and reads and scope.stopped()):
+            # Only a reading step receives the probe, so only a read can end this way.
+            # A Stop that landed after the read exited but before this call returns is
+            # the same Stop: the read finished normally (cleanup not needed), and the
+            # operation must still not advance (#437 review).
+            cleanup = _confirmation(confirmed=run.cleanup_confirmed)
+            message = (
+                f"Stop ended git {step} (process-tree cleanup confirmed: {cleanup})"
+                if run.cancel_requested
+                else f"Stop arrived as git {step} finished reading; nothing after it ran"
+            )
+            raise WorkspaceStoppedError(
+                message, step=step, process_cleanup_confirmed=run.cleanup_confirmed,
+                writes_finished=writes_so_far,
+            )
         if run.timed_out:
             cleanup = _confirmation(confirmed=run.cleanup_confirmed)
             raise WorkspaceError(
@@ -344,6 +466,17 @@ class GitWorkspaceManager:
                 f"git {args[0]} exited but its process tree could not be shown ended "
                 f"(containment: {run.containment})"
             )
+        if scope is not None and not reads:
+            scope.writes_finished.append(step)
+            if scope.stopped():
+                # The write was allowed to finish. Report the Stop now: when this was the
+                # operation's last step there is no next step to refuse (#423 review).
+                raise WorkspaceStoppedError(
+                    f"Stop arrived while git {step} was writing; it finished and "
+                    "nothing after it ran",
+                    step=step, process_cleanup_confirmed=None,
+                    writes_finished=tuple(scope.writes_finished),
+                )
         done = subprocess.CompletedProcess(argv, run.exit_code, run.stdout, run.stderr)
         if check and done.returncode != 0:
             message = done.stderr.decode("utf-8", "replace").strip()
@@ -649,6 +782,7 @@ class GitWorkspaceManager:
         finally:
             os.close(fd)
 
+        worktree_started = False
         try:
             head = self._out(repository_root, "rev-parse", "--verify", "HEAD^{commit}")
             base, included, oversized = self._snapshot(
@@ -657,9 +791,23 @@ class GitWorkspaceManager:
             dirty = _split_z(self._git(
                 repository_root, "diff", "--name-only", "-z", "--no-renames", head, base, "--"
             ).stdout)
+            worktree_started = True
             self._git(repository_root, "worktree", "add", "--detach", "--quiet", str(root), base)
+        except WorkspaceStoppedError as stopped:
+            removed = self._abandon_creation(
+                repository_root, root, lease, worktree_started=worktree_started,
+            )
+            raise WorkspaceStoppedError(
+                str(stopped),
+                step=stopped.step,
+                process_cleanup_confirmed=stopped.process_cleanup_confirmed,
+                writes_finished=stopped.writes_finished,
+                worktree_removed=removed,
+            ) from stopped
         except BaseException:
-            lease.unlink(missing_ok=True)
+            self._abandon_creation(
+                repository_root, root, lease, worktree_started=worktree_started,
+            )
             raise
 
         return Workspace(
@@ -675,6 +823,49 @@ class GitWorkspaceManager:
             excluded_dirs=tuple(excluded_dirs),
             untracked_included=included,
         )
+
+    def _abandon_creation(
+        self, repository_root: Path, root: Path, lease: Path, *, worktree_started: bool,
+    ) -> bool | None:
+        """Undo a creation that will not return a Workspace. Never stoppable.
+
+        Returns None when no worktree step began, else whether the worktree is shown
+        gone. The lease is released only when nothing is left; otherwise it stays so
+        ``reap_orphans`` can decide about the leftover later.
+        """
+        if not worktree_started:
+            lease.unlink(missing_ok=True)
+            return None
+        removed = False
+        with contextlib.suppress(Exception):
+            removed = self._remove_worktree(repository_root, root)
+        if removed:
+            lease.unlink(missing_ok=True)
+        return removed
+
+    def _remove_worktree(self, repository_root: Path, root: Path) -> bool:
+        """Remove one candidate worktree; True only when it is gone and unregistered."""
+        with self.stoppable(None):
+            if root.exists():
+                self._git(
+                    repository_root, "worktree", "remove", "--force", str(root), check=False,
+                )
+            self._git(repository_root, "worktree", "prune", check=False)
+            if root.exists():
+                shutil.rmtree(root, ignore_errors=True)
+                self._git(repository_root, "worktree", "prune", check=False)
+            # `--porcelain -z` needs git 2.36; MIN_GIT_VERSION is older. The root is a
+            # controller-chosen name without newlines, so line records are exact here.
+            listed = self._git(repository_root, "worktree", "list", "--porcelain", check=False)
+        if listed.returncode != 0 or root.exists():
+            return False
+        target = Path(os.path.realpath(root))
+        for record in listed.stdout.decode("utf-8", "surrogateescape").splitlines():
+            if record.startswith("worktree ") and Path(
+                os.path.realpath(record[len("worktree "):])
+            ) == target:
+                return False
+        return True
 
     def candidate_patch(self, workspace: Workspace) -> CandidatePatch:
         """Return the exact binary diff from the base to the candidate's current files."""
@@ -1305,24 +1496,31 @@ class GitWorkspaceManager:
         return workspace, candidate
 
     def discard(self, workspace: Workspace) -> None:
-        """Close the workspace and forget its retained candidate."""
-        try:
-            self.close(workspace)
-        finally:
-            self._record_path(workspace.task_id).unlink(missing_ok=True)
+        """Close the workspace and forget its retained candidate.
+
+        The candidate record goes only once the worktree is shown gone; if removal
+        cannot be proven, ``close`` raises and the record and lease stay for orphan
+        cleanup to decide (#437 review).
+        """
+        self.close(workspace)
+        self._record_path(workspace.task_id).unlink(missing_ok=True)
 
     def close(self, workspace: Workspace) -> None:
-        """Remove the candidate worktree and release the task's lease."""
-        try:
-            if workspace.root.exists():
-                self._git(
-                    workspace.repository_root, "worktree", "remove", "--force", str(workspace.root),
-                )
-        finally:
-            self._git(workspace.repository_root, "worktree", "prune", check=False)
-            if workspace.root.exists():
-                shutil.rmtree(workspace.root, ignore_errors=True)
-            self._lease_path(workspace.task_id).unlink(missing_ok=True)
+        """Remove the candidate worktree and release the task's lease. Never stoppable:
+        a Stop must not be able to leave a half-removed worktree behind."""
+        with self.stoppable(None):
+            self._close(workspace)
+
+    def _close(self, workspace: Workspace) -> None:
+        # One verified removal primitive for creation rollback and established
+        # workspaces alike: the lease is released only when the worktree is absent on
+        # disk and unregistered with Git. Otherwise raise and keep it (#437 review).
+        if not self._remove_worktree(workspace.repository_root, workspace.root):
+            raise WorkspaceError(
+                f"the candidate worktree {workspace.root} could not be shown removed; its "
+                "lease is kept so orphan cleanup can decide"
+            )
+        self._lease_path(workspace.task_id).unlink(missing_ok=True)
 
 
 __all__ = [
@@ -1339,4 +1537,5 @@ __all__ = [
     "ImportResult",
     "Workspace",
     "WorkspaceError",
+    "WorkspaceStoppedError",
 ]

@@ -402,7 +402,10 @@ def test_stop_reaches_a_running_candidate_build_and_nothing_is_retained(sandbox,
     result = results[0]
     assert result.outcome is TaskOutcome.BLOCKED and result.reason_code == "cancelled"
     assert result.verified_at_completion is False
-    assert result.metrics["candidate"] == {"retained": False, "stopped": True}
+    assert result.metrics["candidate"] == {
+        "retained": False, "stopped": True,
+        "workspace_existed": True, "workspace_removed": True,
+    }
     assert "nothing is available to apply" in result.answer
     assert _worktrees(sandbox.root) == 1
     with pytest.raises(WorkspaceError):
@@ -1201,7 +1204,10 @@ def test_stop_during_the_controller_check_discards_the_candidate(sandbox, tmp_pa
     assert not worker.is_alive(), "Stop did not reach the controller check"
     result = results[0]
     assert result.outcome is TaskOutcome.BLOCKED and result.reason_code == "cancelled"
-    assert result.metrics["candidate"] == {"retained": False, "stopped": True}
+    assert result.metrics["candidate"] == {
+        "retained": False, "stopped": True,
+        "workspace_existed": True, "workspace_removed": True,
+    }
     assert _worktrees(sandbox.root) == 1
     with pytest.raises(WorkspaceError):
         manager.load(task_id)
