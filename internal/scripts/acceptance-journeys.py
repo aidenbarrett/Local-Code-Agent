@@ -1398,6 +1398,52 @@ class ScriptedCorpusCompileFix(ScriptedCompileFix):
     _EDITS = (('CHECK(reslt.count("s") == 1);', 'CHECK(result.count("s") == 1);'),)
 
 
+# The harness's own builds run outside Local Code Agent's process ownership, so they must
+# not leave anything behind either: MSBuild otherwise keeps reusable worker nodes (and
+# the VS telemetry helper) alive after the build, which a CI runner then reports as
+# orphans that are not the product's (#438 review).
+_INDEPENDENT_ENV = {"MSBUILDDISABLENODEREUSE": "1", "VSCMD_SKIP_SENDTELEMETRY": "1"}
+INDEPENDENT_BUILD_DIR = "build-independent"
+
+
+def _independent_commands(repo: Path) -> list[list[str]]:
+    """The repository's own configured configure/build/test commands, aimed at a
+    separate build directory, so the check is independent of the agent's run but
+    uses the same configuration (build type, options) the repository declares."""
+    config = load_repo_config(repo)
+    profile = config.profile(config.default_profile)
+    return [[INDEPENDENT_BUILD_DIR if arg == config.build_dir else arg for arg in command]
+            for command in (profile.configure, profile.build, profile.test) if command]
+
+
+def independent_profile_suite(repo: Path) -> tuple[bool, str]:
+    """Configure, build and test with the repository's own profile; the agent is not
+    consulted. Every test is bounded; output goes to a file, never a pipe."""
+    shutil.rmtree(repo / INDEPENDENT_BUILD_DIR, ignore_errors=True)
+    env = {**os.environ, **_INDEPENDENT_ENV}
+    log = ""
+    for configured in _independent_commands(repo):
+        executable = shutil.which(configured[0])
+        if executable is None:
+            return False, f"{configured[0]!r} is not on PATH"
+        bound = (["--timeout", str(CTEST_PER_TEST_SECONDS)]
+                 if Path(configured[0]).name.lower().startswith("ctest") else [])
+        with tempfile.TemporaryFile(mode="w+b") as capture:
+            done = subprocess.run(  # noqa: S603 - the repository's configured argv, resolved
+                [executable, *configured[1:], *bound], cwd=repo, env=env, stdout=capture,
+                stderr=subprocess.STDOUT, check=False, timeout=1800)
+            capture.seek(0)
+            log = capture.read().decode("utf-8", errors="replace")
+        if done.returncode != 0:
+            return False, log[-4000:]
+    return True, log[-4000:]
+
+
+def ctest_failed_names(log: str) -> list[str]:
+    listing = log.partition("The following tests FAILED:")[2]
+    return sorted(re.findall(r"^\s*\d+\s*-\s*(\S+)", listing, re.M))
+
+
 def _corpus_fault(s: Session, kind: str) -> corpus.Fault:
     if s.runner.corpus is None:
         raise JourneyFailed("a corpus journey ran without a corpus")
@@ -1428,11 +1474,13 @@ def q_build_and_test(s: Session) -> None:
     s.journey.measured["warm_test_s"] = round(time.monotonic() - warm, 1)
     expect(tested.outcome is TaskOutcome.PASS, f"clean test run was {_outcome(tested)}")
     expect(tested.verified_at_completion, "test PASS without verification")
-    ok, log = independent_suite(s.repo)
-    expect(ok, "the independent CTest run disagrees:\n" + log[-1500:])
+    ok, log = independent_profile_suite(s.repo)
+    expect(ok, "the clean baseline is not green under the repository's own profile "
+               f"(failed: {ctest_failed_names(log)}):\n" + log[-1500:])
+    s.runner.corpus_baseline_green = True
     s.journey.measured["unrelated_work_preserved"] = True
     s.journey.passed("clean real repository: build and full CTest suite PASS with proof; "
-                     "independent CTest agrees")
+                     "an independent run of the same profile is green")
 
 
 def q_compile_diagnosis(s: Session) -> None:
@@ -1466,12 +1514,16 @@ def q_test_truth(s: Session) -> None:
     s.journey.measured["answer"] = answer[:800]
     expect(named == list(fault.expect),
            f"the answer named {named} of the failing tests {fault.expect}")
-    ok, log = independent_suite(s.repo)
+    ok, log = independent_profile_suite(s.repo)
     expect(not ok, "the independent CTest run passed on a seeded failing test")
-    listing = log.partition("The following tests FAILED:")[2]
-    failed = sorted(re.findall(r"^\s*\d+\s*-\s*(\S+)", listing, re.M))
+    failed = ctest_failed_names(log)
     expect(failed == sorted(fault.expect),
-           f"independent CTest failed {failed}, expected {fault.expect}")
+           f"independent CTest failed {failed}, expected exactly {sorted(fault.expect)}")
+    if not s.runner.corpus_baseline_green:
+        # The exact seeded delta needs a green baseline from the same machine and run.
+        s.journey.unknown(f"the seeded failure is exactly {', '.join(fault.expect)}, but no "
+                          "green clean baseline (Q01) was observed in this run")
+        return
     s.journey.measured["unrelated_work_preserved"] = True
     s.journey.passed(f"seeded test failure: FAIL naming exactly {', '.join(fault.expect)}")
 
@@ -1507,8 +1559,9 @@ def q_candidate_lifecycle(s: Session) -> None:
 
     _, applied = s.turn(f"/apply {cid}")
     expect(applied is not None and applied.outcome is TaskOutcome.PASS, "/apply failed")
-    ok, log = independent_build(s.repo)
-    expect(ok, "the applied fix does not build independently:\n" + log[-1500:])
+    ok, log = independent_profile_suite(s.repo)
+    expect(ok, "the applied fix is not green under the repository's own profile:\n"
+               + log[-1500:])
     expect(user_work_intact(), "/apply touched unrelated user work")
 
     _, undone = s.turn(f"/undo {cid}")
@@ -1677,6 +1730,8 @@ class Runner:
         # A real repository from internal/acceptance/corpus.toml (#418), or None.
         self.corpus: corpus.CorpusRepository | None = getattr(args, "corpus_entry", None)
         self.corpus_cache: Path | None = getattr(args, "corpus_cache", None)
+        # Set by Q01 when the clean repository is green under its own profile here.
+        self.corpus_baseline_green = False
 
     def check_preconditions(self) -> None:
         facts: dict[str, Any] = {

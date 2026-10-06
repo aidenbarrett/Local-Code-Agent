@@ -63,9 +63,12 @@ def _upstream(tmp_path: Path) -> tuple[Path, str]:
     """A tiny local 'third-party' repository whose .gitignore ignores dotfiles."""
     root = tmp_path / "upstream"
     root.mkdir()
-    (root / "a.txt").write_text("old\n", encoding="utf-8")
-    (root / ".gitignore").write_text(".*\n!.gitignore\n", encoding="utf-8")
+    # Byte-exact LF content committed with autocrlf off, like the real upstream: the
+    # Windows runner's default core.autocrlf must not make the fixture CRLF (#438).
+    (root / "a.txt").write_bytes(b"old\n")
+    (root / ".gitignore").write_bytes(b".*\n!.gitignore\n")
     _git(root, "init", "-q")
+    _git(root, "config", "core.autocrlf", "false")
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "upstream")
     return root, _git(root, "rev-parse", "HEAD").strip()
@@ -77,7 +80,7 @@ def _manifest(tmp_path: Path, *, commit: str, url: str = "https://example.invali
     base = tmp_path / "acceptance"
     (base / "tiny").mkdir(parents=True, exist_ok=True)
     (base / "tiny" / "local-agent.toml").write_text(overlay, encoding="utf-8")
-    (base / "tiny" / "fault.patch").write_text(patch, encoding="utf-8")
+    (base / "tiny" / "fault.patch").write_bytes(patch.encode("utf-8"))
     licence_line = f'licence = "{licence}"\n' if licence is not None else ""
     (base / "corpus.toml").write_text(
         "[[repository]]\n"
@@ -161,7 +164,7 @@ def test_disposable_copies_carry_overlay_and_fault_and_never_touch_the_cache(tmp
 
     copy = corpus.disposable_copy(entry, cached, tmp_path / "copy", fault=entry.faults[0])
 
-    assert (copy / "a.txt").read_text(encoding="utf-8") == "new\n"
+    assert (copy / "a.txt").read_bytes() == b"new\n"
     # The overlay is committed even though upstream's .gitignore ignores dotfiles,
     # so candidate worktrees built from HEAD carry the same policy.
     assert ".local-agent.toml" in _git(copy, "ls-files")
@@ -217,3 +220,19 @@ def test_fetch_clones_the_pinned_commit_into_the_cache(tmp_path):
     assert _git(fetched, "rev-parse", "HEAD").strip() == commit
     assert corpus.fetch(entry, cache) == fetched  # idempotent
     assert not list(cache.glob("*.partial"))
+
+
+def test_a_crlf_checkout_of_the_cache_does_not_break_fault_application(tmp_path):
+    """The Windows failure in #438's CI: a cache worktree checked out with CRLF (the
+    runner's default core.autocrlf) must not decide whether a fault applies; the
+    disposable copy is cloned from the commit with autocrlf off."""
+    upstream, commit = _upstream(tmp_path)
+    entry = corpus.load_manifest(_manifest(tmp_path, commit=commit))["tiny"]
+    cached = corpus.cache_path(entry, tmp_path / "cache")
+    cached.parent.mkdir()
+    shutil.copytree(upstream, cached)
+    (cached / "a.txt").write_bytes(b"old\r\n")  # what a CRLF checkout leaves on disk
+
+    corpus.check_faults(entry, cached)
+    copy = corpus.disposable_copy(entry, cached, tmp_path / "copy", fault=entry.faults[0])
+    assert (copy / "a.txt").read_bytes() == b"new\n"

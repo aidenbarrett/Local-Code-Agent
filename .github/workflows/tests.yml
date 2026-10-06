@@ -150,7 +150,28 @@ jobs:
       - name: Fetch the pinned corpus (cache miss only fetches)
         run: python internal/scripts/acceptance-journeys.py --corpus cxxopts --fetch --corpus-cache "${{ env.LCA_QUALIFICATION_CACHE }}"
       - name: Q01-Q05 on the real repository
-        run: python -m pytest -q internal/tests/unit/test_corpus_journeys.py
+        run: python -m pytest -q internal/tests/unit/test_corpus_journeys.py --junitxml=pytest-junit.xml
+      - name: Annotate failed journeys
+        # Job logs are not always readable; annotations are.
+        if: failure()
+        run: python internal/devtools/annotate_test_failures.py pytest-junit.xml
+      - name: Processes left after qualification
+        # Evidence for #438 review: anything still running here was started by the run.
+        # The harness's own builds disable MSBuild node reuse, so a survivor is a finding.
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, psutil
+          me = os.getpid()
+          names = ("msbuild", "vctip", "cl.exe", "link.exe", "cmake", "ctest", "ninja", "make")
+          left = []
+          for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
+              name = (proc.info["name"] or "").lower()
+              if proc.pid != me and any(n in name for n in names):
+                  left.append(f"{proc.pid} {name} {' '.join(proc.info['cmdline'] or [])[:200]}")
+          print(f"::notice title=processes left after qualification::{len(left)}: " + " | ".join(left)[:3000])
+          PY
 
   pytest:
     # One result per platform, named as before, green only if every shard passed.

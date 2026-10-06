@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,13 +154,15 @@ def load_manifest(path: Path = MANIFEST) -> dict[str, CorpusRepository]:
 # ------------------------------------------------------------------ cache
 
 
-def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _git(cwd: Path, *args: str, check: bool = True,
+         env_extra: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     git = shutil.which("git")
     if git is None:
         raise CorpusError("git is not on PATH")
     done = subprocess.run(  # noqa: S603 - resolved git, fixed argv
         [git, "-c", "core.autocrlf=false", "-c", f"core.hooksPath={os.devnull}", *args],
         cwd=str(cwd), capture_output=True, text=True, check=False, timeout=_GIT_TIMEOUT_S,
+        env={**os.environ, **(env_extra or {})},
     )
     if check and done.returncode != 0:
         raise CorpusError(f"git {' '.join(args)} failed in {cwd}: {done.stderr.strip()[:500]}")
@@ -214,12 +217,20 @@ def fetch(repo: CorpusRepository, root: Path) -> Path:
 
 
 def check_faults(repo: CorpusRepository, cached: Path) -> None:
-    """Every fault patch must apply cleanly at the pinned commit (fail closed)."""
-    for fault in repo.faults:
-        done = _git(cached, "apply", "--check", str(fault.patch), check=False)
-        if done.returncode != 0:
-            raise CorpusError(f"{repo.name}: fault {fault.id!r} does not apply at {repo.commit}: "
-                              f"{done.stderr.strip()[:300]}")
+    """Every fault patch must apply cleanly at the pinned commit (fail closed).
+
+    Checked against the commit's own blobs in a private index, never the cache
+    worktree, whose bytes depend on the machine's line-ending settings (#438).
+    """
+    with tempfile.TemporaryDirectory(prefix="lca-corpus-index-") as scratch:
+        index = str(Path(scratch) / "index")
+        _git(cached, "read-tree", repo.commit, env_extra={"GIT_INDEX_FILE": index})
+        for fault in repo.faults:
+            done = _git(cached, "apply", "--check", "--cached", str(fault.patch), check=False,
+                        env_extra={"GIT_INDEX_FILE": index})
+            if done.returncode != 0:
+                raise CorpusError(f"{repo.name}: fault {fault.id!r} does not apply at "
+                                  f"{repo.commit}: {done.stderr.strip()[:300]}")
 
 
 def disposable_copy(repo: CorpusRepository, cached: Path, dest: Path, *,
