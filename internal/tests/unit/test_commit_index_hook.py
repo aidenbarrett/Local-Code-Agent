@@ -5,7 +5,13 @@ import os
 import subprocess
 from pathlib import Path
 
-from local_agent.session.commit_index_hook import prepare_transaction, reconcile
+import pytest
+
+from local_agent.session.commit_index_hook import (
+    IndexLockBusyError,
+    prepare_transaction,
+    reconcile,
+)
 
 
 def _git(
@@ -93,10 +99,6 @@ def test_reconcile_never_overwrites_user_staging_on_candidate_path(tmp_path: Pat
 
 def test_reconcile_never_removes_an_index_lock_it_did_not_create(tmp_path: Path) -> None:
     """Deleting another writer's index.lock would let two processes race on the index."""
-    import pytest
-
-    from local_agent.session.commit_index_hook import IndexLockBusyError
-
     root, parent, live_index = _repository(tmp_path)
     expected = _stage(root, "candidate.txt")
     target = _candidate_target(root, tmp_path, parent)
