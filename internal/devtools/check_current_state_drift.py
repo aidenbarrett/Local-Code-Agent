@@ -34,11 +34,17 @@ def _load_acceptance(root: Path) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     internal = str(root / "internal")
     sys.path.insert(0, internal)
+    # Restore, never just delete: a test session may already hold this module under
+    # the same name, and dropping its entry would make the next import re-execute it.
+    previous = sys.modules.get(spec.name)
     sys.modules[spec.name] = module
     try:
         spec.loader.exec_module(module)
     finally:
-        del sys.modules[spec.name]
+        if previous is None:
+            del sys.modules[spec.name]
+        else:
+            sys.modules[spec.name] = previous
         sys.path.remove(internal)
     return module
 
