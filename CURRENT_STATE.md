@@ -22,7 +22,7 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-undo | Undo this candidate | Restores owned pre-import bytes and modes | PR#407, J13-candidate-scripted | deterministic-ci | Refuses after later user edits | Keep preservation regressions | controller |
 | CAP-exact-commit | Commit this candidate | Private-index exact-path commit, no push | PR#434, J21-exact-commit | deterministic-ci | Commit policy may refuse | Keep hook/restart regressions | controller |
 | CAP-stop-command | Stop the running command | Owned process trees; Stop ends reads, lets writes finish and is reported by the same call | PR#379, PR#436, PR#437, J05-stop-build | deterministic-ci | POSIX cleanup is never confirmed (a setsid descendant can escape the group) | Qualify on target hardware | Claude |
-| CAP-stop-generation | Stop model work | Fences late authority and records NO_VERDICT when unreconciled | PR#249, J07-stop-model | deterministic-ci | One in-flight generation may remain | Prove endpoint interruption | Claude |
+| CAP-stop-generation | Stop model work | Fences late authority and records NO_VERDICT when unreconciled; on a `stop_proof` profile, cuts the stream once the server is seen working and frees the endpoint only on observed idle | PR#249, J07-stop-model, PR#446 | deterministic-ci | OVMS profiles (`stop_proof = none`): one in-flight generation may remain. llama-server cut not yet observed against a real server | Observe the cut on the NUC llama-server; find an OVMS proof source | Claude |
 | CAP-git-state | What Git operation is active? | Reports merge, rebase, am, cherry-pick, revert and bisect state | PR#373, J20-conflict-explain | deterministic-ci | Does not perform continue or abort | Keep read-only | controller |
 | CAP-unusual-filenames | Inspect or commit unusual names | Literal path handling protects wildcard-like names | PR#404, J15b-rename-binary | deterministic-ci | Platform filesystem rules still apply | Keep cross-platform regression | controller |
 | CAP-git-filters | Inspect repository identity safely | Refuses executable Git-filter boundaries | PR#424 | deterministic-ci | Does not evaluate repository filter programs | Keep fail-closed | controller |
@@ -55,9 +55,10 @@ in [TRICKS.md](TRICKS.md), and the active priority ladder is in
 
 - Physical disconnected Panther Lake qualification is unknown: see
   `CAP-offline-physical` and #418.
-- Stop reaches workspace Git and owned commands (#436, #437), but in-flight model
-  generation and endpoint cleanup proof are incomplete, and POSIX process cleanup is never
-  reported confirmed: see `CAP-stop-command` and `CAP-stop-generation`.
+- Stop reaches workspace Git and owned commands (#436, #437). In-flight model generation is
+  cut only on profiles with endpoint stop proof (llama-server, #446); OVMS still waits for
+  the call to finish. POSIX process cleanup is never reported confirmed: see
+  `CAP-stop-command` and `CAP-stop-generation`.
 - Native-endpoint deployment and cross-process endpoint ownership are not qualified serving
   capabilities: see #403.
 - Merge policy was observed not enforced on 2026-10-06 (main unprotected, no ruleset,

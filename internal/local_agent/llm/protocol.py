@@ -245,10 +245,24 @@ class LLMTransportError(RuntimeError):
     #   unavailable  we could not reach it, or it errored, or it went silent
     #   stalled      it is alive and answering, but the request made no
     #                useful progress within our deadline or throughput floor
+    #   stopped      the user's Stop ended the call (InferenceInterruptedError); the
+    #                server was fine, and nothing about it was learned
     def __init__(self, message: str, cause: str = "", kind: str = "unavailable") -> None:
         super().__init__(message)
         self.cause = cause  # exception class name from the transport, for the log
         self.kind = kind
+
+
+class InferenceInterruptedError(LLMTransportError):
+    """Stop closed this call's response before it finished.
+
+    Closing the connection is not proof that the server stopped working on the
+    request. The endpoint stays quarantined until an endpoint-side observation
+    shows it idle (see ``session/endpoint_stop_proof.py``).
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, cause="stop", kind="stopped")
 
 
 @dataclass

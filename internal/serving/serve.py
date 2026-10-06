@@ -96,7 +96,10 @@ def make_plan(profile, config, runtime_root, *, executable=None, model_dir=None,
         payload = Path(gguf).absolute() if gguf else repository / (config.model + ".gguf")
         args = ["-m", str(payload), "--alias", config.model, "--host", host,
                 "--port", str(port), "-c", str(config.server_max_prompt_length),
-                "-np", "1", "--jinja"]
+                "-np", "1", "--jinja",
+                # /metrics is how Stop proves the server stopped a cut-off call
+                # (stop_proof = "llamacpp_metrics"); without it Stop must wait.
+                "--metrics"]
         if config.llama_backend == "openvino":
             env = {"GGML_OPENVINO_DEVICE": config.device,
                    "GGML_OPENVINO_STATEFUL_EXECUTION": "0",

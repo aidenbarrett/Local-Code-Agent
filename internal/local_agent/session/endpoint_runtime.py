@@ -6,14 +6,17 @@ release cleanly, or quarantine on uncertain completion. An exception leaving a l
 scope is not proof that inference stopped, so abnormal exit quarantines instead of
 silently releasing the endpoint to another request.
 
-This remains deliberately in-process. It is not an OS-backed cross-process lock and it
-does not claim to cancel an inference server request.
+This remains deliberately in-process. It is not an OS-backed cross-process lock. Stop
+can ask an in-flight call to end early (:meth:`EndpointRuntime.stop_signal`), but that is
+never treated as cancelling the server request: quarantine clears only on a normal return
+or on endpoint-side proof (``endpoint_stop_proof.py``).
 """
 from __future__ import annotations
 
 from types import TracebackType
-from threading import Condition, Lock
+from threading import Condition, Event, Lock
 from time import monotonic
+from typing import TYPE_CHECKING
 
 from .endpoint_lease import (
     EndpointArbiter,
@@ -24,6 +27,9 @@ from .endpoint_lease import (
     EndpointUnavailable,
 )
 from .value_validation import require_nonempty_string, require_nonnegative_number
+
+if TYPE_CHECKING:
+    from .endpoint_stop_proof import EndpointStopProof
 
 
 class EndpointAcquireTimeout(EndpointLeaseError):
@@ -37,14 +43,19 @@ class EndpointRequestCancelled(EndpointLeaseError):
 class EndpointRuntime:
     """Blocking lifecycle wrapper around one deterministic ``EndpointArbiter``."""
 
-    def __init__(self, arbiter: EndpointArbiter):
+    def __init__(self, arbiter: EndpointArbiter, *,
+                 stop_proof: EndpointStopProof | None = None):
         if not isinstance(arbiter, EndpointArbiter):
             raise TypeError("endpoint runtime requires an EndpointArbiter")
         self.arbiter = arbiter
+        # How Stop can prove a cut-off call left the server; None means Stop waits
+        # for the call to return, and that normal return is the proof.
+        self.stop_proof = stop_proof
         self._condition = Condition()
         self._granted: dict[str, EndpointLease] = {}
         self._cancelled: set[str] = set()
         self._cancelled_executions: set[tuple[str, int]] = set()
+        self._stop_signals: dict[str, Event] = {}
 
     @property
     def endpoint_id(self) -> str:
@@ -184,6 +195,10 @@ class EndpointRuntime:
                     "task execution stopped without proof underlying inference stopped",
                     lease_id=active.lease_id,
                 )
+                signal = self._stop_signals.get(active.lease_id)
+                if signal is not None:
+                    # Tell the in-flight call; it may end early, never reconcile here.
+                    signal.set()
                 self._condition.notify_all()
                 return ()
 
@@ -194,6 +209,29 @@ class EndpointRuntime:
                 self._pump_locked()
                 self._condition.notify_all()
             return tuple(request.request_id for request in removed)
+
+    def stop_signal(self, lease_id: str) -> Event:
+        """The event Stop sets when it fences this exact active lease.
+
+        Registered by the call that owns the lease, before it starts inference, and
+        dropped with :meth:`drop_stop_signal` when the call is over. Setting it only
+        asks the call to end early; the quarantine stays until proof clears it.
+        """
+        with self._condition:
+            active = self.arbiter.active_lease
+            if active is None or active.lease_id != lease_id:
+                raise EndpointLeaseConflict("stop signal requested for an inactive lease")
+            if lease_id in self._stop_signals:
+                raise EndpointLeaseConflict("endpoint lease already has a stop signal")
+            signal = Event()
+            if self.arbiter.quarantined:
+                signal.set()
+            self._stop_signals[lease_id] = signal
+            return signal
+
+    def drop_stop_signal(self, lease_id: str) -> None:
+        with self._condition:
+            self._stop_signals.pop(lease_id, None)
 
     def complete_call(self, lease_id: str) -> tuple[EndpointLease, bool]:
         """Finish a synchronous call using its normal return as stop proof.

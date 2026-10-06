@@ -13,13 +13,19 @@ loaded.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
+import socket
+import sys
+import threading
 import time
-from typing import Any, Callable, Iterable, Protocol
+import http.client
+from typing import Any, Callable, Final, Iterable, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 from ..config import ModelConfig
-from .protocol import CallStats, ChatResponse, LLMTransportError, ToolCall
+from .protocol import CallStats, ChatResponse, InferenceInterruptedError, LLMTransportError, ToolCall
 
 
 class LLMClient(Protocol):
@@ -171,6 +177,87 @@ def _provenance_from(obj: Any) -> dict[str, Any]:
     return out
 
 
+class StreamInterrupt:
+    """One call's Stop signal, safe to raise from another thread.
+
+    Stop only cuts a response the server has been seen working on: the first
+    chunk proves the request left the server's queue and holds a slot, so a
+    later endpoint-side observation of an idle server proves it stopped. Before
+    that chunk (queued, or a long prefill) the call keeps running, because a
+    request cut while still queued could not be proved stopped at all.
+
+    Once the server is seen active, the streaming loop checks the signal
+    between chunks, and a thread blocked reading the next chunk is woken by
+    shutting the response socket down: the one operation that reliably
+    interrupts a blocking read from another thread. Closing the connection is
+    how Stop reaches the server; it is never proof the server stopped.
+
+    The interrupt is detached when the call finishes with its response, so a
+    late Stop can never shut down a pooled connection another call is using.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._requested = False
+        self._server_active = False
+        self._socket: socket.socket | None = None
+
+    @property
+    def cut(self) -> bool:
+        """Stop was requested and the server was seen working: end the call."""
+        with self._lock:
+            return self._requested and self._server_active
+
+    def request(self) -> None:
+        with self._lock:
+            self._requested = True
+            sock = self._socket if self._server_active else None
+        if sock is not None:
+            _shutdown(sock)
+
+    def attach(self, stream: Any) -> None:
+        sock = _response_socket(stream)
+        with self._lock:
+            self._socket = sock
+
+    def server_active(self) -> None:
+        """The server produced output for this request."""
+        with self._lock:
+            self._server_active = True
+
+    def detach(self) -> None:
+        with self._lock:
+            self._socket = None
+
+
+def _response_socket(stream: Any) -> socket.socket | None:
+    """The socket under an SDK stream, through httpcore's documented extension.
+
+    None when the stack does not expose it; Stop then lands at the next chunk.
+    """
+    try:
+        network = stream.response.extensions["network_stream"]
+        sock = network.get_extra_info("socket")
+    except (AttributeError, KeyError, TypeError):
+        return None
+    return sock if isinstance(sock, socket.socket) else None
+
+
+def _shutdown(sock: socket.socket) -> None:
+    """Wake a read blocked on ``sock`` in another thread, and tell the server.
+
+    POSIX wakes a blocked ``recv`` on ``shutdown``. Winsock does not (CI showed a
+    blocked read sleeping on through it); closing the socket is what cancels a
+    blocking call there. The Python socket object stays owned by the HTTP stack,
+    which sees a closed socket and fails the read.
+    """
+    with contextlib.suppress(OSError):
+        sock.shutdown(socket.SHUT_RDWR)
+    if sys.platform == "win32":
+        with contextlib.suppress(OSError):
+            sock.close()
+
+
 class OpenAICompatibleClient:
     def __init__(self, config: ModelConfig) -> None:
         self.config = config
@@ -260,14 +347,23 @@ class OpenAICompatibleClient:
 
     # ------------------------------------------------------------------ chat
 
+    @property
+    def interruptible(self) -> bool:
+        """Whether Stop can end a call early. Only a streamed response can be cut."""
+        return self.config.stream
+
     def chat(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int | None = None,
+        *,
+        interrupt: StreamInterrupt | None = None,
     ) -> ChatResponse:
         if self.config.stream:
-            return self._chat_streaming(messages, tools, max_tokens)
+            return self._chat_streaming(messages, tools, max_tokens, interrupt)
+        if interrupt is not None:
+            raise ValueError("a unary call cannot be interrupted; check interruptible first")
         return self._chat_blocking(messages, tools, max_tokens)
 
     def _chat_blocking(
@@ -332,7 +428,10 @@ class OpenAICompatibleClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
         max_tokens: int | None,
+        interrupt: StreamInterrupt | None = None,
     ) -> ChatResponse:
+        if interrupt is None:
+            interrupt = StreamInterrupt()  # never requested: the loop below is unchanged
         kwargs = self._kwargs(messages, tools, max_tokens)
         kwargs["stream"] = True
         if self._usage_in_stream_supported:
@@ -378,102 +477,128 @@ class OpenAICompatibleClient:
         prompt = completion_tokens = 0
         chunk_count = 0
 
-        provenance = _provenance_from(None)
+        interrupt.attach(stream)
         try:
-            chunks = iter(stream)
-        except Exception as exc:  # pragma: no cover - defensive
-            raise LLMTransportError(f"{type(exc).__name__}: {exc}", cause=type(exc).__name__) from exc
-
-        deadline = self.config.request_deadline_s
-        stall_tok_s = self.config.stall_tok_s
-        stall_window = self.config.stall_window_s
-
-        def _abort_stalled(reason: str) -> None:
-            # Close the response so the server sees the disconnect and cancels
-            # the task, then report it as a stall, not as unavailability.
+            provenance = _provenance_from(None)
             try:
-                close = getattr(stream, "close", None)
-                if callable(close):
-                    close()
-            except Exception:  # pragma: no cover - best effort
-                pass
-            raise LLMTransportError(reason, cause="stall", kind="stalled")
-
-        while True:
-            now = time.monotonic()
-            if now - started > deadline:
-                _abort_stalled(
-                    f"request exceeded deadline of {deadline:.0f}s "
-                    f"({chunk_count} chunks received)"
-                )
-            if ttft is not None and chunk_count > 1:
-                decoding_for = now - started - ttft
-                if decoding_for >= stall_window:
-                    rate = (chunk_count - 1) / decoding_for
-                    if rate < stall_tok_s:
-                        _abort_stalled(
-                            f"decode stalled: {rate:.2f} tok/s over {decoding_for:.0f}s "
-                            f"(floor {stall_tok_s} tok/s over {stall_window:.0f}s)"
-                        )
-            try:
-                chunk = next(chunks)
-            except StopIteration:
-                break
-            except Exception as exc:
-                # The server died mid-stream, or went silent past read_timeout.
-                # What we have so far is not an answer, and pretending otherwise
-                # would grade a half-response.
-                name = type(exc).__name__
-                kind = "stalled" if "Timeout" in name else "unavailable"
+                chunks = iter(stream)
+            except Exception as exc:  # pragma: no cover - defensive
                 raise LLMTransportError(
-                    f"stream aborted: {name}: {exc}", cause=name, kind=kind
+                    f"{type(exc).__name__}: {exc}", cause=type(exc).__name__,
                 ) from exc
 
-            found = _provenance_from(chunk)
-            for key, value in found.items():
-                if value is not None:
-                    provenance[key] = value
+            deadline = self.config.request_deadline_s
+            stall_tok_s = self.config.stall_tok_s
+            stall_window = self.config.stall_window_s
 
-            usage_prompt, usage_completion, usage_cached = _usage_from(chunk)
-            if usage_prompt or usage_completion:
-                prompt = usage_prompt or prompt
-                completion_tokens = usage_completion or completion_tokens
-                if usage_cached is not None:
-                    cached = usage_cached
+            def _abort_stalled(reason: str) -> None:
+                # Close the response so the server sees the disconnect and cancels
+                # the task, then report it as a stall, not as unavailability.
+                try:
+                    close = getattr(stream, "close", None)
+                    if callable(close):
+                        close()
+                except Exception:  # pragma: no cover - best effort
+                    pass
+                raise LLMTransportError(reason, cause="stall", kind="stalled")
 
-            if not chunk.choices:
-                continue
-            choice = chunk.choices[0]
-            delta = getattr(choice, "delta", None)
-            if choice.finish_reason:
-                finish_reason = choice.finish_reason
-            if delta is None:
-                continue
+            def _interrupted(reason: str) -> InferenceInterruptedError:
+                with contextlib.suppress(Exception):
+                    close = getattr(stream, "close", None)
+                    if callable(close):
+                        close()
+                return InferenceInterruptedError(
+                    f"Stop ended the model call {reason} ({chunk_count} chunks received)"
+                )
 
-            produced = False
-            if getattr(delta, "reasoning_content", None):
-                reasoning_parts.append(delta.reasoning_content)
-                produced = True
-            if getattr(delta, "content", None):
-                content_parts.append(delta.content)
-                produced = True
-            for call in getattr(delta, "tool_calls", None) or []:
-                index = getattr(call, "index", 0) or 0
-                slot = partial.setdefault(index, {"id": "", "name": "", "arguments": ""})
-                if getattr(call, "id", None):
-                    slot["id"] = call.id
-                fn = getattr(call, "function", None)
-                if fn is not None:
-                    if getattr(fn, "name", None):
-                        slot["name"] = fn.name
-                    if getattr(fn, "arguments", None):
-                        slot["arguments"] += fn.arguments
-                produced = True
+            while True:
+                if interrupt.cut:
+                    raise _interrupted("between chunks")
+                now = time.monotonic()
+                if now - started > deadline:
+                    _abort_stalled(
+                        f"request exceeded deadline of {deadline:.0f}s "
+                        f"({chunk_count} chunks received)"
+                    )
+                if ttft is not None and chunk_count > 1:
+                    decoding_for = now - started - ttft
+                    if decoding_for >= stall_window:
+                        rate = (chunk_count - 1) / decoding_for
+                        if rate < stall_tok_s:
+                            _abort_stalled(
+                                f"decode stalled: {rate:.2f} tok/s over {decoding_for:.0f}s "
+                                f"(floor {stall_tok_s} tok/s over {stall_window:.0f}s)"
+                            )
+                try:
+                    chunk = next(chunks)
+                    interrupt.server_active()
+                except StopIteration:
+                    break
+                except Exception as exc:
+                    if interrupt.cut:
+                        # The read was woken by Stop shutting the socket down.
+                        raise _interrupted("while reading") from exc
+                    # The server died mid-stream, or went silent past read_timeout.
+                    # What we have so far is not an answer, and pretending otherwise
+                    # would grade a half-response.
+                    name = type(exc).__name__
+                    kind = "stalled" if "Timeout" in name else "unavailable"
+                    raise LLMTransportError(
+                        f"stream aborted: {name}: {exc}", cause=name, kind=kind
+                    ) from exc
 
-            if produced:
-                chunk_count += 1
-                if ttft is None:
-                    ttft = time.monotonic() - started
+                found = _provenance_from(chunk)
+                for key, value in found.items():
+                    if value is not None:
+                        provenance[key] = value
+
+                usage_prompt, usage_completion, usage_cached = _usage_from(chunk)
+                if usage_prompt or usage_completion:
+                    prompt = usage_prompt or prompt
+                    completion_tokens = usage_completion or completion_tokens
+                    if usage_cached is not None:
+                        cached = usage_cached
+
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = getattr(choice, "delta", None)
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+                if delta is None:
+                    continue
+
+                produced = False
+                if getattr(delta, "reasoning_content", None):
+                    reasoning_parts.append(delta.reasoning_content)
+                    produced = True
+                if getattr(delta, "content", None):
+                    content_parts.append(delta.content)
+                    produced = True
+                for call in getattr(delta, "tool_calls", None) or []:
+                    index = getattr(call, "index", 0) or 0
+                    slot = partial.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                    if getattr(call, "id", None):
+                        slot["id"] = call.id
+                    fn = getattr(call, "function", None)
+                    if fn is not None:
+                        if getattr(fn, "name", None):
+                            slot["name"] = fn.name
+                        if getattr(fn, "arguments", None):
+                            slot["arguments"] += fn.arguments
+                    produced = True
+
+                if produced:
+                    chunk_count += 1
+                    if ttft is None:
+                        ttft = time.monotonic() - started
+
+            if interrupt.cut:
+                # The stream ended after Stop shut it down: a cut response is not
+                # an answer, however it ended.
+                raise _interrupted("at the end of the stream")
+        finally:
+            interrupt.detach()
 
         elapsed = time.monotonic() - started
         content, inline_reasoning = split_reasoning("".join(content_parts))
@@ -535,6 +660,134 @@ class OpenAICompatibleClient:
             "served_models": models,
             "configured_model_present": self.config.model in models,
         }
+
+
+# ------------------------------------------------------------------ Stop proof
+#
+# Which server-side observation can prove a call Stop cut off has stopped is a
+# property of the server, so it is built here at the HTTP edge from the profile's
+# declared ``stop_proof``. The session layer sees only ``EndpointStopProof``.
+
+STOP_PROOF_KINDS: Final = frozenset({"none", "llamacpp_metrics"})
+# llama-server's /metrics (started with --metrics): both gauges zero means no request
+# is running or waiting, ours included, whoever else shares the server.
+_LLAMACPP_IDLE_GAUGES: Final = ("llamacpp:requests_processing", "llamacpp:requests_deferred")
+_PROOF_FETCH_TIMEOUT_S: Final = 2.0
+_PROOF_MAX_BODY_BYTES: Final = 1 << 20
+
+ProofFetch = Callable[[str, float], bytes | None]
+
+
+def _fetch_direct(url: str, timeout_s: float) -> bytes | None:
+    """GET ``url`` with ``timeout_s`` as a bound on the whole exchange, not per read.
+
+    A direct connection: the proof is about this server, never a proxy's answer.
+    """
+    deadline = time.monotonic() + timeout_s
+    parts = urlsplit(url)
+    if parts.scheme != "http" or not parts.hostname:
+        return None
+
+    def remaining() -> float:
+        return deadline - time.monotonic()
+
+    connection = http.client.HTTPConnection(
+        parts.hostname, parts.port or 80, timeout=max(remaining(), 0.001))
+    try:
+        connection.request("GET", parts.path or "/")
+        if connection.sock is not None:
+            connection.sock.settimeout(max(remaining(), 0.001))
+        response = connection.getresponse()
+        if response.status != 200:
+            return None
+        body = b""
+        while True:
+            left = remaining()
+            if left <= 0:
+                return None
+            if connection.sock is not None:
+                connection.sock.settimeout(left)
+            chunk = response.read1(65536)
+            if not chunk:
+                return body
+            body += chunk
+            if len(body) > _PROOF_MAX_BODY_BYTES:
+                return None
+    except (OSError, http.client.HTTPException, ValueError):
+        return None
+    finally:
+        connection.close()
+
+
+def parse_llamacpp_idle(text: str) -> bool | None:
+    """Idle from llama-server's Prometheus text; None unless both gauges are present."""
+    values: dict[str, float] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        name = parts[0].split("{", 1)[0]
+        if name in _LLAMACPP_IDLE_GAUGES:
+            try:
+                values[name] = float(parts[1])
+            except ValueError:
+                return None
+    if any(name not in values for name in _LLAMACPP_IDLE_GAUGES):
+        return None
+    return all(values[name] == 0 for name in _LLAMACPP_IDLE_GAUGES)
+
+
+class LlamaCppMetricsStopProof:
+    """llama-server ``/metrics`` at the root of the profile's server."""
+
+    kind: Final = "llamacpp_metrics"
+
+    def __init__(self, metrics_url: str, *, settle_timeout_s: float,
+                 fetch: ProofFetch = _fetch_direct) -> None:
+        if settle_timeout_s <= 0:
+            raise ValueError("stop proof settle timeout must be positive")
+        self.metrics_url = metrics_url
+        self.settle_timeout_s = float(settle_timeout_s)
+        self._fetch = fetch
+
+    def idle(self, timeout_s: float) -> bool | None:
+        if timeout_s <= 0:
+            return None
+        body = self._fetch(self.metrics_url, min(timeout_s, _PROOF_FETCH_TIMEOUT_S))
+        if body is None:
+            return None
+        try:
+            return parse_llamacpp_idle(body.decode("utf-8"))
+        except UnicodeDecodeError:
+            return None
+
+
+def _server_root(base_url: str) -> str:
+    parts = urlsplit(base_url)
+    if parts.scheme != "http" or not parts.netloc:
+        # The proof reads a local server directly; there is no TLS path to observe.
+        raise ValueError(f"stop proof needs an http base_url, got {base_url!r}")
+    return urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+
+
+def stop_proof_for(config: ModelConfig) -> LlamaCppMetricsStopProof | None:
+    """The proof source a profile declares, or None when Stop must wait instead."""
+    if config.stop_proof not in STOP_PROOF_KINDS:
+        raise ValueError(
+            f"unknown stop_proof {config.stop_proof!r}; expected one of "
+            f"{sorted(STOP_PROOF_KINDS)}"
+        )
+    if config.stop_proof == "none":
+        return None
+    # The same bound one call already has: proving a cut-off call stopped never
+    # waits longer than letting that call run to its deadline could have.
+    return LlamaCppMetricsStopProof(
+        _server_root(config.base_url) + "/metrics",
+        settle_timeout_s=config.request_deadline_s,
+    )
 
 
 Turn = Callable[[list[dict[str, Any]]], ChatResponse] | ChatResponse

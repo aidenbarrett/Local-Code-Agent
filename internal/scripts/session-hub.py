@@ -21,7 +21,7 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from local_agent.config import MODEL_PRESETS, find_repo_root, load_repo_config  # noqa: E402
-from local_agent.llm.client import LLMClient, OpenAICompatibleClient  # noqa: E402
+from local_agent.llm.client import LLMClient, OpenAICompatibleClient, stop_proof_for  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor  # noqa: E402
 from local_agent.session.conversation_gateway import conversation_budgets  # noqa: E402
@@ -132,8 +132,17 @@ def _endpoint_adapter(config, adapters: dict[str, EndpointCallAdapter]) -> Endpo
     endpoint_id = config.base_url.rstrip("/")
     adapter = adapters.get(endpoint_id)
     if adapter is None:
-        adapter = EndpointCallAdapter(EndpointRuntime(EndpointArbiter(endpoint_id)))
+        runtime = EndpointRuntime(EndpointArbiter(endpoint_id), stop_proof=stop_proof_for(config))
+        adapter = EndpointCallAdapter(runtime)
         adapters[endpoint_id] = adapter
+        return adapter
+    existing = adapter.runtime.stop_proof
+    if (existing.kind if existing is not None else "none") != config.stop_proof:
+        # One physical endpoint has one proof source; profiles disagreeing about it
+        # is a configuration error, not something to pick between.
+        raise ValueError(
+            f"profiles sharing {endpoint_id} declare different stop_proof values"
+        )
     return adapter
 
 

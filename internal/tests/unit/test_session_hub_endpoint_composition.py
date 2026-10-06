@@ -33,3 +33,23 @@ def test_explicit_split_base_urls_get_distinct_endpoint_authorities():
     worker_adapter = module._endpoint_adapter(worker, adapters)
     assert chat_adapter is not worker_adapter
     assert set(adapters) == {chat.base_url, worker.base_url}
+
+
+def test_the_endpoint_authority_carries_the_profiles_stop_proof():
+    adapters = {}
+    llama = module._endpoint_adapter(MODEL_PRESETS["nuc-llama-8b"], adapters)
+    assert llama.runtime.stop_proof is not None
+    assert llama.runtime.stop_proof.kind == "llamacpp_metrics"
+    # The 30B profile serves the same port with the same proof source: shared.
+    assert module._endpoint_adapter(MODEL_PRESETS["nuc-llama-30b"], adapters) is llama
+    assert module._endpoint_adapter(MODEL_PRESETS["ptl-npu-8b"], {}).runtime.stop_proof is None
+
+
+def test_profiles_sharing_an_endpoint_cannot_disagree_about_its_stop_proof():
+    import pytest
+
+    adapters = {}
+    module._endpoint_adapter(MODEL_PRESETS["nuc-llama-8b"], adapters)
+    unproved = replace(MODEL_PRESETS["nuc-llama-8b"], stop_proof="none")
+    with pytest.raises(ValueError, match="different stop_proof"):
+        module._endpoint_adapter(unproved, adapters)

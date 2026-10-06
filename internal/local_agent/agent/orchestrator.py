@@ -518,6 +518,9 @@ class Orchestrator:
             return f"inference server unavailable ({Reason.SERVER_UNAVAILABLE.value})"
         if result.state.halt_cause is HaltCause.INFERENCE_STALLED:
             return f"inference stalled ({Reason.SERVER_STALLED.value})"
+        if result.state.halt_cause is HaltCause.STOPPED:
+            # Never escalate past a Stop: the user ended the run, not the model.
+            return "stopped by the user"
         blocked = [h for h in result.state.history if h.blocked]
         if not blocked:
             return None
@@ -716,6 +719,10 @@ class Orchestrator:
                         "context_budget_exhausted",
                         {"error": str(exc), "cause": exc.cause},
                     )
+                elif kind == "stopped":
+                    # The user's Stop cut the call. Nothing about the server was learned.
+                    state.halt(HaltCause.STOPPED, f"stopped by the user: {exc}")
+                    self.observer("stopped", {"error": str(exc), "cause": exc.cause})
                 elif kind == "stalled":
                     state.halt(HaltCause.INFERENCE_STALLED, f"inference stalled: {exc}")
                     self.observer("server_stalled", {"error": str(exc), "cause": exc.cause})
