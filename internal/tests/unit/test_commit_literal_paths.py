@@ -135,7 +135,6 @@ def test_a_refused_commit_leaves_the_users_index_exactly_as_it_was(tmp_path):
     done = manager.commit_applied(task_id, user, "")
 
     assert isinstance(done, CommitRefused), done
-    assert done.index_left == ()
     assert (_status(user), _git(user, "ls-files", "--stage")) == before
     assert _git(user, "rev-parse", "HEAD") == head
 
@@ -152,7 +151,6 @@ def test_refused_commit_restores_user_entry_staged_after_apply(tmp_path):
     done = manager.commit_applied(task_id, user, "")
 
     assert isinstance(done, CommitRefused), done
-    assert done.index_left == ()
     assert _git(user, "ls-files", "--stage", "--", "new.txt") == before
     assert (user / "new.txt").read_text(encoding="utf-8") == "candidate\n"
 
@@ -166,7 +164,6 @@ def test_refused_commit_preserves_user_staged_identical_candidate_bytes(tmp_path
     done = manager.commit_applied(task_id, user, "")
 
     assert isinstance(done, CommitRefused), done
-    assert done.index_left == ()
     assert _git(user, "ls-files", "--stage", "--", "new.txt") == before
 
 
@@ -184,7 +181,6 @@ def test_refused_commit_restores_index_mode_and_flags(tmp_path):
     done = manager.commit_applied(task_id, user, "")
 
     assert isinstance(done, CommitRefused), done
-    assert done.index_left == ()
     assert _git(user, "ls-files", "--stage", "--", "new.txt") == before_stage
     assert _git(user, "ls-files", "-v", "--", "new.txt") == before_flags
 
@@ -230,7 +226,6 @@ def test_user_restaging_during_failed_private_commit_is_untouched(tmp_path, monk
     done = manager.commit_applied(task_id, user, "candidate")
 
     assert isinstance(done, CommitRefused), done
-    assert done.index_left == ()
     assert "A  new.txt" in _git(user, "status", "--porcelain=v1")
     assert (user / "new.txt").read_text(encoding="utf-8") == "user changed it\n"
 
@@ -302,3 +297,56 @@ def test_commit_refuses_an_unmerged_index_without_writing(tmp_path):
     assert isinstance(done, CommitRefused), done
     assert "unresolved merge entries" in done.reason
     assert _git(user, "rev-parse", "HEAD") == head
+
+
+def _live_index_lock(user: Path) -> Path:
+    raw = Path(_git(user, "rev-parse", "--git-path", "index").strip())
+    index = raw if raw.is_absolute() else user / raw
+    return Path(str(index) + ".lock")
+
+
+def test_commit_while_another_git_holds_the_index_lock_reports_and_never_breaks_it(tmp_path):
+    """A concurrent Git process owns index.lock for the whole commit attempt.
+
+    LCA must not delete or write through that lock. The commit itself is exact; the
+    clean candidate path is reported as not reconciled and the live index is untouched.
+    """
+    user = _repo(tmp_path, {"a.txt": "old\n"})
+    manager, task_id = _apply(tmp_path, user, {"new.txt": "candidate\n"})
+    index_before = _git(user, "ls-files", "--stage")
+    lock = _live_index_lock(user)
+    lock.write_bytes(b"held by another git process")
+
+    try:
+        done = manager.commit_applied(task_id, user, "candidate")
+        assert lock.read_bytes() == b"held by another git process"
+    finally:
+        lock.unlink(missing_ok=True)
+
+    assert isinstance(done, Committed), done
+    assert _git(user, "show", "HEAD:new.txt") == "candidate\n"
+    assert done.index_left == ("new.txt",)
+    assert _git(user, "ls-files", "--stage") == index_before
+
+
+def test_controller_pass_reconciles_under_the_lock_when_the_hook_did_not_run(
+    tmp_path, monkeypatch,
+):
+    """Hook absent (interpreter gone, killed controller): the controller's own pass
+    advances the clean path through the same locked transaction, not a bare rewrite."""
+    import local_agent.session.workspaces as workspaces_module
+
+    monkeypatch.setattr(workspaces_module, "hook_environment", lambda _transaction: {})
+    user = _repo(tmp_path, {"a.txt": "old\n", "keep.txt": "old\n"})
+    manager, task_id = _apply(tmp_path, user, {"a.txt": "candidate\n"})
+    (user / "keep.txt").write_text("user staged\n", encoding="utf-8")
+    _git(user, "add", "--", "keep.txt")
+    keep_before = _git(user, "ls-files", "--stage", "--", "keep.txt")
+
+    done = manager.commit_applied(task_id, user, "candidate")
+
+    assert isinstance(done, Committed), done
+    assert done.index_left == ()
+    assert _git(user, "rev-parse", ":a.txt") == _git(user, "rev-parse", "HEAD:a.txt")
+    assert _git(user, "ls-files", "--stage", "--", "keep.txt") == keep_before
+    assert _git(user, "diff", "--cached", "--name-only") == "keep.txt\n"

@@ -16,12 +16,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
 _GIT_TIMEOUT_S = 30
+# How long the controller's own reconciliation pass waits for another Git process to
+# release the live index lock before reporting the paths as not reconciled.
+_LOCK_WAIT_S = 2.0
+_LOCK_POLL_S = 0.05
 _POST_COMMIT_HOOK = """#!/bin/sh
 if test -n "$LCA_COMMIT_INDEX_TRANSACTION" \
    && test -n "$LCA_PYTHON" \
@@ -34,10 +39,25 @@ exit 0
 
 
 @dataclass(frozen=True, slots=True)
-class _IndexEntry:
+class IndexEntry:
+    """Exact stage entries and user-controlled index flags for one literal path."""
+
     stage: bytes
     assume_unchanged: bool
     skip_worktree: bool
+
+
+class IndexLockBusyError(OSError):
+    """Another process holds the live index lock; nothing was changed."""
+
+
+def index_entry_from_listings(stage: bytes, tagged: bytes, verbose: bytes) -> IndexEntry:
+    """Build one entry from ``ls-files --stage``, ``-t`` and ``-v`` output for a path."""
+    return IndexEntry(
+        stage=stage,
+        assume_unchanged=bool(verbose[:1] and verbose[:1].islower()),
+        skip_worktree=tagged.startswith(b"S "),
+    )
 
 
 def install_post_commit_hook(hooks_dir: Path) -> None:
@@ -137,18 +157,15 @@ def _git(
     return done
 
 
-def _entry(root: Path, index: Path, path: str) -> _IndexEntry:
-    stage = _git(root, index, "ls-files", "--stage", "-z", "--", path).stdout
-    tagged = _git(root, index, "ls-files", "-t", "-z", "--", path).stdout
-    verbose = _git(root, index, "ls-files", "-v", "-z", "--", path).stdout
-    return _IndexEntry(
-        stage=stage,
-        assume_unchanged=bool(verbose[:1] and verbose[:1].islower()),
-        skip_worktree=tagged.startswith(b"S "),
+def _entry(root: Path, index: Path, path: str) -> IndexEntry:
+    return index_entry_from_listings(
+        _git(root, index, "ls-files", "--stage", "-z", "--", path).stdout,
+        _git(root, index, "ls-files", "-t", "-z", "--", path).stdout,
+        _git(root, index, "ls-files", "-v", "-z", "--", path).stdout,
     )
 
 
-def _restore(root: Path, index: Path, path: str, entry: _IndexEntry) -> None:
+def _restore(root: Path, index: Path, path: str, entry: IndexEntry) -> None:
     _git(
         root, index, "update-index", "--no-assume-unchanged", "--no-skip-worktree", "--", path,
         check=False,
@@ -200,15 +217,24 @@ def _load(path: Path) -> tuple[Path, Path, str, tuple[tuple[str, bytes, bytes], 
 
 
 def reconcile(transaction_path: Path) -> None:
-    """Apply one all-or-nothing live-index reconciliation transaction."""
+    """Apply one all-or-nothing live-index reconciliation transaction.
+
+    Raises :class:`IndexLockBusyError` without touching anything when another process holds
+    the live index lock. A lock this call did not create is never removed: deleting it
+    would let two writers race on the user's index.
+    """
     root, live_index, parent, entries = _load(transaction_path)
     live_index = live_index.resolve()
     live_index.parent.mkdir(parents=True, exist_ok=True)
     lock = Path(str(live_index) + ".lock")
-    lock_fd: int | None = None
+    try:
+        opened = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as exc:
+        raise IndexLockBusyError(str(lock)) from exc
+    lock_fd: int | None = opened
+    lock_owned = True
     work: Path | None = None
     try:
-        lock_fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         fd, raw_work = tempfile.mkstemp(prefix="lca-index-reconcile-", dir=live_index.parent)
         os.close(fd)
         work = Path(raw_work)
@@ -226,23 +252,56 @@ def reconcile(transaction_path: Path) -> None:
                 root,
                 work,
                 name,
-                _IndexEntry(target_stage, current.assume_unchanged, current.skip_worktree),
+                IndexEntry(target_stage, current.assume_unchanged, current.skip_worktree),
             )
 
         data = work.read_bytes()
-        with os.fdopen(lock_fd, "wb") as stream:
+        with os.fdopen(opened, "wb") as stream:
             lock_fd = None
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(lock, live_index)
+        lock_owned = False
     finally:
         if lock_fd is not None:
             with contextlib.suppress(OSError):
                 os.close(lock_fd)
-        lock.unlink(missing_ok=True)
+        if lock_owned:
+            lock.unlink(missing_ok=True)
         if work is not None:
             work.unlink(missing_ok=True)
+
+
+def reconcile_and_report(transaction_path: Path) -> tuple[str, ...]:
+    """Controller-side pass: reconcile under the lock, then name unadvanced clean paths.
+
+    The same locked compare-and-update as the hook, so the controller never edits the
+    live index outside Git's lock. Idempotent after a successful hook. A path is
+    reported only while its live entry still equals the pre-commit snapshot; any other
+    value is the hook's result or concurrent user work and is not LCA's to report.
+    """
+    deadline = time.monotonic() + _LOCK_WAIT_S
+    while True:
+        try:
+            reconcile(transaction_path)
+            break
+        except IndexLockBusyError:
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(_LOCK_POLL_S)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+            # Nothing was replaced; the report below says which paths stayed behind.
+            break
+    root, live_index, _parent, entries = _load(transaction_path)
+    live_index = live_index.resolve()
+    left: list[str] = []
+    for name, expected_stage, target_stage in entries:
+        if expected_stage == target_stage:
+            continue
+        if not live_index.is_file() or _entry(root, live_index, name).stage == expected_stage:
+            left.append(name)
+    return tuple(left)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -89,3 +89,29 @@ def test_reconcile_never_overwrites_user_staging_on_candidate_path(tmp_path: Pat
     reconcile(transaction)
 
     assert _stage(root, "candidate.txt") == user_stage
+
+
+def test_reconcile_never_removes_an_index_lock_it_did_not_create(tmp_path: Path) -> None:
+    """Deleting another writer's index.lock would let two processes race on the index."""
+    import pytest
+
+    from local_agent.session.commit_index_hook import IndexLockBusyError
+
+    root, parent, live_index = _repository(tmp_path)
+    expected = _stage(root, "candidate.txt")
+    target = _candidate_target(root, tmp_path, parent)
+    _git(root, "checkout", "--", "candidate.txt")
+    index_bytes = live_index.read_bytes()
+    lock = Path(str(live_index) + ".lock")
+    lock.write_bytes(b"another writer")
+
+    workspaces = tmp_path / "workspaces"
+    workspaces.mkdir()
+    transaction = prepare_transaction(
+        workspaces, root, live_index, parent, (("candidate.txt", expected, target),),
+    )
+    with pytest.raises(IndexLockBusyError):
+        reconcile(transaction)
+
+    assert lock.read_bytes() == b"another writer"
+    assert live_index.read_bytes() == index_bytes
