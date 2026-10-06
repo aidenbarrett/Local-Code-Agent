@@ -24,6 +24,22 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $internal = Join-Path $root 'internal'
+$startupClock = [System.Diagnostics.Stopwatch]::StartNew()
+
+function Write-StartupTrace([string]$Stage, [string]$Detail = '') {
+    # Opt-in diagnostics for the public-launcher acceptance boundary. Keep every
+    # record single-line and bounded so a timed-out caller retains useful partial
+    # evidence without changing normal product output.
+    if ($env:LCA_STARTUP_TRACE -ne '1') { return }
+    $safeDetail = ($Detail -replace '[\r\n]+', ' ')
+    if ($safeDetail.Length -gt 500) { $safeDetail = $safeDetail.Substring(0, 500) }
+    [Console]::Error.WriteLine(
+        ('[lca-startup] elapsed_ms={0} stage={1} detail={2}' -f
+            $startupClock.ElapsedMilliseconds, $Stage, $safeDetail)
+    )
+}
+
+Write-StartupTrace 'powershell-ready'
 
 $python = @(
     (Join-Path $root '.venv-workstation\Scripts\python.exe'),
@@ -41,6 +57,7 @@ if (-not $python) {
     Write-Host ''
     exit 2
 }
+Write-StartupTrace 'interpreter-selected' $python
 
 # The public product must run from the interpreter and source tree selected above, not
 # from ambient workstation Python configuration. PYTHONHOME can make even a valid venv
@@ -63,7 +80,9 @@ if (-not (Test-Path $preflight) -or -not (Test-Path $pyproject)) {
     exit 2
 }
 
+Write-StartupTrace 'preflight-start' $preflight
 & $python $preflight --pyproject $pyproject
+Write-StartupTrace 'preflight-finished' ("exit={0}" -f $LASTEXITCODE)
 if ($LASTEXITCODE -ne 0) {
     Write-Host ''
     Write-Host 'Local Code Agent will not start with this Python environment.'
@@ -74,7 +93,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 function Show-Help {
+    Write-StartupTrace 'help-start'
     & $python (Join-Path $internal 'scripts\product-help.py')
+    Write-StartupTrace 'help-finished' ("exit={0}" -f $LASTEXITCODE)
 }
 
 function Set-ManagedOvmsEnvironment {
