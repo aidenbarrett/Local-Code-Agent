@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `edf1ccf60448641e6750a13502c7e43330bfd26d`
+Reconciled against GitHub `main` at `2dcb5f454484d32b5cd687bca52b9dfa8cce1453`
 on 2026-10-06 (review updates for 4 and 6 October below); first reconciled on 2026-10-04 after the isolated candidate-change journeys (#197-#215: build/test fixes,
 `fix it`, `change:`, `/apply`, `/undo`, `/commit`, `/diff`, `/discard`, durable candidate
 facts, readiness refusal), the engineering-standards ratchet (#216, burn-down
@@ -146,6 +146,38 @@ malformed or non-canonical owner is kept and reported at Session Hub startup (#4
 Live
 source and current CI remain authoritative for implementation; frozen artifacts remain
 authoritative for historical experiments.
+
+## Capability ledger
+
+Qualification describes the strongest retained evidence, not configured intent. `unknown`
+is deliberate where the required physical or repository-setting observation is absent.
+
+| ID | Public request | Implemented behaviour | Evidence | Qualification | Known limit | Next action | Owner |
+|---|---|---|---|---|---|---|---|
+| CAP-inspect | Inspect this repository | Read-only paths, files and text search | PR#250, J12-questions | deterministic-ci | Model answers need grounding checks | Keep R01 coverage | controller |
+| CAP-symbol | Where is this symbol? | Definition and include-relative lookup | PR#386 | deterministic-ci | Language-aware indexing is not claimed | Extend only from failures | controller |
+| CAP-branch-review | What changed on my branch? | Merge-base, upstream and detached-HEAD facts | PR#367, J17-branch-review | deterministic-ci | No upstream means ahead/behind is unknown | Keep read-only | controller |
+| CAP-build-verify | Build it | Configured build with proof bound to stable inputs | PR#433, J01-build-pass | deterministic-ci | Repository must declare a build profile | Qualify more repositories | controller |
+| CAP-test-truth | Run the tests | Full or filtered test truth with zero/stale non-PASS | PR#383, J19-test-truth | deterministic-ci | Repository must declare a test profile | Qualify more repositories | controller |
+| CAP-failure-diagnosis | Why did that fail? | Uses retained build/test evidence and explicit task identity | PR#250, J02-build-fail | deterministic-ci | Unsupported failures remain unclassified | Extend typed diagnoses | controller |
+| CAP-candidate-fix | Fix the build or tests | Isolated candidate with build/test proof | PR#197, J13-candidate-scripted | deterministic-ci | Real-model success is configuration-specific | Finish real-repository qualification | controller |
+| CAP-change | Change this source | Intent-scoped isolated candidate | PR#215, J11-change | deterministic-ci | General arbitrary checkout mutation is refused | Keep candidate boundary | controller |
+| CAP-apply | Apply this candidate | All-or-nothing import with stale-content refusal | PR#378, J13-candidate-scripted | deterministic-ci | Interrupted receipt stays UNKNOWN | Keep restart regressions | controller |
+| CAP-undo | Undo this candidate | Restores owned pre-import bytes and modes | PR#407, J13-candidate-scripted | deterministic-ci | Refuses after later user edits | Keep preservation regressions | controller |
+| CAP-exact-commit | Commit this candidate | Private-index exact-path commit, no push | PR#434, J21-exact-commit | deterministic-ci | Commit policy may refuse | Keep hook/restart regressions | controller |
+| CAP-stop-command | Stop the running command | Epoch fencing and bounded owned-command cancellation | PR#379, J05-stop-build | deterministic-ci | Full descendant proof remains open | Repair owned runner stack | Claude |
+| CAP-stop-generation | Stop model work | Fences late authority and records NO_VERDICT when unreconciled | PR#249, J07-stop-model | deterministic-ci | One in-flight generation may remain | Prove endpoint interruption | Claude |
+| CAP-git-state | What Git operation is active? | Reports merge, rebase, am, cherry-pick, revert and bisect state | PR#373, J20-conflict-explain | deterministic-ci | Does not perform continue or abort | Keep read-only | controller |
+| CAP-unusual-filenames | Inspect or commit unusual names | Literal path handling protects wildcard-like names | PR#404, J15b-rename-binary | deterministic-ci | Platform filesystem rules still apply | Keep cross-platform regression | controller |
+| CAP-git-filters | Inspect repository identity safely | Refuses executable Git-filter boundaries | PR#424 | deterministic-ci | Does not evaluate repository filter programs | Keep fail-closed | controller |
+| CAP-orphan-cleanup | Clean abandoned workspaces | Deletes only when owner death is proven | PR#410 | deterministic-ci | Unknown ownership is retained and reported | Repair runner/Stop stack | Claude |
+| CAP-build-dir | Rebuild safely | Deletes only marked owned build trees | PR#408 | deterministic-ci | Unmarked directories require user action | Keep ownership marker | controller |
+| CAP-empty-target | Build an explicit target | Empty or malformed targets refused before effects | PR#429 | deterministic-ci | Target existence is build-system-specific | Keep negative cases | controller |
+| CAP-fallback-search | Search without ripgrep | Searches scoped tracked and untracked source, excluding builds | PR#405 | deterministic-ci | Bounded filesystem traversal | Keep parity tests | controller |
+| CAP-repo-explain | What does this repository do? | Grounds files and configured commands in repository facts | PR#413, J22-repo-explain | deterministic-ci | Generalisation beyond tested repositories is open | Complete cxxopts qualification | controller |
+| CAP-install | Install and first run | Checks Python, CMake and Windows C++ toolchain | PR#374 | deterministic-ci | Physical offline first run is unqualified | Run disconnected PTL acceptance | Aiden |
+| CAP-offline-physical | Work fully offline on target hardware | Capture path exists; qualification is not complete | PR#232 | unknown | No current disconnected exact-head hardware run | Execute and retain physical run | Aiden |
+| CAP-merge-policy | Require reviewed green integration | Offline checker can observe branch/ruleset enforcement | PR#276 | unknown | Live required-check setting is not established here | Configure and observe repository policy | Aiden |
 
 Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rationale,
 [TRICKS.md](TRICKS.md) for first-release public journeys and acceptance evidence, and
