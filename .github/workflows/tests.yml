@@ -150,7 +150,8 @@ jobs:
       - name: Fetch the pinned corpus (cache miss only fetches)
         run: python internal/scripts/acceptance-journeys.py --corpus cxxopts --fetch --corpus-cache "${{ env.LCA_QUALIFICATION_CACHE }}"
       - name: Q01-Q05 on the real repository
-        run: python -m pytest -q internal/tests/unit/test_corpus_journeys.py --junitxml=pytest-junit.xml
+        # A short base temp keeps nested MSBuild try-compile paths under MAX_PATH.
+        run: python -m pytest -q internal/tests/unit/test_corpus_journeys.py --junitxml=pytest-junit.xml --basetemp="${{ runner.temp }}/q"
       - name: Annotate failed journeys
         # Job logs are not always readable; annotations are.
         if: failure()

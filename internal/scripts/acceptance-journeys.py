@@ -1403,7 +1403,9 @@ class ScriptedCorpusCompileFix(ScriptedCompileFix):
 # the VS telemetry helper) alive after the build, which a CI runner then reports as
 # orphans that are not the product's (#438 review).
 _INDEPENDENT_ENV = {"MSBUILDDISABLENODEREUSE": "1", "VSCMD_SKIP_SENDTELEMETRY": "1"}
-INDEPENDENT_BUILD_DIR = "build-independent"
+# Short on purpose: cxxopts' package tests nest try-compile projects several levels
+# under the build directory, and MSBuild's file tracker fails past MAX_PATH (FTK1011).
+INDEPENDENT_BUILD_DIR = "build-i"  # matches upstream .gitignore build-*/
 
 
 def _independent_commands(repo: Path) -> list[list[str]]:
