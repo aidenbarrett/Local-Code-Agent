@@ -121,7 +121,8 @@ def test_windows_public_launcher_preflights_real_product_help():
         ],
         cwd=REPO,
         env=env,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
     )
     try:
