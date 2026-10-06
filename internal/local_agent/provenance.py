@@ -8,10 +8,15 @@ from pathlib import Path
 from typing import Any
 
 _ROOT = Path(__file__).resolve().parents[2]
+PRODUCT_PYTHON_ROOTS = (
+    "internal/local_agent",
+    "internal/serving",
+    "internal/scripts",
+)
+PRODUCT_PYTHON_FILES = ("internal/terminal_ui.py",)
+
 _HASHED = (
-    ("internal/local_agent", "*.py"),
-    ("internal/serving", "*.py"),
-    ("internal/scripts", "*.py"),
+    *((root, "*.py") for root in PRODUCT_PYTHON_ROOTS),
     # PowerShell launch, runtime-location, and workstation bootstrap helpers are
     # executable product inputs too. Keep this recursive boundary broad so a new
     # live helper cannot evade identity merely by being added in another internal
@@ -25,7 +30,7 @@ _HASHED_FILES = (
     "pyproject.toml",
     "local-code-agent.ps1",
     "install.ps1",
-    "internal/terminal_ui.py",
+    *PRODUCT_PYTHON_FILES,
 )
 _SKIP = {"__pycache__", "build", ".local-agent", ".git", ".venv", ".venv-workstation"}
 

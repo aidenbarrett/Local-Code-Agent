@@ -18,7 +18,9 @@ from devtools.check_static_standards import (
     measure,
     parse_mypy_json,
     parse_ruff_json,
+    validate_root_inventory,
 )
+from local_agent.provenance import PRODUCT_PYTHON_FILES, PRODUCT_PYTHON_ROOTS
 
 A = ("mypy-linux", "internal/local_agent/a.py", "union-attr")
 B = ("ruff", "internal/local_agent/b.py", "S603")
@@ -144,6 +146,26 @@ def test_every_static_root_is_explicitly_checked(root: str) -> None:
     }
 
 
+def test_live_product_root_omission_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The provenance owner, not STATIC_ROOTS itself, discovers a missing live root."""
+    monkeypatch.setattr(
+        "devtools.check_static_standards.PRODUCT_PYTHON_ROOTS",
+        ("internal/local_agent", "internal/serving", "internal/scripts", "internal/future"),
+    )
+    with pytest.raises(RuntimeError, match="internal/future"):
+        validate_root_inventory()
+
+
+@pytest.mark.parametrize("omitted", (*PRODUCT_PYTHON_ROOTS, *PRODUCT_PYTHON_FILES))
+def test_each_owned_product_surface_is_required(omitted: str) -> None:
+    retained = tuple(
+        root for root in STATIC_ROOTS
+        if not (omitted == root or omitted.startswith(root + "/"))
+    )
+    with pytest.raises(RuntimeError, match=omitted):
+        validate_root_inventory(retained)
+
+
 def test_known_finding_in_each_static_root_reaches_the_gate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -160,7 +182,7 @@ def test_known_finding_in_each_static_root_reaches_the_gate(
         else:
             path.mkdir(parents=True, exist_ok=True)
             path /= "injected_static_finding.py"
-        path.write_text("import os\n", encoding="utf-8")
+        path.write_text("import os\nvalue: int = 'not an int'\n", encoding="utf-8")
         expected.add(path.relative_to(tmp_path).as_posix())
 
     monkeypatch.chdir(tmp_path)
@@ -172,6 +194,12 @@ def test_known_finding_in_each_static_root_reaches_the_gate(
 
     found = {file for checker, file, code in counts if checker == "ruff" and code == "F401"}
     assert found == expected
+    for platform in ("linux", "win32"):
+        typed = {
+            file for checker, file, code in counts
+            if checker == f"mypy-{platform}" and code == "assignment"
+        }
+        assert typed == expected
 
     baseline = tmp_path / "internal" / "static-standards-baseline.json"
     baseline.parent.mkdir(parents=True, exist_ok=True)
