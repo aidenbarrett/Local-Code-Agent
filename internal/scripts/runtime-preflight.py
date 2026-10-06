@@ -10,9 +10,11 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from importlib import import_module, metadata
+import os
 from pathlib import Path
 import re
 import sys
+import time
 import tomllib
 
 
@@ -28,6 +30,20 @@ _REQUIREMENT = re.compile(
     r"^\s*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?P<spec>(?:[<>=!~]=?[^;\s,]+(?:\s*,\s*[<>=!~]=?[^;\s,]+)*)?)"
 )
 _SPECIFIER = re.compile(r"^(~=|==|!=|<=|>=|<|>)(.+)$")
+_TRACE_ENABLED = os.environ.get("LCA_STARTUP_TRACE") == "1"
+_TRACE_STARTED = time.monotonic()
+
+
+def _trace(stage: str, detail: str = "") -> None:
+    """Emit one bounded, opt-in startup record that survives caller timeouts."""
+    if not _TRACE_ENABLED:
+        return
+    safe_detail = " ".join(detail.splitlines())[:500]
+    elapsed_ms = int((time.monotonic() - _TRACE_STARTED) * 1000)
+    sys.stderr.write(
+        f"[lca-startup] elapsed_ms={elapsed_ms} stage={stage} detail={safe_detail}\n"
+    )
+    sys.stderr.flush()
 
 
 @dataclass(frozen=True)
@@ -119,6 +135,7 @@ def runtime_errors(
 ) -> list[str]:
     """Return bounded diagnostics; never repair or access the network."""
     errors: list[str] = []
+    _trace("runtime-contract-start", str(pyproject))
     if sys.version_info < MIN_PYTHON:
         errors.append(
             f"Python {sys.version_info.major}.{sys.version_info.minor} is too old; "
@@ -149,12 +166,16 @@ def runtime_errors(
             )
 
     for module_name in critical_imports:
+        _trace("import-start", module_name)
         try:
             import_module(module_name)
         except Exception as exc:  # noqa: BLE001 - diagnostic boundary must catch broken imports
             errors.append(
                 f"runtime import failed: {module_name}: {type(exc).__name__}: {exc}"
             )
+        finally:
+            _trace("import-finished", module_name)
+    _trace("runtime-contract-finished", f"errors={len(errors)}")
     return errors
 
 
