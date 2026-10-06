@@ -25,7 +25,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 
-from local_agent.provenance import PRODUCT_PYTHON_FILES, PRODUCT_PYTHON_ROOTS
+# The gate runs from a plain source checkout (`python internal/devtools/...`), before
+# or without installing the product, so the provenance owner is imported from source.
+_INTERNAL = Path(__file__).resolve().parents[1]
+if str(_INTERNAL) not in sys.path:
+    sys.path.insert(0, str(_INTERNAL))
+
+from local_agent.provenance import PRODUCT_PYTHON_FILES, PRODUCT_PYTHON_ROOTS  # noqa: E402
 
 BASELINE_SCHEMA: Final = "lca.static-standards-baseline/1"
 BASELINE_PATH: Final = PurePosixPath("internal/static-standards-baseline.json")

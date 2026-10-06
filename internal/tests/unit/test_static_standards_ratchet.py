@@ -161,16 +161,55 @@ def test_live_product_root_omission_is_refused(monkeypatch: pytest.MonkeyPatch) 
         validate_root_inventory()
 
 
-def test_all_live_internal_python_is_classified_and_checked() -> None:
+# Test-only Python, owned by native pytest and the import-boundary gate: one
+# directory and one exact file. A directory prefix and an exact file are different
+# exemptions; matching the file name as a prefix let `conftest.py.escape.py` through.
+_TEST_ONLY_DIRECTORY = "internal/tests/"
+_TEST_ONLY_FILE = "conftest.py"
+
+
+def _outside_every_owner(paths: list[str]) -> list[str]:
+    """Tracked Python paths neither test-only nor inside a static root."""
+    return [
+        path for path in paths
+        if path
+        and not (path.startswith(_TEST_ONLY_DIRECTORY) or path == _TEST_ONLY_FILE)
+        and not any(path == root or path.startswith(root + "/") for root in STATIC_ROOTS)
+    ]
+
+
+def test_all_live_python_in_the_repository_is_classified_and_checked() -> None:
+    """Every tracked .py anywhere (not only under internal/) is test-only or gated."""
     repository = Path(__file__).resolve().parents[3]
     paths = subprocess.check_output(
-        ["git", "ls-files", "internal/**/*.py", "internal/*.py"],
+        ["git", "-c", "core.quotepath=false", "ls-files", "-z", "--", "*.py"],
         cwd=repository, text=True,
-    ).splitlines()
-    for path in paths:
-        if path.startswith("internal/tests/"):
-            continue  # Native pytest owns test-only code; see engineering-standards.
-        assert any(path == root or path.startswith(root + "/") for root in STATIC_ROOTS), path
+    ).split("\0")
+    unchecked = _outside_every_owner(paths)
+    assert not unchecked, f"tracked Python outside every static root: {unchecked}"
+
+
+@pytest.mark.parametrize("path", (
+    "conftest.py",
+    "internal/tests/unit/test_anything.py",
+    "internal/tests/conftest.py",
+    "internal/terminal_ui.py",
+    "internal/local_agent/config.py",
+))
+def test_owned_python_is_classified(path: str) -> None:
+    assert _outside_every_owner([path]) == []
+
+
+@pytest.mark.parametrize("path", (
+    "demo/escape_probe.py",
+    "conftest.py.escape.py",        # a file-name prefix is not the exact file
+    "conftest.py/helper.py",        # nor is a directory of that name
+    "internal/testsuite/helper.py",  # nor a sibling of the test directory
+    "internal/terminal_ui.py.bak.py",
+    "internal/local_agent_extra/module.py",
+))
+def test_python_outside_every_owner_is_caught(path: str) -> None:
+    assert _outside_every_owner([path]) == [path]
 
 
 @pytest.mark.parametrize("omitted", (*PRODUCT_PYTHON_ROOTS, *PRODUCT_PYTHON_FILES))

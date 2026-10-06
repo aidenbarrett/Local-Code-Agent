@@ -13,7 +13,7 @@ their separate exception below; their Python generator/scenario tools do not.
 `internal/tests` and root `conftest.py` are test-only, owned by native pytest and
 the test import-boundary gate, and excluded from product source identity and the
 production static ratchet. A tracked-file inventory regression rejects any new
-internal Python surface outside these classifications. There are no other active
+Python file anywhere in the repository outside these classifications. There are no other active
 top-level Python roots exempted as obsolete.
 
 Status: binding for every change to `main`. This document is the one owner of the
