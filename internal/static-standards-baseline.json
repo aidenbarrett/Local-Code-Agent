@@ -1,11 +1,31 @@
 {
  "findings": {
   "mypy-linux": {
+   "internal/benchmark_fixture/cpp_project/scripts/apply_scenario.py": {
+    "no-any-return": 1,
+    "type-arg": 2
+   },
    "internal/devtools/check_merge_enforcement.py": {
     "unreachable": 1
    },
    "internal/devtools/check_test_import_boundaries.py": {
     "union-attr": 1
+   },
+   "internal/evaluation/endpoints.py": {
+    "index": 1,
+    "union-attr": 2
+   },
+   "internal/evaluation/run_evaluation.py": {
+    "import-not-found": 2,
+    "no-any-return": 1,
+    "no-untyped-call": 9,
+    "no-untyped-def": 5,
+    "type-arg": 10,
+    "unreachable": 1
+   },
+   "internal/evaluation/task_contracts.py": {
+    "no-untyped-def": 2,
+    "type-arg": 1
    },
    "internal/local_agent/agent/contracts.py": {
     "no-untyped-def": 5,
@@ -183,6 +203,15 @@
     "no-untyped-def": 1,
     "redundant-expr": 1
    },
+   "internal/native_endpoint/ci/find_openvino_genai_archive.py": {
+    "no-untyped-call": 3,
+    "no-untyped-def": 1
+   },
+   "internal/perf/endpoint_harness.py": {
+    "arg-type": 2,
+    "assignment": 4,
+    "no-untyped-def": 2
+   },
    "internal/scripts/accept-session-hub.py": {
     "arg-type": 4,
     "index": 3,
@@ -250,11 +279,30 @@
    }
   },
   "mypy-win32": {
+   "internal/benchmark_fixture/cpp_project/scripts/apply_scenario.py": {
+    "no-any-return": 1,
+    "type-arg": 2
+   },
    "internal/devtools/check_merge_enforcement.py": {
     "unreachable": 1
    },
    "internal/devtools/check_test_import_boundaries.py": {
     "union-attr": 1
+   },
+   "internal/evaluation/endpoints.py": {
+    "index": 1,
+    "union-attr": 2
+   },
+   "internal/evaluation/run_evaluation.py": {
+    "import-not-found": 2,
+    "no-any-return": 1,
+    "no-untyped-call": 9,
+    "no-untyped-def": 5,
+    "type-arg": 10
+   },
+   "internal/evaluation/task_contracts.py": {
+    "no-untyped-def": 2,
+    "type-arg": 1
    },
    "internal/local_agent/agent/contracts.py": {
     "no-untyped-def": 5,
@@ -431,6 +479,15 @@
     "no-untyped-def": 1,
     "redundant-expr": 1
    },
+   "internal/native_endpoint/ci/find_openvino_genai_archive.py": {
+    "no-untyped-call": 3,
+    "no-untyped-def": 1
+   },
+   "internal/perf/endpoint_harness.py": {
+    "arg-type": 2,
+    "assignment": 4,
+    "no-untyped-def": 2
+   },
    "internal/scripts/accept-session-hub.py": {
     "arg-type": 4,
     "index": 3,
@@ -494,6 +551,12 @@
    }
   },
   "ruff": {
+   "internal/benchmark_fixture/cpp_project/scripts/apply_scenario.py": {
+    "T201": 4
+   },
+   "internal/benchmark_fixture/generate_project.py": {
+    "T201": 1
+   },
    "internal/devtools/capture_ci_checkout.py": {
     "PLW1510": 1,
     "S603": 1,
@@ -518,6 +581,40 @@
     "E501": 2,
     "PERF401": 1,
     "T201": 5
+   },
+   "internal/evaluation/endpoints.py": {
+    "PLR0911": 2,
+    "PLR0912": 1,
+    "SIM102": 1,
+    "UP035": 1
+   },
+   "internal/evaluation/oracle.py": {
+    "BLE001": 1,
+    "PERF401": 1,
+    "SIM105": 3
+   },
+   "internal/evaluation/run_evaluation.py": {
+    "ARG002": 1,
+    "ARG005": 1,
+    "B904": 1,
+    "BLE001": 5,
+    "E501": 4,
+    "E741": 1,
+    "FBT001": 7,
+    "FBT002": 5,
+    "PLR0912": 2,
+    "PLR0913": 2,
+    "PLR0915": 3,
+    "PLW2901": 1,
+    "RUF010": 1,
+    "S108": 1,
+    "S607": 3,
+    "T201": 12,
+    "UP034": 1
+   },
+   "internal/evaluation/task_contracts.py": {
+    "E501": 2,
+    "UP035": 1
    },
    "internal/local_agent/agent/__init__.py": {
     "RUF022": 1
@@ -934,6 +1031,18 @@
     "E501": 2,
     "N818": 1
    },
+   "internal/native_endpoint/ci/find_openvino_genai_archive.py": {
+    "E501": 1,
+    "T201": 3
+   },
+   "internal/perf/endpoint_harness.py": {
+    "B904": 1,
+    "BLE001": 6,
+    "E501": 27,
+    "S310": 1,
+    "S603": 2,
+    "T201": 1
+   },
    "internal/scripts/accept-session-hub.py": {
     "ARG002": 3,
     "C401": 1,
@@ -1080,5 +1189,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1460
+ "total": 1668
 }

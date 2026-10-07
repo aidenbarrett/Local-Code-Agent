@@ -18,6 +18,7 @@ def test_product_source_identity_covers_live_product_surfaces():
     assert any(key.startswith("internal/local_agent/") for key in keys)
     assert any(key.startswith("internal/serving/") for key in keys)
     assert any(key.startswith("internal/scripts/") for key in keys)
+    assert "internal/perf/endpoint_harness.py" in keys
     assert any(key.startswith("internal/skills/") for key in keys)
     assert "internal/docs/session-contract/v1/events.schema.json" in keys
     assert "local-code-agent.ps1" in keys
@@ -55,3 +56,17 @@ def test_archived_research_trees_are_not_part_of_product_identity():
     old_experiments = "/".join(("internal", "experiments")) + "/"
     assert not any(key.startswith(old_measurement) for key in keys)
     assert not any(key.startswith(old_experiments) for key in keys)
+
+
+def test_perf_python_add_change_delete_affect_source_identity(tmp_path, monkeypatch):
+    monkeypatch.setattr(provenance, "_ROOT", tmp_path)
+    original = provenance.source_sha256()
+    helper = tmp_path / "internal/perf/nested/helper.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("value = 1\n", encoding="utf-8")
+    added = provenance.source_sha256()
+    assert added != original
+    helper.write_text("value = 2\n", encoding="utf-8")
+    assert provenance.source_sha256() != added
+    helper.unlink()
+    assert provenance.source_sha256() == original

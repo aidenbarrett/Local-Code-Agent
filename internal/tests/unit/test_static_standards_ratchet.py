@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -18,7 +19,9 @@ from devtools.check_static_standards import (
     measure,
     parse_mypy_json,
     parse_ruff_json,
+    validate_root_inventory,
 )
+from local_agent.provenance import PRODUCT_PYTHON_FILES, PRODUCT_PYTHON_ROOTS
 
 A = ("mypy-linux", "internal/local_agent/a.py", "union-attr")
 B = ("ruff", "internal/local_agent/b.py", "S603")
@@ -140,8 +143,83 @@ def test_every_static_root_is_explicitly_checked(root: str) -> None:
         "internal/devtools",
         "internal/serving",
         "internal/scripts",
+        "internal/perf",
+        "internal/native_endpoint/ci",
+        "internal/evaluation",
+        "internal/benchmark_fixture",
         "internal/terminal_ui.py",
     }
+
+
+def test_live_product_root_omission_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The provenance owner, not STATIC_ROOTS itself, discovers a missing live root."""
+    monkeypatch.setattr(
+        "devtools.check_static_standards.PRODUCT_PYTHON_ROOTS",
+        ("internal/local_agent", "internal/serving", "internal/scripts", "internal/future"),
+    )
+    with pytest.raises(RuntimeError, match="internal/future"):
+        validate_root_inventory()
+
+
+# Test-only Python, owned by native pytest and the import-boundary gate: one
+# directory and one exact file. A directory prefix and an exact file are different
+# exemptions; matching the file name as a prefix let `conftest.py.escape.py` through.
+_TEST_ONLY_DIRECTORY = "internal/tests/"
+_TEST_ONLY_FILE = "conftest.py"
+
+
+def _outside_every_owner(paths: list[str]) -> list[str]:
+    """Tracked Python paths neither test-only nor inside a static root."""
+    return [
+        path for path in paths
+        if path
+        and not (path.startswith(_TEST_ONLY_DIRECTORY) or path == _TEST_ONLY_FILE)
+        and not any(path == root or path.startswith(root + "/") for root in STATIC_ROOTS)
+    ]
+
+
+def test_all_live_python_in_the_repository_is_classified_and_checked() -> None:
+    """Every tracked .py anywhere (not only under internal/) is test-only or gated."""
+    repository = Path(__file__).resolve().parents[3]
+    paths = subprocess.check_output(
+        ["git", "-c", "core.quotepath=false", "ls-files", "-z", "--", "*.py"],
+        cwd=repository, text=True,
+    ).split("\0")
+    unchecked = _outside_every_owner(paths)
+    assert not unchecked, f"tracked Python outside every static root: {unchecked}"
+
+
+@pytest.mark.parametrize("path", (
+    "conftest.py",
+    "internal/tests/unit/test_anything.py",
+    "internal/tests/conftest.py",
+    "internal/terminal_ui.py",
+    "internal/local_agent/config.py",
+))
+def test_owned_python_is_classified(path: str) -> None:
+    assert _outside_every_owner([path]) == []
+
+
+@pytest.mark.parametrize("path", (
+    "demo/escape_probe.py",
+    "conftest.py.escape.py",        # a file-name prefix is not the exact file
+    "conftest.py/helper.py",        # nor is a directory of that name
+    "internal/testsuite/helper.py",  # nor a sibling of the test directory
+    "internal/terminal_ui.py.bak.py",
+    "internal/local_agent_extra/module.py",
+))
+def test_python_outside_every_owner_is_caught(path: str) -> None:
+    assert _outside_every_owner([path]) == [path]
+
+
+@pytest.mark.parametrize("omitted", (*PRODUCT_PYTHON_ROOTS, *PRODUCT_PYTHON_FILES))
+def test_each_owned_product_surface_is_required(omitted: str) -> None:
+    retained = tuple(
+        root for root in STATIC_ROOTS
+        if not (omitted == root or omitted.startswith(root + "/"))
+    )
+    with pytest.raises(RuntimeError, match=omitted):
+        validate_root_inventory(retained)
 
 
 def test_known_finding_in_each_static_root_reaches_the_gate(
@@ -160,7 +238,7 @@ def test_known_finding_in_each_static_root_reaches_the_gate(
         else:
             path.mkdir(parents=True, exist_ok=True)
             path /= "injected_static_finding.py"
-        path.write_text("import os\n", encoding="utf-8")
+        path.write_text("import os\nvalue: int = 'not an int'\n", encoding="utf-8")
         expected.add(path.relative_to(tmp_path).as_posix())
 
     monkeypatch.chdir(tmp_path)
@@ -172,6 +250,12 @@ def test_known_finding_in_each_static_root_reaches_the_gate(
 
     found = {file for checker, file, code in counts if checker == "ruff" and code == "F401"}
     assert found == expected
+    for platform in ("linux", "win32"):
+        typed = {
+            file for checker, file, code in counts
+            if checker == f"mypy-{platform}" and code == "assignment"
+        }
+        assert typed == expected
 
     baseline = tmp_path / "internal" / "static-standards-baseline.json"
     baseline.parent.mkdir(parents=True, exist_ok=True)

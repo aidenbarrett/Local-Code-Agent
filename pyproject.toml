@@ -58,6 +58,10 @@ files = [
     "internal/devtools",
     "internal/serving",
     "internal/scripts",
+    "internal/perf",
+    "internal/native_endpoint/ci",
+    "internal/evaluation",
+    "internal/benchmark_fixture",
     "internal/terminal_ui.py",
 ]
 mypy_path = "internal"
@@ -91,6 +95,10 @@ include = [
     "internal/devtools/**/*.py",
     "internal/serving/**/*.py",
     "internal/scripts/**/*.py",
+    "internal/perf/**/*.py",
+    "internal/native_endpoint/ci/**/*.py",
+    "internal/evaluation/**/*.py",
+    "internal/benchmark_fixture/**/*.py",
     "internal/terminal_ui.py",
 ]
 

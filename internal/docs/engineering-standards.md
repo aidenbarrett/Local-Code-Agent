@@ -1,5 +1,21 @@
 # Engineering standards
 
+## Python surface inventory
+
+The static ratchet covers all tracked live Python outside test modules. Product
+identity includes `local_agent`, `serving`, `scripts`, `perf` and `terminal_ui.py`:
+the performance harness is public and produces qualification evidence.
+`devtools`, `native_endpoint/ci`, `evaluation` and `benchmark_fixture` are live
+engineering infrastructure, checked by both mypy platforms and Ruff. The evaluator
+and fixture helpers remain exercised by integration tests; they are not archived
+research or silently exempted code. Deliberately faulty C++ fixture sources have
+their separate exception below; their Python generator/scenario tools do not.
+`internal/tests` and root `conftest.py` are test-only, owned by native pytest and
+the test import-boundary gate, and excluded from product source identity and the
+production static ratchet. A tracked-file inventory regression rejects any new
+Python file anywhere in the repository outside these classifications. There are no other active
+top-level Python roots exempted as obsolete.
+
 Status: binding for every change to `main`. This document is the one owner of the
 language standards. `AGENTS.md` points here; nothing else restates them.
 
