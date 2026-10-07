@@ -52,6 +52,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 if str(SOURCE_ROOT) not in sys.path:
@@ -839,26 +840,222 @@ class ScriptedSymbolLookup(ScriptedCompileFix):
         )
 
 
-# A file reference in an answer: a path or name ending in a source/build-file suffix.
-_PATH_REFERENCE = re.compile(
-    r"(?<![\w/.-])((?:[\w.-]+/)*[\w.-]+\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx|ipp|inl|cmake|toml"
-    r"|md|py|json|ya?ml))(?![\w/])"
+# ---------------------------------------------------------------- answer grounding
+#
+# What the grounding check covers, exactly (the CAP-repo-explain claim says the same):
+# - any token with a directory separator ("/" or "\\") whose last segment has a
+#   lettered suffix, e.g. src/real.cpp, ./a.h, ..\\b.py, C:/x.cpp, //host/share/x.py;
+# - a bare file name only when its suffix is a known source/build suffix, so prose
+#   such as "e.g." or "Node.js" is never mistaken for a file;
+# - any token starting with "file:". It always names a location outside the
+#   repository, so it is "outside" without the suffix grammar: a well-formed URI is
+#   reported as the percent-decoded absolute, drive or UNC path it names (its query
+#   and fragment dropped); a malformed one (bad %-escape, invalid UTF-8, NUL, no
+#   absolute path) is reported as the raw token.
+# A trailing ":line[:column]" or "#Lline[-Lline]" anchor is removed before the suffix
+# is checked. Network URLs (_NETWORK_URL) are not file references and are skipped;
+# any other scheme fails the path grammar and is not observed.
+# A reference is grounded only when it resolves to a regular file inside the
+# repository: traversal, absolute, drive, UNC and file: references and symlinks whose
+# target leaves the repository are "outside", never grounded.
+_BARE_SUFFIXES = frozenset({
+    "c", "cc", "cpp", "cxx", "h", "hh", "hpp", "hxx", "ipp", "inl", "tpp", "cmake",
+    "toml", "md", "txt", "py", "json", "yaml", "yml", "ini", "cfg", "sh", "ps1", "in",
+})
+_TOKEN = re.compile(r"[^\s`'\"<>()\[\]{},;|*]+")
+_NETWORK_URL = re.compile(r"^(?:https?|ftps?|ssh|git|svn|wss?)://", re.IGNORECASE)
+_FILE_SCHEME = re.compile(r"^file:", re.IGNORECASE)
+_FILE_URI = re.compile(r"^file:(?://(?P<host>[^/?#]*))?(?P<path>/[^?#]*)(?:[?#].*)?$",
+                       re.IGNORECASE)
+_BAD_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+_ANCHOR = re.compile(r"(?:(?::\d+){1,2}|#L\d+(?:C\d+)?(?:-L?\d+(?:C\d+)?)?)$")
+_PATH_TOKEN = re.compile(r"(?:[A-Za-z]:)?/{0,2}(?:[\w.+-]+/)*[\w.+-]+")
+_LETTERED_SUFFIX = re.compile(r"[^/]\.[A-Za-z][A-Za-z0-9+]*$")
+# A bounded refusal signal: the answer opens with one of these forms, and nothing else
+# (length included) counts. It is reported, never used to decide whether an answer is right.
+_REFUSAL = re.compile(
+    r"\bi\s+(?:cannot|can't|can not|am unable to|am not able to)\s+"
+    r"(?:answer|tell|determine|help|find|say|explain)"
+    r"|\bi\s+(?:don't|do not)\s+know\b"
+    r"|\b(?:unable|not possible|impossible|no way)\s+to\s+"
+    r"(?:answer|determine|explain|tell|say|know|infer)\b"
+    r"|\b(?:cannot|can't|can not|could not|couldn't)\s+be\s+"
+    r"(?:answered|determined|explained|inferred|identified|established|known)\b"
+    r"|\bnot\s+(?:enough|sufficient)\s+(?:information|context|detail|details|data|evidence)\b"
+    r"|\b(?:insufficient|inadequate)\s+(?:information|context|detail|details|data|evidence)\b"
+    r"|\b(?:information|context|detail|details|data|evidence)\s+(?:is|are)\s+"
+    r"(?:insufficient|inadequate|not enough|not sufficient|unavailable|missing)\b"
+    r"|\bno\s+(?:information|context|details?)\s+(?:is|are)\s+(?:available|provided)\b",
+    re.IGNORECASE,
 )
 
 
-def invented_paths(answer: str, repo: Path) -> list[str]:
-    """File references in an answer that name nothing in the repository.
+def _file_uri_reference(token: str) -> str:
+    """What a ``file:`` token names, decoded once here at the trust boundary.
 
-    A full path must exist; a bare file name must exist somewhere in the tree. This is
-    the measurable part of "no invented architecture": made-up files.
+    A well-formed URI becomes the absolute, drive or UNC path it names; anything
+    malformed stays the raw token. Either way the reference is outside the repository.
     """
-    names = {p.name for p in repo.rglob("*") if p.is_file() and ".git" not in p.parts}
-    missing = []
-    for ref in sorted(set(_PATH_REFERENCE.findall(answer))):
-        exists = (repo / ref).is_file() if "/" in ref else ref in names
-        if not exists:
-            missing.append(ref)
-    return missing
+    match = _FILE_URI.match(token)
+    if match is None or _BAD_ESCAPE.search(token):
+        return token
+    try:
+        host = unquote(match["host"] or "", errors="strict")
+        path = unquote(match["path"], errors="strict")
+    except UnicodeDecodeError:
+        return token
+    if "\0" in host or "\0" in path:
+        return token
+    if re.match(r"^/[A-Za-z]:/", path):
+        path = path[1:]                                   # file:///C:/x.cpp
+    return f"//{host}{path}" if host and host.lower() != "localhost" else path
+
+
+def path_references(answer: str) -> list[str]:
+    """File references in an answer, normalised to "/" with directory scope kept."""
+    found: list[str] = []
+    for raw in _TOKEN.findall(answer):
+        token = raw.rstrip(".:!?")
+        if not token or _NETWORK_URL.match(token):
+            continue
+        if _FILE_SCHEME.match(token):
+            reference = _file_uri_reference(token)
+            if reference not in found:
+                found.append(reference)
+            continue
+        token = _ANCHOR.sub("", token.replace("\\", "/"))   # real.cpp:12:3, real.cpp#L12-L20
+        if "@" in token:
+            continue
+        if "/" in token:
+            if not _PATH_TOKEN.fullmatch(token) or not _LETTERED_SUFFIX.search(token):
+                continue
+        else:
+            stem, dot, suffix = token.rpartition(".")
+            if not dot or not stem or suffix.lower() not in _BARE_SUFFIXES:
+                continue
+            if not re.fullmatch(r"[\w.+-]+", token):
+                continue
+        if token.startswith("./"):
+            token = token[2:]
+        if token not in found:
+            found.append(token)
+    return found
+
+
+def _files_by_name(repo: Path) -> dict[str, list[Path]]:
+    names: dict[str, list[Path]] = {}
+    for current, dirs, files in os.walk(repo, followlinks=False):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for name in files:
+            names.setdefault(name, []).append(Path(current) / name)
+    return names
+
+
+def ground_reference(repo: Path, ref: str, names: dict[str, list[Path]]) -> str:
+    """``ok``, ``missing`` or ``outside`` for one reference, contained in the repository."""
+    root = repo.resolve()
+
+    def inside_file(path: Path) -> str:
+        target = path.resolve()
+        if not target.is_relative_to(root):
+            return "outside"
+        return "ok" if target.is_file() else "missing"
+
+    if _FILE_SCHEME.match(ref):
+        return "outside"                                  # a malformed file: URI
+    if "/" in ref:
+        if ref.startswith("/") or re.match(r"^[A-Za-z]:/", ref):
+            return "outside"
+        return inside_file(repo / ref)
+    verdicts = [inside_file(path) for path in names.get(ref, [])]
+    if "ok" in verdicts:
+        return "ok"
+    return "outside" if "outside" in verdicts else "missing"
+
+
+def recognised_refusal(answer: str) -> bool:
+    """The answer opens with a listed refusal form.
+
+    A bounded signal over exactly the forms in ``_REFUSAL``: reported, never used to
+    certify or reject an answer's meaning. A short answer is not a refusal; with
+    nothing cited it is observed as no-evidence.
+    """
+    return _REFUSAL.search(answer.strip()[:160]) is not None
+
+
+@dataclass(frozen=True)
+class AnswerObservation:
+    """What can be observed deterministically about a free-text answer.
+
+    Only these dimensions are measured: cited files are real and contained (or
+    missing, or outside the repository), configured commands are present (or
+    omitted), and a bounded refusal signal. Whether the answer is *correct* is not
+    measurable here; it stays unknown and is read in the transcript. A real token
+    in a contradictory or negative sentence is still just a real token.
+    """
+
+    grounded: tuple[str, ...]
+    missing: tuple[str, ...]
+    outside: tuple[str, ...]
+    required_commands: tuple[str, ...]
+    omitted_commands: tuple[str, ...]
+    recognised_refusal: bool
+    expects_citation: bool = True   # False for questions with nothing to cite (branch)
+
+    @property
+    def status(self) -> str:
+        """The worst observed dimension; never a statement about correctness."""
+        if self.missing or self.outside:
+            return "ungrounded"
+        if self.omitted_commands:
+            return "command-incomplete"
+        if self.grounded or self.required_commands:
+            return "evidence-grounded"
+        if self.recognised_refusal:
+            return "recognised-refusal"
+        return "no-evidence" if self.expects_citation else "uncited"
+
+    def explain(self) -> str:
+        parts = []
+        if self.missing:
+            parts.append(f"named files that do not exist: {list(self.missing)}")
+        if self.outside:
+            parts.append(f"named files outside the repository: {list(self.outside)}")
+        if self.omitted_commands:
+            parts.append(f"omitted configured commands: {list(self.omitted_commands)}")
+        if self.recognised_refusal:
+            parts.append("opens with a recognised refusal form")
+        if self.expects_citation and not (self.grounded or self.required_commands):
+            parts.append("cites no repository file")
+        return "; ".join(parts) or "every cited file is real and in the repository"
+
+
+_STATUS_ORDER = ("uncited", "evidence-grounded", "no-evidence", "recognised-refusal",
+                 "command-incomplete", "ungrounded")
+
+
+def observe_answer(answer: str, repo: Path, required_commands: tuple[str, ...] = (), *,
+                   expects_citation: bool = True) -> AnswerObservation:
+    names = _files_by_name(repo)
+    verdicts = {ref: ground_reference(repo, ref, names) for ref in path_references(answer)}
+    return AnswerObservation(
+        grounded=tuple(ref for ref, v in verdicts.items() if v == "ok"),
+        missing=tuple(ref for ref, v in verdicts.items() if v == "missing"),
+        outside=tuple(ref for ref, v in verdicts.items() if v == "outside"),
+        required_commands=required_commands,
+        omitted_commands=tuple(c for c in required_commands if c not in answer),
+        recognised_refusal=recognised_refusal(answer),
+        expects_citation=expects_citation,
+    )
+
+
+_BUILD_QUESTION = "how is this repository built and tested?"
+SEMANTIC_LIMIT = ("answer correctness is not measured deterministically: unknown, read the "
+                  "transcript")
+
+
+def worst(observations: list[AnswerObservation]) -> AnswerObservation:
+    return max(observations, key=lambda o: _STATUS_ORDER.index(o.status))
 
 
 def configured_commands(repo: Path) -> list[str]:
@@ -874,13 +1071,14 @@ def j_repo_explain(s: Session) -> None:
     for question in ("explain this repository", "how is this repository built and tested?"):
         answer, result = s.turn(question)
         expect(result is not None, f"{question!r} admitted no task")
-        missing = invented_paths(answer, s.repo)
-        expect(not missing, f"{question!r}: the answer named files that do not exist: {missing}")
-        for command in configured_commands(s.repo):
-            expect(
-                command in answer,
-                f"{question!r}: the answer omitted the configured command {command!r}",
-            )
+        # J22's worker and its expected response are controlled, so this is a
+        # deterministic PASS; it says nothing about free model prose (Q06).
+        seen = observe_answer(answer, s.repo, tuple(configured_commands(s.repo)))
+        expect(not seen.missing and not seen.outside, f"{question!r}: {seen.explain()}")
+        for command in seen.omitted_commands:
+            expect(False, f"{question!r}: the answer omitted the configured command {command!r}")
+        expect(bool(seen.grounded or seen.required_commands) and not seen.recognised_refusal,
+               f"{question!r}: {seen.explain()}")
     expect(_git(s.repo, "status", "--porcelain=v1") == before, "explaining changed the repository")
     s.journey.passed("named only existing files and every configured configure/build/test "
                      "command; repository unchanged")
@@ -1333,43 +1531,49 @@ def j_test_policy(s: Session) -> None:
     s.journey.passed("allow_test=false: BLOCKED/policy_denied, named policy, no verification")
 
 
+def _measure_observations(s: Session, seen: list[AnswerObservation], suffix: str = "") -> None:
+    """Report observed dimensions only; correctness of model prose stays unknown."""
+    s.journey.measured["invented_paths"] = sorted({r for o in seen for r in o.missing})
+    s.journey.measured["outside_paths"] = sorted({r for o in seen for r in o.outside})
+    s.journey.measured["omitted_commands"] = sorted({c for o in seen for c in o.omitted_commands})
+    s.journey.measured["recognised_refusals"] = sum(o.recognised_refusal for o in seen)
+    s.journey.measured["answers_with_no_evidence"] = sum(
+        o.status == "no-evidence" for o in seen)
+    s.journey.measured["semantic_correctness"] = "unknown"
+    head = worst(seen)
+    reason = "; ".join(o.explain() for o in seen
+                       if o.status not in ("evidence-grounded", "uncited"))
+    reason = (reason or "every cited file is real and in the repository") + suffix
+    s.journey.measured_as(head.status, f"{reason}; {SEMANTIC_LIMIT}")
+
+
 def j_questions(s: Session) -> None:
-    invented: list[str] = []
+    grades = []
     for question in ("what does this repository do?", "where is the ring buffer implemented?"):
         answer, _ = s.turn(question)
         s.journey.measured[question] = answer[:800]
-        invented += invented_paths(answer, s.repo)
-    s.journey.measured["invented_paths"] = invented
-    if invented:
-        s.journey.measured_as("ungrounded", f"named files that do not exist: {invented}")
-    else:
-        s.journey.measured_as(
-            "answered", "every file the answers named exists; read them in the transcript"
-        )
+        grades.append(observe_answer(answer, s.repo))
+    _measure_observations(s, grades)
+
+
 
 
 def r_questions(s: Session) -> None:
     before = _git(s.repo, "status", "--porcelain=v1")
-    invented: list[str] = []
-    for question in ("what does this repository do?", "how is this repository built and tested?",
+    grades = []
+    for question in ("what does this repository do?", _BUILD_QUESTION,
                      "what changed on my branch?"):
         answer, _ = s.turn(question)
         s.journey.measured[question] = answer[:800]
-        invented += invented_paths(answer, s.repo)
+        # The build question is answered only with the configured commands, as in J22/Q06.
+        required = tuple(configured_commands(s.repo)) if question == _BUILD_QUESTION else ()
+        grades.append(observe_answer(answer, s.repo, required,
+                                     expects_citation=question != "what changed on my branch?"))
     expect(
         _git(s.repo, "status", "--porcelain=v1") == before,
         "answering questions changed the repository",
     )
-    s.journey.measured["invented_paths"] = invented
-    if invented:
-        s.journey.measured_as(
-            "ungrounded",
-            f"named files that do not exist: {invented}; repository unchanged",
-        )
-    else:
-        s.journey.measured_as(
-            "answered", "every file the answers named exists; repository unchanged"
-        )
+    _measure_observations(s, grades, "; repository unchanged")
 
 
 def r_build(s: Session) -> None:
@@ -1695,22 +1899,15 @@ def q_stop_build(s: Session) -> None:
 def q_repo_explain(s: Session) -> None:
     """Q06 (model): R01/J22 grounded explanation of a real repository."""
     before = _git(s.repo, "status", "--porcelain=v1")
-    invented: list[str] = []
-    omitted: list[str] = []
-    for question in ("explain this repository", "how is this repository built and tested?"):
+    grades = []
+    for question in ("explain this repository", _BUILD_QUESTION):
         answer, _ = s.turn(question)
         s.journey.measured[question] = answer[:800]
-        invented += invented_paths(answer, s.repo)
-        omitted += [c for c in configured_commands(s.repo) if c not in answer]
+        grades.append(observe_answer(answer, s.repo, tuple(configured_commands(s.repo))))
     expect(_git(s.repo, "status", "--porcelain=v1") == before, "explaining changed the repository")
-    s.journey.measured.update(invented_paths=invented, omitted_commands=sorted(set(omitted)),
-                              unrelated_work_preserved=True)
-    if invented:
-        s.journey.measured_as("ungrounded", f"named files that do not exist: {invented}")
-    elif omitted:
-        s.journey.measured_as("incomplete", f"omitted configured commands: {sorted(set(omitted))}")
-    else:
-        s.journey.measured_as("grounded", "only real files and every configured command")
+    s.journey.measured["unrelated_work_preserved"] = True
+    # Model prose is not authority: this is never counted as completed/verified.
+    _measure_observations(s, grades)
 
 
 def q_model_fix(s: Session) -> None:
@@ -1752,7 +1949,9 @@ SCRIPTED_WORKERS["Q04-candidate-scripted"] = ScriptedCorpusCompileFix
 def corpus_metrics(journeys: list[Journey]) -> dict[str, Any]:
     """Astra's qualification counts. Counts only: no rate from fewer than 10 attempts."""
     ran = [j for j in journeys if j.reason != "not selected"]
-    verified = [j for j in ran if j.status in ("PASS", "MEASURED:verified", "MEASURED:grounded")]
+    # Only proved outcomes count. Free model prose (Q06's evidence-grounded) is an
+    # observation whose correctness is unknown, never a completed verification.
+    verified = [j for j in ran if j.status in ("PASS", "MEASURED:verified")]
     refusals = [j for j in ran if j.status == "UNKNOWN" or j.status.startswith("MEASURED:unknown")]
     return {
         "attempted": len(ran),
