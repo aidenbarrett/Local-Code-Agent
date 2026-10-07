@@ -570,13 +570,13 @@ def _end_strays(proc: subprocess.Popen[bytes], tree: _Tree) -> None:
         # abandoned; it may still hold the captures open, so end it now rather
         # than let it outlive the result.
         tree.stray_descendants = _settled_job_count(tree.job)
-        if tree.stray_descendants != 0:
-            # Confirmed only by the job's own accounting reaching zero. On a
-            # loaded machine that can take longer than a kill after a timeout
-            # is allowed, and the result used to be ignored: the run then
-            # reported job containment with the descendant still running.
-            tree.cleanup_confirmed = tree.job.terminate_and_confirm(_STRAY_DRAIN_S)
-            tree.strays_unconfirmed = not tree.cleanup_confirmed
+        # The count is reported, never trusted as proof: Windows CI saw the job's
+        # accounting at zero while a member was still running (#445). Every exit
+        # is settled through the member-handle proof; an empty job proves at once.
+        ended = tree.job.terminate_and_confirm(_STRAY_DRAIN_S)
+        if tree.stray_descendants != 0 or not ended:
+            tree.cleanup_confirmed = ended
+            tree.strays_unconfirmed = not ended
         return
     if sys.platform != "win32":
         # start_new_session=True made the direct child the leader of group proc.pid.

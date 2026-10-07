@@ -84,15 +84,54 @@ def _stop_owned_launcher(
     return observed, survivors, confirmed
 
 
-def _process_identity_exists(pid: int, create_time: float) -> bool:
-    """Return True only while the process originally observed at *pid* still exists."""
+def _process_identity_state(pid: int, create_time: float) -> str:
+    """What became of the process first observed as (pid, create_time).
+
+    ``gone``, ``reused`` and ``terminated`` mean the original is not running;
+    ``running`` means it is; ``unobservable:...`` means it cannot be told and
+    therefore never counts as ended. Job accounting reaching zero means every
+    process in the job terminated; a terminated process object can still be
+    referenced and answer psutil, so existence is not the question. The process
+    handle's signaled state is.
+    """
     try:
-        return psutil.Process(pid).create_time() == create_time
+        if psutil.Process(pid).create_time() != create_time:
+            return "reused"
     except psutil.NoSuchProcess:
-        return False
-    except psutil.Error:
-        # An observation failure cannot prove that the original process exited.
-        return True
+        return "gone"
+    except psutil.Error as exc:
+        return f"unobservable:psutil {type(exc).__name__}"
+    return _windows_process_state(pid)
+
+
+_ENDED_STATES = frozenset({"gone", "reused", "terminated"})
+
+
+def _windows_process_state(pid: int) -> str:
+    import ctypes
+    from ctypes import wintypes
+
+    synchronize, wait_object_0, wait_timeout, error_invalid_parameter = (
+        0x00100000, 0, 0x102, 87)
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    k32.WaitForSingleObject.restype = wintypes.DWORD
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = k32.OpenProcess(synchronize, False, pid)
+    if not handle:
+        error = ctypes.get_last_error()
+        return "gone" if error == error_invalid_parameter else f"unobservable:OpenProcess {error}"
+    try:
+        result = k32.WaitForSingleObject(handle, 0)
+    finally:
+        k32.CloseHandle(handle)
+    if result == wait_object_0:
+        return "terminated"
+    if result == wait_timeout:
+        return "running"
+    return f"unobservable:WaitForSingleObject {result}"
 
 
 def _require_accounted_job_process(observed: tuple[str, ...]) -> int:
@@ -267,7 +306,7 @@ def test_process_identity_rejects_reused_pid(monkeypatch):
     process.create_time.return_value = 200.0
     monkeypatch.setattr(psutil, "Process", lambda _pid: process)
 
-    assert _process_identity_exists(1234, 100.0) is False
+    assert _process_identity_state(1234, 100.0) == "reused"
 
 
 def test_process_identity_keeps_unknown_observation_live(monkeypatch):
@@ -275,7 +314,19 @@ def test_process_identity_keeps_unknown_observation_live(monkeypatch):
     process.create_time.side_effect = psutil.AccessDenied(pid=1234)
     monkeypatch.setattr(psutil, "Process", lambda _pid: process)
 
-    assert _process_identity_exists(1234, 100.0) is True
+    state = _process_identity_state(1234, 100.0)
+    assert state.startswith("unobservable:") and state not in _ENDED_STATES
+
+
+def test_a_lingering_original_is_judged_by_termination_not_existence(monkeypatch):
+    process = Mock(spec=psutil.Process)
+    process.create_time.return_value = 100.0
+    monkeypatch.setattr(psutil, "Process", lambda _pid: process)
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "_windows_process_state", lambda _pid: "terminated")
+    assert _process_identity_state(1234, 100.0) in _ENDED_STATES
+    monkeypatch.setattr(module, "_windows_process_state", lambda _pid: "running")
+    assert _process_identity_state(1234, 100.0) not in _ENDED_STATES
 
 
 def test_zero_job_count_cannot_confirm_known_descendant_containment():
@@ -335,15 +386,13 @@ def test_owned_capture_cleanup_survives_root_exit_with_inherited_handles(tmp_pat
 
         _require_accounted_job_process(raised.value.observed)
 
-        identity_deadline = time.monotonic() + 5
-        while (
-            _process_identity_exists(child_pid, child_create_time)
-            and time.monotonic() < identity_deadline
-        ):
-            time.sleep(0.02)
-        assert not _process_identity_exists(child_pid, child_create_time), (
-            "original child identity remained after confirmed cleanup: "
-            f"pid={child_pid}, create_time={child_create_time}"
+        # No grace period: the moment cleanup is reported confirmed, the original
+        # child must already have terminated (a referenced process object may linger).
+        assert raised.value.cleanup_confirmed is True
+        state = _process_identity_state(child_pid, child_create_time)
+        assert state in _ENDED_STATES, (
+            f"original child was {state} when cleanup was confirmed: pid={child_pid}, "
+            f"create_time={child_create_time}, job observation={raised.value.observed}"
         )
     finally:
         job.close()
