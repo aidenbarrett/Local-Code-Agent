@@ -72,6 +72,46 @@ def _definition_pattern(symbol: str) -> str:
     )
 
 
+# Words that, directly before a name and its argument list, make the line a
+# statement using the name rather than a declaration of it.
+_STATEMENT_WORDS = frozenset({
+    "return", "co_return", "co_yield", "co_await", "throw", "else", "do", "case",
+    "goto", "new", "delete", "sizeof", "alignof", "typeid", "decltype", "and", "or",
+    "not",
+})
+# A prefix ending in one of these is an expression, never a declarator.
+_EXPRESSION_ENDINGS = ("=", "(", ",", "!", "?", "+", "-", "/", "%", "|", "^", "[", "{",
+                       "}", ";", ".")
+
+
+def _declaration_shaped(text: str, form: str) -> bool:
+    """Whether a candidate line declares or defines ``form`` rather than calls it.
+
+    The search regex must stay portable to ``git grep -E`` (no lookaround), so call
+    shapes are filtered here: ``frobnicate(3);``, ``return Widget::ready();``,
+    ``total += util::parse(a);`` and ``if (ready(x)) {`` are uses, not sites.
+    Type, macro, alias and namespace forms never reach this filter.
+    """
+    position = re.search(rf"(?<![A-Za-z0-9_]){re.escape(form)}\s*\(", text)
+    if position is None:
+        return True  # matched by a non-function form (e.g. a static initialiser)
+    prefix = text[:position.start()].rstrip()
+    while prefix.endswith("::"):
+        # ``void ns::frobnicate()``: judge what precedes the qualifier chain.
+        prefix = re.sub(r"(?:[A-Za-z_][A-Za-z0-9_]*)?::$", "", prefix).rstrip()
+    rest = text[position.end():]
+    if not prefix:
+        # A bare ``name(...)`` line is a call statement unless it opens a body or is
+        # defaulted/deleted (an out-of-line constructor or destructor).
+        return bool(re.search(r"\)[^;]*(\{|=\s*(default|delete)\s*;)", rest))
+    if prefix.endswith(_EXPRESSION_ENDINGS) or prefix.endswith(("&&", "||", "->", ":")):
+        return False  # ``p->f()``, ``a && f()``, ``case 1: f();``: uses
+    if prefix.endswith(")") and re.search(r"\b(if|while|for|switch)\s*\(", prefix):
+        return False  # ``if (ok) f(x);``: a statement under a condition
+    last = re.split(r"[\s*&]+", prefix)[-1] or prefix.split()[-1]
+    return last not in _STATEMENT_WORDS
+
+
 def _rg_available() -> bool:
     return shutil.which("rg") is not None
 
@@ -240,9 +280,21 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 "symbol must be a C++ identifier, optionally qualified with ::; "
                 "a destructor may be the final component"
             ) from exc
-        result = search_text(pattern=pattern, limit=limit)
+        # Search wider than asked, drop call shapes, then cut to the caller's limit:
+        # uses must not crowd real sites out of the result.
+        result = search_text(pattern=pattern, limit=200)
+        parsed = parse_cpp_symbol(symbol)
+        forms = {parsed.text, "::".join(parsed.components[-2:])}
+        kept = [
+            match for match in result.data["matches"]
+            if any(_declaration_shaped(str(match["text"]), form) for form in forms
+                   if form in str(match["text"]))
+        ]
+        cap = max(1, min(limit, 200))
+        result.data["matches"] = kept[:cap]
+        result.data["truncated"] = bool(result.data["truncated"]) or len(kept) > cap
         result.summary = (
             f"{len(result.data['matches'])} candidate declaration/definition site(s) for "
-            f"{symbol!r}"
+            f"{parsed.text!r}"
         )
         return result

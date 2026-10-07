@@ -116,7 +116,7 @@ def test_the_deterministic_journeys_pass_with_logs_and_no_model(tmp_path):
     assert by_id["J08-fix-build"]["status"] == "UNKNOWN"
     assert "--allow-model" in by_id["J08-fix-build"]["reason"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "Product   PASS 17 / FAIL 0" in summary
+    assert "Product   PASS 18 / FAIL 0" in summary
     assert "Model     not used" in summary
 
     report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))

@@ -24,8 +24,29 @@ class CppSymbol:
     components: tuple[str, ...]
 
 
+def user_symbol_spelling(raw: str) -> str:
+    """The symbol inside how people write it in a question.
+
+    ```Widget```, ``"Widget"`` and ``Widget::ready()`` all name a symbol; the quotes
+    and a trailing empty call are presentation, not part of the identifier.
+    """
+    text = raw.strip()
+    for quote in ("`", '"', "'"):
+        if len(text) >= 2 and text.startswith(quote) and text.endswith(quote):
+            text = text[1:-1].strip()
+            break
+    if text.endswith("()"):
+        text = text[:-2].rstrip()
+    return text
+
+
 def cpp_symbol_rejection(symbol: str) -> str | None:
-    """Return the stable reason a public symbol spelling is unsupported."""
+    """Return the stable reason a public symbol spelling is unsupported.
+
+    Presentation (quotes, a trailing empty call) is removed first, here, so the
+    router and every tool judge exactly the same canonical spelling.
+    """
+    symbol = user_symbol_spelling(symbol)
     if any(char in symbol for char in "<>"):
         return "cpp_template_symbol_unsupported"
     parts = tuple(symbol.split("::"))
@@ -46,4 +67,5 @@ def parse_cpp_symbol(symbol: str) -> CppSymbol:
     rejection = cpp_symbol_rejection(symbol)
     if rejection is not None:
         raise ValueError(rejection)
-    return CppSymbol(symbol, tuple(symbol.split("::")))
+    canonical = user_symbol_spelling(symbol)
+    return CppSymbol(canonical, tuple(canonical.split("::")))

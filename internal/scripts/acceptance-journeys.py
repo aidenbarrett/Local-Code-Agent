@@ -809,8 +809,13 @@ class ScriptedSymbolLookup(ScriptedCompileFix):
             return super().chat(messages, tools, max_tokens)
         results = [message for message in messages[latest + 1:] if message.get("role") == "tool"]
         if not results:
+            # Pass the symbol exactly as the user wrote it (quotes, a trailing "()"):
+            # the tool must accept every spelling the public route admitted.
+            asked = re.search(r"where is (\S+) (?:defined|declared|implemented)", request,
+                              re.IGNORECASE)
+            symbol = asked.group(1) if asked else "RingBuffer::full"
             return ChatResponse(tool_calls=[tool_call(
-                "find_definition", {"symbol": "RingBuffer::full"}, "definition")])
+                "find_definition", {"symbol": symbol}, "definition")])
         if len(results) == 1:
             matches = json.loads(str(results[0]["content"])).get("data", {}).get("matches", [])
             match = next(
@@ -884,15 +889,20 @@ def j_repo_explain(s: Session) -> None:
 def j_symbol_lookup(s: Session) -> None:
     """A public symbol question returns an observed file and line without mutation."""
     before = _git(s.repo, "status", "--porcelain=v1")
-    answer, result = s.turn("where is RingBuffer::full defined?")
-    expect(result is not None, "symbol lookup admitted no task")
-    expect(RING in answer and "RingBuffer::full" in answer,
-           f"symbol answer did not name its observed source: {answer!r}")
-    expect(re.search(rf"{re.escape(RING)}:\d+", answer) is not None,
-           f"symbol answer did not cite an observed line: {answer!r}")
+    # The plain spelling and a presentation spelling (quoted, trailing "()") go
+    # through the same route, worker and real tool.
+    for question in ("where is RingBuffer::full defined?",
+                     "where is `RingBuffer::full()` defined?"):
+        answer, result = s.turn(question)
+        expect(result is not None, f"{question!r} admitted no task")
+        expect(RING in answer and "RingBuffer::full" in answer,
+               f"{question!r}: the answer did not name its observed source: {answer!r}")
+        expect(re.search(rf"{re.escape(RING)}:\d+", answer) is not None,
+               f"{question!r}: the answer did not cite an observed line: {answer!r}")
     expect(_git(s.repo, "status", "--porcelain=v1") == before,
            "symbol lookup changed the repository")
-    s.journey.passed("public route found and read RingBuffer::full with a file/line citation")
+    s.journey.passed("public route found and read RingBuffer::full with a file/line citation, "
+                     "plain and quoted with ()")
 
 
 def dirty_work_snapshot(repo: Path, tracked: str, untracked: str) -> dict[str, bytes]:
