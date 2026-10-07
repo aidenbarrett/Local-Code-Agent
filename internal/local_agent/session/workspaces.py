@@ -66,8 +66,9 @@ _GIT_TIMEOUT_S = 300
 # Every workspace git process runs under ``run_owned``: a Windows Job Object or Linux
 # child subreaper owns the whole tree; other POSIX platforms fail effect-owning runs
 # closed. A timeout ends the tree, including a commit signer's descendants. Anything a
-# normally exiting git abandons is ended and makes the step non-success. Stdout plus
-# stderr past this size ends the tree while it runs.
+# normally exiting git leaves behind is ended before the step counts; the step fails only
+# when that settlement cannot be confirmed. Stdout plus stderr past this size ends the
+# tree while it runs.
 _GIT_OUTPUT_LIMIT = 256 * 1024 * 1024
 # Git commands that only read. Stop ends one of these at once; any other command writes
 # (an index, the object store, a worktree, a ref or the user's files) and is never
@@ -408,6 +409,10 @@ class GitWorkspaceManager:
             "git",
             "-c", f"core.hooksPath={self._empty_hooks}",
             "-c", "core.fsmonitor=false",
+            # The controller never starts the user's repository maintenance: a detached
+            # auto-gc would only be ended as a descendant when the step returns.
+            "-c", "gc.auto=0",
+            "-c", "maintenance.auto=false",
             "-c", "core.quotepath=false",
             "-c", "diff.noprefix=false",
             "-c", "diff.mnemonicPrefix=false",
@@ -464,12 +469,6 @@ class GitWorkspaceManager:
             raise WorkspaceError(
                 f"git {args[0]} exited but its process tree could not be shown ended "
                 f"(containment: {run.containment})"
-            )
-        if run.stray_descendants_at_exit:
-            raise WorkspaceError(
-                f"git {args[0]} exited but abandoned "
-                f"{run.stray_descendants_at_exit} descendant process(es); the owned "
-                "runner ended them, so the git step is not a successful result"
             )
         if scope is not None and not reads:
             scope.writes_finished.append(step)

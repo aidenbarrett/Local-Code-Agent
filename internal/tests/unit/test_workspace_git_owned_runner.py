@@ -457,7 +457,7 @@ def test_workspace_git_refuses_a_run_whose_tree_could_not_be_shown_ended(tmp_pat
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux child subreaper")
-def test_workspace_git_refuses_a_clean_exit_that_abandoned_a_setsid_child(
+def test_workspace_git_settles_a_clean_exit_that_abandoned_a_setsid_child(
     tmp_path, monkeypatch,
 ):
     pid_file = tmp_path / "escaped.pid"
@@ -485,8 +485,8 @@ def test_workspace_git_refuses_a_clean_exit_that_abandoned_a_setsid_child(
     fake.chmod(0o755)
     monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
     manager = GitWorkspaceManager(tmp_path / "ws", controller_commit="test")
-    with pytest.raises(WorkspaceError, match="abandoned 1 descendant"):
-        manager._git(tmp_path, "status")
+    # Witnessed and conclusively ended before return: evidence, not failure (#452).
+    manager._git(tmp_path, "status")
     pid = int(pid_file.read_text(encoding="utf-8"))
     assert _gone(pid)
     time.sleep(1.0)
@@ -549,19 +549,20 @@ def test_a_configured_build_cannot_pass_on_an_unsettled_tree(sandbox, monkeypatc
     assert not (sandbox.root / "build" / BUILD_STAMP).exists(), "a build stamp was written"
 
 
-def test_a_configured_build_cannot_pass_after_ending_an_abandoned_tree(sandbox, monkeypatch):
+def test_a_configured_build_passes_after_its_settled_server_descendants_end(
+    sandbox, monkeypatch,
+):
+    """MSBuild node reuse, mspdbsrv and VBCSCompiler outlive a clean build (#452 CI)."""
     from local_agent.config import load_repo_config
     from local_agent.tools import build_registry, process_runner
-    from local_agent.tools.testing_tools import BUILD_STAMP
 
     sandbox.scenario("clean")
     registry, _ctx, _store = build_registry(load_repo_config(sandbox.root))
     monkeypatch.setattr(process_runner.shutil, "which", lambda command: command)
     monkeypatch.setattr(process_runner, "run_owned", _contained_stray_success)
     result = registry.get("build_target").handler()
-    assert result.ok is False
-    assert result.domain_status.value != "pass"
-    assert not (sandbox.root / "build" / BUILD_STAMP).exists()
+    assert result.ok is True
+    assert result.domain_status.value == "pass"
 
 
 # --- Astra's round-4 review of a367b87 (#436): the verdict boundary consumes it ------

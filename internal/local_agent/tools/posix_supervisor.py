@@ -27,7 +27,7 @@ import psutil
 
 _PR_SET_CHILD_SUBREAPER = 36
 _PR_GET_CHILD_SUBREAPER = 37
-_DRAIN_SECONDS = 10.0
+_DEFAULT_DRAIN_SECONDS = 5.0
 _POLL_SECONDS = 0.01
 
 
@@ -159,15 +159,26 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["--command-gate"]:
         return _command_gate(args[1:])
-    if args[:1] == ["--"]:
-        args.pop(0)
     report_fd_text = os.environ.pop("LCA_POSIX_SUPERVISOR_FD", "")
     if not report_fd_text:
         return 125
     report_fd = int(report_fd_text)
+    drain_s = _DEFAULT_DRAIN_SECONDS
+    if args[:1] == ["--drain-s"]:
+        # The runner owns the budget: it waits for this drain plus a margin before it
+        # may end the supervisor, so the two bounds are one contract.
+        try:
+            drain_s = float(args[1])
+        except (IndexError, ValueError):
+            return _report_setup_error(report_fd, "invalid drain budget")
+        if not 0 < drain_s < float("inf"):
+            return _report_setup_error(report_fd, "invalid drain budget")
+        args = args[2:]
+    if args[:1] == ["--"]:
+        args.pop(0)
     if not args:
         return _report_setup_error(report_fd, "empty command")
-    return _supervise(args, report_fd)
+    return _supervise(args, report_fd, drain_s)
 
 
 def _report_setup_error(report_fd: int, message: str) -> int:
@@ -201,7 +212,7 @@ def _start_leader(args: list[str], report_fd: int) -> subprocess.Popen[bytes] | 
     return leader
 
 
-def _supervise(args: list[str], report_fd: int) -> int:
+def _supervise(args: list[str], report_fd: int, drain_s: float) -> int:
     try:
         _enable_subreaper()
     except (OSError, RuntimeError) as exc:
@@ -224,7 +235,7 @@ def _supervise(args: list[str], report_fd: int) -> int:
             break
         time.sleep(_POLL_SECONDS)
 
-    deadline = time.monotonic() + _DRAIN_SECONDS
+    deadline = time.monotonic() + drain_s
     if leader_status is None:
         # Stop/timeout: the leader is still a child and is included in the drain.
         stray_count, confirmed = _drain_children(deadline)

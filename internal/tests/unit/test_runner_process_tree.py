@@ -210,7 +210,7 @@ def test_linux_subreaper_ends_a_setsid_descendant_after_normal_parent_exit(tmp_p
     assert not marker.exists(), "the escaped descendant mutated after the terminal result"
 
 
-def test_public_command_does_not_accept_an_abandoned_setsid_descendant(tmp_path):
+def test_public_command_settles_an_abandoned_setsid_descendant(tmp_path):
     if not sys.platform.startswith("linux"):
         pytest.skip("the child subreaper is Linux-only")
 
@@ -221,7 +221,8 @@ def test_public_command_does_not_accept_an_abandoned_setsid_descendant(tmp_path)
     assert outcome.containment == "child_subreaper"
     assert outcome.stray_descendants_at_exit == 1
     assert outcome.process_cleanup_confirmed is True
-    assert outcome.ok is False
+    # Ended and confirmed gone before return: evidence, and the exit code stands.
+    assert outcome.ok is True
     _assert_pid_gone(pid)
     time.sleep(1.0)
     assert not marker.exists(), "the escaped descendant mutated after the terminal result"

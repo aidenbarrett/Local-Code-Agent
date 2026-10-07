@@ -18,9 +18,10 @@ and reports cleanup unconfirmed, exactly as before.
 
 A normally exiting command must not leave an owned process behind on either platform.
 Descendants still inside the owner when the direct child exits are counted, ended and
-drained within a bound. An abandoned descendant makes the command non-success even when
-cleanup is proven. If the tree cannot be shown gone, ``strays_unconfirmed`` fails the
-effect-owning step closed.
+drained within a bound. A descendant that was witnessed and conclusively ended before
+return is evidence (``stray_descendants_at_exit``), not failure: build servers and git's
+detached maintenance do this routinely. Only an unknown settlement fails: if the tree
+cannot be shown gone, ``strays_unconfirmed`` fails the effect-owning step closed.
 
 Output is bounded while the command runs, not only after it exits: stdout and stderr
 together may not exceed the caller's limit, checked on every poll, and crossing it ends
@@ -52,7 +53,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
-from typing import IO, Protocol
+from typing import IO, Protocol, TypeGuard, cast
 
 import psutil
 
@@ -63,6 +64,14 @@ _POST_KILL_WAIT_S = 2.0
 # Descendants a normally exiting command abandoned: long enough for a loaded machine's
 # kernel accounting to drain, and bounded.
 _STRAY_DRAIN_S = 10.0
+# The Linux supervisor's own drain budget, passed to it, and the margin the runner adds
+# for its report and exit. Whenever the runner ends a supervised run it waits for the
+# whole of both before it may SIGKILL the supervisor: killing the owner mid-drain would
+# reparent what it has not yet ended to the outer reaper.
+_SUPERVISOR_DRAIN_S = 5.0
+_SUPERVISOR_SETTLE_MARGIN_S = 1.0
+# A supervisor report is one short JSON line; anything longer is not a report.
+_SUPERVISOR_REPORT_LIMIT = 4096
 _POST_KILL_FORCE_WAIT_S = 1.0
 _CANCEL_POLL_S = 0.05
 # After the direct child exits, how long its tree may take to finish on its own before
@@ -110,7 +119,6 @@ class RunOutcome:
             self.exit_code == 0
             and not self.timed_out
             and not self.cancel_requested
-            and not self.stray_descendants_at_exit
         )
 
 
@@ -163,13 +171,13 @@ def _kill_process_tree_best_effort(
         with contextlib.suppress(ProcessLookupError):
             proc.send_signal(signal.SIGTERM)
         try:
-            proc.wait(timeout=_POST_KILL_WAIT_S)
+            proc.wait(timeout=_SUPERVISOR_DRAIN_S + _SUPERVISOR_SETTLE_MARGIN_S)
         except subprocess.TimeoutExpired:
             with contextlib.suppress(OSError):
                 proc.kill()
             return False
-        report = posix_owner.collect()
-        return bool(report is not None and report.get("cleanup_confirmed") is True)
+        report = posix_owner.collect(proc)
+        return report is not None and report.cleanup_confirmed
     if sys.platform == "win32":
         _best_effort_windows_tree_kill(proc)
         # Enumeration is not containment. A Windows Job Object is required before
@@ -411,7 +419,8 @@ class _PosixOwner:
 
     read_fd: int
     write_fd: int
-    report: dict[str, object] | None = None
+    report: _SupervisorReport | None = None
+    collected: bool = False
 
     @classmethod
     def open(cls) -> _PosixOwner:
@@ -420,7 +429,8 @@ class _PosixOwner:
 
     def argv(self, command: list[str]) -> list[str]:
         helper = Path(__file__).with_name("posix_supervisor.py")
-        return [sys.executable, str(helper), "--", *command]
+        return [sys.executable, str(helper), "--drain-s", str(_SUPERVISOR_DRAIN_S), "--",
+                *command]
 
     def environment(self, source: dict[str, str]) -> dict[str, str]:
         result = dict(source)
@@ -432,25 +442,38 @@ class _PosixOwner:
             os.close(self.write_fd)
             self.write_fd = -1
 
-    def collect(self) -> dict[str, object] | None:
-        if self.report is not None:
+    def collect(self, proc: subprocess.Popen[bytes]) -> _SupervisorReport | None:
+        """The supervisor's validated report, or None when settlement is unknown.
+
+        Never blocks. Read only after the supervisor has exited; a live supervisor, a
+        write end still held open, EOF without a report, or an oversized or malformed
+        report all return None. Read at most once.
+        """
+        if self.collected:
             return self.report
-        chunks = bytearray()
-        while True:
-            chunk = os.read(self.read_fd, 4096)
-            if not chunk:
-                break
-            chunks.extend(chunk)
-        os.close(self.read_fd)
-        self.read_fd = -1
+        if proc.poll() is None or self.read_fd < 0:
+            return None
+        self.collected = True
+        data = bytearray()
         try:
-            value = json.loads(chunks.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            # Typeshed declares os.set_blocking POSIX-only; this pipe exists only on Linux.
+            set_blocking = cast(Callable[[int, bool], None], vars(os)["set_blocking"])
+            set_blocking(self.read_fd, False)
+            while len(data) <= _SUPERVISOR_REPORT_LIMIT:
+                chunk = os.read(self.read_fd, _SUPERVISOR_REPORT_LIMIT + 1 - len(data))
+                if not chunk:
+                    break
+                data.extend(chunk)
+        except OSError:          # BlockingIOError: a writer is still open
             return None
-        if not isinstance(value, dict):
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(self.read_fd)
+            self.read_fd = -1
+        if len(data) > _SUPERVISOR_REPORT_LIMIT:
             return None
-        self.report = value
-        return value
+        self.report = _supervisor_report(bytes(data))
+        return self.report
 
     def close(self) -> None:
         for name in ("read_fd", "write_fd"):
@@ -459,6 +482,47 @@ class _PosixOwner:
                 with contextlib.suppress(OSError):
                     os.close(fd)
                 setattr(self, name, -1)
+
+
+_REPORT_FIELDS = frozenset({
+    "cleanup_confirmed", "leader_exit_code", "setup_error", "stray_descendants",
+})
+
+
+@dataclass(frozen=True)
+class _SupervisorReport:
+    """The Linux supervisor's kernel-observed result, validated at the pipe."""
+
+    cleanup_confirmed: bool
+    stray_descendants: int
+    leader_exit_code: int | None
+    setup_error: str | None
+
+
+def _supervisor_report(data: bytes) -> _SupervisorReport | None:
+    """Validate the supervisor's report once, at the boundary; None if malformed."""
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict) or set(value) != _REPORT_FIELDS:
+        return None
+    confirmed = value["cleanup_confirmed"]
+    count = value["stray_descendants"]
+    code = value["leader_exit_code"]
+    error = value["setup_error"]
+    if (
+        isinstance(confirmed, bool)
+        and _is_plain_int(count) and count >= 0
+        and (code is None or _is_plain_int(code))
+        and (error is None or isinstance(error, str))
+    ):
+        return _SupervisorReport(confirmed, count, code, error)
+    return None
+
+
+def _is_plain_int(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _open_tree() -> _Tree:
@@ -632,16 +696,12 @@ def _end_strays(proc: subprocess.Popen[bytes], tree: _Tree) -> None:
     if tree.timed_out or tree.cancel_requested or tree.output_exceeded is not None:
         return
     if tree.posix_owner is not None:
-        report = tree.posix_owner.collect()
-        if report is None or report.get("cleanup_confirmed") is not True:
+        report = tree.posix_owner.collect(proc)
+        if report is None or not report.cleanup_confirmed:
             tree.cleanup_confirmed = False
             tree.strays_unconfirmed = True
             return
-        count = report.get("stray_descendants")
-        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-            tree.cleanup_confirmed = False
-            tree.strays_unconfirmed = True
-            return
+        count = report.stray_descendants
         tree.stray_descendants = count
         if count:
             tree.cleanup_confirmed = True
@@ -969,9 +1029,9 @@ def _lifecycle_note(run: OwnedRun, timeout_s: float) -> str:
     note = ""
     if run.stray_descendants_at_exit:
         note += (
-            "\n[local-agent] the command exited but abandoned "
+            "\n[local-agent] the command exited and left "
             f"{run.stray_descendants_at_exit} descendant process(es); they were ended "
-            "before return and the command is not a successful result\n"
+            "and confirmed gone before return\n"
         )
     if run.strays_unconfirmed:
         note += (
