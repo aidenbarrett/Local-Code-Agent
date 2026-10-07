@@ -118,6 +118,14 @@ class ModelConfig:
     # the cheap one fails. See `local_agent.llm.model_tiers`.
     tier: str = "strong"
 
+    # How Stop can prove this endpoint stopped working on a cut-off call. Closing
+    # the connection is never proof, so without an endpoint-side observation the
+    # call runs to completion and its normal return is the proof.
+    #   none              no proof source: Stop waits for the call to finish
+    #   llamacpp_metrics  llama-server /metrics (needs --metrics) shows no request
+    #                     processing or deferred
+    stop_proof: str = "none"
+
     @staticmethod
     def from_env(prefix: str = "LOCAL_AGENT_") -> "ModelConfig":
         base = ModelConfig()
@@ -184,6 +192,7 @@ class ModelConfig:
             "stall_tok_s": self.stall_tok_s,
             "stall_window_s": self.stall_window_s,
             "stream": self.stream,
+            "stop_proof": self.stop_proof,
         }
 
 
@@ -230,6 +239,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         tool_parser="jinja-template",
         thinking=False,
         tier="strong",
+        stop_proof="llamacpp_metrics",
         # Prefill on the NUC CPU is slower under a long context than the
         # short-prompt qualification suggests: 47.6 tok/s median in the first
         # probe, 29.6 in the second once the context reached 10.5k. A full
@@ -249,6 +259,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         tool_parser="jinja-template",
         thinking=False,
         tier="cheap",
+        stop_proof="llamacpp_metrics",
         # Prefill on the NUC CPU is slower under a long context than the
         # short-prompt qualification suggests: 47.6 tok/s median in the first
         # probe, 29.6 in the second once the context reached 10.5k. A full

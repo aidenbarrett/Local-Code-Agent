@@ -398,7 +398,9 @@ class TaskController:
     def _product_outcome(run: RunResult) -> TaskOutcome:
         """Project worker outcome into product lifecycle without calling outages refusals."""
         outcome = TaskOutcome(run.outcome.value)
-        if run.state.halt_cause in (HaltCause.SERVER_UNAVAILABLE, HaltCause.INFERENCE_STALLED):
+        if run.state.halt_cause in (
+            HaltCause.SERVER_UNAVAILABLE, HaltCause.INFERENCE_STALLED, HaltCause.STOPPED,
+        ):
             return TaskOutcome.NO_VERDICT
         if run.state.halt_cause is HaltCause.CONTEXT_BUDGET_EXHAUSTED:
             # The profile could not hold the task. Nothing about the code was decided,
@@ -444,6 +446,10 @@ class TaskController:
             return "inference_timeout"
         if run.state.halt_cause is HaltCause.CONTEXT_BUDGET_EXHAUSTED:
             return "unavailable_capability"
+        if run.state.halt_cause is HaltCause.STOPPED:
+            # Stop revokes the execution, so this result never commits; if it ever
+            # did, it must not claim a clean cancellation it did not reconcile.
+            return "cancel_unreconciled"
         if outcome is TaskOutcome.NO_VERDICT and _process_cleanup_unknown(run):
             return "cleanup_unknown"
         if outcome.succeeded:

@@ -6,14 +6,16 @@ actual queue/lease/quarantine lifecycle to EndpointCallAdapter.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import contextmanager
-from threading import local
+from threading import Event, Thread, local
 from uuid import UUID, uuid4
 
-from ..llm.client import LLMClient
-from ..llm.protocol import LLMTransportError
-from .endpoint_call import EndpointCallAdapter
+from ..llm.client import LLMClient, OpenAICompatibleClient, StreamInterrupt
+from ..llm.protocol import ChatResponse, InferenceInterruptedError, LLMTransportError
+from .endpoint_call import EndpointCallAdapter, ManagedEndpointCall
 from .endpoint_lease import EndpointRequest, EndpointRole, EndpointUnavailable
+from .endpoint_stop_proof import EndpointStopProof, await_idle
 from .value_validation import require_integer, require_nonempty_string
 
 
@@ -28,6 +30,11 @@ class ModelEndpointQuarantinedError(LLMTransportError):
 
     def __init__(self, reason: str) -> None:
         super().__init__(reason, cause="EndpointUnavailable", kind="unavailable")
+
+
+# How long Stop may spend checking that the proof source answers before it cuts a
+# call. If it cannot answer in this time, the call is not cut and runs to its end.
+_CUT_CHECK_S = 1.0
 
 
 class ManagedLLMClient:
@@ -87,7 +94,64 @@ class ManagedLLMClient:
             call = self._adapter.begin(self._request(), timeout=self._acquire_timeout)
         except EndpointUnavailable as exc:
             raise ModelEndpointQuarantinedError(str(exc)) from exc
-        return call.invoke(self._client.chat, messages, tools, max_tokens).value
+        proof = self._adapter.runtime.stop_proof
+        client = self._client
+        if (
+            self._role is EndpointRole.WORKER
+            and proof is not None
+            and isinstance(client, OpenAICompatibleClient)
+            and client.interruptible
+        ):
+            return self._chat_stoppable(call, proof, lambda interrupt: call.invoke(
+                client.chat, messages, tools, max_tokens, interrupt=interrupt,
+            ).value)
+        return call.invoke(client.chat, messages, tools, max_tokens).value
+
+    def _chat_stoppable(
+        self, call: ManagedEndpointCall, proof: EndpointStopProof,
+        invoke: Callable[[StreamInterrupt], ChatResponse],
+    ) -> ChatResponse:
+        """A worker call Stop can end early, on an endpoint that can prove it stopped.
+
+        Stop fences the lease (quarantine) and sets its signal. The watcher cuts the
+        response only while the proof source answers, so a cut is never made that
+        could not later be proved; otherwise the call runs on and its normal return
+        is the proof, exactly as without a proof source. After a cut the endpoint
+        stays quarantined until the server is observed idle within the settle bound.
+        """
+        runtime = self._adapter.runtime
+        try:
+            signal = runtime.stop_signal(call.lease_id)
+        except BaseException:
+            call.release_without_call()  # nothing was sent
+            raise
+        interrupt = StreamInterrupt()
+        finished = Event()
+
+        def watch() -> None:
+            # Bounded by construction: each wait is short and the one observation is
+            # clamped to _CUT_CHECK_S, so teardown's join() cannot wait on it for
+            # longer. A request() after the call finished finds the interrupt
+            # detached and touches no connection.
+            while not finished.is_set():
+                if signal.wait(0.05):
+                    if not finished.is_set() and proof.idle(_CUT_CHECK_S) is not None:
+                        interrupt.request()
+                    return
+
+        watcher = Thread(target=watch, name="lca-endpoint-stop", daemon=True)
+        watcher.start()
+        try:
+            return invoke(interrupt)
+        except InferenceInterruptedError:
+            # invoke() joined Stop's quarantine. Only the server can clear it.
+            if await_idle(proof):
+                call.reconcile(known_stopped=True)
+            raise
+        finally:
+            finished.set()
+            watcher.join()
+            runtime.drop_stop_signal(call.lease_id)
 
 
 class ManagedWorkerClientFactory:

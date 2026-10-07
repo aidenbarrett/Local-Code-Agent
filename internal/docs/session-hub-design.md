@@ -239,7 +239,7 @@ waits for reconciliation. A forced termination is INTERRUPTED, never clean cance
 | Where cancellation lands | Required action | Evidence/result |
 |---|---|---|
 | Queued | Remove queued work atomically | cancelled / NO_VERDICT; no tool started |
-| Waiting for inference | Cancel request if backend supports it; otherwise quarantine endpoint | late reply discarded by epoch; NO_VERDICT |
+| Waiting for inference | Quarantine the endpoint at once. If the profile declares a `stop_proof`, cut the streamed response once the server is seen working on it, and lift the quarantine only when the server is observed idle within the settle bound; otherwise the call's normal return is the proof | late reply discarded by epoch; NO_VERDICT |
 | During subprocess tool | Terminate owned process group/job; bounded grace then kill; reap descendants | partial stdout/stderr and exit/signal; NO_VERDICT |
 | During file mutation (later) | Stop future writes; reconcile journal/preimage; never blind rollback | paths/partial action recorded; NO_VERDICT if uncertain |
 | During finalisation | Single writer arbitrates commit of terminal result vs cancel | whichever terminal transition commits first wins |

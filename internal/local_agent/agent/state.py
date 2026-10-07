@@ -38,6 +38,7 @@ class HaltCause(str, Enum):
     SERVER_UNAVAILABLE = "server_unavailable"  # the inference call itself failed
     INFERENCE_STALLED = "inference_stalled"    # server alive, request made no progress
     CONTEXT_BUDGET_EXHAUSTED = "context_budget_exhausted"  # request would exceed local model cap
+    STOPPED = "stopped"                        # the user's Stop cut the model call
 
 
 class Validity(str, Enum):
@@ -52,6 +53,7 @@ class Validity(str, Enum):
     INVALID_SERVER_STALLED = "invalid_server_stalled"
     INVALID_IDENTITY_MISMATCH = "invalid_identity_mismatch"
     INVALID_FALLBACK = "invalid_fallback"
+    INVALID_STOPPED = "invalid_stopped"
 
 
 @dataclass
@@ -341,6 +343,8 @@ class AgentState:
             return Validity.INVALID_SERVER_UNAVAILABLE
         if self.halt_cause is HaltCause.INFERENCE_STALLED:
             return Validity.INVALID_SERVER_STALLED
+        if self.halt_cause is HaltCause.STOPPED:
+            return Validity.INVALID_STOPPED
         if self.metrics.identity_mismatch:
             return Validity.INVALID_IDENTITY_MISMATCH
         if self.metrics.thinking_control_accepted is False:
