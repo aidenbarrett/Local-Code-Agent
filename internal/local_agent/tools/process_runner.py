@@ -409,10 +409,25 @@ def _end_after_failure(proc: subprocess.Popen[bytes], tree: _Tree) -> None:
         _bounded_reap(proc)
 
 
+def _end_unadopted(proc: subprocess.Popen[bytes], tree: _Tree) -> bool:
+    """End a suspended child that the empty Job Object never owned."""
+    job = tree.job
+    if job is None:
+        raise RuntimeError("unadopted cleanup requires an open Job Object")
+    ended = windows_job.terminate_unadopted(proc, _POST_KILL_WAIT_S)
+    tree.cleanup_confirmed = ended
+    job.close()
+    tree.job = None
+    tree.containment = "visible_tree"
+    return ended
+
+
 def _start(spawn: Callable[[bool], subprocess.Popen[bytes]], tree: _Tree,
            on_spawn: Callable[[], None] | None,
            release: Callable[[], None] | None = None) -> subprocess.Popen[bytes]:
     proc = spawn(tree.job is not None)
+    adopted = tree.job is None
+    pre_adoption_cleanup_attempted = False
     try:
         if on_spawn is not None:
             # From here a process has existed, so cleanup is a real question. The
@@ -424,19 +439,26 @@ def _start(spawn: Callable[[bool], subprocess.Popen[bytes]], tree: _Tree,
         if tree.job is not None:
             try:
                 tree.job.adopt_suspended(proc.pid)
-            except windows_job.JobContainmentError:
-                # adopt_suspended already terminated the suspended child, which never
-                # executed an instruction, so running the command again is not a
-                # replayed effect. Without a job, cleanup can no longer be proven.
-                _bounded_reap(proc)
-                tree.job.close()
-                tree.job = None
-                tree.containment = "visible_tree"
+            except windows_job.JobContainmentError as adoption_error:
+                # The Popen remains caller-owned until adoption succeeds. OpenProcess
+                # can fail before the empty job has any authority over this suspended
+                # child, so end it directly before closing the job and retrying.
+                ended = _end_unadopted(proc, tree)
+                pre_adoption_cleanup_attempted = True
+                if not ended:
+                    raise windows_job.JobContainmentError(
+                        0, "unadopted suspended process did not exit within cleanup bound"
+                    ) from adoption_error
                 proc = spawn(False)
+            else:
+                adopted = True
     except BaseException:
         # A raising callback (or anything else here) must not strand the child. It has
         # not run the command (POSIX gate, Windows suspension); end it all the same.
-        _end_after_failure(proc, tree)
+        if tree.job is not None and not adopted:
+            _end_unadopted(proc, tree)
+        elif not pre_adoption_cleanup_attempted:
+            _end_after_failure(proc, tree)
         raise
     return proc
 

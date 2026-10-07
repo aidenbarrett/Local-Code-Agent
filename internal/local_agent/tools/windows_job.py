@@ -16,7 +16,9 @@ everywhere so their sizes can be checked on any 64-bit host.
 from __future__ import annotations
 
 import ctypes
+import contextlib
 import os
+import subprocess
 import sys
 import time
 from ctypes import wintypes
@@ -35,6 +37,27 @@ CREATE_SUSPENDED = 0x00000004
 
 _TERMINATED_EXIT_CODE = 1
 _DRAIN_POLL_S = 0.02
+
+
+def terminate_unadopted(process: subprocess.Popen[Any], timeout_s: float) -> bool:
+    """End a direct suspended child that no Job Object has adopted yet.
+
+    The caller retains the ``Popen`` authority until adoption succeeds.  In
+    particular, an ``OpenProcess`` refusal leaves the Job Object unable to reach the
+    child, so closing that empty job is not cleanup.
+    """
+    with contextlib.suppress(OSError):
+        process.kill()
+    try:
+        process.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(OSError):
+            process.kill()
+        try:
+            process.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            return False
+    return True
 
 
 class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
@@ -180,9 +203,9 @@ class ProcessTreeJob:
     def adopt_suspended(self, pid: int) -> None:
         """Assign a CREATE_SUSPENDED process to this job, then resume it.
 
-        On any failure the suspended process is terminated before the error escapes, so a
-        refused adoption can never leave an uncontained child running or a suspended
-        child stranded.
+        After ``OpenProcess`` succeeds, assignment/resume failures terminate through
+        that process handle.  Before then the caller still owns the suspended child's
+        ``Popen`` and must terminate/reap it if adoption raises.
         """
         if self._handle is None:
             raise JobContainmentError(0, "job is closed")

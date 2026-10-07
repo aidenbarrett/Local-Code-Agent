@@ -8,14 +8,16 @@ from __future__ import annotations
 import ctypes
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
+from unittest.mock import Mock
 
 import psutil
 import pytest
 
 from local_agent.tools import windows_job
-from local_agent.tools.process_runner import run_command
+from local_agent.tools.process_runner import _Tree, _start, run_command
 
 
 windows_only = pytest.mark.skipif(os.name != "nt", reason="Job Objects are Windows-only")
@@ -64,6 +66,115 @@ def test_job_objects_refuse_to_exist_off_windows():
     assert windows_job.supported() is False
     with pytest.raises(windows_job.JobContainmentError):
         windows_job.ProcessTreeJob()
+
+
+def test_unadopted_process_is_killed_and_boundedly_reaped():
+    child = Mock()
+    assert windows_job.terminate_unadopted(child, timeout_s=3) is True
+    child.kill.assert_called_once_with()
+    child.wait.assert_called_once_with(timeout=3)
+
+
+def test_unadopted_process_retries_kill_once_without_unbounded_wait():
+    child = Mock()
+    child.wait.side_effect = [
+        subprocess.TimeoutExpired("child", 3),
+        subprocess.TimeoutExpired("child", 3),
+    ]
+
+    assert windows_job.terminate_unadopted(child, timeout_s=3) is False
+    assert child.kill.call_count == 2
+    assert child.wait.call_count == 2
+
+
+def test_runner_kills_unadopted_attempt_before_visible_tree_retry():
+    job = Mock(spec=windows_job.ProcessTreeJob)
+    job.adopt_suspended.side_effect = windows_job.JobContainmentError(5, "OpenProcess failed")
+    suspended = Mock()
+    suspended.pid = 1234
+    retry = Mock()
+    spawn = Mock(side_effect=[suspended, retry])
+    tree = _Tree(job=job, containment="job_object")
+
+    assert _start(spawn, tree, on_spawn=None) is retry
+
+    suspended.kill.assert_called_once_with()
+    suspended.wait.assert_called_once_with(timeout=2.0)
+    job.close.assert_called_once_with()
+    assert tree.job is None
+    assert tree.containment == "visible_tree"
+    assert spawn.call_args_list[0].args == (True,)
+    assert spawn.call_args_list[1].args == (False,)
+
+
+def test_runner_does_not_retry_when_unadopted_attempt_cannot_be_reaped(monkeypatch):
+    job = Mock(spec=windows_job.ProcessTreeJob)
+    job.adopt_suspended.side_effect = windows_job.JobContainmentError(5, "OpenProcess failed")
+    suspended = Mock()
+    suspended.pid = 1234
+    spawn = Mock(return_value=suspended)
+    tree = _Tree(job=job, containment="job_object")
+    monkeypatch.setattr(windows_job, "terminate_unadopted", lambda process, timeout: False)
+
+    with pytest.raises(windows_job.JobContainmentError, match="did not exit"):
+        _start(spawn, tree, on_spawn=None)
+
+    spawn.assert_called_once_with(True)
+    job.close.assert_called_once_with()
+    assert tree.job is None
+    assert tree.containment == "visible_tree"
+
+
+def test_callback_failure_before_adoption_uses_direct_cleanup_not_empty_job():
+    job = Mock(spec=windows_job.ProcessTreeJob)
+    job.active_processes.return_value = 0
+    suspended = Mock()
+    suspended.pid = 1234
+    spawn = Mock(return_value=suspended)
+    callback = Mock(side_effect=RuntimeError("durable start failed"))
+    tree = _Tree(job=job, containment="job_object")
+
+    with pytest.raises(RuntimeError, match="durable start failed"):
+        _start(spawn, tree, on_spawn=callback)
+
+    spawn.assert_called_once_with(True)
+    job.adopt_suspended.assert_not_called()
+    job.terminate_and_confirm.assert_not_called()
+    job.active_processes.assert_not_called()
+    suspended.kill.assert_called_once_with()
+    suspended.wait.assert_called_once_with(timeout=2.0)
+    job.close.assert_called_once_with()
+    assert tree.job is None
+    assert tree.containment == "visible_tree"
+    assert tree.cleanup_confirmed is True
+
+
+def test_callback_failure_does_not_let_empty_job_certify_timed_out_direct_reap():
+    job = Mock(spec=windows_job.ProcessTreeJob)
+    job.active_processes.return_value = 0
+    suspended = Mock()
+    suspended.pid = 1234
+    suspended.wait.side_effect = [
+        subprocess.TimeoutExpired("child", 2.0),
+        subprocess.TimeoutExpired("child", 2.0),
+    ]
+    spawn = Mock(return_value=suspended)
+    callback = Mock(side_effect=RuntimeError("durable start failed"))
+    tree = _Tree(job=job, containment="job_object")
+
+    with pytest.raises(RuntimeError, match="durable start failed"):
+        _start(spawn, tree, on_spawn=callback)
+
+    spawn.assert_called_once_with(True)
+    job.adopt_suspended.assert_not_called()
+    job.terminate_and_confirm.assert_not_called()
+    job.active_processes.assert_not_called()
+    assert suspended.kill.call_count == 2
+    assert suspended.wait.call_count == 2
+    job.close.assert_called_once_with()
+    assert tree.job is None
+    assert tree.containment == "visible_tree"
+    assert tree.cleanup_confirmed is False
 
 
 @posix_only
@@ -196,9 +307,8 @@ def test_refused_adoption_reruns_uncontained_once_and_reports_unconfirmed(tmp_pa
 
     class RefusingJob(windows_job.ProcessTreeJob):
         def adopt_suspended(self, pid: int) -> None:
-            # Mirror the real contract: the suspended child is terminated before the
-            # refusal escapes.
-            psutil.Process(pid).kill()
+            # OpenProcess can fail before the job owns the child. The runner's direct
+            # Popen fallback, not this empty job, must terminate the suspended attempt.
             raise windows_job.JobContainmentError(5, "refused for test")
 
     monkeypatch.setattr(windows_job, "ProcessTreeJob", RefusingJob)
