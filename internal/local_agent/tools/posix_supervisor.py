@@ -70,13 +70,14 @@ def _children() -> tuple[int, ...]:
     after subreaper adoption supplies that proof.
     """
     host_parent = _host_pid(Path("/proc/self/status"))
+    depth = len(_namespace_pids(Path("/proc/self/status")))
     found: list[int] = []
     for candidate in psutil.process_iter(("pid", "ppid")):
         try:
             if int(candidate.info["ppid"]) != host_parent:
                 continue
             host_pid = int(candidate.info["pid"])
-            found.append(_namespace_pid(Path(f"/proc/{host_pid}/status")))
+            found.append(_namespace_pids(Path(f"/proc/{host_pid}/status"))[depth - 1])
         except (KeyError, TypeError, ValueError, OSError, psutil.Error):
             continue
     return tuple(found)
@@ -87,10 +88,16 @@ def _host_pid(status_path: Path) -> int:
     return int(next(line.split()[1] for line in status.splitlines() if line.startswith("Pid:")))
 
 
-def _namespace_pid(status_path: Path) -> int:
+def _namespace_pids(status_path: Path) -> tuple[int, ...]:
+    """``NSpid``: the process's PID at each level, from procfs's namespace inward.
+
+    The supervisor signals in its own namespace, at its own depth. A child that
+    created a nested PID namespace (``unshare --pid --fork``) has more levels, and
+    its innermost PID (usually 1) names a different process here.
+    """
     status = status_path.read_text(encoding="ascii")
-    return int(next(line.split()[-1] for line in status.splitlines()
-                    if line.startswith("NSpid:")))
+    line = next(line for line in status.splitlines() if line.startswith("NSpid:"))
+    return tuple(int(field) for field in line.split()[1:])
 
 
 def _reap_exited() -> None:

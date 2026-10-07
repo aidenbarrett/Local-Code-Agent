@@ -8,6 +8,8 @@ import signal
 import sys
 import time
 
+import pytest
+
 from local_agent.tools.process_runner import run_command
 
 
@@ -190,7 +192,7 @@ def _assert_pid_gone(pid: int) -> None:
 
 def test_linux_subreaper_ends_a_setsid_descendant_after_normal_parent_exit(tmp_path):
     if not sys.platform.startswith("linux"):
-        return
+        pytest.skip("the child subreaper is Linux-only")
     from local_agent.tools.process_runner import OwnedLifecycle, run_owned
 
     pid, marker, owned = _normal_exit_escape(
@@ -210,7 +212,7 @@ def test_linux_subreaper_ends_a_setsid_descendant_after_normal_parent_exit(tmp_p
 
 def test_public_command_does_not_accept_an_abandoned_setsid_descendant(tmp_path):
     if not sys.platform.startswith("linux"):
-        return
+        pytest.skip("the child subreaper is Linux-only")
 
     pid, marker, outcome = _normal_exit_escape(
         tmp_path,
@@ -223,3 +225,44 @@ def test_public_command_does_not_accept_an_abandoned_setsid_descendant(tmp_path)
     _assert_pid_gone(pid)
     time.sleep(1.0)
     assert not marker.exists(), "the escaped descendant mutated after the terminal result"
+
+
+def _nested_pid_namespace_available() -> bool:
+    import shutil
+    import subprocess
+
+    unshare = shutil.which("unshare")
+    if unshare is None:
+        return False
+    probe = subprocess.run(  # noqa: S603 - fixed argv probe
+        [unshare, "--user", "--pid", "--fork", "true"],
+        capture_output=True, timeout=10, check=False,
+    )
+    return probe.returncode == 0
+
+
+def test_linux_subreaper_ends_a_nested_pid_namespace_init(tmp_path):
+    """A reparented nested-namespace init is signalled at the supervisor's own depth.
+
+    Its innermost NSpid is 1. Signalling that PID targets the supervisor's own
+    namespace init (SIGKILL ignored), so the nested tree is never signalled: it keeps
+    running through cleanup, and either exits on its own (and is then "confirmed") or
+    outlives the drain bound and survives the run.
+    """
+    if not sys.platform.startswith("linux") or not _nested_pid_namespace_available():
+        pytest.skip("unprivileged nested PID namespaces are not available on this host")
+    from local_agent.tools.process_runner import OwnedLifecycle, run_owned
+
+    marker = tmp_path / "nested-mutation"
+    inner = f"sleep 0.8; echo late > {str(marker)!r}"
+    script = f"unshare --user --pid --fork sh -c {inner!r} & sleep 0.3; exit 0"
+    started = time.monotonic()
+    owned = run_owned(["sh", "-c", script], tmp_path, OwnedLifecycle(10), env=dict(os.environ))
+    elapsed = time.monotonic() - started
+    assert owned.containment == "child_subreaper"
+    assert owned.cleanup_confirmed is True
+    assert owned.strays_unconfirmed is False
+    assert owned.stray_descendants_at_exit is not None and owned.stray_descendants_at_exit >= 1
+    assert elapsed < 5.0, "the drain ran to its bound instead of ending the nested tree"
+    time.sleep(1.2)
+    assert not marker.exists(), "the nested-namespace descendant was never signalled"
