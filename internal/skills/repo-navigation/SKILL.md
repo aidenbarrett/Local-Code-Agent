@@ -37,8 +37,10 @@ answer allows.
 
 ## Symbol or subsystem question
 
-1. Use `find_definition` for a named C++ symbol, or `search_text` for a content
-   pattern when no plain symbol is available.
+1. Use `find_definition` for a supported, non-template C++ symbol, or `search_text`
+   for a content pattern when no plain symbol is available. `find_definition`
+   returns candidate declarations and definitions. Zero candidates means the bounded
+   heuristic did not find it, never that the symbol is absent.
 2. `read_file` with a line range around each useful hit. Do not read whole files
    speculatively.
 3. Follow the language structure as needed: definition, header, callers, tests.
@@ -58,7 +60,7 @@ answer allows.
 
 # Search patterns that pay off in C++
 
-- Declaration: `find_definition` with the bare identifier.
+- Declaration or definition: `find_definition` with the exact supported identifier.
 - Callers: `search_text` with `\bname\s*\(` and `glob="*.cpp"`.
 - Header/implementation split: use `list_files` for the stem in `*.h` / `*.cpp`,
   then read the relevant files.

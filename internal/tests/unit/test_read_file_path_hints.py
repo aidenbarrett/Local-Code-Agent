@@ -6,7 +6,7 @@ import pytest
 
 from local_agent.tools import files
 from local_agent.tools.files import _missing_file_message
-from local_agent.tools.tool_primitives import NotFoundError
+from local_agent.tools.tool_primitives import NotFoundError, ToolError
 
 
 def test_suffix_hint_is_preferred_over_basename(tmp_path):
@@ -82,6 +82,35 @@ def test_qualified_definition_excludes_duplicate_short_names(loaded):
         "bool Other::full() const { return true; }",
         "bool full() { return false; }",
     }
+
+
+def test_symbol_lookup_covers_declarations_destructors_and_common_suffixes(loaded):
+    sandbox, _, registry, _, _ = loaded
+    source = sandbox.root / "src" / "symbol_forms.cpp"
+    source.write_text(
+        "int frobnicate(int value);\n"
+        "Widget::~Widget() noexcept = default;\n"
+        "bool Widget::ready() const override { return true; }\n"
+        "auto Widget::size() const -> unsigned { return 0; }\n",
+        encoding="utf-8",
+    )
+
+    for symbol, expected in [
+        ("frobnicate", "int frobnicate(int value);"),
+        ("Widget::~Widget", "Widget::~Widget() noexcept = default;"),
+        ("Widget::ready", "bool Widget::ready() const override { return true; }"),
+        ("Widget::size", "auto Widget::size() const -> unsigned { return 0; }"),
+    ]:
+        result = registry.get("find_definition").handler(symbol=symbol, limit=200)
+        assert any(match["text"] == expected for match in result.data["matches"])
+        assert "declaration/definition" in result.summary
+
+
+@pytest.mark.parametrize("symbol", ["Box<int>::size", "Foo:bar", "Widget::~Other"])
+def test_symbol_lookup_rejects_spellings_outside_the_shared_grammar(loaded, symbol):
+    _, _, registry, _, _ = loaded
+    with pytest.raises(ToolError):
+        registry.get("find_definition").handler(symbol=symbol)
 
 
 def test_ambiguous_include_relative_header_is_not_chosen(loaded):

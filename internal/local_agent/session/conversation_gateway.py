@@ -102,6 +102,15 @@ _CLARIFICATIONS = {
     "unfixable_failure_kind": "I can only fix a failed build or a failed test run, and that task did not record either failing. No task was run.",
     "invalid_task_reference": "That is not a full task ID. Use the complete task UUID. No task was run.",
     "ineligible_task_reference": "That task is not a failed task in this conversation. No task was run.",
+    "cpp_template_symbol_unsupported": (
+        "Template-id symbol lookup is not supported by the bounded C++ search. "
+        "Use a non-template qualified identifier or ask for a repository text search. "
+        "No task was run."
+    ),
+    "invalid_cpp_symbol": (
+        "That is not a supported C++ identifier. Use names separated by '::'; a destructor "
+        "may be the final component. No task was run."
+    ),
     "empty_input": "Please enter a message. No task was run.",
 }
 

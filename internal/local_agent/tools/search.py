@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from ..cpp_symbols import parse_cpp_symbol
 from .tool_primitives import Risk, ToolError, ToolRegistry, ToolResult, relpath, resolve_in_repo
 from .tool_context import ToolContext
 
@@ -24,8 +25,19 @@ _EXCLUDES = [
 # not pretend to be a compiler front end.
 # A qualified name (``RingBuffer::full``) is defined out of line as a function body
 # or a static member initialiser; the type, macro and namespace shapes do not apply.
+_FUNCTION_SITE = (
+    # Keep this portable between ripgrep's default engine and ``git grep -E``:
+    # neither the fallback contract nor C++ lookup may depend on lookbehind.
+    r"(^|[^A-Za-z0-9_]){sym}\s*\([^;{{}}]*\)\s*"
+    r"(\[\[[^\]]+\]\]\s*)*"
+    r"(const\b\s*)?(volatile\b\s*)?(&{{1,2}}\s*)?"
+    r"(noexcept(\s*\([^)]*\))?\s*)?"
+    r"((override|final)\b\s*)*"
+    r"(->\s*[^;{{=]+)?\s*"
+    r"(;|\{{|=\s*(0|default|delete)\s*;)"
+)
 _QUALIFIED_DEF_TEMPLATES = (
-    r"\b{sym}\s*\([^;]*\)\s*(const)?\s*(noexcept)?\s*\{{",
+    _FUNCTION_SITE,
     r"\b{sym}\s*=",
 )
 _DEF_TEMPLATES = (
@@ -36,24 +48,22 @@ _DEF_TEMPLATES = (
     r"namespace\s+{sym}\b",
 )
 
-_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
-_QUALIFIED_IDENTIFIER = re.compile(rf"{_IDENTIFIER}(?:::{_IDENTIFIER})*")
-
-
 def _definition_pattern(symbol: str) -> str:
-    """Build a bounded textual definition query without discarding qualification."""
-    parts = symbol.split("::")
+    """Build a bounded declaration/definition query without discarding qualification."""
+    parsed = parse_cpp_symbol(symbol)
+    parts = parsed.components
     forms: tuple[str, ...]
     templates: tuple[str, ...]
     if len(parts) == 1:
-        forms = (symbol,)
+        forms = (parsed.text,)
         templates = _DEF_TEMPLATES
     else:
         # A definition inside ``namespace sandbox`` is commonly spelt
         # ``RingBuffer::full`` rather than ``sandbox::RingBuffer::full``. Keep
         # the member qualification, but never fall back to bare ``full`` where
         # unrelated classes would become indistinguishable.
-        forms = (symbol,) if len(parts) == 2 else (symbol, "::".join(parts[-2:]))
+        forms = ((parsed.text,) if len(parts) == 2
+                 else (parsed.text, "::".join(parts[-2:])))
         templates = _QUALIFIED_DEF_TEMPLATES
     return "|".join(
         template.format(sym=re.escape(form))
@@ -204,9 +214,10 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
 
     @reg.add(
         "find_definition",
-        "Find likely definition sites for a C++ symbol (class, struct, function, "
-        "macro, alias or namespace). Heuristic, not a compiler front end: verify "
-        "with read_file.",
+        "Find likely declaration or definition sites for a supported C++ symbol "
+        "(class, struct, function, macro, alias or namespace). This bounded textual "
+        "search does not accept template-ids. A zero result means not found by this "
+        "heuristic, not that the symbol is absent; verify candidates with read_file.",
         {
             "type": "object",
             "properties": {
@@ -219,13 +230,19 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         Risk.READ,
     )
     def find_definition(symbol: str, limit: int = 20) -> ToolResult:
-        if not _QUALIFIED_IDENTIFIER.fullmatch(symbol):
-            raise ToolError("symbol must be a C++ identifier, optionally qualified with ::")
-
-        pattern = _definition_pattern(symbol)
+        try:
+            pattern = _definition_pattern(symbol)
+        except ValueError as exc:
+            reason = str(exc)
+            if reason == "cpp_template_symbol_unsupported":
+                raise ToolError("template-id symbol lookup is not supported") from exc
+            raise ToolError(
+                "symbol must be a C++ identifier, optionally qualified with ::; "
+                "a destructor may be the final component"
+            ) from exc
         result = search_text(pattern=pattern, limit=limit)
         result.summary = (
-            f"{len(result.data['matches'])} candidate definition site(s) for "
+            f"{len(result.data['matches'])} candidate declaration/definition site(s) for "
             f"{symbol!r}"
         )
         return result

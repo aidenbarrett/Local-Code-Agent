@@ -26,7 +26,7 @@ DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambi
                  "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree", "J15b-rename-binary",
                  "J16-malformed-calls", "J17-branch-review", "J19-test-truth", "J19b-test-policy",
                  "J20-conflict-explain", "J21-exact-commit", "J21b-commit-policy",
-                 "J22-repo-explain"]
+                 "J22-repo-explain", "J23-symbol-lookup"]
 
 
 def _report(output: Path) -> dict[str, dict[str, object]]:
@@ -637,6 +637,21 @@ def test_repo_explanation_fails_when_a_configured_command_is_omitted(tmp_path, m
     out = tmp_path / "acc"
     assert journeys.main(["--output", str(out), "--only", "J22-repo-explain"]) == 1
     assert "omitted the configured command" in _report(out)["J22-repo-explain"]["reason"]
+
+
+def test_public_symbol_lookup_returns_an_observed_file_and_line(tmp_path, monkeypatch):
+    _skip_redundant_fixture_probe(monkeypatch)
+    real_which = journeys.shutil.which
+    monkeypatch.setattr(
+        journeys.shutil,
+        "which",
+        lambda name: "/observed/cmake" if name == "cmake" else real_which(name),
+    )
+    out = tmp_path / "acc"
+    assert journeys.main(["--output", str(out), "--only", "J23-symbol-lookup"]) == 0
+    result = _report(out)["J23-symbol-lookup"]
+    assert result["status"] == "PASS"
+    assert "file/line citation" in result["reason"]
 
 
 def test_invented_paths_accepts_real_files_and_bare_names_and_flags_the_rest(tmp_path):

@@ -11,7 +11,7 @@ is deliberate where the required physical or repository-setting observation is a
 | ID | Public request | Implemented behaviour | Evidence | Qualification | Known limit | Next action | Owner |
 |---|---|---|---|---|---|---|---|
 | CAP-inspect | Inspect this repository | Read-only paths, files and text search | PR#250, J12-questions | deterministic-ci | Model answers need grounding checks | Keep R01 coverage | controller |
-| CAP-symbol | Where is this symbol? | Definition and include-relative lookup | PR#386 | deterministic-ci | Language-aware indexing is not claimed | Extend only from failures | controller |
+| CAP-symbol | Where is this symbol? | Bounded declaration/definition candidates and include-relative lookup for non-template C++ identifiers | PR#386, J23-symbol-lookup | deterministic-ci | Textual heuristic; template-ids and language-aware indexing are not claimed; zero candidates does not prove absence | Add a language-aware owner only from measured failures | controller |
 | CAP-branch-review | What changed on my branch? | Merge-base, upstream and detached-HEAD facts | PR#367, J17-branch-review | deterministic-ci | No upstream means ahead/behind is unknown | Keep read-only | controller |
 | CAP-build-verify | Build it | Configured build with proof bound to stable inputs | PR#433, J01-build-pass | deterministic-ci | Repository must declare a build profile | Qualify more repositories | controller |
 | CAP-test-truth | Run the tests | Full or filtered test truth with zero/stale non-PASS | PR#383, J19-test-truth | deterministic-ci | Repository must declare a test profile | Qualify more repositories | controller |
