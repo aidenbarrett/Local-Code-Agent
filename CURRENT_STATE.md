@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `b2cd21f6d4af623c2aba4b2c980e8fa4b92e0852`
-on 2026-10-06.
+Reconciled against GitHub `main` at `f045f1f73467e1f83927e2f913c6ff91aed38e35`
+on 2026-10-07.
 
 ## Capability ledger
 
@@ -21,7 +21,7 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-apply | Apply this candidate | All-or-nothing import with stale-content refusal | PR#378, J13-candidate-scripted | deterministic-ci | Interrupted receipt stays UNKNOWN | Keep restart regressions | controller |
 | CAP-undo | Undo this candidate | Restores owned pre-import bytes and modes | PR#407, J13-candidate-scripted | deterministic-ci | Refuses after later user edits | Keep preservation regressions | controller |
 | CAP-exact-commit | Commit this candidate | Private-index exact-path commit, no push | PR#434, J21-exact-commit | deterministic-ci | Commit policy may refuse | Keep hook/restart regressions | controller |
-| CAP-stop-command | Stop the running command | Owned process trees; Stop ends reads, lets writes finish and is reported by the same call | PR#379, PR#436, PR#437, J05-stop-build | deterministic-ci | POSIX cleanup is never confirmed (a setsid descendant can escape the group) | Qualify on target hardware | Claude |
+| CAP-stop-command | Stop the running command | Owned process trees; Windows uses Job Object accounting and Linux uses a dedicated child subreaper, so `setsid()` descendants are ended and reaped before return; Stop ends reads, lets writes finish and is reported by the same call | PR#379, PR#436, PR#437, J05-stop-build, internal/tests/unit/test_runner_process_tree.py::test_linux_subreaper_ends_a_setsid_descendant_after_normal_parent_exit | deterministic-ci | Other POSIX platforms have only an escapable process group and effect-owning commands fail closed | Qualify on target hardware | controller |
 | CAP-stop-generation | Stop model work | Fences late authority and records NO_VERDICT when unreconciled; on a `stop_proof` profile, cuts the stream once the server is seen working and frees the endpoint only on observed idle | PR#249, J07-stop-model, PR#446 | deterministic-ci | OVMS profiles (`stop_proof = none`): one in-flight generation may remain. llama-server cut not yet observed against a real server | Observe the cut on the NUC llama-server; find an OVMS proof source | Claude |
 | CAP-git-state | What Git operation is active? | Reports merge, rebase, am, cherry-pick, revert and bisect state | PR#373, J20-conflict-explain | deterministic-ci | Does not perform continue or abort | Keep read-only | controller |
 | CAP-unusual-filenames | Inspect or commit unusual names | Literal path handling protects wildcard-like names | PR#404, J15b-rename-binary | deterministic-ci | Platform filesystem rules still apply | Keep cross-platform regression | controller |
@@ -57,8 +57,9 @@ in [TRICKS.md](TRICKS.md), and the active priority ladder is in
   `CAP-offline-physical` and #418.
 - Stop reaches workspace Git and owned commands (#436, #437). In-flight model generation is
   cut only on profiles with endpoint stop proof (llama-server, #446); OVMS still waits for
-  the call to finish. POSIX process cleanup is never reported confirmed: see
-  `CAP-stop-command` and `CAP-stop-generation`.
+  the call to finish. Windows Job Objects and the Linux child-subreaper supervisor own
+  command trees; other POSIX platforms refuse effect-owning success: see `CAP-stop-command`
+  and `CAP-stop-generation`.
 - Native-endpoint deployment and cross-process endpoint ownership are not qualified serving
   capabilities: see #403.
 - Merge policy was observed not enforced on 2026-10-06 (main unprotected, no ruleset,

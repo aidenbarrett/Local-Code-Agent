@@ -456,6 +456,43 @@ def test_workspace_git_refuses_a_run_whose_tree_could_not_be_shown_ended(tmp_pat
         manager._git(tmp_path, "status")
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux child subreaper")
+def test_workspace_git_refuses_a_clean_exit_that_abandoned_a_setsid_child(
+    tmp_path, monkeypatch,
+):
+    pid_file = tmp_path / "escaped.pid"
+    delayed = tmp_path / "delayed"
+    child_code = (
+        "import os, time; from pathlib import Path; os.setsid(); "
+        f"Path({str(pid_file)!r}).write_text(str(os.getpid())); "
+        "time.sleep(.8); "
+        f"Path({str(delayed)!r}).write_text('late')"
+    )
+    fake = tmp_path / "bin" / "git"
+    fake.parent.mkdir()
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        f"pid_file = Path({str(pid_file)!r})\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}], "
+        "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
+        "stderr=subprocess.DEVNULL)\n"
+        "while not pid_file.exists():\n"
+        "    time.sleep(.01)\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
+    manager = GitWorkspaceManager(tmp_path / "ws", controller_commit="test")
+    with pytest.raises(WorkspaceError, match="abandoned 1 descendant"):
+        manager._git(tmp_path, "status")
+    pid = int(pid_file.read_text(encoding="utf-8"))
+    assert _gone(pid)
+    time.sleep(1.0)
+    assert not delayed.exists()
+
+
 # --- Astra's round-3 review of c806365 (#436): the public boundary fails closed -----
 
 
@@ -466,6 +503,15 @@ def _uncontained_success(*_args, **_kwargs):
                     timed_out=False, cancel_requested=False, cleanup_confirmed=None,
                     containment="visible_tree", stray_descendants_at_exit=None,
                     strays_unconfirmed=True)
+
+
+def _contained_stray_success(*_args, **_kwargs):
+    from local_agent.tools.process_runner import OwnedRun
+
+    return OwnedRun(exit_code=0, stdout=b"build complete\n", stderr=b"", elapsed_s=0.01,
+                    timed_out=False, cancel_requested=False, cleanup_confirmed=True,
+                    containment="child_subreaper", stray_descendants_at_exit=1,
+                    strays_unconfirmed=False)
 
 
 def test_run_command_never_returns_ok_for_a_tree_it_could_not_show_ended(tmp_path, monkeypatch):
@@ -501,6 +547,21 @@ def test_a_configured_build_cannot_pass_on_an_unsettled_tree(sandbox, monkeypatc
     from local_agent.tools.testing_tools import BUILD_STAMP
 
     assert not (sandbox.root / "build" / BUILD_STAMP).exists(), "a build stamp was written"
+
+
+def test_a_configured_build_cannot_pass_after_ending_an_abandoned_tree(sandbox, monkeypatch):
+    from local_agent.config import load_repo_config
+    from local_agent.tools import build_registry, process_runner
+    from local_agent.tools.testing_tools import BUILD_STAMP
+
+    sandbox.scenario("clean")
+    registry, _ctx, _store = build_registry(load_repo_config(sandbox.root))
+    monkeypatch.setattr(process_runner.shutil, "which", lambda command: command)
+    monkeypatch.setattr(process_runner, "run_owned", _contained_stray_success)
+    result = registry.get("build_target").handler()
+    assert result.ok is False
+    assert result.domain_status.value != "pass"
+    assert not (sandbox.root / "build" / BUILD_STAMP).exists()
 
 
 # --- Astra's round-4 review of a367b87 (#436): the verdict boundary consumes it ------

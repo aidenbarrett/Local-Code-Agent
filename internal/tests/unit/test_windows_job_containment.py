@@ -67,15 +67,20 @@ def test_job_objects_refuse_to_exist_off_windows():
 
 
 @posix_only
-def test_posix_run_reports_escapable_group_containment(tmp_path):
+def test_posix_run_reports_the_available_ownership_boundary(tmp_path):
+    if not sys.platform.startswith("linux"):
+        from local_agent.tools.tool_primitives import Reason, ToolError
+
+        with pytest.raises(ToolError) as refused:
+            run_command([sys.executable, "-c", "print('ok')"], tmp_path, tmp_path / "runs", 10)
+        assert refused.value.reason is Reason.CLEANUP_UNKNOWN
+        return
     out = run_command([sys.executable, "-c", "print('ok')"], tmp_path, tmp_path / "runs", 10)
     assert out.ok
-    assert out.containment == "process_group"
-    # The session's process group is counted after a normal exit (#420): nothing was
-    # left in it. That says nothing about a descendant that left the group via setsid().
+    assert out.containment == "child_subreaper"
     assert out.stray_descendants_at_exit == 0
     assert out.process_cleanup_confirmed is None
-    assert "containment=process_group" in (out.stdout_path.parent / "command.txt").read_text(
+    assert "containment=child_subreaper" in (out.stdout_path.parent / "command.txt").read_text(
         encoding="utf-8"
     )
 

@@ -63,12 +63,11 @@ from .commit_index_hook import (
 )
 
 _GIT_TIMEOUT_S = 300
-# Every workspace git process runs under ``run_owned``: a Windows Job Object, or a POSIX
-# process group (which a setsid() descendant can leave, so POSIX cleanup is never
-# reported confirmed). A timeout ends it, including a commit signer's descendants;
-# anything a normally exiting git leaves in it is ended before the step counts; and
-# stdout plus stderr past this size end it while it runs. On POSIX the output is a
-# drained pipe, so even an escaped writer cannot grow it after the step returns.
+# Every workspace git process runs under ``run_owned``: a Windows Job Object or Linux
+# child subreaper owns the whole tree; other POSIX platforms fail effect-owning runs
+# closed. A timeout ends the tree, including a commit signer's descendants. Anything a
+# normally exiting git abandons is ended and makes the step non-success. Stdout plus
+# stderr past this size ends the tree while it runs.
 _GIT_OUTPUT_LIMIT = 256 * 1024 * 1024
 # Git commands that only read. Stop ends one of these at once; any other command writes
 # (an index, the object store, a worktree, a ref or the user's files) and is never
@@ -465,6 +464,12 @@ class GitWorkspaceManager:
             raise WorkspaceError(
                 f"git {args[0]} exited but its process tree could not be shown ended "
                 f"(containment: {run.containment})"
+            )
+        if run.stray_descendants_at_exit:
+            raise WorkspaceError(
+                f"git {args[0]} exited but abandoned "
+                f"{run.stray_descendants_at_exit} descendant process(es); the owned "
+                "runner ended them, so the git step is not a successful result"
             )
         if scope is not None and not reads:
             scope.writes_finished.append(step)
