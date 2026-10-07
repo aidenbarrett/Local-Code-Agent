@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -654,10 +655,265 @@ def test_public_symbol_lookup_returns_an_observed_file_and_line(tmp_path, monkey
     assert "file/line citation" in result["reason"]
 
 
-def test_invented_paths_accepts_real_files_and_bare_names_and_flags_the_rest(tmp_path):
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "real.cpp").write_text("x", encoding="utf-8")
-    (tmp_path / "CMakeLists.txt").write_text("x", encoding="utf-8")
-    answer = ("See src/real.cpp and real.cpp; config in CMakeLists.txt; "
-              "also src/fake.cpp, gone.hpp and https://example.com/a.md")
-    assert journeys.invented_paths(answer, tmp_path) == ["gone.hpp", "src/fake.cpp"]
+def _grounding_repo(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "real.cpp").write_text("x", encoding="utf-8")
+    (repo / "CMakeLists.txt").write_text("x", encoding="utf-8")
+    (repo / "docs").mkdir()
+    (repo / "docs" / "guide.md").write_text("x", encoding="utf-8")
+    (tmp_path / "outside.py").write_text("secret", encoding="utf-8")
+    return repo
+
+
+def _link(link, target):
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available to this user on this host")
+
+
+def test_real_files_bare_names_and_line_references_are_grounded(tmp_path):
+    repo = _grounding_repo(tmp_path)
+    answer = ("The entry point is src/real.cpp (see ./src/real.cpp:12 and real.cpp); "
+              "it builds from CMakeLists.txt, documented in docs\\guide.md, as of "
+              "https://example.com/a.md, e.g. like Node.js.")
+    grade = journeys.observe_answer(answer, repo)
+    assert grade.missing == () and grade.outside == ()
+    assert grade.status == "evidence-grounded"
+    assert "Node.js" not in journeys.path_references(answer)
+
+
+@pytest.mark.parametrize(("answer_ref", "verdict"), [
+    ("src/nonexistent.xyz", "missing"),     # any lettered suffix with a directory is checked
+    ("src/missing.cpp", "missing"),
+    ("gone.hpp", "missing"),
+    ("../outside.py", "outside"),            # traversal never validates a sibling
+    ("/etc/passwd.txt", "outside"),
+    ("C:/Windows/win.ini", "outside"),
+    ("src/missing.cpp#L12", "missing"),      # an anchor never hides the reference
+    ("../outside.py#L3-L9", "outside"),
+])
+def test_unreal_and_external_references_are_never_grounded(tmp_path, answer_ref, verdict):
+    repo = _grounding_repo(tmp_path)
+    answer = f"The repository is organised around {answer_ref} and the build configuration."
+    grade = journeys.observe_answer(answer, repo)
+    assert grade.status == "ungrounded"
+    reference = answer_ref.split("#")[0]     # reported without its line anchor
+    assert reference in (grade.missing if verdict == "missing" else grade.outside)
+
+
+def test_windows_separators_keep_their_directory_scope(tmp_path):
+    repo = _grounding_repo(tmp_path)
+    (repo / "nonexistent.cpp").write_text("x", encoding="utf-8")   # same bare name elsewhere
+    grade = journeys.observe_answer(
+        "The work happens in src\\nonexistent.cpp and the rest is glue code.", repo)
+    assert grade.missing == ("src/nonexistent.cpp",)
+
+
+def test_an_in_repo_symlink_to_an_outside_file_is_outside(tmp_path):
+    repo = _grounding_repo(tmp_path)
+    _link(repo / "src" / "external.py", tmp_path / "outside.py")
+    for ref in ("src/external.py", "external.py"):
+        grade = journeys.observe_answer(f"Most of the logic lives in {ref} for this project.", repo)
+        assert grade.outside == (ref,), ref
+
+
+def test_an_in_repo_symlink_to_an_in_repo_file_is_grounded(tmp_path):
+    repo = _grounding_repo(tmp_path)
+    _link(repo / "src" / "alias.cpp", repo / "src" / "real.cpp")
+    grade = journeys.observe_answer("The alias src/alias.cpp points at the real source file.", repo)
+    assert grade.status == "evidence-grounded"
+
+
+# Astra's executed probes against 2799e6c: each reference vanished from observation.
+@pytest.mark.parametrize(("answer", "reference"), [
+    ("The configuration is file:///etc/passwd.txt.", "/etc/passwd.txt"),
+    ("The configuration is file://server/share/secret.py.", "//server/share/secret.py"),
+    ("The configuration is file:///C:/Windows/win.ini.", "C:/Windows/win.ini"),
+    ("The implementation is //server/share/secret.py.", "//server/share/secret.py"),
+    ("The implementation is \\\\server\\share\\secret.py.", "//server/share/secret.py"),
+])
+def test_file_uris_and_unc_paths_are_outside(tmp_path, answer, reference):
+    seen = journeys.observe_answer(answer, _grounding_repo(tmp_path))
+    assert seen.outside == (reference,)
+    assert seen.status == "ungrounded"
+    assert not seen.recognised_refusal
+
+
+# Astra's executed probes against 2fe16ed: a file: URI is outside without the suffix
+# grammar, decoded once; a malformed one is still outside, reported raw.
+@pytest.mark.parametrize(("answer", "reference"), [
+    ("The secret is file:///etc/passwd.", "/etc/passwd"),
+    ("The config is file:///tmp/a%20b/config.py.", "/tmp/a b/config.py"),
+    ("The config is file:///tmp/a%2Epy.", "/tmp/a.py"),
+    ("The readme is file://server/share/README.", "//server/share/README"),
+    ("It escapes via file:///repo/%2E%2E/%2E%2E/etc/shadow.", "/repo/../../etc/shadow"),
+    ("It is at file:///etc/passwd#L3 for sure.", "/etc/passwd"),
+    ("It is at file:///tmp/%zz.py today.", "file:///tmp/%zz.py"),           # bad escape
+    ("It is at file:///tmp/a%00.py today.", "file:///tmp/a%00.py"),         # NUL
+    ("It is at file:///tmp/%ff.py today.", "file:///tmp/%ff.py"),           # not UTF-8
+    ("It is at file:relative.py today.", "file:relative.py"),               # no path
+])
+def test_every_file_uri_is_outside_decoded_once(tmp_path, answer, reference):
+    seen = journeys.observe_answer(answer, _grounding_repo(tmp_path))
+    assert seen.outside == (reference,)
+    assert seen.status == "ungrounded"
+
+
+@pytest.mark.parametrize("answer", [
+    "The implementation is src/real.cpp#L12.",
+    "The implementation is src/real.cpp#L12-L20.",
+    "The implementation is src/real.cpp:12.",
+    "Implemented in src/real.cpp.",
+])
+def test_anchored_and_short_answers_with_real_files_are_grounded(tmp_path, answer):
+    seen = journeys.observe_answer(answer, _grounding_repo(tmp_path))
+    assert seen.grounded == ("src/real.cpp",)
+    assert seen.status == "evidence-grounded"
+    assert not seen.recognised_refusal
+
+
+def test_network_urls_are_not_file_references():
+    assert journeys.path_references("See https://example.com/src/a.py and ssh://host/b.py.") == []
+
+
+@pytest.mark.parametrize("answer", [
+    "I cannot answer this question.",
+    "I don't know what this repository does, sorry about that, really.",
+])
+def test_a_recognised_refusal_with_no_evidence_is_reported_as_one(tmp_path, answer):
+    seen = journeys.observe_answer(answer, _grounding_repo(tmp_path))
+    assert seen.recognised_refusal
+    assert seen.status == "recognised-refusal"
+
+
+@pytest.mark.parametrize("answer", [
+    "The available files do not reveal what this repository does.",
+    "",              # length is not a refusal form: short answers are just uncited
+    "Not sure.",
+])
+def test_an_answer_citing_nothing_is_reported_as_no_evidence(tmp_path, answer):
+    seen = journeys.observe_answer(answer, _grounding_repo(tmp_path))
+    assert not seen.recognised_refusal
+    assert seen.status == "no-evidence"
+
+
+@pytest.mark.parametrize("answer", [
+    # Astra's review of 4dc3b32. Scoped unknowns with real evidence...
+    "I cannot determine which compiler this repository requires; src/real.cpp contains the parser.",
+    "I cannot determine where the ring buffer is tested; src/real.cpp implements it.",
+    "The compiler version cannot be determined\nThe parser lives in src/real.cpp.",
+    # ...and contradictions that merely contain a real token. All are observed the
+    # same way: evidence-grounded, with correctness unknown. None is a verdict.
+    "The ring buffer is not implemented in src/real.cpp; that file is unrelated.",
+    "src/real.cpp is not part of this repository; ignore that filename completely.",
+])
+def test_a_real_token_is_observed_not_certified(tmp_path, answer):
+    seen = journeys.observe_answer(answer, _grounding_repo(tmp_path))
+    assert seen.status == "evidence-grounded"
+    assert not hasattr(seen, "answered") and "answered" not in journeys._STATUS_ORDER
+
+
+@pytest.mark.parametrize("answer", [
+    "I cannot determine whether the build supports Ninja; run cmake --build build.",
+    "Do not run cmake --build build because that command is obsolete and unsafe.",
+])
+def test_a_command_mention_is_observed_not_certified(tmp_path, answer):
+    seen = journeys.observe_answer(answer, _grounding_repo(tmp_path),
+                                   ("cmake --build build",))
+    assert seen.omitted_commands == ()
+    assert seen.status == "evidence-grounded"
+
+
+def test_omitted_configured_commands_are_command_incomplete(tmp_path):
+    seen = journeys.observe_answer("Configure with cmake -S . -B build and then build it.",
+                                   _grounding_repo(tmp_path),
+                                   ("cmake -S . -B build", "ctest --test-dir build"))
+    assert seen.status == "command-incomplete"
+    assert seen.omitted_commands == ("ctest --test-dir build",)
+
+
+def test_the_worst_observation_decides_and_every_problem_is_explained(tmp_path):
+    repo = _grounding_repo(tmp_path)
+    seen = [
+        journeys.observe_answer("A full answer that names src/real.cpp clearly.", repo),
+        journeys.observe_answer("I cannot answer this question.", repo),
+        journeys.observe_answer("This answer invents src/ghost.cpp as the main module.", repo),
+    ]
+    assert journeys.worst(seen).status == "ungrounded"
+    assert "src/ghost.cpp" in seen[2].explain()
+
+
+class _QuestionSession:
+    """Just enough of a Session to run a question journey against scripted answers."""
+
+    def __init__(self, repo, answers):
+        self.repo = repo
+        self._answers = answers
+        self.journey = journeys.Journey("R01-questions", "questions", "model")
+
+    def turn(self, question):
+        return self._answers[question], None
+
+
+def _git_repo(repo):
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+
+
+def _r01(tmp_path, monkeypatch, purpose, build="Build it with cmake --build build today."):
+    repo = _grounding_repo(tmp_path)
+    _git_repo(repo)
+    monkeypatch.setattr(journeys, "configured_commands", lambda _repo: ["cmake --build build"])
+    session = _QuestionSession(repo, {
+        "what does this repository do?": purpose,
+        journeys._BUILD_QUESTION: build,
+        "what changed on my branch?": "Nothing has changed on this branch since it was created.",
+    })
+    journeys.r_questions(session)
+    return session.journey
+
+
+def test_r01_reports_observations_and_leaves_correctness_unknown(tmp_path, monkeypatch):
+    journey = _r01(tmp_path, monkeypatch,
+                   "The ring buffer is not implemented in src/real.cpp; that file is unrelated.")
+    assert journey.status == "MEASURED:evidence-grounded"
+    assert journey.measured["semantic_correctness"] == "unknown"
+    assert "read the transcript" in journey.reason
+
+
+def test_r01_requires_the_configured_commands_like_j22(tmp_path, monkeypatch):
+    journey = _r01(tmp_path, monkeypatch, "It is a small C++ library whose core is src/real.cpp.",
+                   build="It is built with CMake from CMakeLists.txt in the usual way.")
+    assert journey.status == "MEASURED:command-incomplete"
+    assert journey.measured["omitted_commands"] == ["cmake --build build"]
+
+
+def test_j12_reports_the_worst_observation(tmp_path):
+    session = _QuestionSession(_grounding_repo(tmp_path), {
+        "what does this repository do?": "It is a small C++ library whose core is src/real.cpp.",
+        "where is the ring buffer implemented?": "I cannot answer this question.",
+    })
+    journeys.j_questions(session)
+    assert session.journey.status == "MEASURED:recognised-refusal"
+
+
+def test_model_answers_are_never_counted_as_completed_verified():
+    """Q06 prose is an observation, not a verification (AGENTS: model prose is not
+    authority). Only proved outcomes reach completed_verified."""
+    measured = journeys.Journey("Q06-repo-explain", "explain", "model")
+    measured.measured_as("evidence-grounded", "contradictory but cites a real file")
+    proved = journeys.Journey("Q01-build-test", "build", "model")
+    proved.passed("built and tested")
+    metrics = journeys.corpus_metrics([measured, proved])
+    assert metrics["completed_verified"] == 1
+
+
+def test_grading_is_linear_on_pathological_whitespace(tmp_path):
+    """Stacked optional whitespace groups once made a refusal check cubic."""
+    import time
+
+    padded = "I cannot tell" + " " * 20000 + "x"
+    started = time.monotonic()
+    journeys.observe_answer(padded, _grounding_repo(tmp_path))
+    assert time.monotonic() - started < 2.0
