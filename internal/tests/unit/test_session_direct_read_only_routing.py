@@ -25,6 +25,11 @@ from local_agent.session.session_store import SQLiteSessionStore
         "Inspect this repository.",
         "Where is X defined?",
         "Where is Scheduler::run defined?",
+        "Where is Widget::~Widget implemented?",
+        # How people write it: quoted, or with an empty call (#447 review).
+        "Where is `Widget` defined?",
+        'Where is "Scheduler::run" defined?',
+        "Where is Widget::ready() defined?",
     ],
 )
 def test_supported_read_only_requests_route_directly(text):
@@ -58,6 +63,23 @@ def test_read_only_rule_does_not_gain_authority_from_near_matches(text):
     assert decision.action == RouteAction.MODEL_FALLBACK
     assert decision.source is None
     assert decision.rule_id is None
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        ("Where is Box<int>::size defined?", "cpp_template_symbol_unsupported"),
+        ("Where is Foo:bar defined?", "invalid_cpp_symbol"),
+        ("Where is Widget::~Other implemented?", "invalid_cpp_symbol"),
+        ("Where is `Box<int>` defined?", "cpp_template_symbol_unsupported"),
+        ("Where is Widget::ready(int) defined?", "invalid_cpp_symbol"),
+    ],
+)
+def test_unsupported_symbol_spellings_are_typed_before_worker_admission(text, reason):
+    decision = decide_route(text, active_repo_count=1)
+    assert decision.action == RouteAction.CLARIFY
+    assert decision.reason_code == reason
+    assert decision.source is None
 
 
 class NoConversationModel:
@@ -97,6 +119,30 @@ def _gateway(service, chat, runner):
         task_runner=runner,
         route_events=DurableRouteEvents(service),
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Where is Box<int>::size defined?", "Template-id symbol lookup is not supported"),
+        ("Where is Foo:bar defined?", "not a supported C++ identifier"),
+    ],
+)
+def test_unsupported_symbol_request_explains_the_typed_limit_without_work(
+    tmp_path, text, expected,
+):
+    service = _service(tmp_path)
+    chat = NoConversationModel()
+    runner = Runner()
+    gateway = _gateway(service, chat, runner)
+    try:
+        answer = gateway.turn(text)
+        assert expected in answer
+        assert "No task was run" in answer
+        assert chat.calls == 0
+        assert runner.calls == []
+    finally:
+        service.close()
 
 
 @pytest.mark.parametrize("text", ["Inspect this repo", "Where is Scheduler defined?"])

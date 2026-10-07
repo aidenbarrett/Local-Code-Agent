@@ -12,6 +12,7 @@ import re
 from typing import Mapping, Sequence
 from uuid import UUID
 
+from ..cpp_symbols import cpp_symbol_rejection
 from .change_requests import change_request_refusal, natural_change_target
 from .configured_checks import RUN_BUILD_CHECK, RUN_TEST_CHECK
 from .contracts import MAX_MESSAGE_CHARS, RouteSource
@@ -200,7 +201,7 @@ _GIT_REVIEW = re.compile(
 )
 _REPO_INSPECT = re.compile(r"^inspect (?:this|the) (?:repo|repository)[.!]?$", re.IGNORECASE)
 _SYMBOL_LOOKUP = re.compile(
-    r"^where is (?P<symbol>[A-Za-z_~][A-Za-z0-9_:.<>~]*) (?:defined|declared|implemented)\??$",
+    r"^where is (?P<symbol>\S+) (?P<site>defined|declared|implemented)\??$",
     re.IGNORECASE,
 )
 # Read-only questions about the active repository, in the shapes people actually ask.
@@ -449,9 +450,14 @@ def decide_route(
             skill="self-check",
         )
 
+    symbol_lookup = _SYMBOL_LOOKUP.fullmatch(stripped)
+    if symbol_lookup is not None:
+        rejection = cpp_symbol_rejection(symbol_lookup.group("symbol"))
+        if rejection is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=rejection)
     if (
         _REPO_INSPECT.fullmatch(stripped)
-        or _SYMBOL_LOOKUP.fullmatch(stripped)
+        or symbol_lookup is not None
         or _REPO_QUESTION.fullmatch(stripped)
     ):
         reason = _repository_target_reason(active_repo_count)

@@ -798,6 +798,47 @@ class ScriptedRepoExplain(ScriptedCompileFix):
         return self._finish("diagnosis", summary, ["repo_info:0", "list_files:1"])
 
 
+class ScriptedSymbolLookup(ScriptedCompileFix):
+    """Follow the public symbol route through candidate search and a bounded read."""
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:
+        latest = max(i for i, message in enumerate(messages) if message.get("role") == "user")
+        request = str(messages[latest].get("content", ""))
+        if "RingBuffer::full" not in request:
+            return super().chat(messages, tools, max_tokens)
+        results = [message for message in messages[latest + 1:] if message.get("role") == "tool"]
+        if not results:
+            # Pass the symbol exactly as the user wrote it (quotes, a trailing "()"):
+            # the tool must accept every spelling the public route admitted.
+            asked = re.search(r"where is (\S+) (?:defined|declared|implemented)", request,
+                              re.IGNORECASE)
+            symbol = asked.group(1) if asked else "RingBuffer::full"
+            return ChatResponse(tool_calls=[tool_call(
+                "find_definition", {"symbol": symbol}, "definition")])
+        if len(results) == 1:
+            matches = json.loads(str(results[0]["content"])).get("data", {}).get("matches", [])
+            match = next(
+                (item for item in matches
+                 if item.get("file") == RING and isinstance(item.get("line"), int)),
+                None,
+            )
+            if match is None:
+                return self._finish("diagnosis", "bounded lookup found no fixture definition", [])
+            line = int(match["line"])
+            return ChatResponse(tool_calls=[tool_call("read_file", {
+                "path": RING, "start_line": max(1, line - 2), "end_line": line + 2,
+            }, "read")])
+        search = json.loads(str(results[0]["content"])).get("data", {}).get("matches", [])
+        match = next(item for item in search if item.get("file") == RING)
+        line = int(match["line"])
+        return self._finish(
+            "diagnosis",
+            f"RingBuffer::full is defined at {RING}:{line}; the surrounding source was read.",
+            ["find_definition:0", "read_file:1"],
+        )
+
+
 # A file reference in an answer: a path or name ending in a source/build-file suffix.
 _PATH_REFERENCE = re.compile(
     r"(?<![\w/.-])((?:[\w.-]+/)*[\w.-]+\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx|ipp|inl|cmake|toml"
@@ -843,6 +884,25 @@ def j_repo_explain(s: Session) -> None:
     expect(_git(s.repo, "status", "--porcelain=v1") == before, "explaining changed the repository")
     s.journey.passed("named only existing files and every configured configure/build/test "
                      "command; repository unchanged")
+
+
+def j_symbol_lookup(s: Session) -> None:
+    """A public symbol question returns an observed file and line without mutation."""
+    before = _git(s.repo, "status", "--porcelain=v1")
+    # The plain spelling and a presentation spelling (quoted, trailing "()") go
+    # through the same route, worker and real tool.
+    for question in ("where is RingBuffer::full defined?",
+                     "where is `RingBuffer::full()` defined?"):
+        answer, result = s.turn(question)
+        expect(result is not None, f"{question!r} admitted no task")
+        expect(RING in answer and "RingBuffer::full" in answer,
+               f"{question!r}: the answer did not name its observed source: {answer!r}")
+        expect(re.search(rf"{re.escape(RING)}:\d+", answer) is not None,
+               f"{question!r}: the answer did not cite an observed line: {answer!r}")
+    expect(_git(s.repo, "status", "--porcelain=v1") == before,
+           "symbol lookup changed the repository")
+    s.journey.passed("public route found and read RingBuffer::full with a file/line citation, "
+                     "plain and quoted with ()")
 
 
 def dirty_work_snapshot(repo: Path, tracked: str, untracked: str) -> dict[str, bytes]:
@@ -1341,7 +1401,8 @@ SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
                     "J19-test-truth": ScriptedTestTruth,
                     "J19b-test-policy": ScriptedTestTruth,
                     "J20-conflict-explain": ScriptedConflictExplain,
-                    "J22-repo-explain": ScriptedRepoExplain}
+                    "J22-repo-explain": ScriptedRepoExplain,
+                    "J23-symbol-lookup": ScriptedSymbolLookup}
 # (id, title, kind, scenario, needs_model, repo options, function)
 JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Session], None]]] = [
     ("J01-build-pass", "build it on a clean tree", "product", "clean", False, {}, j_build_pass),
@@ -1379,6 +1440,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
      "compile_error", False, {}, j_commit_policy),
     ("J22-repo-explain", "explain the repository and how it is built, with real files only",
      "product", "clean", False, {}, j_repo_explain),
+    ("J23-symbol-lookup", "find a C++ symbol through the public repository route",
+     "product", "clean", False, {}, j_symbol_lookup),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]

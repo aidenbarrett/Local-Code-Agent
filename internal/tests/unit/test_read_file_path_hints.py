@@ -6,7 +6,7 @@ import pytest
 
 from local_agent.tools import files
 from local_agent.tools.files import _missing_file_message
-from local_agent.tools.tool_primitives import NotFoundError
+from local_agent.tools.tool_primitives import NotFoundError, ToolError
 
 
 def test_suffix_hint_is_preferred_over_basename(tmp_path):
@@ -82,6 +82,35 @@ def test_qualified_definition_excludes_duplicate_short_names(loaded):
         "bool Other::full() const { return true; }",
         "bool full() { return false; }",
     }
+
+
+def test_symbol_lookup_covers_declarations_destructors_and_common_suffixes(loaded):
+    sandbox, _, registry, _, _ = loaded
+    source = sandbox.root / "src" / "symbol_forms.cpp"
+    source.write_text(
+        "int frobnicate(int value);\n"
+        "Widget::~Widget() noexcept = default;\n"
+        "bool Widget::ready() const override { return true; }\n"
+        "auto Widget::size() const -> unsigned { return 0; }\n",
+        encoding="utf-8",
+    )
+
+    for symbol, expected in [
+        ("frobnicate", "int frobnicate(int value);"),
+        ("Widget::~Widget", "Widget::~Widget() noexcept = default;"),
+        ("Widget::ready", "bool Widget::ready() const override { return true; }"),
+        ("Widget::size", "auto Widget::size() const -> unsigned { return 0; }"),
+    ]:
+        result = registry.get("find_definition").handler(symbol=symbol, limit=200)
+        assert any(match["text"] == expected for match in result.data["matches"])
+        assert "declaration/definition" in result.summary
+
+
+@pytest.mark.parametrize("symbol", ["Box<int>::size", "Foo:bar", "Widget::~Other"])
+def test_symbol_lookup_rejects_spellings_outside_the_shared_grammar(loaded, symbol):
+    _, _, registry, _, _ = loaded
+    with pytest.raises(ToolError):
+        registry.get("find_definition").handler(symbol=symbol)
 
 
 def test_ambiguous_include_relative_header_is_not_chosen(loaded):
@@ -190,3 +219,76 @@ def test_definition_search_sees_untracked_files_with_either_backend(loaded, monk
                                                     encoding="utf-8")
     found = registry.get("find_definition").handler(symbol="brand_new_symbol")
     assert [Path(m["file"]).as_posix() for m in found.data["matches"]] == ["src/fresh.cpp"]
+
+
+def test_symbol_lookup_reports_sites_not_uses(loaded):
+    """#447 review: the widened function form must not report calls as declarations."""
+    sandbox, _, registry, _, _ = loaded
+    (sandbox.root / "src" / "uses.cpp").write_text(
+        "int frobnicate(int value);\n"
+        "static const char* name(int);\n"
+        "void ns::frobnicate(int value) { (void)value; }\n"
+        "Widget::Widget() = default;\n"
+        "std::vector<int> Widget::ready() const { return {}; }\n"
+        "void use(Widget* p, int x) {\n"
+        "    frobnicate(3);\n"
+        "    if (ok) frobnicate(x);\n"
+        "    if (frobnicate(x)) { x = 1; }\n"
+        "    return Widget::ready();\n"
+        "    total += util::parse(x);\n"
+        "    p->ready();\n"
+        "    case 1: frobnicate(4);\n"
+        "    ok = ok && frobnicate(5);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    def texts(symbol):
+        result = registry.get("find_definition").handler(symbol=symbol, limit=200)
+        return {m["text"] for m in result.data["matches"] if m["file"].endswith("uses.cpp")}
+
+    assert texts("frobnicate") == {
+        "int frobnicate(int value);",
+        "void ns::frobnicate(int value) { (void)value; }",
+    }
+    assert texts("Widget::ready") == {"std::vector<int> Widget::ready() const { return {}; }"}
+    assert texts("util::parse") == set()
+    assert texts("Widget::Widget") == {"Widget::Widget() = default;"}
+    assert texts("name") == {'static const char* name(int);'}
+
+
+def test_uses_do_not_crowd_real_sites_out_of_the_limit(loaded):
+    sandbox, _, registry, _, _ = loaded
+    calls = "".join("    frobnicate(%d);\n" % i for i in range(15))
+    (sandbox.root / "src" / "crowd.cpp").write_text(
+        "void use() {\n" + calls + "}\nint frobnicate(int value) { return value; }\n",
+        encoding="utf-8",
+    )
+    result = registry.get("find_definition").handler(symbol="frobnicate", limit=3)
+    crowd = [m["text"] for m in result.data["matches"] if m["file"].endswith("crowd.cpp")]
+    assert crowd == ["int frobnicate(int value) { return value; }"]
+
+
+@pytest.mark.parametrize("spelling", ['"Widget::ready"', "`Widget::ready`", "Widget::ready()",
+                                      "`Widget::ready()`"])
+def test_the_tool_accepts_every_spelling_the_route_admits(loaded, spelling):
+    """#448 review: route and tool share one canonical spelling, not two grammars."""
+    from local_agent.cpp_symbols import cpp_symbol_rejection
+
+    sandbox, _, registry, _, _ = loaded
+    (sandbox.root / "src" / "spelled.cpp").write_text(
+        "bool Widget::ready() const { return true; }\n", encoding="utf-8")
+    assert cpp_symbol_rejection(spelling) is None
+    result = registry.get("find_definition").handler(symbol=spelling, limit=200)
+    assert any(m["file"].endswith("spelled.cpp") for m in result.data["matches"])
+    assert "'Widget::ready'" in result.summary
+
+
+@pytest.mark.parametrize("spelling", ['"Box<int>::size"', "`Box<int>::size()`"])
+def test_a_quoted_template_id_is_still_the_typed_template_limit(loaded, spelling):
+    from local_agent.cpp_symbols import cpp_symbol_rejection
+
+    _, _, registry, _, _ = loaded
+    assert cpp_symbol_rejection(spelling) == "cpp_template_symbol_unsupported"
+    with pytest.raises(ToolError, match="template-id"):
+        registry.get("find_definition").handler(symbol=spelling)
