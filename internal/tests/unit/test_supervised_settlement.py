@@ -56,11 +56,40 @@ def test_a_report_naming_another_exit_code_is_not_this_runs_proof():
 
 
 @posix_only
-def test_a_stopped_run_report_has_no_leader_code_to_compare():
+def test_an_interrupted_run_may_report_no_leader_code():
     stopped = {**_VALID, "leader_exit_code": None}
     owner = _owner_with(json.dumps(stopped).encode())
-    report = owner.collect(_Exited(143))
+    report = owner.collect(_Exited(143), interrupted=True)
     assert report is not None and report.leader_exit_code is None
+    owner.close()
+
+
+@posix_only
+def test_an_interrupted_run_whose_leader_had_exited_still_matches_its_code():
+    raced = {**_VALID, "leader_exit_code": 0}
+    owner = _owner_with(json.dumps(raced).encode())
+    assert owner.collect(_Exited(0), interrupted=True) is not None
+    owner.close()
+    owner = _owner_with(json.dumps(raced).encode())
+    assert owner.collect(_Exited(143), interrupted=True) is None
+    owner.close()
+
+
+@posix_only
+@pytest.mark.parametrize("returncode", [0, 143])
+def test_a_normal_completion_never_accepts_a_stop_shaped_null_leader(returncode):
+    """Astra's probe on 4a8ed77: normal 0+null was accepted as proof."""
+    stopped = {**_VALID, "leader_exit_code": None}
+    owner = _owner_with(json.dumps(stopped).encode())
+    assert owner.collect(_Exited(returncode)) is None
+    owner.close()
+
+
+@posix_only
+def test_a_command_that_ended_itself_with_sigterm_reports_143():
+    natural = {**_VALID, "leader_exit_code": 143}
+    owner = _owner_with(json.dumps(natural).encode())
+    assert owner.collect(_Exited(143)) is not None
     owner.close()
 
 
@@ -227,3 +256,12 @@ def test_a_commit_whose_detached_auto_gc_was_ended_is_not_reported_failed(tmp_pa
     assert outcome.exit_code == 0
     if outcome.stray_descendants_at_exit:
         assert outcome.process_cleanup_confirmed is True
+
+
+@linux_only
+def test_a_real_command_ending_itself_with_sigterm_is_a_settled_normal_completion(tmp_path):
+    owned = run_owned(["sh", "-c", "kill -TERM $$"], tmp_path, OwnedLifecycle(10),
+                      env=dict(os.environ))
+    assert owned.exit_code == 143
+    assert owned.timed_out is False and owned.cancel_requested is False
+    assert owned.strays_unconfirmed is False, "the supervisor's 143 report was refused"

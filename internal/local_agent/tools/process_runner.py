@@ -176,7 +176,7 @@ def _kill_process_tree_best_effort(
             with contextlib.suppress(OSError):
                 proc.kill()
             return False
-        report = posix_owner.collect(proc)
+        report = posix_owner.collect(proc, interrupted=True)
         return report is not None and report.cleanup_confirmed
     if sys.platform == "win32":
         _best_effort_windows_tree_kill(proc)
@@ -442,12 +442,20 @@ class _PosixOwner:
             os.close(self.write_fd)
             self.write_fd = -1
 
-    def collect(self, proc: subprocess.Popen[bytes]) -> _SupervisorReport | None:
+    def collect(
+        self, proc: subprocess.Popen[bytes], *, interrupted: bool = False,
+    ) -> _SupervisorReport | None:
         """The supervisor's validated report, or None when settlement is unknown.
 
         Never blocks. Read only after the supervisor has exited; a live supervisor, a
         write end still held open, EOF without a report, or an oversized or malformed
         report all return None. Read at most once.
+
+        ``interrupted`` is the caller's own knowledge that it ended the run (Stop,
+        timeout, output limit). Only then may the leader code be null: the supervisor
+        interrupted a live leader. A normal completion must name the leader's code, and
+        it must be the code the supervisor exited with, including 143 for a command that
+        ended itself with SIGTERM.
         """
         if self.collected:
             return self.report
@@ -473,13 +481,7 @@ class _PosixOwner:
         if len(data) > _SUPERVISOR_REPORT_LIMIT:
             return None
         report = _supervisor_report(bytes(data))
-        if (
-            report is not None
-            and report.leader_exit_code is not None
-            and report.leader_exit_code != proc.returncode
-        ):
-            # The supervisor exits with its leader's code; a report naming another is
-            # not about this run.
+        if report is not None and not _report_matches_run(report, proc, interrupted=interrupted):
             report = None
         self.report = report
         return report
@@ -530,6 +532,16 @@ def _supervisor_report(data: bytes) -> _SupervisorReport | None:
     ):
         return _SupervisorReport(confirmed, count, code, error)
     return None
+
+
+def _report_matches_run(
+    report: _SupervisorReport, proc: subprocess.Popen[bytes], *, interrupted: bool,
+) -> bool:
+    """The report describes this run's lifecycle, not merely a well-typed one."""
+    if report.leader_exit_code is None:
+        return interrupted
+    # The supervisor exits with its leader's code, so any other code is another run's.
+    return report.leader_exit_code == proc.returncode
 
 
 def _is_plain_int(value: object) -> TypeGuard[int]:
