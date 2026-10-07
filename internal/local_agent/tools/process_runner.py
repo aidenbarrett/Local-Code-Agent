@@ -472,8 +472,17 @@ class _PosixOwner:
             self.read_fd = -1
         if len(data) > _SUPERVISOR_REPORT_LIMIT:
             return None
-        self.report = _supervisor_report(bytes(data))
-        return self.report
+        report = _supervisor_report(bytes(data))
+        if (
+            report is not None
+            and report.leader_exit_code is not None
+            and report.leader_exit_code != proc.returncode
+        ):
+            # The supervisor exits with its leader's code; a report naming another is
+            # not about this run.
+            report = None
+        self.report = report
+        return report
 
     def close(self) -> None:
         for name in ("read_fd", "write_fd"):
@@ -516,6 +525,8 @@ def _supervisor_report(data: bytes) -> _SupervisorReport | None:
         and _is_plain_int(count) and count >= 0
         and (code is None or _is_plain_int(code))
         and (error is None or isinstance(error, str))
+        # A setup failure can never also be confirmed cleanup.
+        and not (confirmed and error is not None)
     ):
         return _SupervisorReport(confirmed, count, code, error)
     return None

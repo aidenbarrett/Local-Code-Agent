@@ -30,6 +30,7 @@ posix_only = pytest.mark.skipif(os.name == "nt", reason="the supervisor pipe is 
 class _Exited:
     def __init__(self, code: int | None) -> None:
         self.code = code
+        self.returncode = code
 
     def poll(self) -> int | None:
         return self.code
@@ -45,6 +46,22 @@ def _owner_with(payload: bytes, *, keep_writer: bool = False):
     if not keep_writer:
         owner.spawned()
     return owner
+
+
+@posix_only
+def test_a_report_naming_another_exit_code_is_not_this_runs_proof():
+    owner = _owner_with(json.dumps(_VALID).encode() + b"\n")
+    assert owner.collect(_Exited(3)) is None
+    owner.close()
+
+
+@posix_only
+def test_a_stopped_run_report_has_no_leader_code_to_compare():
+    stopped = {**_VALID, "leader_exit_code": None}
+    owner = _owner_with(json.dumps(stopped).encode())
+    report = owner.collect(_Exited(143))
+    assert report is not None and report.leader_exit_code is None
+    owner.close()
 
 
 @posix_only
@@ -86,6 +103,7 @@ def test_a_write_end_still_held_open_is_unknown_not_a_hang():
     json.dumps({**_VALID, "stray_descendants": -1}).encode(),
     json.dumps({**_VALID, "leader_exit_code": False}).encode(),
     json.dumps({**_VALID, "setup_error": 3}).encode(),
+    json.dumps({**_VALID, "setup_error": "prctl failed"}).encode(),   # confirmed + error
     json.dumps(_VALID).encode()                                   # oversized, even
     + b" " * process_runner._SUPERVISOR_REPORT_LIMIT,             # with a valid prefix
 ])
