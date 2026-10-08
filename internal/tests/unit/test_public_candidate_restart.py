@@ -56,9 +56,9 @@ def _live_index(root) -> bytes:
 def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
     sandbox, tmp_path, monkeypatch, case,
 ):
-    """``commit-hook-failed``: the post-commit index reconciler does not run (any hook
-    failure), then the controller dies after Git returns and before its own locked
-    retry or receipt. Restart must leave the user's live index byte-exact, report
+    """``commit-hook-failed``: the publishing reference-transaction hook does not run
+    (any hook failure), then the controller dies after Git returns and before its own
+    locked retry or receipt. Restart must leave the user's live index byte-exact, report
     UNKNOWN and refuse to replay the commit (#434 review)."""
     effect = "apply" if case == "apply" else "commit"
     hub = _load_hub()
@@ -110,7 +110,8 @@ def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
 
                     def die_after_git(root, *args, **kwargs):
                         result = real_git(root, *args, **kwargs)
-                        if args and args[0] == "commit":
+                        if args and args[0] == "update-ref":
+                            # Publication is the ref update; die right after it.
                             assert result.returncode == 0
                             calls.append("commit")
                             raise SystemExit("death after commit before receipt")

@@ -55,9 +55,10 @@ from ..tools.process_runner import (
 from ..tools.tool_primitives import SandboxError, resolve_in_repo
 from .commit_index_hook import (
     IndexEntry,
+    Publication,
     hook_environment,
     index_entry_from_listings,
-    install_post_commit_hook,
+    install_reference_transaction_hook,
     prepare_transaction,
     reconcile_and_report,
 )
@@ -1112,10 +1113,13 @@ class GitWorkspaceManager:
             existing = str(record["committed"])
             return CommitRefused(f"that change is already committed as {existing[:12]}", paths,
                                  existing_commit=existing)
-        branch = self._git(user, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+        branch = self._git(user, "symbolic-ref", "--quiet", "HEAD", check=False)
         if branch.returncode != 0:
             return CommitRefused("HEAD is detached; check out a branch first", paths)
-        branch_name = branch.stdout.decode().strip()
+        branch_ref = branch.stdout.decode().strip()
+        if not branch_ref.startswith("refs/heads/"):
+            return CommitRefused(f"HEAD names {branch_ref}, not a local branch", paths)
+        branch_name = branch_ref.removeprefix("refs/heads/")
         blocked = self._commit_state_refusal(user)
         if blocked:
             return CommitRefused(blocked, paths, branch_name)
@@ -1130,7 +1134,7 @@ class GitWorkspaceManager:
                 paths, branch_name,
             )
         private = self._commit_private_index(
-            user, parent, paths, branch_name, message,
+            user, parent, paths, branch_ref, message,
         )
         if isinstance(private, CommitRefused):
             return private
@@ -1153,10 +1157,19 @@ class GitWorkspaceManager:
         user: Path,
         parent: str,
         paths: tuple[str, ...],
-        branch_name: str,
+        branch_ref: str,
         message: str,
     ) -> CommitRefused | _PrivateCommit:
-        """Create the exact candidate commit without borrowing the user's live index."""
+        """Create the exact candidate commit and publish it only onto ``parent`` (#453).
+
+        The commit object is built from an LCA-owned private index whose tree is
+        ``parent`` plus exactly the candidate paths, with ``parent`` as its only parent.
+        Nothing names it until one compare-and-swap ``update-ref`` moves ``branch_ref``
+        from ``parent`` to it. If anything else moved the branch first (a concurrent
+        commit, reset or rebase), Git refuses the update and no ref changes: the user's
+        newer history is never published over with a tree built from older contents.
+        """
+        branch_name = branch_ref.removeprefix("refs/heads/")
         index_before = {p: self._index_entry(user, p) for p in paths}
         fd, raw_index = tempfile.mkstemp(prefix="commit-index-", dir=self.workspaces_root)
         os.close(fd)
@@ -1164,7 +1177,7 @@ class GitWorkspaceManager:
         commit_index.unlink(missing_ok=True)
         index_env = {"GIT_INDEX_FILE": str(commit_index)}
         transaction: Path | None = None
-        committed = False
+        published = False
         try:
             prepared = self._git(
                 user, "read-tree", parent, check=False, env_extra=index_env,
@@ -1188,6 +1201,10 @@ class GitWorkspaceManager:
             index_staged = {
                 p: self._index_entry(user, p, env_extra=index_env) for p in paths
             }
+            made = self._commit_object(user, index_env, parent, message)
+            if isinstance(made, str):
+                return CommitRefused(made, paths, branch_name)
+            commit, body = made
             live_index = Path(self._out(user, "rev-parse", "--git-path", "index"))
             # Only a path whose live entry equalled the old HEAD is LCA's to advance; a
             # path the user had staged differently is user work and is never touched.
@@ -1197,10 +1214,11 @@ class GitWorkspaceManager:
                 if index_before[p].stage == index_base[p].stage
             )
             try:
-                install_post_commit_hook(self._empty_hooks)
+                install_reference_transaction_hook(self._empty_hooks)
                 if owned:
                     transaction = prepare_transaction(
-                        self.workspaces_root, user, live_index, parent, owned,
+                        self.workspaces_root, user, live_index,
+                        Publication(ref=branch_ref, parent=parent, commit=commit), owned,
                     )
             except OSError as exc:
                 return CommitRefused(
@@ -1208,24 +1226,73 @@ class GitWorkspaceManager:
                     paths,
                     branch_name,
                 )
-            commit_env = dict(index_env)
-            if transaction is not None:
-                commit_env.update(hook_environment(transaction))
-            done = self._git(
-                user, "commit", "--quiet", "--no-verify", "-F", "-",
-                stdin=message.encode("utf-8"), check=False, env_extra=commit_env,
+            publish_env = {} if transaction is None else hook_environment(transaction)
+            subject = body.decode("utf-8", "replace").split("\n", 1)[0]
+            moved = self._git(
+                user, "update-ref", "-m", f"commit: {subject}", branch_ref, commit, parent,
+                check=False, env_extra=publish_env,
             )
-            if done.returncode != 0:
-                return CommitRefused(_failed_commit_reason(done), paths, branch_name)
-            commit = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
-            committed = True
+            if moved.returncode != 0:
+                return CommitRefused(
+                    f"{branch_name} moved while the commit was being prepared (another "
+                    "commit, reset or branch change); nothing was committed and your "
+                    "history, index and files are untouched. Review the new state and "
+                    "commit the candidate again.",
+                    paths,
+                    branch_name,
+                )
+            published = True
             return _PrivateCommit(commit, transaction, tuple(p for p, _, _ in owned))
         finally:
-            # After a commit the caller owns the transaction for its own locked pass.
-            if transaction is not None and not committed:
+            # After publication the caller owns the transaction for its own locked pass.
+            if transaction is not None and not published:
                 transaction.unlink(missing_ok=True)
             commit_index.unlink(missing_ok=True)
             Path(str(commit_index) + ".lock").unlink(missing_ok=True)
+
+    def _commit_object(
+        self, user: Path, index_env: dict[str, str], parent: str, message: str,
+    ) -> tuple[str, bytes] | str:
+        """The unreferenced commit of the private index on ``parent``, or why not.
+
+        Returns the commit id and its recorded message. Nothing names the object yet;
+        if it is never published it is unreachable and Git collects it.
+        """
+        tree = self._git(user, "write-tree", check=False, env_extra=index_env)
+        if tree.returncode != 0:
+            return "git refused to write the private commit tree"
+        body = self._commit_message(user, message)
+        if body is None:
+            return "the commit message is empty"
+        made = self._git(
+            user, "commit-tree", *self._signing_flags(user),
+            tree.stdout.decode("ascii").strip(), "-p", parent, "-F", "-",
+            stdin=body, check=False,
+        )
+        if made.returncode != 0:
+            return _failed_commit_reason(made)
+        return made.stdout.decode("ascii").strip(), body
+
+    def _commit_message(self, user: Path, message: str) -> bytes | None:
+        """The message ``git commit -F`` would record, or None when it would refuse.
+
+        ``commit-tree`` stores its input verbatim, so the user's ``commit.cleanup`` is
+        applied here as ``git commit`` applies it to a message given with ``-F``.
+        """
+        mode = self._git(user, "config", "--get", "commit.cleanup", check=False)
+        cleanup = mode.stdout.decode("utf-8", "replace").strip() or "default"
+        raw = message.encode("utf-8")
+        if cleanup == "verbatim":
+            body = raw
+        else:
+            flags = ("--strip-comments",) if cleanup == "strip" else ()
+            body = self._git(user, "stripspace", *flags, stdin=raw).stdout
+        return body if body.strip() else None
+
+    def _signing_flags(self, user: Path) -> tuple[str, ...]:
+        """Sign exactly when ``git commit`` would: ``commit-tree`` ignores commit.gpgSign."""
+        sign = self._git(user, "config", "--type=bool", "--get", "commit.gpgsign", check=False)
+        return ("-S",) if sign.stdout.decode("ascii", "replace").strip() == "true" else ()
 
     def _commit_state_refusal(self, user: Path) -> str | None:
         """Why the checkout cannot take a controller commit now, or None."""

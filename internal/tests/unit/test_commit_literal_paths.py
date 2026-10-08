@@ -92,7 +92,7 @@ def test_a_commit_whose_changed_paths_exceed_the_candidate_is_a_mismatch(tmp_pat
     real_git = manager._git
 
     def widen(cwd, *args, **kwargs):
-        if args and args[0] == "commit":
+        if args and args[0] == "write-tree":
             private_env = kwargs.get("env_extra")
             assert private_env and "GIT_INDEX_FILE" in private_env
             real_git(cwd, "add", "--", "b.txt", env_extra=private_env)
@@ -207,19 +207,11 @@ def test_user_restaging_during_failed_private_commit_is_untouched(tmp_path, monk
     real_git = manager._git
 
     def user_restages_then_commit_fails(cwd, *args, **kwargs):
-        if args and args[0] == "commit":
+        if args and args[0] == "commit-tree":
             (user / "new.txt").write_text("user changed it\n", encoding="utf-8")
             real_git(cwd, "add", "--", "new.txt")
-            return real_git(
-                cwd,
-                "commit",
-                "--only",
-                "-F",
-                "-",
-                "--",
-                "no-such-file",
-                **kwargs,
-            )
+            # A genuine commit-object failure: a tree that does not exist.
+            return real_git(cwd, "commit-tree", "0" * 40, "-m", "x", **kwargs)
         return real_git(cwd, *args, **kwargs)
 
     monkeypatch.setattr(manager, "_git", user_restages_then_commit_fails)
