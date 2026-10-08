@@ -8,7 +8,6 @@ import pytest
 from local_agent.session.candidate_change import _commit_facts
 from local_agent.session.workspaces import (
     CommitDrifted,
-    CommitMismatched,
     CommitRefused,
     CommitResult,
     Committed,
@@ -20,7 +19,6 @@ SHA = "a" * 40
 
 @pytest.mark.parametrize(("done", "commit", "branch", "drifted"), [
     (Committed(SHA, "main", ("src/a.cpp",)), SHA, "main", []),
-    (CommitMismatched(SHA, "main", ("src/a.cpp",)), SHA, "main", []),
     (CommitDrifted("main", ("src/a.cpp", "src/b.cpp"), ("src/b.cpp",)), None, "main", ["src/b.cpp"]),
     (CommitRefused("HEAD is detached", ("src/a.cpp",)), None, None, []),
     (CommitRefused("already committed", ("src/a.cpp",), existing_commit=SHA), SHA, None, []),
@@ -44,7 +42,7 @@ def test_outcomes_are_immutable_values() -> None:
         done.commit = "b" * 40  # type: ignore[misc]
 
 
-def test_only_a_commit_or_a_mismatch_carries_a_commit_id_field() -> None:
+def test_only_a_commit_carries_a_commit_id_field() -> None:
     # A refusal cannot be read as a commit: the attribute does not exist on it.
     assert not hasattr(CommitRefused("x"), "commit")
     assert not hasattr(CommitDrifted("main", (), ()), "commit")

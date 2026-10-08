@@ -17,7 +17,6 @@ from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.task_admission import DurableTaskAdmissionRunner
 from local_agent.session.task_controller import TaskController
 from local_agent.session.task_history import DurableTaskHistory
-from local_agent.session import workspaces as workspaces_module
 from local_agent.session.workspaces import GitWorkspaceManager, WorkspaceError
 from test_public_path_code_journey import NoConversationModel, RING, _fix_turns, _git
 from test_session_hub_product_path import _load_hub
@@ -47,6 +46,11 @@ def _state(root):
     ))
 
 
+def _live_index_lock_path(root) -> Path:
+    path = Path(_git(root, "rev-parse", "--git-path", "index").strip())
+    return Path(str(path if path.is_absolute() else root / path) + ".lock")
+
+
 def _live_index(root) -> bytes:
     path = Path(_git(root, "rev-parse", "--git-path", "index").strip())
     return (path if path.is_absolute() else root / path).read_bytes()
@@ -56,9 +60,9 @@ def _live_index(root) -> bytes:
 def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
     sandbox, tmp_path, monkeypatch, case,
 ):
-    """``commit-hook-failed``: the post-commit index reconciler does not run (any hook
-    failure), then the controller dies after Git returns and before its own locked
-    retry or receipt. Restart must leave the user's live index byte-exact, report
+    """``commit-hook-failed``: the publishing reference-transaction hook cannot
+    reconcile (another Git holds the index lock), then the controller dies after Git
+    returns and before its own locked retry or receipt. Restart must leave the user's live index byte-exact, report
     UNKNOWN and refuse to replay the commit (#434 review)."""
     effect = "apply" if case == "apply" else "commit"
     hub = _load_hub()
@@ -97,8 +101,6 @@ def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
             live_index_before = _live_index(sandbox.root)
             calls = []
             with monkeypatch.context() as death:
-                if case == "commit-hook-failed":
-                    death.setattr(workspaces_module, "hook_environment", lambda _txn: {})
                 if effect == "apply":
                     def die_before_receipt(*args, **kwargs):
                         calls.append("apply")
@@ -109,8 +111,21 @@ def test_public_candidate_effect_death_recovers_unknown_and_refuses_reissue(
                     real_git = manager._git
 
                     def die_after_git(root, *args, **kwargs):
-                        result = real_git(root, *args, **kwargs)
-                        if args and args[0] == "commit":
+                        publication = (args and args[0] == "update-ref"
+                                       and "--stdin" not in args)
+                        if publication and case == "commit-hook-failed":
+                            # Another Git holds the index lock while the hook runs, so
+                            # the hook reconciles nothing; then the controller dies.
+                            lock = _live_index_lock_path(sandbox.root)
+                            lock.write_bytes(b"held by another git process")
+                            try:
+                                result = real_git(root, *args, **kwargs)
+                            finally:
+                                lock.unlink()
+                        else:
+                            result = real_git(root, *args, **kwargs)
+                        if publication:
+                            # Publication is the ref update; die right after it.
                             assert result.returncode == 0
                             calls.append("commit")
                             raise SystemExit("death after commit before receipt")
