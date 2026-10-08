@@ -76,18 +76,9 @@ function InstallWinget([string]$Id,[string]$Override="") {
     RefreshPath
 }
 
-# The MSVC C++ compiler that CMake's Visual Studio generator uses. vswhere ships with
-# every Visual Studio 2017+ installation, Build Tools included.
-$MsvcComponent = "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+# FindMsvc and $MsvcComponent: one owner, shared with `local-code-agent.ps1 doctor`.
+. (Join-Path $PSScriptRoot 'scripts\msvc.ps1')
 $BuildToolsOverride = "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
-function FindMsvc {
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-    if (!(Test-Path $vswhere)) { return $null }
-    $found = @(& $vswhere -products * -latest -requires $MsvcComponent -property installationPath) |
-        Where-Object { $_ } | Select-Object -First 1
-    if ($found) { return ([string]$found).Trim() }
-    return $null
-}
 
 function FindPython {
     foreach ($cmd in @("py","python","python3")) {

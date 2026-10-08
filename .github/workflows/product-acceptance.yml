@@ -71,6 +71,29 @@ jobs:
           & .\local-code-agent.ps1 capabilities
           if ($LASTEXITCODE -ne 0) { throw "public capabilities failed with exit code $LASTEXITCODE" }
 
+      - name: Public doctor reports readiness read-only, twice
+        shell: pwsh
+        run: |
+          Set-Location $env:LCA_ACCEPTANCE_ROOT
+          # A fresh runtime root: no model choice, weights or server. doctor must name
+          # the next step and leave the root exactly as absent as it found it.
+          $env:LCA_RUNTIME_ROOT = Join-Path $env:RUNNER_TEMP 'lca doctor runtime'
+          $transcripts = @()
+          foreach ($launch in 1, 2) {
+            $output = (& .\local-code-agent.ps1 doctor 2>&1 | Out-String)
+            $rc = $LASTEXITCODE
+            Write-Host "--- doctor launch $launch (exit $rc) ---"
+            Write-Host $output
+            if ($rc -ne 3) { throw "doctor on a fresh machine must exit 3 (not ready), got $rc" }
+            if ($output -notmatch 'Weights\s+MISSING') { throw 'doctor did not report the missing weights' }
+            if ($output -notmatch 'models pull ptl-gpu-30b') { throw 'doctor did not name the weights next step' }
+            if ($output -notmatch 'C\+\+ compiler\s+READY') { throw 'doctor did not find the runner MSVC' }
+            if (Test-Path $env:LCA_RUNTIME_ROOT) { throw 'doctor created the runtime root' }
+            $transcripts += $output
+          }
+          if ($transcripts[0] -ne $transcripts[1]) { throw 'a second doctor launch reported differently' }
+          $global:LASTEXITCODE = 0
+
       - name: Public launcher ignores hostile ambient Python configuration
         shell: pwsh
         run: |
