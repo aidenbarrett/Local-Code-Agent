@@ -92,9 +92,11 @@ def test_running_command_observes_cancel_without_claiming_whole_tree_cleanup(tmp
     assert outcome.timed_out is False
     assert outcome.exit_code == 130
     assert outcome.ok is False
-    # A Windows Job Object is whole-tree containment confirmed by kernel accounting.
-    # POSIX process-group signalling is not, and cancellation must not upgrade it.
-    assert outcome.process_cleanup_confirmed is (os.name == "nt")
+    # Windows Job accounting and Linux child-subreaper ownership both prove the tree
+    # empty. Other POSIX process-group signalling remains unconfirmed.
+    assert outcome.process_cleanup_confirmed is (
+        os.name == "nt" or sys.platform.startswith("linux")
+    )
     assert "command cancellation requested" in outcome.stderr_path.read_text(encoding="utf-8")
     command_log = outcome.stdout_path.parent / "command.txt"
     assert "cancel_requested=true" in command_log.read_text(encoding="utf-8")

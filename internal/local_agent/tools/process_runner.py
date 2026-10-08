@@ -4,9 +4,11 @@ Every command runs with a fixed argv from the repository config, a working
 directory pinned to the repository root, a timeout and a hard output bound. Its
 output is written to the run directory as evidence, never into the context window.
 
-Timeout and cancellation are execution-state claims, not just return codes. A POSIX
-session gives us a useful process group to kill, but it is not containment: a descendant
-can call ``setsid()`` and escape that group, so POSIX cleanup is reported unconfirmed.
+Timeout and cancellation are execution-state claims, not just return codes. On Linux a
+dedicated helper becomes a child subreaper before it starts the command. Descendants
+that orphan after ``setsid()`` return to that owner; it kills and reaps from the root
+until ``waitpid`` proves there are no children. Other POSIX platforms have only an
+escapable process group and effect-owning execution therefore fails closed.
 
 On Windows the command is created suspended and adopted by a kill-on-close Job Object
 before its first instruction runs (``windows_job``). Descendants cannot break away, and
@@ -15,10 +17,11 @@ processes. If the OS refuses the job, the runner falls back to visible-tree enum
 and reports cleanup unconfirmed, exactly as before.
 
 A normally exiting command must not leave an owned process behind on either platform.
-Descendants still inside the job (Windows) or the session's process group (POSIX) when
-the direct child exits are given a short settle window to finish on their own, then
-counted, ended and drained within a bound. If they cannot be shown gone, the run says so
-(``strays_unconfirmed``) and callers that own effects fail the step.
+Descendants still inside the owner when the direct child exits are counted, ended and
+drained within a bound. A descendant that was witnessed and conclusively ended before
+return is evidence (``stray_descendants_at_exit``), not failure: build servers and git's
+detached maintenance do this routinely. Only an unknown settlement fails: if the tree
+cannot be shown gone, ``strays_unconfirmed`` fails the effect-owning step closed.
 
 Output is bounded while the command runs, not only after it exits: stdout and stderr
 together may not exceed the caller's limit, checked on every poll, and crossing it ends
@@ -27,10 +30,7 @@ bounded by one poll interval of writing.
 
 Captured output never lives in a public run directory. On Windows it goes to private
 temporary files, which no writer can grow after the run because the job ends every
-descendant. On POSIX it goes to pipes the controller drains under the byte limit and
-closes when the run ends: a descendant that escaped the process group with setsid()
-then gets EPIPE, not disk. A POSIX process group is not a process tree, and nothing
-here claims it is: ``containment="process_group"`` and cleanup stays unconfirmed.
+descendant. On POSIX it goes to pipes the controller drains under the byte limit.
 
 An ``on_spawn`` callback runs before the command can have any effect: the child is
 suspended on Windows and held at a shell gate on POSIX until the callback returns.
@@ -39,6 +39,7 @@ suspended on Windows and held at a shell gate on POSIX until the callback return
 from __future__ import annotations
 
 import contextlib
+import json
 import mmap
 import os
 import selectors
@@ -52,7 +53,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
-from typing import IO, Protocol
+from typing import IO, Protocol, TypeGuard, cast
 
 import psutil
 
@@ -63,6 +64,14 @@ _POST_KILL_WAIT_S = 2.0
 # Descendants a normally exiting command abandoned: long enough for a loaded machine's
 # kernel accounting to drain, and bounded.
 _STRAY_DRAIN_S = 10.0
+# The Linux supervisor's own drain budget, passed to it, and the margin the runner adds
+# for its report and exit. Whenever the runner ends a supervised run it waits for the
+# whole of both before it may SIGKILL the supervisor: killing the owner mid-drain would
+# reparent what it has not yet ended to the outer reaper.
+_SUPERVISOR_DRAIN_S = 5.0
+_SUPERVISOR_SETTLE_MARGIN_S = 1.0
+# A supervisor report is one short JSON line; anything longer is not a report.
+_SUPERVISOR_REPORT_LIMIT = 4096
 _POST_KILL_FORCE_WAIT_S = 1.0
 _CANCEL_POLL_S = 0.05
 # After the direct child exits, how long its tree may take to finish on its own before
@@ -90,23 +99,27 @@ class RunOutcome:
     stdout_path: Path
     stderr_path: Path
     combined_path: Path
-    # None means no cleanup was required. False means cleanup ran but the runner cannot
-    # prove the whole tree ended. True means the tree's owner (a Windows Job Object)
-    # accounted for every process ending: after a timeout or Stop, or after a normally
-    # exiting command left descendants behind in its job.
+    # None means the whole-tree owner observed that no cleanup was required. False means
+    # cleanup ran (or ownership was unavailable) but the runner cannot prove the whole
+    # tree ended. True means the Windows Job Object or Linux child subreaper accounted
+    # for every process ending.
     process_cleanup_confirmed: bool | None = None
     cancel_requested: bool = False
     # Whole-tree ownership held for this run: "job_object" (Windows Job Object),
-    # "process_group" (POSIX session, escapable) or "visible_tree" (Windows fallback).
+    # "child_subreaper" (Linux), "process_group" (unsupported POSIX fail-closed), or
+    # "visible_tree" (Windows fallback).
     containment: str = "process_group"
-    # Descendants still inside the job (Windows) or the session's process group (POSIX)
-    # when the direct child exited normally, which the runner then ended. None when the
-    # containment cannot count them (Windows visible-tree fallback, or no normal exit).
+    # Descendants the owner observed after the command exited normally and then ended.
+    # None when containment cannot count them, or the command did not exit normally.
     stray_descendants_at_exit: int | None = None
 
     @property
     def ok(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out and not self.cancel_requested
+        return (
+            self.exit_code == 0
+            and not self.timed_out
+            and not self.cancel_requested
+        )
 
 
 def new_run_dir(run_root: Path) -> tuple[str, Path]:
@@ -143,7 +156,8 @@ def _best_effort_windows_tree_kill(proc: subprocess.Popen[bytes]) -> None:
 
 
 def _kill_process_tree_best_effort(
-    proc: subprocess.Popen[bytes], job: windows_job.ProcessTreeJob | None = None
+    proc: subprocess.Popen[bytes], job: windows_job.ProcessTreeJob | None = None,
+    posix_owner: _PosixOwner | None = None,
 ) -> bool:
     """Best-effort cleanup; return whether whole-tree cleanup is proven."""
     if job is not None:
@@ -153,6 +167,17 @@ def _kill_process_tree_best_effort(
             # answer stays unconfirmed: only job accounting may say the tree is gone.
             _best_effort_windows_tree_kill(proc)
         return confirmed
+    if posix_owner is not None:
+        with contextlib.suppress(ProcessLookupError):
+            proc.send_signal(signal.SIGTERM)
+        try:
+            proc.wait(timeout=_SUPERVISOR_DRAIN_S + _SUPERVISOR_SETTLE_MARGIN_S)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(OSError):
+                proc.kill()
+            return False
+        report = posix_owner.collect(proc, interrupted=True)
+        return report is not None and report.cleanup_confirmed
     if sys.platform == "win32":
         _best_effort_windows_tree_kill(proc)
         # Enumeration is not containment. A Windows Job Object is required before
@@ -378,6 +403,7 @@ class _Tree:
 
     job: windows_job.ProcessTreeJob | None
     containment: str
+    posix_owner: _PosixOwner | None = None
     timed_out: bool = False
     cancel_requested: bool = False
     cleanup_confirmed: bool | None = None
@@ -387,6 +413,141 @@ class _Tree:
     output_exceeded: int | None = None
 
 
+@dataclass
+class _PosixOwner:
+    """Private report channel to the Linux child-subreaper supervisor."""
+
+    read_fd: int
+    write_fd: int
+    report: _SupervisorReport | None = None
+    collected: bool = False
+
+    @classmethod
+    def open(cls) -> _PosixOwner:
+        read_fd, write_fd = os.pipe()
+        return cls(read_fd, write_fd)
+
+    def argv(self, command: list[str]) -> list[str]:
+        helper = Path(__file__).with_name("posix_supervisor.py")
+        return [sys.executable, str(helper), "--drain-s", str(_SUPERVISOR_DRAIN_S), "--",
+                *command]
+
+    def environment(self, source: dict[str, str]) -> dict[str, str]:
+        result = dict(source)
+        result["LCA_POSIX_SUPERVISOR_FD"] = str(self.write_fd)
+        return result
+
+    def spawned(self) -> None:
+        if self.write_fd >= 0:
+            os.close(self.write_fd)
+            self.write_fd = -1
+
+    def collect(
+        self, proc: subprocess.Popen[bytes], *, interrupted: bool = False,
+    ) -> _SupervisorReport | None:
+        """The supervisor's validated report, or None when settlement is unknown.
+
+        Never blocks. Read only after the supervisor has exited; a live supervisor, a
+        write end still held open, EOF without a report, or an oversized or malformed
+        report all return None. Read at most once.
+
+        ``interrupted`` is the caller's own knowledge that it ended the run (Stop,
+        timeout, output limit). Only then may the leader code be null: the supervisor
+        interrupted a live leader. A normal completion must name the leader's code, and
+        it must be the code the supervisor exited with, including 143 for a command that
+        ended itself with SIGTERM.
+        """
+        if self.collected:
+            return self.report
+        if proc.poll() is None or self.read_fd < 0:
+            return None
+        self.collected = True
+        data = bytearray()
+        try:
+            # Typeshed declares os.set_blocking POSIX-only; this pipe exists only on Linux.
+            set_blocking = cast(Callable[[int, bool], None], vars(os)["set_blocking"])
+            set_blocking(self.read_fd, False)
+            while len(data) <= _SUPERVISOR_REPORT_LIMIT:
+                chunk = os.read(self.read_fd, _SUPERVISOR_REPORT_LIMIT + 1 - len(data))
+                if not chunk:
+                    break
+                data.extend(chunk)
+        except OSError:          # BlockingIOError: a writer is still open
+            return None
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(self.read_fd)
+            self.read_fd = -1
+        if len(data) > _SUPERVISOR_REPORT_LIMIT:
+            return None
+        report = _supervisor_report(bytes(data))
+        if report is not None and not _report_matches_run(report, proc, interrupted=interrupted):
+            report = None
+        self.report = report
+        return report
+
+    def close(self) -> None:
+        for name in ("read_fd", "write_fd"):
+            fd = getattr(self, name)
+            if fd >= 0:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                setattr(self, name, -1)
+
+
+_REPORT_FIELDS = frozenset({
+    "cleanup_confirmed", "leader_exit_code", "setup_error", "stray_descendants",
+})
+
+
+@dataclass(frozen=True)
+class _SupervisorReport:
+    """The Linux supervisor's kernel-observed result, validated at the pipe."""
+
+    cleanup_confirmed: bool
+    stray_descendants: int
+    leader_exit_code: int | None
+    setup_error: str | None
+
+
+def _supervisor_report(data: bytes) -> _SupervisorReport | None:
+    """Validate the supervisor's report once, at the boundary; None if malformed."""
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict) or set(value) != _REPORT_FIELDS:
+        return None
+    confirmed = value["cleanup_confirmed"]
+    count = value["stray_descendants"]
+    code = value["leader_exit_code"]
+    error = value["setup_error"]
+    if (
+        isinstance(confirmed, bool)
+        and _is_plain_int(count) and count >= 0
+        and (code is None or _is_plain_int(code))
+        and (error is None or isinstance(error, str))
+        # A setup failure can never also be confirmed cleanup.
+        and not (confirmed and error is not None)
+    ):
+        return _SupervisorReport(confirmed, count, code, error)
+    return None
+
+
+def _report_matches_run(
+    report: _SupervisorReport, proc: subprocess.Popen[bytes], *, interrupted: bool,
+) -> bool:
+    """The report describes this run's lifecycle, not merely a well-typed one."""
+    if report.leader_exit_code is None:
+        return interrupted
+    # The supervisor exits with its leader's code, so any other code is another run's.
+    return report.leader_exit_code == proc.returncode
+
+
+def _is_plain_int(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _open_tree() -> _Tree:
     job: windows_job.ProcessTreeJob | None = None
     if windows_job.supported():
@@ -394,17 +555,25 @@ def _open_tree() -> _Tree:
             job = windows_job.ProcessTreeJob()
         except windows_job.JobContainmentError:
             job = None
+    posix_owner = (
+        _PosixOwner.open()
+        if job is None and os.name != "nt" and sys.platform.startswith("linux")
+        else None
+    )
     containment = (
         "job_object" if job is not None
+        else "child_subreaper" if posix_owner is not None
         else ("visible_tree" if os.name == "nt" else "process_group")
     )
-    return _Tree(job, containment)
+    return _Tree(job, containment, posix_owner)
 
 
 def _end_after_failure(proc: subprocess.Popen[bytes], tree: _Tree) -> None:
     """End a started tree because control is leaving abnormally; never raises."""
     with contextlib.suppress(Exception):
-        tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
+        tree.cleanup_confirmed = _kill_process_tree_best_effort(
+            proc, tree.job, tree.posix_owner
+        )
     with contextlib.suppress(Exception):
         _bounded_reap(proc)
 
@@ -469,7 +638,9 @@ def _wait(proc: subprocess.Popen[bytes], tree: _Tree, deadline: float,
         try:
             if _probe_requested(probe):
                 tree.cancel_requested = True
-                tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
+                tree.cleanup_confirmed = _kill_process_tree_best_effort(
+                    proc, tree.job, tree.posix_owner
+                )
                 _bounded_reap(proc)
                 return 130
             exceeded = _over_limit(captures)
@@ -479,14 +650,18 @@ def _wait(proc: subprocess.Popen[bytes], tree: _Tree, deadline: float,
             raise
         if exceeded is not None:
             tree.output_exceeded = exceeded
-            tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
+            tree.cleanup_confirmed = _kill_process_tree_best_effort(
+                proc, tree.job, tree.posix_owner
+            )
             _bounded_reap(proc)
             return 125
 
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             tree.timed_out = True
-            tree.cleanup_confirmed = _kill_process_tree_best_effort(proc, tree.job)
+            tree.cleanup_confirmed = _kill_process_tree_best_effort(
+                proc, tree.job, tree.posix_owner
+            )
             _bounded_reap(proc)
             return 124
         try:
@@ -565,6 +740,17 @@ def _end_strays(proc: subprocess.Popen[bytes], tree: _Tree) -> None:
     """End descendants a normally exiting command abandoned in its tree."""
     if tree.timed_out or tree.cancel_requested or tree.output_exceeded is not None:
         return
+    if tree.posix_owner is not None:
+        report = tree.posix_owner.collect(proc)
+        if report is None or not report.cleanup_confirmed:
+            tree.cleanup_confirmed = False
+            tree.strays_unconfirmed = True
+            return
+        count = report.stray_descendants
+        tree.stray_descendants = count
+        if count:
+            tree.cleanup_confirmed = True
+        return
     if tree.job is not None:
         # The direct child is gone. Anything left in the job is a descendant it
         # abandoned; it may still hold the captures open, so end it now rather
@@ -581,6 +767,12 @@ def _end_strays(proc: subprocess.Popen[bytes], tree: _Tree) -> None:
     if sys.platform != "win32":
         # start_new_session=True made the direct child the leader of group proc.pid.
         _end_group_strays(proc.pid, tree)
+        # A process group cannot prove that nothing escaped it before the leader
+        # exited. Platforms without the Linux child-subreaper boundary therefore
+        # fail closed even when the visible group is empty.
+        tree.strays_unconfirmed = True
+        if tree.cleanup_confirmed is None:
+            tree.cleanup_confirmed = False
     else:
         # Windows without a job (visible_tree): the direct child is gone, so its
         # descendants can no longer be enumerated, and one could still hold the private
@@ -634,24 +826,36 @@ def _gated(argv: list[str]) -> list[str]:
     return [shutil.which("sh") or "/bin/sh", "-c", _POSIX_GATE, "lca-gate", *argv]
 
 
+@dataclass(frozen=True)
+class _SpawnIO:
+    stdin: int | IO[bytes] | None
+    captures: tuple[IO[bytes], IO[bytes]] | None
+    posix_owner: _PosixOwner | None
+
+
 def _spawner(
-    argv: list[str], cwd: Path, env: dict[str, str], *,
-    stdin: int | IO[bytes] | None,
-    captures: tuple[IO[bytes], IO[bytes]] | None,
+    argv: list[str], cwd: Path, env: dict[str, str], io: _SpawnIO,
 ) -> Callable[[bool], subprocess.Popen[bytes]]:
     """How to start the command: pipes on POSIX (``captures`` None), files on Windows."""
 
     def spawn(suspended: bool) -> subprocess.Popen[bytes]:
-        return subprocess.Popen(  # noqa: S603 - resolved executable, fixed argv
-            argv,
-            cwd=str(cwd),
-            env=env,
-            stdin=stdin,
-            stdout=subprocess.PIPE if captures is None else captures[0],
-            stderr=subprocess.PIPE if captures is None else captures[1],
-            start_new_session=captures is None,
-            creationflags=(windows_job.CREATE_SUSPENDED if suspended else 0),
-        )
+        stdout = subprocess.PIPE if io.captures is None else io.captures[0]
+        stderr = subprocess.PIPE if io.captures is None else io.captures[1]
+        if os.name == "nt":
+            proc = subprocess.Popen(  # noqa: S603 - resolved executable, fixed argv
+                argv, cwd=str(cwd), env=env, stdin=io.stdin, stdout=stdout, stderr=stderr,
+                start_new_session=False,
+                creationflags=(windows_job.CREATE_SUSPENDED if suspended else 0),
+            )
+        else:
+            pass_fds = (() if io.posix_owner is None else (io.posix_owner.write_fd,))
+            proc = subprocess.Popen(  # noqa: S603 - resolved executable, fixed argv
+                argv, cwd=str(cwd), env=env, stdin=io.stdin, stdout=stdout, stderr=stderr,
+                start_new_session=True, pass_fds=pass_fds,
+            )
+        if io.posix_owner is not None:
+            io.posix_owner.spawned()
+        return proc
 
     return spawn
 
@@ -705,10 +909,17 @@ def run_owned(
                 gate = os.pipe()
                 gate_open.update(gate)
             argv = [exe, *command[1:]]
+            run_env = env
+            if tree.posix_owner is not None:
+                argv = tree.posix_owner.argv(argv)
+                run_env = tree.posix_owner.environment(env)
             spawn = _spawner(
-                _gated(argv) if gate is not None else argv, cwd, env,
-                stdin=gate[0] if gate is not None else (stdin_file if stdin is not None else None),
-                captures=(None if posix else (stdout_file, stderr_file)),
+                _gated(argv) if gate is not None else argv, cwd, run_env,
+                _SpawnIO(
+                    gate[0] if gate is not None else (stdin_file if stdin is not None else None),
+                    None if posix else (stdout_file, stderr_file),
+                    tree.posix_owner,
+                ),
             )
 
             def release() -> None:
@@ -741,6 +952,8 @@ def run_owned(
                 os.close(fd)
         if tree.job is not None:
             tree.job.close()
+        if tree.posix_owner is not None:
+            tree.posix_owner.close()
 
     return OwnedRun(
         exit_code=code,
@@ -859,6 +1072,12 @@ def relative_run_dir(run_root: Path, run_dir: Path) -> str:
 
 def _lifecycle_note(run: OwnedRun, timeout_s: float) -> str:
     note = ""
+    if run.stray_descendants_at_exit:
+        note += (
+            "\n[local-agent] the command exited and left "
+            f"{run.stray_descendants_at_exit} descendant process(es); they were ended "
+            "and confirmed gone before return\n"
+        )
     if run.strays_unconfirmed:
         note += (
             "\n[local-agent] the command exited but left descendant "
