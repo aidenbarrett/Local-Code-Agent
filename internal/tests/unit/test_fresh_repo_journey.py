@@ -3,7 +3,8 @@
 The documented path, model-free: `init --write`, then `acceptance --repo <it>
 --allow-build --only R02-build --only R03-tests`. Build proof (R02, full_build) and
 test proof (R03, full_test with build_target then run_test evidence) are separate
-tasks, and the repository is left exactly as it was.
+tasks. Tracked and unignored work is unchanged (Git status is identical); the build
+creates its normal ignored artifacts in the declared build directory.
 """
 from __future__ import annotations
 
@@ -65,7 +66,9 @@ def _journeys(tmp_path: Path, repo: Path) -> dict[str, dict]:
     output = tmp_path / "evidence"
     ran = _run("acceptance-journeys.py", "--output", str(output), "--repo", str(repo),
                "--allow-build", "--only", "R02-build", "--only", "R03-tests", env=env)
-    assert _git(repo, "status", "--porcelain=v1") == before, "the journeys changed the repository"
+    assert _git(repo, "status", "--porcelain=v1") == before, \
+        "the journeys changed tracked or unignored work"
+    assert (repo / "build").is_dir(), "the declared build directory holds the build's artifacts"
     assert (output / "journeys.json").is_file(), ran.stdout[-3000:] + ran.stderr[-3000:]
     report = json.loads((output / "journeys.json").read_text(encoding="utf-8"))
     journeys = {journey["id"]: journey for journey in report["journeys"]}

@@ -72,8 +72,11 @@ existing declaration) and confirm with `doctor`. Build and test still run only i
 session you open with `session --allow-execution`.
 
 To prove the declaration works before involving a model, build and test the
-repository in place. No model is used; each step gets its own verified result, and
-the repository is left unchanged:
+repository in place. No model is used and each step gets its own verified result.
+Tracked and unignored work stays exactly as it was; the build itself creates or
+updates normal artifacts in the declared build directory (`build/`), and run logs go
+under `.local-agent/`. Both should be in your `.gitignore`: a check that leaves
+tracked or unignored files changed fails instead of passing.
 
 ```powershell
 <path-to>\Local-Code-Agent\local-code-agent.ps1 acceptance --repo . --allow-build --only R02-build --only R03-tests
