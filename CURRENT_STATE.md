@@ -21,7 +21,7 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-apply | Apply this candidate | All-or-nothing import with stale-content refusal | PR#378, J13-candidate-scripted | deterministic-ci | Interrupted receipt stays UNKNOWN | Keep restart regressions | controller |
 | CAP-undo | Undo this candidate | Restores owned pre-import bytes and modes | PR#407, J13-candidate-scripted | deterministic-ci | Refuses after later user edits | Keep preservation regressions | controller |
 | CAP-exact-commit | Commit this candidate | Private-index exact-path commit, no push | PR#434, J21-exact-commit | deterministic-ci | Commit policy may refuse | Keep hook/restart regressions | controller |
-| CAP-stop-command | Stop the running command | Owned process trees; Stop ends reads, lets writes finish and is reported by the same call. On Windows, cleanup is confirmed only when every Job member's process handle is signaled within one deadline, never from Job accounting alone | PR#379, PR#436, PR#437, PR#451, J05-stop-build | deterministic-ci | POSIX cleanup is never confirmed (a setsid descendant can escape the group) | Qualify on target hardware | Claude |
+| CAP-stop-command | Stop the running command | Owned process trees; Stop ends reads, lets writes finish and is reported by the same call. On Windows, cleanup is confirmed only when every Job member's process handle is signaled within one deadline, never from Job accounting alone. On Linux a dedicated child subreaper owns the tree, so `setsid()` descendants are ended and reaped before return; a descendant that was ended and confirmed gone is evidence, not failure, and only unconfirmed settlement fails the step | PR#379, PR#436, PR#437, PR#451, PR#452, J05-stop-build, internal/tests/unit/test_runner_process_tree.py::test_linux_subreaper_ends_a_setsid_descendant_after_normal_parent_exit, internal/tests/unit/test_supervised_settlement.py::test_an_unreported_settlement_fails_the_public_result_closed | deterministic-ci | Other POSIX platforms have only an escapable process group and effect-owning commands fail closed | Qualify on target hardware | controller |
 | CAP-stop-generation | Stop model work | Fences late authority and records NO_VERDICT when unreconciled; on a `stop_proof` profile, cuts the stream once the server is seen working and frees the endpoint only on observed idle | PR#249, J07-stop-model, PR#446 | deterministic-ci | OVMS profiles (`stop_proof = none`): one in-flight generation may remain. llama-server cut not yet observed against a real server | Observe the cut on the NUC llama-server; find an OVMS proof source | Claude |
 | CAP-git-state | What Git operation is active? | Reports merge, rebase, am, cherry-pick, revert and bisect state | PR#373, J20-conflict-explain | deterministic-ci | Does not perform continue or abort | Keep read-only | controller |
 | CAP-unusual-filenames | Inspect or commit unusual names | Literal path handling protects wildcard-like names | PR#404, J15b-rename-binary | deterministic-ci | Platform filesystem rules still apply | Keep cross-platform regression | controller |
@@ -55,10 +55,11 @@ in [TRICKS.md](TRICKS.md), and the active priority ladder is in
 
 - Physical disconnected Panther Lake qualification is unknown: see
   `CAP-offline-physical` and #418.
-- Stop reaches workspace Git and owned commands (#436, #437, #451). In-flight model generation is
+- Stop reaches workspace Git and owned commands (#436, #437, #451, #452). In-flight model generation is
   cut only on profiles with endpoint stop proof (llama-server, #446); OVMS still waits for
-  the call to finish. POSIX process cleanup is never reported confirmed: see
-  `CAP-stop-command` and `CAP-stop-generation`.
+  the call to finish. Windows Job Objects and the Linux child-subreaper supervisor own
+  command trees; other POSIX platforms refuse effect-owning success: see `CAP-stop-command`
+  and `CAP-stop-generation`.
 - Native-endpoint deployment and cross-process endpoint ownership are not qualified serving
   capabilities: see #403.
 - Merge policy was observed not enforced on 2026-10-07 (main unprotected, no ruleset,
