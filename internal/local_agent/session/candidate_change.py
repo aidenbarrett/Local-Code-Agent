@@ -31,7 +31,6 @@ from .workspaces import (
     CandidatePatch,
     CandidateRefusedError,
     CommitDrifted,
-    CommitMismatched,
     CommitRefused,
     CommitResult,
     Committed,
@@ -591,13 +590,6 @@ def commit_candidate(
                 verification_ran=True,
                 reason_code="verification_passed",
             )
-        case CommitMismatched(commit=commit):
-            return TaskResult(
-                task_id, TaskOutcome.FAIL,
-                f"A commit {commit[:12]} was created but does not contain exactly the applied "
-                "change. Inspect it before doing anything else.",
-                False, metrics={"candidate_commit": facts}, reason_code="verification_failed",
-            )
         case CommitDrifted(drifted=drifted):
             return TaskResult(
                 task_id, TaskOutcome.FAIL,
@@ -618,10 +610,7 @@ def commit_candidate(
 def _commit_facts(referent: str, done: CommitResult) -> dict[str, object]:
     """The typed commit facts the retained result projects; unchanged wire shape."""
     match done:
-        case (
-            Committed(commit=commit, branch=branch)
-            | CommitMismatched(commit=commit, branch=branch)
-        ):
+        case Committed(commit=commit, branch=branch):
             known_commit: str | None = commit
             known_branch: str | None = branch
             drifted: tuple[str, ...] = ()

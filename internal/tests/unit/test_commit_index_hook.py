@@ -9,6 +9,7 @@ import pytest
 
 from local_agent.session.commit_index_hook import (
     IndexLockBusyError,
+    Publication,
     prepare_transaction,
     reconcile,
 )
@@ -47,6 +48,10 @@ def _repository(tmp_path: Path) -> tuple[Path, str, Path]:
     return root, parent, live_index
 
 
+def _branch(root: Path) -> str:
+    return _git(root, "symbolic-ref", "HEAD").stdout.decode().strip()
+
+
 def _candidate_target(root: Path, tmp_path: Path, parent: str) -> bytes:
     private_index = tmp_path / "candidate.index"
     env = {"GIT_INDEX_FILE": str(private_index)}
@@ -68,7 +73,9 @@ def test_reconcile_advances_clean_candidate_and_preserves_unrelated_staging(tmp_
     workspaces = tmp_path / "workspaces"
     workspaces.mkdir()
     transaction = prepare_transaction(
-        workspaces, root, live_index, parent, (("candidate.txt", expected, target),),
+        workspaces, root, live_index,
+        Publication(ref=_branch(root), parent=parent, commit=parent),
+        (("candidate.txt", expected, target),),
     )
     reconcile(transaction)
 
@@ -90,7 +97,9 @@ def test_reconcile_never_overwrites_user_staging_on_candidate_path(tmp_path: Pat
     workspaces = tmp_path / "workspaces"
     workspaces.mkdir()
     transaction = prepare_transaction(
-        workspaces, root, live_index, parent, (("candidate.txt", expected, target),),
+        workspaces, root, live_index,
+        Publication(ref=_branch(root), parent=parent, commit=parent),
+        (("candidate.txt", expected, target),),
     )
     reconcile(transaction)
 
@@ -110,7 +119,9 @@ def test_reconcile_never_removes_an_index_lock_it_did_not_create(tmp_path: Path)
     workspaces = tmp_path / "workspaces"
     workspaces.mkdir()
     transaction = prepare_transaction(
-        workspaces, root, live_index, parent, (("candidate.txt", expected, target),),
+        workspaces, root, live_index,
+        Publication(ref=_branch(root), parent=parent, commit=parent),
+        (("candidate.txt", expected, target),),
     )
     with pytest.raises(IndexLockBusyError):
         reconcile(transaction)

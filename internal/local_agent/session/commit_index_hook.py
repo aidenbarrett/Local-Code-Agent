@@ -1,10 +1,12 @@
 """Atomically reconcile the user's live Git index after an LCA private-index commit.
 
-The caller prepares a transaction before ``git commit`` and exposes its path only to
-LCA's controller-owned ``post-commit`` hook. The hook takes Git's conventional index
-lock, edits a private copy, then atomically replaces the live index. User-staged entries
-on candidate paths are never replaced: only entries still equal to the pre-commit
-snapshot are advanced to the new commit.
+The caller creates the exact commit object, prepares a transaction naming it, and then
+publishes it with a compare-and-swap ``git update-ref``. The transaction path is exposed
+only to LCA's controller-owned ``reference-transaction`` hook, which Git runs inside that
+same update once the branch has moved. The hook takes Git's conventional index lock,
+edits a private copy, then atomically replaces the live index. User-staged entries on
+candidate paths are never replaced: only entries still equal to the pre-commit snapshot
+are advanced, and only while HEAD is the published commit.
 """
 from __future__ import annotations
 
@@ -27,15 +29,25 @@ _GIT_TIMEOUT_S = 30
 # release the live index lock before reporting the paths as not reconciled.
 _LOCK_WAIT_S = 2.0
 _LOCK_POLL_S = 0.05
-_POST_COMMIT_HOOK = """#!/bin/sh
+_HOOK_NAME = "reference-transaction"
+# Git feeds every reference-transaction hook the updated refs on stdin and runs it for
+# "prepared" (all ref locks held; a non-zero exit aborts the update), "committed" and
+# "aborted". Only an update carrying LCA's transaction reaches Python; any other drains
+# stdin and succeeds.
+_REFERENCE_TRANSACTION_HOOK = """#!/bin/sh
 if test -n "$LCA_COMMIT_INDEX_TRANSACTION" \
    && test -n "$LCA_PYTHON" \
    && test -n "$LCA_COMMIT_INDEX_HOOK"
 then
-    "$LCA_PYTHON" "$LCA_COMMIT_INDEX_HOOK" "$LCA_COMMIT_INDEX_TRANSACTION" || true
+    exec "$LCA_PYTHON" "$LCA_COMMIT_INDEX_HOOK" "$LCA_COMMIT_INDEX_TRANSACTION" "$1"
 fi
+cat >/dev/null
 exit 0
 """
+# Evidence files the hook leaves beside a transaction: it ran at all, and it bound the
+# prepared update to HEAD. The controller reads them; it never trusts their absence.
+RAN_SUFFIX = ".ran"
+BOUND_SUFFIX = ".bound"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +57,16 @@ class IndexEntry:
     stage: bytes
     assume_unchanged: bool
     skip_worktree: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Publication:
+    """The one ref update an index transaction belongs to: ``ref`` from ``parent`` to
+    ``commit``."""
+
+    ref: str
+    parent: str
+    commit: str
 
 
 class IndexLockBusyError(OSError):
@@ -60,15 +82,15 @@ def index_entry_from_listings(stage: bytes, tagged: bytes, verbose: bytes) -> In
     )
 
 
-def install_post_commit_hook(hooks_dir: Path) -> None:
-    """Atomically install LCA's no-user-hook post-commit reconciler."""
+def install_reference_transaction_hook(hooks_dir: Path) -> None:
+    """Atomically install LCA's no-user-hook index reconciler in its own hooks dir."""
     hooks_dir.mkdir(parents=True, exist_ok=True)
-    target = hooks_dir / "post-commit"
-    fd, raw_tmp = tempfile.mkstemp(prefix=".post-commit-", dir=hooks_dir)
+    target = hooks_dir / _HOOK_NAME
+    fd, raw_tmp = tempfile.mkstemp(prefix=f".{_HOOK_NAME}-", dir=hooks_dir)
     tmp = Path(raw_tmp)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
-            stream.write(_POST_COMMIT_HOOK)
+            stream.write(_REFERENCE_TRANSACTION_HOOK)
             stream.flush()
             os.fsync(stream.fileno())
         os.chmod(tmp, 0o700)
@@ -81,15 +103,17 @@ def prepare_transaction(
     workspaces_root: Path,
     repository_root: Path,
     live_index: Path,
-    parent: str,
+    publication: Publication,
     entries: tuple[tuple[str, bytes, bytes], ...],
 ) -> Path:
-    """Persist the exact clean-path index transition the post-commit hook may own."""
+    """Persist the exact clean-path index transition that follows ``publication``."""
     resolved_index = live_index if live_index.is_absolute() else repository_root / live_index
     payload = {
         "repository_root": str(repository_root.resolve()),
         "live_index": str(resolved_index.resolve()),
-        "parent": parent,
+        "parent": publication.parent,
+        "commit": publication.commit,
+        "ref": publication.ref,
         "entries": [
             {
                 "path": name,
@@ -110,7 +134,7 @@ def prepare_transaction(
 
 
 def hook_environment(transaction: Path) -> dict[str, str]:
-    """Environment consumed only by LCA's controller-owned post-commit hook."""
+    """Environment consumed only by LCA's controller-owned reference-transaction hook."""
     return {
         "LCA_COMMIT_INDEX_TRANSACTION": str(transaction).replace("\\", "/"),
         "LCA_PYTHON": sys.executable.replace("\\", "/"),
@@ -189,18 +213,32 @@ def _decode_stage(value: object) -> bytes:
     return base64.b64decode(value.encode("ascii"), validate=True)
 
 
-def _load(path: Path) -> tuple[Path, Path, str, tuple[tuple[str, bytes, bytes], ...]]:
+@dataclass(frozen=True, slots=True)
+class _Transaction:
+    root: Path
+    live_index: Path
+    parent: str
+    commit: str
+    ref: str
+    entries: tuple[tuple[str, bytes, bytes], ...]
+
+
+def _load(path: Path) -> _Transaction:
     raw: object = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError("index transaction is not an object")
     root_raw = raw.get("repository_root")
     index_raw = raw.get("live_index")
     parent_raw = raw.get("parent")
+    commit_raw = raw.get("commit")
+    ref_raw = raw.get("ref")
     entries_raw = raw.get("entries")
     if not isinstance(root_raw, str) or not isinstance(index_raw, str):
         raise ValueError("index transaction paths are invalid")
     if not isinstance(parent_raw, str) or not isinstance(entries_raw, list):
         raise ValueError("index transaction fields are invalid")
+    if not isinstance(commit_raw, str) or not isinstance(ref_raw, str):
+        raise ValueError("index transaction does not name its published commit")
     entries: list[tuple[str, bytes, bytes]] = []
     for item in entries_raw:
         if not isinstance(item, dict):
@@ -213,7 +251,8 @@ def _load(path: Path) -> tuple[Path, Path, str, tuple[tuple[str, bytes, bytes], 
             _decode_stage(item.get("expected_stage_b64")),
             _decode_stage(item.get("target_stage_b64")),
         ))
-    return Path(root_raw), Path(index_raw), parent_raw, tuple(entries)
+    return _Transaction(Path(root_raw), Path(index_raw), parent_raw, commit_raw, ref_raw,
+                        tuple(entries))
 
 
 def reconcile(transaction_path: Path) -> None:
@@ -223,8 +262,9 @@ def reconcile(transaction_path: Path) -> None:
     the live index lock. A lock this call did not create is never removed: deleting it
     would let two writers race on the user's index.
     """
-    root, live_index, parent, entries = _load(transaction_path)
-    live_index = live_index.resolve()
+    txn = _load(transaction_path)
+    root, parent, entries = txn.root, txn.parent, txn.entries
+    live_index = txn.live_index.resolve()
     live_index.parent.mkdir(parents=True, exist_ok=True)
     lock = Path(str(live_index) + ".lock")
     try:
@@ -235,6 +275,13 @@ def reconcile(transaction_path: Path) -> None:
     lock_owned = True
     work: Path | None = None
     try:
+        # Under the index lock: the checkout must be on the published commit. After a
+        # concurrent branch switch or detach the index belongs to another tree, so
+        # nothing is advanced and every owned path is reported.
+        head = _git(root, live_index, "rev-parse", "--verify", "--quiet", "HEAD^{commit}",
+                    check=False).stdout.decode("ascii", "replace").strip()
+        if head != txn.commit:
+            raise RuntimeError("HEAD is not the published commit")
         fd, raw_work = tempfile.mkstemp(prefix="lca-index-reconcile-", dir=live_index.parent)
         os.close(fd)
         work = Path(raw_work)
@@ -293,8 +340,9 @@ def reconcile_and_report(transaction_path: Path) -> tuple[str, ...]:
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
             # Nothing was replaced; the report below says which paths stayed behind.
             break
-    root, live_index, _parent, entries = _load(transaction_path)
-    live_index = live_index.resolve()
+    txn = _load(transaction_path)
+    root, entries = txn.root, txn.entries
+    live_index = txn.live_index.resolve()
     left: list[str] = []
     for name, expected_stage, target_stage in entries:
         if expected_stage == target_stage:
@@ -304,17 +352,60 @@ def reconcile_and_report(transaction_path: Path) -> tuple[str, ...]:
     return tuple(left)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def _lines(updates: str) -> set[str]:
+    return {line.strip() for line in updates.splitlines() if line.strip()}
+
+
+def _publishes(txn: _Transaction, updates: str) -> bool:
+    """Git's update is exactly this transaction's branch move."""
+    return f"{txn.parent} {txn.commit} {txn.ref}" in _lines(updates)
+
+
+def _bound_to_head(txn: _Transaction, updates: str) -> bool:
+    """The prepared update, issued as ``update-ref HEAD``, resolved HEAD to this branch.
+
+    The controller publishes through HEAD, so Git dereferences HEAD when it takes its
+    locks and reports the branch it actually locked; HEAD stays locked until the update
+    ends, so no switch can cross it. Only this branch's move (plus, on Gits that report
+    it, HEAD's own log entry) is admitted. After a switch to another branch, the update
+    names that branch; after a detach, it names HEAD alone; both are aborted.
+    """
+    lines = _lines(updates)
+    allowed = {f"{txn.parent} {txn.commit} {txn.ref}", f"{txn.parent} {txn.commit} HEAD"}
+    return _publishes(txn, updates) and lines <= allowed
+
+
+def _mark(transaction_path: Path, suffix: str, text: str) -> None:
+    with Path(str(transaction_path) + suffix).open("a", encoding="utf-8") as stream:
+        stream.write(text + "\n")
+
+
+def main(argv: Sequence[str] | None = None, updates: str | None = None) -> int:
+    """``reference-transaction`` hook entry: ``<transaction> <state>``.
+
+    prepared: exit 0 only for this transaction's branch move bound to HEAD, which aborts
+    every other update carrying the transaction. committed: reconcile the live index.
+    """
     args = tuple(sys.argv[1:] if argv is None else argv)
-    if len(args) != 1:
-        return 0
+    if len(args) != 2:
+        return 1
+    transaction_path, state = Path(args[0]), args[1]
     try:
-        reconcile(Path(args[0]))
+        text = sys.stdin.read() if updates is None else updates
+        _mark(transaction_path, RAN_SUFFIX, state)
+        txn = _load(transaction_path)
+        if state == "prepared":
+            if not _bound_to_head(txn, text):
+                return 1
+            _mark(transaction_path, BOUND_SUFFIX, state)
+            return 0
+        if state == "committed" and _publishes(txn, text):
+            reconcile(transaction_path)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
-        # A post-commit hook must never turn an already-created commit into a reported
-        # failure. The controller verifies/reconciles again after Git returns. If the
-        # controller dies here, leaving the live index untouched is safer than guessing.
-        return 0
+        # Prepared: an unverifiable update must not proceed. Committed or aborted: the
+        # hook never turns a finished update into a failure; the controller reconciles
+        # again after Git returns, and leaves the index untouched rather than guess.
+        return 1 if state == "prepared" else 0
     return 0
 
 

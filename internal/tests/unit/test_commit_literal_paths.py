@@ -14,7 +14,6 @@ from uuid import uuid4
 import pytest
 
 from local_agent.session.workspaces import (
-    CommitMismatched,
     Committed,
     CommitRefused,
     GitWorkspaceManager,
@@ -84,24 +83,29 @@ def test_commit_contains_exactly_the_candidate_and_leaves_matching_user_work(tmp
     assert "keep.txt" in _git(user, "diff", "--cached", "--name-only")
 
 
-def test_a_commit_whose_changed_paths_exceed_the_candidate_is_a_mismatch(tmp_path, monkeypatch):
-    """Post-effect check: the complete committed delta must equal the reviewed scope."""
+def test_a_commit_whose_changed_paths_exceed_the_candidate_is_never_published(
+    tmp_path, monkeypatch,
+):
+    """The complete delta of the built commit must equal the reviewed scope, checked
+    before anything names it (#453): an over-wide commit moves no ref."""
     user = _repo(tmp_path, {"a.txt": "old\n", "b.txt": "old\n"})
     manager, task_id = _apply(tmp_path, user, {"a.txt": "candidate\n"})
     (user / "b.txt").write_text("user edit\n", encoding="utf-8")
     real_git = manager._git
 
     def widen(cwd, *args, **kwargs):
-        if args and args[0] == "commit":
+        if args and args[0] == "write-tree":
             private_env = kwargs.get("env_extra")
             assert private_env and "GIT_INDEX_FILE" in private_env
             real_git(cwd, "add", "--", "b.txt", env_extra=private_env)
         return real_git(cwd, *args, **kwargs)
 
     monkeypatch.setattr(manager, "_git", widen)
+    head = _git(user, "rev-parse", "HEAD")
     done = manager.commit_applied(task_id, user, "candidate")
-    assert isinstance(done, CommitMismatched), done
-    assert _committed_paths(user) == ["a.txt", "b.txt"]
+    assert isinstance(done, CommitRefused), done
+    assert "does not contain exactly the applied change" in done.reason
+    assert _git(user, "rev-parse", "HEAD") == head
 
 
 def test_git_stage_tool_stages_only_the_named_file(sandbox):
@@ -207,19 +211,11 @@ def test_user_restaging_during_failed_private_commit_is_untouched(tmp_path, monk
     real_git = manager._git
 
     def user_restages_then_commit_fails(cwd, *args, **kwargs):
-        if args and args[0] == "commit":
+        if args and args[0] == "commit-tree":
             (user / "new.txt").write_text("user changed it\n", encoding="utf-8")
             real_git(cwd, "add", "--", "new.txt")
-            return real_git(
-                cwd,
-                "commit",
-                "--only",
-                "-F",
-                "-",
-                "--",
-                "no-such-file",
-                **kwargs,
-            )
+            # A genuine commit-object failure: a tree that does not exist.
+            return real_git(cwd, "commit-tree", "0" * 40, "-m", "x", **kwargs)
         return real_git(cwd, *args, **kwargs)
 
     monkeypatch.setattr(manager, "_git", user_restages_then_commit_fails)
@@ -329,16 +325,27 @@ def test_commit_while_another_git_holds_the_index_lock_reports_and_never_breaks_
     assert _git(user, "ls-files", "--stage") == index_before
 
 
-def test_controller_pass_reconciles_under_the_lock_when_the_hook_did_not_run(
+def test_controller_pass_reconciles_under_the_lock_when_the_hook_could_not(
     tmp_path, monkeypatch,
 ):
-    """Hook absent (interpreter gone, killed controller): the controller's own pass
-    advances the clean path through the same locked transaction, not a bare rewrite."""
-    import local_agent.session.workspaces as workspaces_module
-
-    monkeypatch.setattr(workspaces_module, "hook_environment", lambda _transaction: {})
+    """Another Git process held the index lock while the hook ran, so the hook advanced
+    nothing; once it is released, the controller's own pass advances the clean path
+    through the same locked transaction, not a bare rewrite."""
     user = _repo(tmp_path, {"a.txt": "old\n", "keep.txt": "old\n"})
     manager, task_id = _apply(tmp_path, user, {"a.txt": "candidate\n"})
+    real_git = manager._git
+    lock = _live_index_lock(user)
+
+    def busy_during_publication(cwd, *args, **kwargs):
+        if args and args[0] == "update-ref" and "--stdin" not in args:
+            lock.write_bytes(b"held by another git process")
+            try:
+                return real_git(cwd, *args, **kwargs)
+            finally:
+                lock.unlink()
+        return real_git(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(manager, "_git", busy_during_publication)
     (user / "keep.txt").write_text("user staged\n", encoding="utf-8")
     _git(user, "add", "--", "keep.txt")
     keep_before = _git(user, "ls-files", "--stage", "--", "keep.txt")

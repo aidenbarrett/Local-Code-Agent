@@ -54,10 +54,13 @@ from ..tools.process_runner import (
 )
 from ..tools.tool_primitives import SandboxError, resolve_in_repo
 from .commit_index_hook import (
+    BOUND_SUFFIX,
+    RAN_SUFFIX,
     IndexEntry,
+    Publication,
     hook_environment,
     index_entry_from_listings,
-    install_post_commit_hook,
+    install_reference_transaction_hook,
     prepare_transaction,
     reconcile_and_report,
 )
@@ -227,15 +230,6 @@ class Committed:
 
 
 @dataclass(frozen=True, slots=True)
-class CommitMismatched:
-    """A commit was created but does not contain exactly the applied change."""
-
-    commit: str
-    branch: str
-    paths: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class CommitDrifted:
     """Nothing was committed: these applied paths changed after the import."""
 
@@ -255,19 +249,19 @@ class CommitRefused:
     existing_commit: str | None = None
 
 
-CommitResult = Committed | CommitMismatched | CommitDrifted | CommitRefused
+CommitResult = Committed | CommitDrifted | CommitRefused
 
 
 @dataclass(frozen=True, slots=True)
 class _PrivateCommit:
-    """One exact candidate commit plus the live-index transaction that follows it.
+    """One published, exact candidate commit plus the live-index transaction after it.
 
-    ``transaction`` is None when no candidate path was clean in the live index before
-    the attempt, so there is nothing LCA may advance.
+    The transaction always exists (it carries the publication the hook binds to HEAD);
+    ``owned_paths`` is empty when no candidate path was clean in the live index.
     """
 
     commit: str
-    transaction: Path | None
+    transaction: Path
     owned_paths: tuple[str, ...]
 
 
@@ -305,6 +299,16 @@ def _parse_git_version(text: str) -> tuple[int, int] | None:
 
 
 _OWNER_TOKEN = re.compile(r"[0-9]+:[0-9]+\.[0-9]{6}")
+
+
+# The values ``git commit`` accepts for commit.cleanup.
+_CLEANUP_MODES = frozenset({"default", "strip", "whitespace", "verbatim", "scissors"})
+
+
+def _discard_transaction(transaction: Path) -> None:
+    """Remove an index transaction and the hook's evidence files beside it."""
+    for suffix in ("", RAN_SUFFIX, BOUND_SUFFIX):
+        Path(str(transaction) + suffix).unlink(missing_ok=True)
 
 
 def _failed_commit_reason(done: subprocess.CompletedProcess[bytes]) -> str:
@@ -1116,10 +1120,13 @@ class GitWorkspaceManager:
             existing = str(record["committed"])
             return CommitRefused(f"that change is already committed as {existing[:12]}", paths,
                                  existing_commit=existing)
-        branch = self._git(user, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+        branch = self._git(user, "symbolic-ref", "--quiet", "HEAD", check=False)
         if branch.returncode != 0:
             return CommitRefused("HEAD is detached; check out a branch first", paths)
-        branch_name = branch.stdout.decode().strip()
+        branch_ref = branch.stdout.decode().strip()
+        if not branch_ref.startswith("refs/heads/"):
+            return CommitRefused(f"HEAD names {branch_ref}, not a local branch", paths)
+        branch_name = branch_ref.removeprefix("refs/heads/")
         blocked = self._commit_state_refusal(user)
         if blocked:
             return CommitRefused(blocked, paths, branch_name)
@@ -1134,18 +1141,15 @@ class GitWorkspaceManager:
                 paths, branch_name,
             )
         private = self._commit_private_index(
-            user, parent, paths, branch_name, message,
+            user, Publication(ref=branch_ref, parent=parent, commit=""), paths, post, message,
         )
-        if isinstance(private, CommitRefused):
+        if not isinstance(private, _PrivateCommit):
             return private
         commit = private.commit
         try:
-            if not self._commit_is_exactly(user, commit, parent, paths, post):
-                return CommitMismatched(commit, branch_name, paths)
             index_left = self._reconcile_index_after_commit(private)
         finally:
-            if private.transaction is not None:
-                private.transaction.unlink(missing_ok=True)
+            _discard_transaction(private.transaction)
         record["committed"] = commit
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
@@ -1155,12 +1159,23 @@ class GitWorkspaceManager:
     def _commit_private_index(
         self,
         user: Path,
-        parent: str,
+        target: Publication,
         paths: tuple[str, ...],
-        branch_name: str,
+        post: dict[str, str | None],
         message: str,
-    ) -> CommitRefused | _PrivateCommit:
-        """Create the exact candidate commit without borrowing the user's live index."""
+    ) -> CommitRefused | CommitDrifted | _PrivateCommit:
+        """Build the exact candidate commit, verify it, then publish it atomically (#453).
+
+        The commit object is built from an LCA-owned private index whose tree is the
+        parent plus exactly the candidate paths, and is checked against the applied
+        change before anything names it. Publication is one ``update-ref HEAD`` from
+        the parent: Git locks HEAD for the whole update, and LCA's
+        ``reference-transaction`` hook lets it through only if HEAD resolved to the
+        captured branch. A concurrent commit, reset, rebase, branch
+        switch or detach makes Git refuse it: no ref moves, and the user's newer state
+        is never published over.
+        """
+        parent, branch_name = target.parent, target.ref.removeprefix("refs/heads/")
         index_before = {p: self._index_entry(user, p) for p in paths}
         fd, raw_index = tempfile.mkstemp(prefix="commit-index-", dir=self.workspaces_root)
         os.close(fd)
@@ -1168,31 +1183,20 @@ class GitWorkspaceManager:
         commit_index.unlink(missing_ok=True)
         index_env = {"GIT_INDEX_FILE": str(commit_index)}
         transaction: Path | None = None
-        committed = False
+        published = False
         try:
-            prepared = self._git(
-                user, "read-tree", parent, check=False, env_extra=index_env,
-            )
-            if prepared.returncode != 0:
-                return CommitRefused(
-                    "git refused to prepare the private commit index", paths, branch_name
-                )
-            index_base = {
-                p: self._index_entry(user, p, env_extra=index_env) for p in paths
-            }
-            staged = self._git(
-                user, "add", "-A", "--", *paths, check=False, env_extra=index_env,
-            )
-            if staged.returncode != 0:
-                return CommitRefused(
-                    "git refused to stage the candidate in its private index",
-                    paths,
-                    branch_name,
-                )
-            index_staged = {
-                p: self._index_entry(user, p, env_extra=index_env) for p in paths
-            }
-            live_index = Path(self._out(user, "rev-parse", "--git-path", "index"))
+            staging = self._stage_private(user, index_env, parent, paths)
+            if isinstance(staging, str):
+                return CommitRefused(staging, paths, branch_name)
+            index_base, index_staged = staging
+            made = self._commit_object(user, index_env, parent, message)
+            if isinstance(made, str):
+                return CommitRefused(made, paths, branch_name)
+            commit, body = made
+            built = Publication(ref=target.ref, parent=parent, commit=commit)
+            unexact = self._unexact_commit(user, built, paths, post)
+            if unexact is not None:
+                return unexact
             # Only a path whose live entry equalled the old HEAD is LCA's to advance; a
             # path the user had staged differently is user work and is never touched.
             owned = tuple(
@@ -1201,35 +1205,168 @@ class GitWorkspaceManager:
                 if index_before[p].stage == index_base[p].stage
             )
             try:
-                install_post_commit_hook(self._empty_hooks)
-                if owned:
-                    transaction = prepare_transaction(
-                        self.workspaces_root, user, live_index, parent, owned,
-                    )
+                install_reference_transaction_hook(self._empty_hooks)
+                transaction = prepare_transaction(
+                    self.workspaces_root, user,
+                    Path(self._out(user, "rev-parse", "--git-path", "index")),
+                    built, owned,
+                )
             except OSError as exc:
                 return CommitRefused(
                     f"could not prepare crash-safe index reconciliation: {exc}",
                     paths,
                     branch_name,
                 )
-            commit_env = dict(index_env)
-            if transaction is not None:
-                commit_env.update(hook_environment(transaction))
-            done = self._git(
-                user, "commit", "--quiet", "--no-verify", "-F", "-",
-                stdin=message.encode("utf-8"), check=False, env_extra=commit_env,
-            )
-            if done.returncode != 0:
-                return CommitRefused(_failed_commit_reason(done), paths, branch_name)
-            commit = self._out(user, "rev-parse", "--verify", "HEAD^{commit}")
-            committed = True
+            refusal = self._publish(user, built, transaction, body)
+            if refusal is not None:
+                return CommitRefused(refusal, paths, branch_name)
+            published = True
             return _PrivateCommit(commit, transaction, tuple(p for p, _, _ in owned))
         finally:
-            # After a commit the caller owns the transaction for its own locked pass.
-            if transaction is not None and not committed:
-                transaction.unlink(missing_ok=True)
+            # After publication the caller owns the transaction for its own locked pass.
+            if transaction is not None and not published:
+                _discard_transaction(transaction)
             commit_index.unlink(missing_ok=True)
             Path(str(commit_index) + ".lock").unlink(missing_ok=True)
+
+    def _stage_private(
+        self, user: Path, index_env: dict[str, str], parent: str, paths: tuple[str, ...],
+    ) -> tuple[dict[str, IndexEntry], dict[str, IndexEntry]] | str:
+        """Stage the candidate in the private index on ``parent``: entries before and after."""
+        if self._git(user, "read-tree", parent, check=False,
+                     env_extra=index_env).returncode != 0:
+            return "git refused to prepare the private commit index"
+        base = {p: self._index_entry(user, p, env_extra=index_env) for p in paths}
+        if self._git(user, "add", "-A", "--", *paths, check=False,
+                     env_extra=index_env).returncode != 0:
+            return "git refused to stage the candidate in its private index"
+        staged = {p: self._index_entry(user, p, env_extra=index_env) for p in paths}
+        return base, staged
+
+    def _unexact_commit(
+        self, user: Path, built: Publication, paths: tuple[str, ...],
+        post: dict[str, str | None],
+    ) -> CommitDrifted | CommitRefused | None:
+        """Why the built, still unpublished commit is not exactly the applied change."""
+        commit, parent = built.commit, built.parent
+        branch_name = built.ref.removeprefix("refs/heads/")
+        drifted = tuple(p for p in paths if self._blob_at(user, commit, p) != post.get(p))
+        if drifted:
+            # A candidate file changed between the drift check and private staging.
+            return CommitDrifted(branch_name, paths, drifted)
+        if not self._commit_is_exactly(user, commit, parent, paths, post):
+            return CommitRefused(
+                "the commit LCA built does not contain exactly the applied change",
+                paths, branch_name,
+            )
+        return None
+
+    def _publish(
+        self, user: Path, built: Publication, transaction: Path, body: bytes,
+    ) -> str | None:
+        """Move ``ref`` from ``parent`` to ``commit`` through HEAD, or say why not.
+
+        The hook's prepared-state check is the binding to HEAD, so it must demonstrably
+        run: a throwaway transaction is prepared and aborted first, and the real update
+        must leave the hook's bound mark. Neither probe nor publication creates a ref
+        unless the bound update commits.
+        """
+        ref, parent, commit = built.ref, built.parent, built.commit
+        hook_env = hook_environment(transaction)
+        probe = self._git(
+            user, "update-ref", "--stdin", check=False, env_extra=hook_env,
+            stdin=(f"start\ncreate refs/lca-probe/{uuid4().hex} {parent}\n"
+                   "prepare\nabort\n").encode("ascii"),
+        )
+        ran = Path(str(transaction) + RAN_SUFFIX)
+        if not ran.is_file():
+            return ("this Git did not run LCA's reference-transaction hook (Git 2.28 or "
+                    f"newer is required to bind a commit to HEAD; probe exit {probe.returncode})")
+        ran.unlink(missing_ok=True)
+        subject = body.decode("utf-8", "replace").split("\n", 1)[0]
+        # Through HEAD, not the branch name: Git then locks HEAD for the whole update and
+        # the hook sees which branch HEAD resolved to (see _bound_to_head).
+        moved = self._git(
+            user, "update-ref", "-m", f"commit: {subject}", "HEAD", commit, parent,
+            check=False, env_extra=hook_env,
+        )
+        if moved.returncode != 0:
+            return (f"{ref.removeprefix('refs/heads/')} moved or HEAD changed while the "
+                    "commit was being prepared (another commit, reset, branch switch or "
+                    "detach); nothing was committed and your history, index and files are "
+                    "untouched. Review the new state and commit the candidate again")
+        if not Path(str(transaction) + BOUND_SUFFIX).is_file():
+            raise WorkspaceError(
+                f"{ref} moved to {commit[:12]} without LCA's HEAD binding being observed; "
+                "inspect the branch before continuing"
+            )
+        return None
+
+    def _commit_object(
+        self, user: Path, index_env: dict[str, str], parent: str, message: str,
+    ) -> tuple[str, bytes] | str:
+        """The unreferenced commit of the private index on ``parent``, or why not.
+
+        Returns the commit id and its recorded message. Nothing names the object yet;
+        if it is never published it is unreachable and Git collects it.
+        """
+        tree = self._git(user, "write-tree", check=False, env_extra=index_env)
+        if tree.returncode != 0:
+            return "git refused to write the private commit tree"
+        body = self._commit_message(user, message)
+        if isinstance(body, str):
+            return body
+        signing = self._signing_flags(user)
+        if isinstance(signing, str):
+            return signing
+        made = self._git(
+            user, "commit-tree", *signing,
+            tree.stdout.decode("ascii").strip(), "-p", parent, "-F", "-",
+            stdin=body, check=False,
+        )
+        if made.returncode != 0:
+            return _failed_commit_reason(made)
+        return made.stdout.decode("ascii").strip(), body
+
+    def _commit_message(self, user: Path, message: str) -> bytes | str:
+        """The message ``git commit -F`` would record, or why it would refuse.
+
+        ``commit-tree`` stores its input verbatim, so the user's ``commit.cleanup`` is
+        applied here as ``git commit`` applies it to a message given with ``-F``; a value
+        ``git commit`` rejects is rejected here too, never normalised.
+        """
+        mode = self._git(user, "config", "--get", "commit.cleanup", check=False)
+        if mode.returncode == 1:
+            cleanup = "default"                             # unset
+        elif mode.returncode == 0:
+            # The configured token exactly as Git reads it: only the line terminator
+            # `config --get` adds is removed. An empty or padded value is not a mode.
+            cleanup = mode.stdout.decode("utf-8", "replace").removesuffix("\n")
+        else:
+            return "git could not read commit.cleanup"
+        if cleanup not in _CLEANUP_MODES:
+            return f"git commit rejects commit.cleanup={cleanup!r}"
+        raw = message.encode("utf-8")
+        if cleanup == "verbatim":
+            body = raw
+        else:
+            flags = ("--strip-comments",) if cleanup == "strip" else ()
+            body = self._git(user, "stripspace", *flags, stdin=raw).stdout
+        return body if body.strip() else "the commit message is empty"
+
+    def _signing_flags(self, user: Path) -> tuple[str, ...] | str:
+        """Sign exactly when ``git commit`` would: ``commit-tree`` ignores commit.gpgSign.
+
+        An unset value means unsigned; a value ``git commit`` cannot read refuses, never
+        an unsigned commit.
+        """
+        sign = self._git(user, "config", "--type=bool", "--get", "commit.gpgsign", check=False)
+        if sign.returncode == 1:
+            return ()
+        value = sign.stdout.decode("ascii", "replace").strip()
+        if sign.returncode != 0 or value not in ("true", "false"):
+            return "git commit cannot read commit.gpgSign"
+        return ("-S",) if value == "true" else ()
 
     def _commit_state_refusal(self, user: Path) -> str | None:
         """Why the checkout cannot take a controller commit now, or None."""
@@ -1317,12 +1454,10 @@ class GitWorkspaceManager:
         """Second, controller-side pass over the hook's transaction, under Git's lock.
 
         The hook normally advanced every clean candidate entry before Git returned; this
-        pass is then a no-op. If the hook could not run (lock held, interpreter missing,
-        controller killed and restarted), it applies the same locked compare-and-update.
-        Paths still at their pre-commit entry afterwards are reported, never forced.
+        pass is then a no-op. If the hook could not reconcile (another process held the
+        index lock), it applies the same locked compare-and-update. Paths still at their
+        pre-commit entry afterwards are reported, never forced.
         """
-        if private.transaction is None:
-            return ()
         try:
             return reconcile_and_report(private.transaction)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
@@ -1531,7 +1666,6 @@ __all__ = [
     "MIN_GIT_VERSION",
     "WorkspaceReadiness",
     "CommitDrifted",
-    "CommitMismatched",
     "CommitRefused",
     "CommitResult",
     "Committed",
