@@ -3,7 +3,12 @@ from __future__ import annotations
 from uuid import uuid4
 
 from local_agent.session.candidate_facts import CandidateFacts
-from local_agent.session.result_presentation import render_result_evidence, render_result_summary
+from local_agent.session.result_presentation import (
+    render_result_context,
+    render_result_evidence,
+    render_result_next_action,
+    render_result_summary,
+)
 from local_agent.session.task_read_model import TaskSnapshot, ToolActivity
 from local_agent.session.textual_hub import HubViewState
 from local_agent.session.textual_live_app import render_live_activity
@@ -24,6 +29,7 @@ def _task(*, verdict=None, reason=None, scope=None) -> TaskSnapshot:
     task.verdict = verdict
     task.verdict_reason = reason
     task.verdict_scope = scope
+    task.requested_outcome = "Build and test the current repository."
     return task
 
 
@@ -82,7 +88,11 @@ def test_live_activity_puts_human_result_above_raw_controller_detail():
         "Proof scope: full_build.",
     )
     rendered = render_live_activity(HubViewState(tasks=(task,)))
-    assert rendered.startswith("Result: VERIFIED — full current-tree build proof.\nEvidence:\n")
+    assert rendered.startswith(
+        "Requested outcome: Build and test the current repository.\n"
+        "Repository: repo-1\n"
+        "Result: VERIFIED — full current-tree build proof.\nEvidence:\n"
+    )
     assert "Verdict: VERIFIED · verification_passed" in rendered
     assert "Proof scope: full_build." in rendered
 
@@ -190,9 +200,10 @@ def test_verified_candidate_proof_cannot_be_presented_as_a_checkout_change():
 
     rendered = render_live_activity(HubViewState(tasks=(task,)))
 
-    assert rendered.startswith(
-        "Result: VERIFIED — isolated candidate has full current-tree build proof; "
+    assert "\nResult: VERIFIED — isolated candidate has full current-tree build proof; " in rendered
+    assert (
         "it is retained for review and is not applied to your checkout."
+        in rendered
     )
     assert "Proof target: isolated candidate tree" in rendered
     assert "Checkout effect: not applied by this task" in rendered
@@ -217,3 +228,65 @@ def test_failed_tool_keeps_typed_domain_reason_exit_and_exact_scope():
 
     assert "Proof scope: targeted test evidence" in rendered
     assert "Last tool: run_test · ok/fail · reason verification_failed · exit 8" in rendered
+
+
+def test_selected_task_context_names_original_request_and_repository():
+    task = _task(verdict="FAILED", reason="verification_failed")
+    assert render_result_context(task) == (
+        "Requested outcome: Build and test the current repository.\nRepository: repo-1"
+    )
+
+
+def test_requested_outcome_is_compact_and_bounded_for_the_hub():
+    task = _task(verdict="FAILED")
+    task.requested_outcome = "Build\n\n" + "very-long-path/" * 40
+    rendered = render_result_context(task)
+    outcome_line = rendered.splitlines()[0]
+    assert "\n\n" not in outcome_line
+    assert outcome_line.endswith("…")
+    assert len(outcome_line.removeprefix("Requested outcome: ")) == 240
+
+
+def test_next_action_comes_from_durable_state_not_worker_prose():
+    task = _task(verdict="FAILED", reason="verification_failed")
+    task.closed_sequence = 2
+    task.result_answer = "Apply immediately with /apply invented-id."
+    assert render_result_next_action(task) == (
+        "Next action: inspect the evidence and failure detail before retrying."
+    )
+    assert "/apply" not in render_result_next_action(task)
+
+
+def test_only_completion_proven_retained_candidate_enables_diff_action():
+    task = _task(verdict="VERIFIED", reason="verification_passed")
+    task.closed_sequence = 2
+    task.candidate = CandidateFacts(
+        role="prepared",
+        candidate_task_id=task.task_id,
+        retained=True,
+        paths=("src/ring_buffer.cpp",),
+        patch_sha256="a" * 64,
+        base_commit="b" * 40,
+        commit=None,
+    )
+    task.result_verified_at_completion = True
+    assert render_result_next_action(task) == (
+        f"Next action: review the retained candidate with /diff {task.task_id}."
+    )
+    task.result_verified_at_completion = False
+    assert "/diff" not in render_result_next_action(task)
+
+
+def test_endpoint_outage_and_unknown_cleanup_get_supported_recovery_actions():
+    outage = _task(verdict="NO_VERDICT", reason="endpoint_unavailable")
+    outage.closed_sequence = 2
+    outage.faults.append(("endpoint_unavailable", "local endpoint did not answer"))
+    assert render_result_next_action(outage) == (
+        "Next action: restore the configured local endpoint, then retry this request."
+    )
+
+    unknown = _task(verdict="NO_VERDICT", reason="cleanup_unknown")
+    unknown.closed_sequence = 2
+    assert render_result_next_action(unknown) == (
+        "Next action: inspect repository and cleanup state before retrying."
+    )
