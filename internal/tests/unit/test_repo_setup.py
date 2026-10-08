@@ -10,13 +10,14 @@ import sys
 
 import pytest
 
-from local_agent.config import load_repo_config
+from local_agent.config import find_repo_root, load_repo_config
 from local_agent.repo_setup import (
     RepoSetupError,
     build_systems,
     init_command,
     inspect_repository,
     propose_cmake,
+    toml_basic_string,
     validate_declaration,
     write_proposal,
 )
@@ -208,3 +209,58 @@ def test_the_public_launcher_declares_a_repository_in_a_path_with_spaces(tmp_pat
                            cwd=root / "src")
     assert wrote.returncode == 0, wrote.stdout + wrote.stderr
     assert load_repo_config(root).default_profile == "debug"
+
+
+@pytest.mark.parametrize("name", [
+    "\U0001F600", "quote \" and back\\slash", "tab\there", "new\nline", "del\x7fete", "plain",
+])
+def test_every_valid_name_round_trips_through_the_declaration(name):
+    """Astra on #469: JSON escaping wrote non-BMP names as surrogate pairs TOML rejects."""
+    assert validate_declaration(propose_cmake(name)).name == name
+
+
+def test_a_name_toml_cannot_represent_is_refused_not_mangled():
+    with pytest.raises(RepoSetupError, match="cannot represent"):
+        toml_basic_string("undecodable \udcff byte")
+
+
+def test_a_non_bmp_repository_is_declared_and_round_trips(tmp_path):
+    root = _cmake_repo(tmp_path / "\U0001F600 project")
+    assert init.main(["--repo", str(root / "src"), "--write"]) == init.EXIT_OK
+    assert load_repo_config(root).name == "\U0001F600 project"
+
+
+def test_a_nested_git_repository_never_inherits_an_ancestor_declaration(tmp_path):
+    """Astra on #469: a farther ancestor .local-agent.toml outranked the nearer .git."""
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    (parent / ".local-agent.toml").write_text('[profiles.p]\nbuild = ["make"]\n',
+                                              encoding="utf-8")
+    nested = _cmake_repo(parent / "repo")
+    assert find_repo_root(nested / "src") == nested.resolve()
+    inspection = inspect_repository(nested / "src")
+    assert inspection.root == nested.resolve()
+    assert inspection.declared is None and inspection.proposal is not None
+
+
+def test_a_declaration_beside_git_is_that_repositorys_declaration(tmp_path):
+    root = _cmake_repo(tmp_path / "repo")
+    (root / ".local-agent.toml").write_text('[profiles.p]\nbuild = ["make"]\n', encoding="utf-8")
+    assert find_repo_root(root / "src") == root.resolve()
+    assert inspect_repository(root / "src").declared is not None
+
+
+def test_a_declared_subproject_inside_a_git_repository_is_its_own_root(tmp_path):
+    outer = _cmake_repo(tmp_path / "mono repo")
+    sub = outer / "src" / "lib"
+    sub.mkdir()
+    (sub / ".local-agent.toml").write_text('[profiles.p]\nbuild = ["make"]\n', encoding="utf-8")
+    (sub / "deep").mkdir()
+    assert find_repo_root(sub / "deep") == sub.resolve()
+    assert find_repo_root(outer / "src") == outer.resolve()
+
+
+def test_with_no_marker_anywhere_the_start_is_the_root(tmp_path):
+    lonely = tmp_path / "a b" / "c"
+    lonely.mkdir(parents=True)
+    assert find_repo_root(lonely) == lonely.resolve()

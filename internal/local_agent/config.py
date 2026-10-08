@@ -630,12 +630,15 @@ def load_repo_config(root: Path) -> RepoConfig:
 
 
 def find_repo_root(start: Path) -> Path:
-    """Walk up looking for `.local-agent.toml`, then `.git`."""
+    """The nearest enclosing repository: walk up once, stopping at the first level that
+    has `.local-agent.toml` or `.git`.
+
+    The nearest boundary wins, so a Git repository nested under an unrelated declared
+    directory is its own root and never inherits that ancestor's declaration (#469).
+    With neither marker anywhere, the start directory is the root.
+    """
     start = start.resolve()
     for candidate in (start, *start.parents):
-        if (candidate / DEFAULT_CONFIG_NAME).is_file():
-            return candidate
-    for candidate in (start, *start.parents):
-        if (candidate / ".git").exists():
+        if (candidate / DEFAULT_CONFIG_NAME).is_file() or (candidate / ".git").exists():
             return candidate
     return start

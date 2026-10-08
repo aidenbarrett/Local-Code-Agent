@@ -14,7 +14,6 @@ found.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import os
 from pathlib import Path
 import tempfile
@@ -93,13 +92,36 @@ def build_systems(root: Path) -> tuple[str, ...]:
     return tuple(found)
 
 
+def toml_basic_string(value: str) -> str:
+    """``value`` as a TOML basic string.
+
+    TOML accepts any Unicode scalar value literally except the quote, the backslash
+    and control characters, which are escaped. JSON escaping is not a substitute: it
+    writes non-BMP characters as surrogate pairs, which TOML rejects (#469). A lone
+    surrogate (an undecodable file name) has no TOML form and is refused.
+    """
+    out = ['"']
+    for char in value:
+        code = ord(char)
+        if 0xD800 <= code <= 0xDFFF:
+            raise RepoSetupError(f"{value!r} contains a character TOML cannot represent")
+        if char in ('"', "\\"):
+            out.append("\\" + char)
+        elif code < 0x20 or code == 0x7F:
+            out.append(f"\\u{code:04X}")
+        else:
+            out.append(char)
+    out.append('"')
+    return "".join(out)
+
+
 def propose_cmake(name: str) -> str:
     """A reviewed CMake/CTest declaration in the existing schema; nothing is executed."""
     return (
         f"# Proposed by `.\\local-code-agent.ps1 init` because the root has CMakeLists.txt.\n"
         "# Review it: these commands run only in a session opened with --allow-execution.\n"
         "[repo]\n"
-        f"name = {json.dumps(name)}\n"
+        f"name = {toml_basic_string(name)}\n"
         'build_dir = "build"\n'
         'run_dir = ".local-agent/runs"\n'
         'default_profile = "debug"\n'
@@ -175,6 +197,7 @@ __all__ = [
     "init_command",
     "inspect_repository",
     "propose_cmake",
+    "toml_basic_string",
     "validate_declaration",
     "write_proposal",
 ]
