@@ -17,6 +17,7 @@ _SCOPE_LABELS = {
     "observed_test_failure": "observed test failure",
     "none": "no current proof scope",
 }
+_OUTCOME_PREVIEW_CHARS = 240
 
 
 def _scope_text(scope: str | None) -> str | None:
@@ -111,4 +112,48 @@ def render_result_evidence(task: TaskSnapshot) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["render_result_evidence", "render_result_summary"]
+def render_result_next_action(task: TaskSnapshot) -> str:
+    """Render one next action selected only from durable controller facts."""
+    if not isinstance(task, TaskSnapshot):
+        raise TypeError("result next action requires TaskSnapshot")
+    candidate = task.candidate
+    if (
+        candidate is not None
+        and candidate.role == "prepared"
+        and candidate.retained
+        and task.verdict == "VERIFIED"
+        and task.result_verified_at_completion is True
+    ):
+        action = f"review the retained candidate with /diff {task.task_id}."
+    elif not task.terminal:
+        action = "monitor this task until it reaches a durable terminal state."
+    elif task.verdict_reason == "endpoint_unavailable":
+        action = "restore the configured local endpoint, then retry this request."
+    elif task.verdict == "REFUSED":
+        action = "review the refusal reason and revise the request or configuration."
+    elif task.verdict == "FAILED":
+        action = "inspect the evidence and failure detail before retrying."
+    elif task.verdict == "NO_VERDICT":
+        action = "inspect repository and cleanup state before retrying."
+    else:
+        action = "none — this task has no unresolved controller action."
+    return f"Next action: {action}"
+
+
+def render_result_context(task: TaskSnapshot) -> str:
+    """Render the selected task's user request and repository identity."""
+    if not isinstance(task, TaskSnapshot):
+        raise TypeError("result context requires TaskSnapshot")
+    outcome = task.requested_outcome or "unavailable — request has not been hydrated"
+    outcome = " ".join(outcome.split())
+    if len(outcome) > _OUTCOME_PREVIEW_CHARS:
+        outcome = outcome[: _OUTCOME_PREVIEW_CHARS - 1].rstrip() + "…"
+    return f"Requested outcome: {outcome}\nRepository: {task.repository_id}"
+
+
+__all__ = [
+    "render_result_context",
+    "render_result_evidence",
+    "render_result_next_action",
+    "render_result_summary",
+]

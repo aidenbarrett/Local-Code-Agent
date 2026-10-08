@@ -58,6 +58,8 @@ class TaskSnapshot:
     repository_id: str
     skill: str | None
     deadline_utc: str
+    request_ref: dict[str, Any] | None = None
+    requested_outcome: str | None = None
     cancel_requested: bool = False
     verdict: str | None = None
     verdict_reason: str | None = None
@@ -292,6 +294,7 @@ def project_task(events: Iterable[dict[str, Any]], task_id: str) -> TaskSnapshot
         repository_id=str(payload["repository_id"]),
         skill=None if payload["skill"] is None else str(payload["skill"]),
         deadline_utc=str(payload["deadline_utc"]),
+        request_ref=dict(payload["request_ref"]),
     )
     snapshot.activity.append(
         _activity(

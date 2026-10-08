@@ -10,7 +10,12 @@ from dataclasses import dataclass
 
 from textual.widgets import Static
 
-from .result_presentation import render_result_evidence, render_result_summary
+from .result_presentation import (
+    render_result_context,
+    render_result_evidence,
+    render_result_next_action,
+    render_result_summary,
+)
 from .textual_feed import DurableHubFeed, HubFeedError
 from .textual_hub import HubViewState, SessionHubApp, render_activity
 
@@ -47,7 +52,12 @@ def render_live_activity(state: HubViewState) -> str:
         task = state.tasks[-1]
     if task is None:
         return detail
-    return f"{render_result_summary(task)}\n{render_result_evidence(task)}\n\n{detail}"
+    return (
+        f"{render_result_context(task)}\n"
+        f"{render_result_summary(task)}\n"
+        f"{render_result_evidence(task)}\n"
+        f"{render_result_next_action(task)}\n\n{detail}"
+    )
 
 
 class LiveSessionHubApp(SessionHubApp):

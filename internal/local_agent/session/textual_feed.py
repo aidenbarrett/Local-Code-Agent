@@ -8,6 +8,7 @@ re-subscribing from the last accepted sequence; it is never smoothed over.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+import json
 from typing import Any
 
 from .session_event_service import DurableSessionService, ReplaySubscription, SubscriptionGap
@@ -28,6 +29,13 @@ _RETAINED_RESULT_UNAVAILABLE = (
     "Unavailable — retained worker result failed integrity validation. "
     "The durable controller verdict above remains authoritative."
 )
+# Both admission routes retain the user's outcome under "task" (task_admission.py,
+# watch_task_admission.py); any other media type is not a request this feed can read.
+_REQUEST_MEDIA_TYPES = frozenset({
+    "application/vnd.lca.task-request+json",
+    "application/vnd.lca.watch-task-request+json",
+})
+_REQUEST_OUTCOME_UNAVAILABLE = "unavailable — retained request could not be read safely"
 
 
 class DurableHubFeed:
@@ -211,6 +219,28 @@ class DurableHubFeed:
             task.candidate = result.candidate
         return state
 
+    def _hydrate_requested_outcomes(self, state: HubViewState) -> HubViewState:
+        """Read the original request artifact without granting its prose authority."""
+        for task in state.tasks:
+            ref = task.request_ref
+            if (
+                not isinstance(ref, dict)
+                or ref.get("availability") != "retained"
+                or ref.get("media_type") not in _REQUEST_MEDIA_TYPES
+            ):
+                task.requested_outcome = _REQUEST_OUTCOME_UNAVAILABLE
+                continue
+            try:
+                value = json.loads(self.service.store.artifact_bytes(ref))
+                outcome = value.get("task") if isinstance(value, dict) else None
+                if not isinstance(outcome, str) or not outcome.strip() or len(outcome) > 10_000:
+                    raise ArtifactIntegrityError("retained task request has an invalid outcome")
+            except (ArtifactIntegrityError, UnicodeDecodeError, json.JSONDecodeError):
+                task.requested_outcome = _REQUEST_OUTCOME_UNAVAILABLE
+                continue
+            task.requested_outcome = outcome
+        return state
+
     def state(self, *, status: str | None = None) -> HubViewState:
         if not self._started:
             raise HubFeedError("durable UI feed must be started before projection")
@@ -240,6 +270,7 @@ class DurableHubFeed:
             route_summary=route_summary,
             status=status,
         )
+        state = self._hydrate_requested_outcomes(state)
         return self._hydrate_retained_results(state)
 
 
