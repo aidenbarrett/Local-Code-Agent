@@ -29,7 +29,12 @@ _RETAINED_RESULT_UNAVAILABLE = (
     "Unavailable — retained worker result failed integrity validation. "
     "The durable controller verdict above remains authoritative."
 )
-_REQUEST_MEDIA_TYPE = "application/vnd.lca.task-request+json"
+# Both admission routes retain the user's outcome under "task" (task_admission.py,
+# watch_task_admission.py); any other media type is not a request this feed can read.
+_REQUEST_MEDIA_TYPES = frozenset({
+    "application/vnd.lca.task-request+json",
+    "application/vnd.lca.watch-task-request+json",
+})
 _REQUEST_OUTCOME_UNAVAILABLE = "unavailable — retained request could not be read safely"
 
 
@@ -221,7 +226,7 @@ class DurableHubFeed:
             if (
                 not isinstance(ref, dict)
                 or ref.get("availability") != "retained"
-                or ref.get("media_type") != _REQUEST_MEDIA_TYPE
+                or ref.get("media_type") not in _REQUEST_MEDIA_TYPES
             ):
                 task.requested_outcome = _REQUEST_OUTCOME_UNAVAILABLE
                 continue

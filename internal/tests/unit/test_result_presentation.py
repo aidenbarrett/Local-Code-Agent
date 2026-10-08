@@ -290,3 +290,24 @@ def test_endpoint_outage_and_unknown_cleanup_get_supported_recovery_actions():
     assert render_result_next_action(unknown) == (
         "Next action: inspect repository and cleanup state before retrying."
     )
+
+
+def test_endpoint_action_follows_the_verdict_reason_not_an_earlier_fault():
+    """Review of #460: a transient endpoint fault must not outrank the verdict."""
+    recovered = _task(verdict="NOT_REQUIRED", reason="completed")
+    recovered.closed_sequence = 2
+    recovered.faults.append(("endpoint_unavailable", "local endpoint did not answer"))
+    assert "restore the configured local endpoint" not in render_result_next_action(recovered)
+
+    refused = _task(verdict="REFUSED", reason="policy_denied")
+    refused.closed_sequence = 2
+    refused.faults.append(("endpoint_unavailable", "local endpoint did not answer"))
+    assert render_result_next_action(refused) == (
+        "Next action: review the refusal reason and revise the request or configuration."
+    )
+
+    unrecorded = _task(verdict="NO_VERDICT", reason="endpoint_unavailable")
+    unrecorded.closed_sequence = 2
+    assert render_result_next_action(unrecorded) == (
+        "Next action: restore the configured local endpoint, then retry this request."
+    )

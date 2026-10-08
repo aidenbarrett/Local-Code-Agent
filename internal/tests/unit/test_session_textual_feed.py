@@ -34,7 +34,11 @@ def _opened(service: DurableSessionService, label: str):
     receipt.wait(5)
 
 
-def _admit_retained_request(service: DurableSessionService, outcome: str) -> str:
+def _admit_retained_request(
+    service: DurableSessionService,
+    outcome: str,
+    media_type: str = "application/vnd.lca.task-request+json",
+) -> str:
     request_bytes = json.dumps({"task": outcome}, separators=(",", ":")).encode()
     digest = hashlib.sha256(request_bytes).hexdigest()
     receipt = service.submit_task(
@@ -52,7 +56,7 @@ def _admit_retained_request(service: DurableSessionService, outcome: str) -> str
             "request_ref": {
                 "artifact_id": str(uuid4()),
                 "sha256": digest,
-                "media_type": "application/vnd.lca.task-request+json",
+                "media_type": media_type,
                 "size_bytes": len(request_bytes),
                 "availability": "retained",
             },
@@ -115,6 +119,35 @@ def test_feed_hydrates_original_requested_outcome_from_retained_artifact(tmp_pat
         task = next(item for item in state.tasks if item.task_id == task_id)
         assert task.requested_outcome == "Build and test this repository."
         assert task.repository_id == "repo-1"
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("media_type", [
+    "application/vnd.lca.task-request+json",
+    "application/vnd.lca.watch-task-request+json",
+])
+def test_feed_hydrates_the_outcome_from_both_admission_routes(tmp_path, media_type):
+    """Review of #460: a retained watch request is not \"unavailable\"."""
+    service = _service(tmp_path)
+    try:
+        task_id = _admit_retained_request(service, "Run the nightly tests.", media_type)
+        state = DurableHubFeed(service).start()
+        task = next(item for item in state.tasks if item.task_id == task_id)
+        assert task.requested_outcome == "Run the nightly tests."
+    finally:
+        service.close()
+
+
+def test_feed_does_not_read_an_unrecognised_request_media_type(tmp_path):
+    service = _service(tmp_path)
+    try:
+        task_id = _admit_retained_request(
+            service, "Run the nightly tests.", "application/vnd.lca.other+json")
+        state = DurableHubFeed(service).start()
+        task = next(item for item in state.tasks if item.task_id == task_id)
+        assert task.requested_outcome is not None
+        assert task.requested_outcome.startswith("unavailable")
     finally:
         service.close()
 

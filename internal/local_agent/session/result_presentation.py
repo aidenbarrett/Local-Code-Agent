@@ -127,7 +127,7 @@ def render_result_next_action(task: TaskSnapshot) -> str:
         action = f"review the retained candidate with /diff {task.task_id}."
     elif not task.terminal:
         action = "monitor this task until it reaches a durable terminal state."
-    elif task.faults and task.faults[-1][0] == "endpoint_unavailable":
+    elif task.verdict_reason == "endpoint_unavailable":
         action = "restore the configured local endpoint, then retry this request."
     elif task.verdict == "REFUSED":
         action = "review the refusal reason and revise the request or configuration."
