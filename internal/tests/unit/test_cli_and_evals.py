@@ -40,11 +40,12 @@ def test_cli_route_is_deterministic(sandbox):
     assert proc.stdout.splitlines()[0].strip().endswith("diagnose-build-failure")
 
 
-def test_cli_doctor_reports_unreachable_server_without_crashing(sandbox):
+def test_the_developer_cli_has_no_second_doctor(sandbox):
+    """Readiness has one owner, the public `doctor` (test_doctor.py covers an offline
+    endpoint). The developer CLI's older probe was retired with it (#458)."""
     proc = _cli(sandbox.root, "--base-url", "http://127.0.0.1:9/v3", "doctor")
-    assert proc.returncode != 0
-    assert "UNREACHABLE" in proc.stdout or "NOT SERVED" in proc.stdout
-    assert "tools" in proc.stdout
+    assert proc.returncode == 2
+    assert "invalid choice: 'doctor'" in proc.stderr
 
 
 # ------------------------------------------------------------------- evals

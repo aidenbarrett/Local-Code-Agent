@@ -1,10 +1,11 @@
 """Build cleanup must never consume user directories (#392)."""
+import importlib.util
 import json
+from pathlib import Path
 import sys
 
 import pytest
 
-from local_agent.cli import cmd_doctor
 from local_agent.config import ConfigError, load_repo_config
 from local_agent.tools import build_registry
 from local_agent.tools.process_runner import CancellationProbe
@@ -102,7 +103,7 @@ def test_config_refuses_build_symlink_that_escapes(tmp_path):
         load_repo_config(root)
 
 
-def test_public_doctor_reports_unsafe_build_path_without_deleting_it(tmp_path, capsys):
+def test_public_doctor_reports_unsafe_build_path_without_deleting_it(tmp_path):
     root = tmp_path / 'repo'
     root.mkdir()
     outside = tmp_path / 'outside'
@@ -113,9 +114,11 @@ def test_public_doctor_reports_unsafe_build_path_without_deleting_it(tmp_path, c
         '[repo]\nbuild_dir="../outside"\n'
         '[profiles.debug]\nbuild=["false"]\n', encoding='utf-8',
     )
-    args = type('Args', (), {'repo': str(root)})()
-    assert cmd_doctor(args) == 2
-    assert 'config          : FAILED' in capsys.readouterr().out
+    doctor = _public_doctor()
+    repository = doctor.check_repository(root)
+    assert repository.state == doctor.BLOCKED
+    assert repository.observed is not None and 'build_dir' in repository.observed
+    assert repository.next_action is not None
     assert sentinel.read_bytes() == b'user work'
 
 
@@ -147,3 +150,14 @@ def test_an_unowned_build_directory_refusal_says_how_to_proceed(tmp_path):
     assert "'build'" in message and 'repo.build_dir' in message
     assert (root / 'build' / 'mine.txt').read_text(encoding='utf-8') == 'user data'
     assert ctx.processes_started == 0
+
+
+def _public_doctor():
+    """The one readiness command: `.\\local-code-agent.ps1 doctor` (scripts/doctor.py)."""
+    script = Path(__file__).resolve().parents[2] / "scripts" / "doctor.py"
+    spec = importlib.util.spec_from_file_location("doctor_for_config_tests", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["doctor_for_config_tests"] = module
+    spec.loader.exec_module(module)
+    return module
