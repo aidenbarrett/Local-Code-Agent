@@ -1331,11 +1331,16 @@ class GitWorkspaceManager:
         ``git commit`` rejects is rejected here too, never normalised.
         """
         mode = self._git(user, "config", "--get", "commit.cleanup", check=False)
-        if mode.returncode not in (0, 1):
+        if mode.returncode == 1:
+            cleanup = "default"                             # unset
+        elif mode.returncode == 0:
+            # The configured token exactly as Git reads it: only the line terminator
+            # `config --get` adds is removed. An empty or padded value is not a mode.
+            cleanup = mode.stdout.decode("utf-8", "replace").removesuffix("\n")
+        else:
             return "git could not read commit.cleanup"
-        cleanup = mode.stdout.decode("utf-8", "replace").strip() or "default"
         if cleanup not in _CLEANUP_MODES:
-            return f"git commit rejects commit.cleanup={cleanup}"
+            return f"git commit rejects commit.cleanup={cleanup!r}"
         raw = message.encode("utf-8")
         if cleanup == "verbatim":
             body = raw

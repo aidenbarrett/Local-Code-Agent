@@ -272,6 +272,9 @@ def test_a_plain_uncontended_commit_is_published(tmp_path):
 
 @pytest.mark.parametrize(("key", "value"), [
     ("commit.cleanup", "invalid"),
+    ("commit.cleanup", ""),          # explicitly empty is not "unset" (Astra, 5c89ceb)
+    ("commit.cleanup", " strip "),   # a padded token is not a mode
+    ("commit.cleanup", "strip "),
     ("commit.gpgsign", "invalid"),
 ])
 def test_configuration_git_commit_rejects_is_refused_not_normalised(tmp_path, key, value):
@@ -280,6 +283,13 @@ def test_configuration_git_commit_rejects_is_refused_not_normalised(tmp_path, ke
     user = _repo(tmp_path, {"a.txt": "old a\n", "b.txt": "old b\n"})
     manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
     _git(user, "config", key, value)
+    native = subprocess.run(  # noqa: S603, S607 - control: plain git commit refuses too
+        ["git", "commit", "--allow-empty", "-q", "-m", "control", "--dry-run"],
+        cwd=user, capture_output=True, text=True, check=False,
+    )
+    # 128 is git's fatal configuration error; a valid setting gives 1 ("nothing to
+    # commit") for this dry run, so the control is not vacuous.
+    assert native.returncode == 128, (key, value, native.returncode, native.stderr)
     before = _state(user)
     done = manager.commit_applied(task, user, "candidate")
     assert isinstance(done, CommitRefused), done
