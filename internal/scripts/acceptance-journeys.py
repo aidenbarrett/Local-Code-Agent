@@ -1584,13 +1584,34 @@ def r_build(s: Session) -> None:
     expect(_git(s.repo, "status", "--porcelain=v1") == before, "building changed tracked or unignored files")
     if result.outcome is TaskOutcome.PASS:
         expect(result.verified_at_completion, "PASS without verification")
+        expect(_task_facts(result)["proof_scope"] == "full_build",
+               "PASS not bound to a full build")
     s.journey.measured_as(result.outcome.value, f"{result.reason_code}; source unchanged")
+
+
+def r_tests(s: Session) -> None:
+    """R03: the declared tests, with test proof separate from R02's build proof (#459)."""
+    before = _git(s.repo, "status", "--porcelain=v1")
+    _, result = s.turn("run the tests")
+    if result is None:
+        raise JourneyFailed("run the tests admitted no task")
+    expect(_git(s.repo, "status", "--porcelain=v1") == before,
+           "testing changed tracked or unignored files")
+    tools = [evidence.split(":")[0] for evidence in result.evidence_ids]
+    if result.outcome is TaskOutcome.PASS:
+        expect(result.verified_at_completion, "PASS without verification")
+        expect(_task_facts(result)["proof_scope"] == "full_test",
+               "PASS not bound to the full test run")
+        expect(tools == ["build_target", "run_test"], f"test evidence was {tools}")
+    s.journey.measured_as(result.outcome.value,
+                          f"{result.reason_code}; evidence {', '.join(tools)}")
 
 
 # (id, title, kind, needs_model, needs_build, function) for --repo: never mutates it.
 REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
     ("R01-questions", "questions about your repository", True, False, r_questions),
     ("R02-build", "build it in your repository", False, True, r_build),
+    ("R03-tests", "run the tests in your repository", False, True, r_tests),
 ]
 
 
@@ -2421,7 +2442,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path,
                         help="also run read-only journeys over this repository, in place (never modified)")
     parser.add_argument("--allow-build", action="store_true",
-                        help="with --repo: let R02 run that repository's configured build")
+                        help="with --repo: let R02/R03 run its configured build and tests")
     parser.add_argument("--repeat", type=int, default=1,
                         help="run each model journey this many times and report its outcome rate")
     parser.add_argument("--journey-timeout", type=float, default=900.0, help="seconds per user turn")

@@ -71,6 +71,18 @@ Review the proposal, then write it with `init --write` (it never replaces an
 existing declaration) and confirm with `doctor`. Build and test still run only in a
 session you open with `session --allow-execution`.
 
+To prove the declaration works before involving a model, build and test the
+repository in place. No model is used; each step gets its own verified result, and
+the repository is left unchanged:
+
+```powershell
+<path-to>\Local-Code-Agent\local-code-agent.ps1 acceptance --repo . --allow-build --only R02-build --only R03-tests
+```
+
+`R02-build` passes only on a verified full build; `R03-tests` passes only on a
+verified full test run (a build, then the tests). Every log is kept in the run's
+output directory.
+
 ## 3. Open the product
 
 ```powershell
