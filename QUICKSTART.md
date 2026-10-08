@@ -20,6 +20,14 @@ Bare setup shows the machine-level changes it may make and asks first. `-Install
 
 Setup creates/updates the managed Python environment, prepares the configured local runtime/model, runs protocol conformance checks and proves the local C++ toolchain can configure/build/test the validation fixture.
 
+After setup, ask whether the machine and the repository you are in are ready. It
+only looks: it installs, downloads and starts nothing, and for each missing piece it
+prints the one command to run next:
+
+```powershell
+.\local-code-agent.ps1 doctor
+```
+
 The default worker is `ptl-gpu-30b`, the Qwen3-Coder 30B-A3B INT4 model on the
 GPU. Its weights are about 17 GB, so use the lighter `ptl-npu-8b` option on a
 machine that cannot comfortably run it. List the available presets and their

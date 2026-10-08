@@ -13,7 +13,7 @@ param(
     # switch, which prints help.
     [ArgumentCompleter({
         param($commandName, $parameterName, $wordToComplete)
-        @('session', 'chat', 'help', 'capabilities', 'run-task', 'acceptance', 'models', 'verification-demo', 'advanced') |
+        @('session', 'chat', 'help', 'doctor', 'capabilities', 'run-task', 'acceptance', 'models', 'verification-demo', 'advanced') |
             Where-Object { $_ -like "$wordToComplete*" } |
             ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
     })]
@@ -141,6 +141,21 @@ switch ($Command.ToLowerInvariant()) {
     }
     'help' {
         Show-Help
+        exit $LASTEXITCODE
+    }
+    'doctor' {
+        # Read-only readiness: installs, downloads, writes and starts nothing. The two
+        # Windows facts Python cannot observe come from their PowerShell owners: the
+        # managed OVMS executable (Set-ManagedOvmsEnvironment, as a session sees it)
+        # and the MSVC installation (scripts\msvc.ps1, as setup sees it).
+        Set-ManagedOvmsEnvironment
+        $doctorArgs = @('--launcher-probed')
+        if ([System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            . (Join-Path $internal 'scripts\msvc.ps1')
+            $msvc = FindMsvc
+            if ($msvc) { $doctorArgs += @('--msvc-installation', $msvc) }
+        }
+        & $python (Join-Path $internal 'scripts\doctor.py') @doctorArgs @Rest
         exit $LASTEXITCODE
     }
     'capabilities' {
