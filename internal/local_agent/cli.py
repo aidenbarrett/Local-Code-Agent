@@ -1,6 +1,7 @@
-"""Command line entry point.
+"""Developer command line, reached as `.\\local-code-agent.ps1 advanced`.
 
-    local-agent doctor
+Readiness belongs to the public `.\\local-code-agent.ps1 doctor` (scripts/doctor.py).
+
     local-agent skills
     local-agent tools [--skill build-and-test]
     local-agent run "reproduce the ring buffer failure and explain it"
@@ -38,34 +39,6 @@ def _load(args: argparse.Namespace):
     registry, ctx, store = build_registry(repo)
     skills = SkillLibrary.discover_many(default_search_path(root, repo.skills_dir))
     return repo, registry, skills
-
-
-def cmd_doctor(args: argparse.Namespace) -> int:
-    root = find_repo_root(Path(args.repo or "."))
-    print(f"repository root : {root}")
-    try:
-        repo, registry, skills = _load(args)
-        print(f"config          : ok ({len(repo.profiles)} profile(s), "
-              f"default {repo.default_profile})")
-        print(f"tools           : {len(registry.names())} registered")
-        print(f"skills          : {len(skills)} discovered -> {', '.join(skills.names()) or 'none'}")
-    except Exception as exc:
-        print(f"config          : FAILED - {exc}")
-        return 2
-
-    cfg = _model_config(args)
-    print(f"model endpoint  : {cfg.base_url} ({cfg.device_note})")
-    client = OpenAICompatibleClient(cfg)
-    try:
-        info = client.probe()
-    except Exception as exc:
-        print(f"model server    : UNREACHABLE - {type(exc).__name__}: {exc}")
-        print("                  start OVMS, or use --base-url to point elsewhere")
-        return 1
-    print(f"served models   : {', '.join(info['served_models']) or 'none'}")
-    print(f"configured model: {cfg.model} "
-          f"{'(present)' if info['configured_model_present'] else '(NOT SERVED)'}")
-    return 0 if info["configured_model_present"] else 1
 
 
 def cmd_skills(args: argparse.Namespace) -> int:
@@ -192,7 +165,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("doctor", help="check config, tools, skills and model server").set_defaults(func=cmd_doctor)
     sub.add_parser("skills", help="list discovered skills").set_defaults(func=cmd_skills)
 
     p_tools = sub.add_parser("tools", help="list tools, optionally for one skill")

@@ -1,12 +1,13 @@
 """Repository configuration is validated before it grants authority (#399)."""
 
+import importlib.util
 import json
 from pathlib import Path
 import re
+import sys
 
 import pytest
 
-from local_agent.cli import cmd_doctor
 from local_agent.config import ConfigError, load_repo_config
 from local_agent.session.candidate_change import commit_candidate
 from local_agent.session.contracts import TaskOutcome
@@ -164,14 +165,23 @@ def test_optional_commands_and_empty_later_arguments_remain_valid(tmp_path: Path
     assert profile.test == []
 
 
-def test_public_doctor_refuses_empty_executable_before_composition(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_public_doctor_refuses_empty_executable_before_composition(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     _write(root, '[profiles.debug]\nbuild = ["   "]\n')
-    args = type("Args", (), {"repo": str(root)})()
+    doctor = _public_doctor()
 
-    assert cmd_doctor(args) == 2
-    output = capsys.readouterr().out
-    assert "config          : FAILED" in output
-    assert "profiles.debug.build executable must be a non-empty string" in output
+    repository = doctor.check_repository(root)
+    assert repository.state == doctor.BLOCKED
+    assert repository.observed is not None
+    assert "profiles.debug.build executable must be a non-empty string" in repository.observed
+
+
+def _public_doctor():
+    """The one readiness command: `.\\local-code-agent.ps1 doctor` (scripts/doctor.py)."""
+    script = Path(__file__).resolve().parents[2] / "scripts" / "doctor.py"
+    spec = importlib.util.spec_from_file_location("doctor_for_config_tests", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["doctor_for_config_tests"] = module
+    spec.loader.exec_module(module)
+    return module

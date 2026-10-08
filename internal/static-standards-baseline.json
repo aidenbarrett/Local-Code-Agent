@@ -669,10 +669,9 @@
     "UP042": 3
    },
    "internal/local_agent/cli.py": {
-    "BLE001": 2,
-    "E501": 3,
+    "E501": 1,
     "RUF059": 2,
-    "T201": 25
+    "T201": 15
    },
    "internal/local_agent/config.py": {
     "UP037": 1
@@ -1189,5 +1188,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1668
+ "total": 1654
 }
