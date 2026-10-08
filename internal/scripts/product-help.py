@@ -28,6 +28,7 @@ def main() -> int:
 
     term.section("COMMANDS")
     term.field("doctor", "Check this machine and repository are ready; name the next step")
+    term.field("init", "Declare how this repository builds and tests; '--write' saves the proposal")
     term.field("chat", "Raw local-model chat only; no repository tools or verification")
     term.field("capabilities", "Show what controlled repository work is available")
     term.field("run-task", "Run one controlled engineering task headlessly")

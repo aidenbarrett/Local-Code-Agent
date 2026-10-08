@@ -12,6 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 import sys
 import subprocess
+import tomllib
 from collections.abc import Callable
 from typing import NamedTuple
 from uuid import NAMESPACE_URL, uuid5
@@ -20,7 +21,14 @@ SOURCE_ROOT = Path(__file__).resolve().parents[1]
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
-from local_agent.config import MODEL_PRESETS, find_repo_root, load_repo_config  # noqa: E402
+from local_agent.config import (  # noqa: E402
+    DEFAULT_CONFIG_NAME,
+    MODEL_PRESETS,
+    ConfigError,
+    find_repo_root,
+    load_repo_config,
+)
+from local_agent.repo_setup import init_command  # noqa: E402
 from local_agent.llm.client import LLMClient, OpenAICompatibleClient, stop_proof_for  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor  # noqa: E402
@@ -257,7 +265,17 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
 
     root = find_repo_root(Path(args.repo))
-    repo = load_repo_config(root)
+    try:
+        repo = load_repo_config(root)
+    except (ConfigError, tomllib.TOMLDecodeError, OSError) as exc:
+        # Refuse before any effect, with the one supported next step, never a traceback.
+        declaration = root / DEFAULT_CONFIG_NAME
+        next_step = (
+            f"correct {declaration}, then check it with .\\local-code-agent.ps1 doctor"
+            if declaration.is_file() else init_command(root)
+        )
+        sys.stderr.write(f"Repository not ready: {_safe_terminal(str(exc))}\nNext: {next_step}\n")
+        return 2
     chat_config, worker_profile, worker_config = _resolve_model_configs(args)
     budgets = conversation_budgets(chat_config.context_budget_tokens)
     runtime_root = _runtime_root()

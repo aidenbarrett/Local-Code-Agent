@@ -13,7 +13,7 @@ param(
     # switch, which prints help.
     [ArgumentCompleter({
         param($commandName, $parameterName, $wordToComplete)
-        @('session', 'chat', 'help', 'doctor', 'capabilities', 'run-task', 'acceptance', 'models', 'verification-demo', 'advanced') |
+        @('session', 'chat', 'help', 'doctor', 'init', 'capabilities', 'run-task', 'acceptance', 'models', 'verification-demo', 'advanced') |
             Where-Object { $_ -like "$wordToComplete*" } |
             ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
     })]
@@ -156,6 +156,12 @@ switch ($Command.ToLowerInvariant()) {
             if ($msvc) { $doctorArgs += @('--msvc-installation', $msvc) }
         }
         & $python (Join-Path $internal 'scripts\doctor.py') @doctorArgs @Rest
+        exit $LASTEXITCODE
+    }
+    'init' {
+        # Declare how this repository builds and tests. Shows a proposal; writes only
+        # with --write, never over an existing declaration, and runs nothing.
+        & $python (Join-Path $internal 'scripts\init-repo.py') @Rest
         exit $LASTEXITCODE
     }
     'capabilities' {
