@@ -362,14 +362,17 @@ def _publishes(txn: _Transaction, updates: str) -> bool:
 
 
 def _bound_to_head(txn: _Transaction, updates: str) -> bool:
-    """The prepared update moves the branch *through HEAD*.
+    """The prepared update, issued as ``update-ref HEAD``, resolved HEAD to this branch.
 
-    Git adds HEAD to a transaction, and locks it, exactly when HEAD is a symbolic ref to
-    the branch being updated. Its presence in the prepared update, with every lock held,
-    proves HEAD still names this branch and cannot change until the update ends. After a
-    concurrent switch or detach the line is absent and the update is aborted.
+    The controller publishes through HEAD, so Git dereferences HEAD when it takes its
+    locks and reports the branch it actually locked; HEAD stays locked until the update
+    ends, so no switch can cross it. Only this branch's move (plus, on Gits that report
+    it, HEAD's own log entry) is admitted. After a switch to another branch, the update
+    names that branch; after a detach, it names HEAD alone; both are aborted.
     """
-    return _publishes(txn, updates) and f"{txn.parent} {txn.commit} HEAD" in _lines(updates)
+    lines = _lines(updates)
+    allowed = {f"{txn.parent} {txn.commit} {txn.ref}", f"{txn.parent} {txn.commit} HEAD"}
+    return _publishes(txn, updates) and lines <= allowed
 
 
 def _mark(transaction_path: Path, suffix: str, text: str) -> None:

@@ -301,6 +301,10 @@ def _parse_git_version(text: str) -> tuple[int, int] | None:
 _OWNER_TOKEN = re.compile(r"[0-9]+:[0-9]+\.[0-9]{6}")
 
 
+# The values ``git commit`` accepts for commit.cleanup.
+_CLEANUP_MODES = frozenset({"default", "strip", "whitespace", "verbatim", "scissors"})
+
+
 def _discard_transaction(transaction: Path) -> None:
     """Remove an index transaction and the hook's evidence files beside it."""
     for suffix in ("", RAN_SUFFIX, BOUND_SUFFIX):
@@ -1275,8 +1279,10 @@ class GitWorkspaceManager:
                     f"newer is required to bind a commit to HEAD; probe exit {probe.returncode})")
         ran.unlink(missing_ok=True)
         subject = body.decode("utf-8", "replace").split("\n", 1)[0]
+        # Through HEAD, not the branch name: Git then locks HEAD for the whole update and
+        # the hook sees which branch HEAD resolved to (see _bound_to_head).
         moved = self._git(
-            user, "update-ref", "-m", f"commit: {subject}", ref, commit, parent,
+            user, "update-ref", "-m", f"commit: {subject}", "HEAD", commit, parent,
             check=False, env_extra=hook_env,
         )
         if moved.returncode != 0:
@@ -1303,10 +1309,13 @@ class GitWorkspaceManager:
         if tree.returncode != 0:
             return "git refused to write the private commit tree"
         body = self._commit_message(user, message)
-        if body is None:
-            return "the commit message is empty"
+        if isinstance(body, str):
+            return body
+        signing = self._signing_flags(user)
+        if isinstance(signing, str):
+            return signing
         made = self._git(
-            user, "commit-tree", *self._signing_flags(user),
+            user, "commit-tree", *signing,
             tree.stdout.decode("ascii").strip(), "-p", parent, "-F", "-",
             stdin=body, check=False,
         )
@@ -1314,26 +1323,40 @@ class GitWorkspaceManager:
             return _failed_commit_reason(made)
         return made.stdout.decode("ascii").strip(), body
 
-    def _commit_message(self, user: Path, message: str) -> bytes | None:
-        """The message ``git commit -F`` would record, or None when it would refuse.
+    def _commit_message(self, user: Path, message: str) -> bytes | str:
+        """The message ``git commit -F`` would record, or why it would refuse.
 
         ``commit-tree`` stores its input verbatim, so the user's ``commit.cleanup`` is
-        applied here as ``git commit`` applies it to a message given with ``-F``.
+        applied here as ``git commit`` applies it to a message given with ``-F``; a value
+        ``git commit`` rejects is rejected here too, never normalised.
         """
         mode = self._git(user, "config", "--get", "commit.cleanup", check=False)
+        if mode.returncode not in (0, 1):
+            return "git could not read commit.cleanup"
         cleanup = mode.stdout.decode("utf-8", "replace").strip() or "default"
+        if cleanup not in _CLEANUP_MODES:
+            return f"git commit rejects commit.cleanup={cleanup}"
         raw = message.encode("utf-8")
         if cleanup == "verbatim":
             body = raw
         else:
             flags = ("--strip-comments",) if cleanup == "strip" else ()
             body = self._git(user, "stripspace", *flags, stdin=raw).stdout
-        return body if body.strip() else None
+        return body if body.strip() else "the commit message is empty"
 
-    def _signing_flags(self, user: Path) -> tuple[str, ...]:
-        """Sign exactly when ``git commit`` would: ``commit-tree`` ignores commit.gpgSign."""
+    def _signing_flags(self, user: Path) -> tuple[str, ...] | str:
+        """Sign exactly when ``git commit`` would: ``commit-tree`` ignores commit.gpgSign.
+
+        An unset value means unsigned; a value ``git commit`` cannot read refuses, never
+        an unsigned commit.
+        """
         sign = self._git(user, "config", "--type=bool", "--get", "commit.gpgsign", check=False)
-        return ("-S",) if sign.stdout.decode("ascii", "replace").strip() == "true" else ()
+        if sign.returncode == 1:
+            return ()
+        value = sign.stdout.decode("ascii", "replace").strip()
+        if sign.returncode != 0 or value not in ("true", "false"):
+            return "git commit cannot read commit.gpgSign"
+        return ("-S",) if value == "true" else ()
 
     def _commit_state_refusal(self, user: Path) -> str | None:
         """Why the checkout cannot take a controller commit now, or None."""

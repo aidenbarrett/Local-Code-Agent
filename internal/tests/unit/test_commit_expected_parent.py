@@ -224,6 +224,8 @@ def test_the_hook_ignores_ref_updates_that_are_not_its_publication(tmp_path):
 
 
 def test_the_prepared_hook_admits_only_its_branch_move_through_head(tmp_path):
+    """Publication is ``update-ref HEAD``: Git reports the branch HEAD resolved to (and,
+    on some versions, HEAD's own log line). Only this branch's move is admitted."""
     user = _repo(tmp_path, {"a.txt": "old a\n"})
     parent = _git(user, "rev-parse", "HEAD").strip()
     branch = _git(user, "symbolic-ref", "HEAD").strip()
@@ -235,33 +237,52 @@ def test_the_prepared_hook_admits_only_its_branch_move_through_head(tmp_path):
         workspaces, user, live if live.is_absolute() else user / live,
         commit_index_hook.Publication(ref=branch, parent=parent, commit=new), (),
     )
-    branch_only = f"{parent} {new} {branch}\n"
-    through_head = branch_only + f"{parent} {new} HEAD\n"
-    assert commit_index_hook.main([str(transaction), "prepared"], updates=branch_only) == 1
-    assert commit_index_hook.main([str(transaction), "prepared"],
-                                  updates=f"{parent} {new} HEAD\n") == 1
-    assert not Path(str(transaction) + commit_index_hook.BOUND_SUFFIX).exists()
-    assert commit_index_hook.main([str(transaction), "prepared"], updates=through_head) == 0
-    assert Path(str(transaction) + commit_index_hook.BOUND_SUFFIX).is_file()
+    bound = Path(str(transaction) + commit_index_hook.BOUND_SUFFIX)
+    for refused in (
+        f"{parent} {new} HEAD\n",                                   # HEAD was detached
+        f"{parent} {new} refs/heads/elsewhere\n",                   # HEAD named another
+        f"{parent} {new} refs/heads/elsewhere\n{parent} {new} HEAD\n",
+        f"{parent} {new} {branch}\n{parent} {new} refs/heads/extra\n",
+        f"{parent} {'2' * 40} {branch}\n",                          # another commit
+        "",
+    ):
+        assert commit_index_hook.main([str(transaction), "prepared"], updates=refused) == 1
+        assert not bound.exists(), refused
+    for admitted in (f"{parent} {new} {branch}\n",                  # Git 2.51
+                     f"{parent} {new} HEAD\n{parent} {new} {branch}\n"):  # Git 2.43
+        bound.unlink(missing_ok=True)
+        assert commit_index_hook.main([str(transaction), "prepared"], updates=admitted) == 0
+        assert bound.is_file()
 
 
-def test_the_message_is_cleaned_as_git_commit_would_and_an_empty_one_is_refused(tmp_path):
-    user = _repo(tmp_path, {"a.txt": "old a\n"})
+def test_a_plain_uncontended_commit_is_published(tmp_path):
+    """Acceptance (Astra, c24d4c5): the ordinary path must commit on every Git."""
+    user = _repo(tmp_path, {"a.txt": "old a\n", "b.txt": "old b\n"})
     manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
-    raw = "\n  subject  \n\n\n body text \n\n"
-    expected = subprocess.run(["git", "stripspace"], cwd=user, input=raw,  # noqa: S607
-                              capture_output=True, text=True, check=True).stdout
-    done = manager.commit_applied(task, user, raw)
+    parent = _git(user, "rev-parse", "HEAD").strip()
+    done = manager.commit_applied(task, user, "candidate")
     assert isinstance(done, Committed), done
-    assert _git(user, "log", "-1", "--format=%B").rstrip("\n") == expected.rstrip("\n")
+    assert _git(user, "rev-parse", "HEAD~1").strip() == parent
+    assert _git(user, "symbolic-ref", "HEAD").strip() == f"refs/heads/{done.branch}"
+    assert _committed_paths(user) == ["a.txt"]
+    assert _git(user, "diff", "--cached", "--name-only") == ""
+    assert not _git(user, "for-each-ref", "refs/lca-probe/")
 
-    (tmp_path / "second").mkdir()
-    user2 = _repo(tmp_path / "second", {"a.txt": "old a\n"})
-    manager2, task2 = _apply(tmp_path / "second", user2, {"a.txt": "candidate\n"})
-    before = _git(user2, "rev-parse", "HEAD")
-    refused = manager2.commit_applied(task2, user2, " \n\n \n")
-    assert isinstance(refused, CommitRefused), refused
-    assert _git(user2, "rev-parse", "HEAD") == before
+
+@pytest.mark.parametrize(("key", "value"), [
+    ("commit.cleanup", "invalid"),
+    ("commit.gpgsign", "invalid"),
+])
+def test_configuration_git_commit_rejects_is_refused_not_normalised(tmp_path, key, value):
+    """Astra (03:38Z): an invalid cleanup must not become stripspace, and an invalid
+    signing setting must never become an unsigned commit."""
+    user = _repo(tmp_path, {"a.txt": "old a\n", "b.txt": "old b\n"})
+    manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
+    _git(user, "config", key, value)
+    before = _state(user)
+    done = manager.commit_applied(task, user, "candidate")
+    assert isinstance(done, CommitRefused), done
+    assert _state(user) == before
 
 
 def test_without_a_runnable_binding_hook_nothing_is_published(tmp_path, monkeypatch):
@@ -278,3 +299,48 @@ def test_without_a_runnable_binding_hook_nothing_is_published(tmp_path, monkeypa
     assert "reference-transaction hook" in done.reason
     assert _git(user, "rev-parse", "HEAD") == head
     assert not list(manager.workspaces_root.glob(".commit-index-*"))
+
+
+def _linked_worktree(tmp_path: Path) -> Path:
+    main = _repo(tmp_path, {"a.txt": "old a\n", "b.txt": "old b\n"})
+    linked = tmp_path / "linked"
+    _git(main, "worktree", "add", "-q", "-b", "feature", str(linked))
+    _git(linked, "config", "user.email", "t@example.invalid")
+    _git(linked, "config", "user.name", "t")
+    return linked
+
+
+def test_a_linked_worktree_publishes_on_its_own_branch(tmp_path):
+    user = _linked_worktree(tmp_path)
+    manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
+    parent = _git(user, "rev-parse", "HEAD").strip()
+    done = manager.commit_applied(task, user, "candidate")
+    assert isinstance(done, Committed), done
+    assert done.branch == "feature"
+    assert _git(user, "rev-parse", "refs/heads/feature~1").strip() == parent
+    assert _git(user, "rev-parse", "HEAD").strip() == done.commit
+    # The main worktree's checked-out branch is another ref and is not moved.
+    assert _git(tmp_path / "user", "rev-parse", "HEAD").strip() == parent
+
+
+@pytest.mark.parametrize("move", ["switch", "detach"])
+def test_a_branch_change_in_a_linked_worktree_moves_no_ref(tmp_path, monkeypatch, move):
+    user = _linked_worktree(tmp_path)
+    manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
+    parent = _git(user, "rev-parse", "HEAD").strip()
+    real_git = manager._git
+    moved: list[str] = []
+
+    def change_branch(cwd, *args, **kwargs):
+        if _is("update-ref", args) and not moved:
+            _git(user, "switch", "-q", *(["-c", "elsewhere"] if move == "switch"
+                                         else ["--detach"]))
+            moved.append(move)
+        return real_git(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(manager, "_git", change_branch)
+    done = manager.commit_applied(task, user, "candidate")
+    assert moved
+    assert isinstance(done, CommitRefused), done
+    assert _git(user, "rev-parse", "refs/heads/feature").strip() == parent
+    assert _git(user, "rev-parse", "HEAD").strip() == parent
