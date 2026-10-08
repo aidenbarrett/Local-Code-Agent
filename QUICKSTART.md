@@ -55,7 +55,23 @@ per-user runtime setting, not this repository:
 .\local-code-agent.ps1 models use ptl-gpu-30b
 ```
 
-## 2. Open the product
+## 2. Declare your repository
+
+Local Code Agent builds and tests only what a repository declares in its
+`.local-agent.toml`; it never guesses. From inside your repository (any folder in
+it works), `init` shows the root it will use and, for a CMake project, a proposed
+declaration. It only looks; nothing is written or run:
+
+```powershell
+cd C:\src\my-project
+<path-to>\Local-Code-Agent\local-code-agent.ps1 init
+```
+
+Review the proposal, then write it with `init --write` (it never replaces an
+existing declaration) and confirm with `doctor`. Build and test still run only in a
+session you open with `session --allow-execution`.
+
+## 3. Open the product
 
 ```powershell
 .\local-code-agent.ps1
@@ -77,7 +93,7 @@ that session only. It does not change what the next session uses.
 
 Raw chat has no repository authority, tools or independent verification. The Session Hub is the product path for controlled engineering work.
 
-## 3. Ask for work naturally
+## 4. Ask for work naturally
 
 Examples:
 
@@ -91,7 +107,7 @@ Why did that fail?
 
 The controller decides the permitted route/tools and owns verification. The model never receives arbitrary shell authority and cannot certify its own success.
 
-## 4. Hardware demo
+## 5. Hardware demo
 
 The demo scripts run the configured local model on a selected device for a visible smoke test:
 
@@ -103,7 +119,7 @@ The demo scripts run the configured local model on a selected device for a visib
 
 Their timing is live demo output, not benchmark evidence. Runtime comparison belongs to the neutral endpoint harness under `internal/perf/`.
 
-## 5. Performance comparison
+## 6. Performance comparison
 
 For engineering/runtime work, copy the generic example profile to an ignored local path and point it at the endpoint being measured:
 

@@ -224,7 +224,7 @@ def test_repository_states(tmp_path):
     (tmp_path / "plain").mkdir()
     missing = _assess(tmp_path, repo=tmp_path / "plain")["Repository"]
     assert missing.state == doctor.MISSING
-    assert missing.next_action is not None and ".local-agent.toml" in missing.next_action
+    assert missing.next_action == rf'.\local-code-agent.ps1 init --repo "{(tmp_path / "plain").resolve()}"'
 
     broken = _repo(tmp_path / "broken", "[profiles\n")
     blocked = _assess(tmp_path, repo=broken)["Repository"]

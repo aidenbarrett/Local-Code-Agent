@@ -32,6 +32,7 @@ if str(INTERNAL) not in sys.path:
     sys.path.insert(0, str(INTERNAL))
 
 from local_agent.config import MODEL_PRESETS, ConfigError, find_repo_root, load_repo_config  # noqa: E402
+from local_agent.repo_setup import init_command  # noqa: E402
 from serving import serve  # noqa: E402
 from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
 from serving.model_store import default_runtime_root  # noqa: E402
@@ -115,8 +116,7 @@ def check_repository(start: Path) -> Check:
             return Check(
                 "Repository", MISSING, configured=f"none at {root}",
                 observed="Local Code Agent will not guess how to build an undeclared repository",
-                next_action=f"create {root / '.local-agent.toml'} declaring a "
-                            "[profiles.<name>] table with configure, build and test commands",
+                next_action=init_command(root),
             )
         return Check("Repository", BLOCKED, configured=str(root / ".local-agent.toml"),
                      observed=f"invalid: {exc}",
