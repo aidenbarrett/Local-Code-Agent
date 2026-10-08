@@ -2,9 +2,11 @@
 
 The private tree is ``parent`` plus exactly the candidate paths. Publishing it after the
 branch moved would make it the child of newer user work while carrying the older
-contents, silently reverting that work in the new HEAD. Publication is one
-compare-and-swap ``update-ref`` from ``parent``; anything that moved the branch first
-makes it refuse with no ref changed.
+contents, silently reverting that work in the new HEAD. The built commit is verified
+before anything names it, and publication is one ``update-ref`` of the branch from
+``parent`` that LCA's reference-transaction hook lets through only while HEAD still
+names that branch. Anything that moved the branch or HEAD first makes it refuse with no
+ref changed.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ import subprocess
 import pytest
 
 from local_agent.session import commit_index_hook
-from local_agent.session.workspaces import Committed, CommitRefused
+from local_agent.session.workspaces import CommitDrifted, Committed, CommitRefused
 from test_commit_literal_paths import _apply, _committed_paths, _git, _repo
 
 
@@ -29,12 +31,19 @@ def _state(user: Path) -> tuple[str, ...]:
     )
 
 
+def _is(step: str, args: tuple[str, ...]) -> bool:
+    """``update-ref`` means the publication, not the hook probe that precedes it."""
+    if not args or args[0] != step:
+        return False
+    return step != "update-ref" or "--stdin" not in args
+
+
 def _user_commits_b_before(manager, user: Path, step: str, monkeypatch) -> list[str]:
     real_git = manager._git
     concurrent: list[str] = []
 
     def race(cwd, *args, **kwargs):
-        if args and args[0] == step and not concurrent:
+        if _is(step, args) and not concurrent:
             (user / "b.txt").write_text("user committed work\n", encoding="utf-8")
             _git(user, "add", "b.txt")
             _git(user, "commit", "-qm", "user concurrent commit")
@@ -56,7 +65,7 @@ def test_a_concurrent_user_commit_is_never_published_over(tmp_path, monkeypatch,
 
     assert concurrent, "the interleaving never ran"
     assert isinstance(done, CommitRefused), done
-    assert "moved while the commit was being prepared" in done.reason
+    assert "moved or HEAD changed while the commit was being prepared" in done.reason
     head = _git(user, "rev-parse", "HEAD").strip()
     assert head == concurrent[0], "a ref advanced past the user's commit"
     assert _git(user, "show", "HEAD:b.txt") == "user committed work\n"
@@ -65,7 +74,8 @@ def test_a_concurrent_user_commit_is_never_published_over(tmp_path, monkeypatch,
     record = json.loads((manager.workspaces_root / f"{task}.applied.json").read_text(
         encoding="utf-8"))
     assert "committed" not in record
-    assert not list(manager.workspaces_root.glob(".commit-index-*.json"))
+    assert not list(manager.workspaces_root.glob(".commit-index-*"))
+    assert not _git(user, "for-each-ref", "refs/lca-probe/"), "the hook probe left a ref"
 
 
 def test_a_refused_publication_leaves_the_users_state_byte_exact(tmp_path, monkeypatch):
@@ -75,7 +85,7 @@ def test_a_refused_publication_leaves_the_users_state_byte_exact(tmp_path, monke
     seen: list[tuple[str, ...]] = []
 
     def race(cwd, *args, **kwargs):
-        if args and args[0] == "update-ref" and not seen:
+        if _is("update-ref", args) and not seen:
             (user / "b.txt").write_text("user committed work\n", encoding="utf-8")
             _git(user, "add", "b.txt")
             _git(user, "commit", "-qm", "user concurrent commit")
@@ -104,20 +114,19 @@ def test_the_refused_candidate_commits_cleanly_on_retry(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("move", ["switch", "detach"])
-def test_a_concurrent_branch_change_never_redirects_publication(tmp_path, monkeypatch, move):
-    """Supported contract: publication targets only the branch HEAD named when the commit
-    was requested, and only while it still points at the parent. A switch to another
-    branch at the same commit, or a detach, never receives the candidate, and the live
-    index (now another checkout's) is not advanced."""
+def test_a_concurrent_branch_change_moves_no_ref(tmp_path, monkeypatch, move):
+    """Astra's probe: a switch to another branch at the same commit, or a detach, at the
+    publication boundary. The captured branch's CAS alone would still succeed; the
+    hook's HEAD binding refuses it, so no ref moves at all."""
     user = _repo(tmp_path, {"a.txt": "old a\n", "b.txt": "old b\n"})
     manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
-    branch = _git(user, "symbolic-ref", "--short", "HEAD").strip()
+    branch = _git(user, "symbolic-ref", "HEAD").strip()
     parent = _git(user, "rev-parse", "HEAD").strip()
     real_git = manager._git
     moved: list[str] = []
 
     def change_branch(cwd, *args, **kwargs):
-        if args and args[0] == "update-ref" and not moved:
+        if _is("update-ref", args) and not moved:
             if move == "switch":
                 _git(user, "switch", "-q", "-c", "elsewhere")
             else:
@@ -127,17 +136,43 @@ def test_a_concurrent_branch_change_never_redirects_publication(tmp_path, monkey
 
     monkeypatch.setattr(manager, "_git", change_branch)
     index_before = _git(user, "ls-files", "--stage")
+    refs_before = _git(user, "for-each-ref")
     done = manager.commit_applied(task, user, "candidate")
 
     assert moved
-    assert isinstance(done, Committed), done
-    assert done.branch == branch
-    assert _git(user, "rev-parse", f"refs/heads/{branch}").strip() == done.commit
-    assert _git(user, "rev-parse", "HEAD").strip() == parent, "HEAD followed the commit"
+    assert isinstance(done, CommitRefused), done
+    assert _git(user, "rev-parse", branch).strip() == parent
+    assert _git(user, "rev-parse", "HEAD").strip() == parent
+    expected_refs = set(refs_before.splitlines())
     if move == "switch":
-        assert _git(user, "rev-parse", "refs/heads/elsewhere").strip() == parent
-    assert done.index_left == ("a.txt",)
+        expected_refs.add(f"{parent} commit\trefs/heads/elsewhere")
+    assert set(_git(user, "for-each-ref").splitlines()) == expected_refs
     assert _git(user, "ls-files", "--stage") == index_before
+
+
+def test_candidate_bytes_changed_before_private_staging_move_no_ref(tmp_path, monkeypatch):
+    """Astra's second probe: the user edits a candidate file just before LCA stages it.
+    The built commit is checked before publication, so those bytes never reach HEAD."""
+    user = _repo(tmp_path, {"a.txt": "old a\n", "b.txt": "old b\n"})
+    manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
+    head = _git(user, "rev-parse", "HEAD")
+    real_git = manager._git
+    edited: list[str] = []
+
+    def user_edits(cwd, *args, **kwargs):
+        if args and args[0] == "add" and kwargs.get("env_extra") and not edited:
+            (user / "a.txt").write_text("concurrent user bytes\n", encoding="utf-8")
+            edited.append("a.txt")
+        return real_git(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(manager, "_git", user_edits)
+    done = manager.commit_applied(task, user, "candidate")
+
+    assert edited
+    assert isinstance(done, CommitDrifted), done
+    assert done.drifted == ("a.txt",)
+    assert _git(user, "rev-parse", "HEAD") == head
+    assert (user / "a.txt").read_text(encoding="utf-8") == "concurrent user bytes\n"
 
 
 def test_the_reference_transaction_hook_reconciles_inside_publication(tmp_path, monkeypatch):
@@ -180,12 +215,34 @@ def test_the_hook_ignores_ref_updates_that_are_not_its_publication(tmp_path):
     )
     index_before = _git(user, "ls-files", "--stage")
     for unrelated in (f"{parent} {parent} refs/heads/elsewhere\n", "", "garbage\n"):
-        assert commit_index_hook.main([str(transaction)], updates=unrelated) == 0
+        assert commit_index_hook.main([str(transaction), "committed"], updates=unrelated) == 0
         assert _git(user, "ls-files", "--stage") == index_before
     # Control: the matching update does advance it, so the refusals above are not vacuous.
-    assert commit_index_hook.main([str(transaction)],
+    assert commit_index_hook.main([str(transaction), "committed"],
                                   updates=f"{parent} {parent} {branch}\n") == 0
     assert _git(user, "ls-files", "--stage") != index_before
+
+
+def test_the_prepared_hook_admits_only_its_branch_move_through_head(tmp_path):
+    user = _repo(tmp_path, {"a.txt": "old a\n"})
+    parent = _git(user, "rev-parse", "HEAD").strip()
+    branch = _git(user, "symbolic-ref", "HEAD").strip()
+    new = "1" * 40
+    workspaces = tmp_path / "ws-prepared"
+    workspaces.mkdir()
+    live = Path(_git(user, "rev-parse", "--git-path", "index").strip())
+    transaction = commit_index_hook.prepare_transaction(
+        workspaces, user, live if live.is_absolute() else user / live,
+        commit_index_hook.Publication(ref=branch, parent=parent, commit=new), (),
+    )
+    branch_only = f"{parent} {new} {branch}\n"
+    through_head = branch_only + f"{parent} {new} HEAD\n"
+    assert commit_index_hook.main([str(transaction), "prepared"], updates=branch_only) == 1
+    assert commit_index_hook.main([str(transaction), "prepared"],
+                                  updates=f"{parent} {new} HEAD\n") == 1
+    assert not Path(str(transaction) + commit_index_hook.BOUND_SUFFIX).exists()
+    assert commit_index_hook.main([str(transaction), "prepared"], updates=through_head) == 0
+    assert Path(str(transaction) + commit_index_hook.BOUND_SUFFIX).is_file()
 
 
 def test_the_message_is_cleaned_as_git_commit_would_and_an_empty_one_is_refused(tmp_path):
@@ -205,3 +262,19 @@ def test_the_message_is_cleaned_as_git_commit_would_and_an_empty_one_is_refused(
     refused = manager2.commit_applied(task2, user2, " \n\n \n")
     assert isinstance(refused, CommitRefused), refused
     assert _git(user2, "rev-parse", "HEAD") == before
+
+
+def test_without_a_runnable_binding_hook_nothing_is_published(tmp_path, monkeypatch):
+    """The HEAD binding lives in the hook, so a Git or host that does not run it (Git
+    before 2.28, no sh) must refuse, not publish unbound."""
+    import local_agent.session.workspaces as workspaces_module
+
+    monkeypatch.setattr(workspaces_module, "hook_environment", lambda _transaction: {})
+    user = _repo(tmp_path, {"a.txt": "old a\n"})
+    manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
+    head = _git(user, "rev-parse", "HEAD")
+    done = manager.commit_applied(task, user, "candidate")
+    assert isinstance(done, CommitRefused), done
+    assert "reference-transaction hook" in done.reason
+    assert _git(user, "rev-parse", "HEAD") == head
+    assert not list(manager.workspaces_root.glob(".commit-index-*"))

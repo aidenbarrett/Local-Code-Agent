@@ -31,21 +31,23 @@ _LOCK_WAIT_S = 2.0
 _LOCK_POLL_S = 0.05
 _HOOK_NAME = "reference-transaction"
 # Git feeds every reference-transaction hook the updated refs on stdin and runs it for
-# "prepared", "committed" and "aborted". Only a committed update carrying LCA's
-# transaction does anything; every other call drains stdin and succeeds, so the hook can
-# never abort or alter a ref update.
+# "prepared" (all ref locks held; a non-zero exit aborts the update), "committed" and
+# "aborted". Only an update carrying LCA's transaction reaches Python; any other drains
+# stdin and succeeds.
 _REFERENCE_TRANSACTION_HOOK = """#!/bin/sh
-if test "$1" = committed \
-   && test -n "$LCA_COMMIT_INDEX_TRANSACTION" \
+if test -n "$LCA_COMMIT_INDEX_TRANSACTION" \
    && test -n "$LCA_PYTHON" \
    && test -n "$LCA_COMMIT_INDEX_HOOK"
 then
-    "$LCA_PYTHON" "$LCA_COMMIT_INDEX_HOOK" "$LCA_COMMIT_INDEX_TRANSACTION" || true
-else
-    cat >/dev/null
+    exec "$LCA_PYTHON" "$LCA_COMMIT_INDEX_HOOK" "$LCA_COMMIT_INDEX_TRANSACTION" "$1"
 fi
+cat >/dev/null
 exit 0
 """
+# Evidence files the hook leaves beside a transaction: it ran at all, and it bound the
+# prepared update to HEAD. The controller reads them; it never trusts their absence.
+RAN_SUFFIX = ".ran"
+BOUND_SUFFIX = ".bound"
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,27 +352,57 @@ def reconcile_and_report(transaction_path: Path) -> tuple[str, ...]:
     return tuple(left)
 
 
-def _publishes(transaction_path: Path, updates: str) -> bool:
-    """Whether Git's committed ref updates include exactly this transaction's publication."""
-    txn = _load(transaction_path)
-    return f"{txn.parent} {txn.commit} {txn.ref}" in {
-        line.strip() for line in updates.splitlines()
-    }
+def _lines(updates: str) -> set[str]:
+    return {line.strip() for line in updates.splitlines() if line.strip()}
+
+
+def _publishes(txn: _Transaction, updates: str) -> bool:
+    """Git's update is exactly this transaction's branch move."""
+    return f"{txn.parent} {txn.commit} {txn.ref}" in _lines(updates)
+
+
+def _bound_to_head(txn: _Transaction, updates: str) -> bool:
+    """The prepared update moves the branch *through HEAD*.
+
+    Git adds HEAD to a transaction, and locks it, exactly when HEAD is a symbolic ref to
+    the branch being updated. Its presence in the prepared update, with every lock held,
+    proves HEAD still names this branch and cannot change until the update ends. After a
+    concurrent switch or detach the line is absent and the update is aborted.
+    """
+    return _publishes(txn, updates) and f"{txn.parent} {txn.commit} HEAD" in _lines(updates)
+
+
+def _mark(transaction_path: Path, suffix: str, text: str) -> None:
+    with Path(str(transaction_path) + suffix).open("a", encoding="utf-8") as stream:
+        stream.write(text + "\n")
 
 
 def main(argv: Sequence[str] | None = None, updates: str | None = None) -> int:
+    """``reference-transaction`` hook entry: ``<transaction> <state>``.
+
+    prepared: exit 0 only for this transaction's branch move bound to HEAD, which aborts
+    every other update carrying the transaction. committed: reconcile the live index.
+    """
     args = tuple(sys.argv[1:] if argv is None else argv)
-    if len(args) != 1:
-        return 0
+    if len(args) != 2:
+        return 1
+    transaction_path, state = Path(args[0]), args[1]
     try:
-        if not _publishes(Path(args[0]), sys.stdin.read() if updates is None else updates):
+        text = sys.stdin.read() if updates is None else updates
+        _mark(transaction_path, RAN_SUFFIX, state)
+        txn = _load(transaction_path)
+        if state == "prepared":
+            if not _bound_to_head(txn, text):
+                return 1
+            _mark(transaction_path, BOUND_SUFFIX, state)
             return 0
-        reconcile(Path(args[0]))
+        if state == "committed" and _publishes(txn, text):
+            reconcile(transaction_path)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
-        # The hook must never turn an already-published commit into a reported
-        # failure. The controller verifies/reconciles again after Git returns. If the
-        # controller dies here, leaving the live index untouched is safer than guessing.
-        return 0
+        # Prepared: an unverifiable update must not proceed. Committed or aborted: the
+        # hook never turns a finished update into a failure; the controller reconciles
+        # again after Git returns, and leaves the index untouched rather than guess.
+        return 1 if state == "prepared" else 0
     return 0
 
 
