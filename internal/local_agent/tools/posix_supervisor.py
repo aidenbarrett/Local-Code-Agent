@@ -5,49 +5,49 @@ one with ``setsid()``.  This helper becomes a Linux child subreaper before it st
 the requested command.  Orphans therefore return here even after changing session.
 The helper does not exit until the command has exited and every remaining child has
 been killed and reaped, and reports that kernel-observed result over a private pipe.
+
+It runs once per owned command, so its start-up is on every command's critical path
+(#455). The runner starts it with ``python -I -S``, and it imports only the few
+standard modules it needs: no site packages, dataclasses, pathlib, json or typing.
 """
 
 from __future__ import annotations
 
 import ctypes
-import json
 import os
 import signal
-import subprocess
 import sys
-import threading
 import time
-from dataclasses import asdict, dataclass
-from pathlib import Path
-from collections.abc import Callable
-from typing import cast
-
-import psutil
-
 
 _PR_SET_CHILD_SUBREAPER = 36
 _PR_GET_CHILD_SUBREAPER = 37
 _DEFAULT_DRAIN_SECONDS = 5.0
 _POLL_SECONDS = 0.01
 
-
-@dataclass(frozen=True)
-class SupervisorReport:
-    leader_exit_code: int | None
-    stray_descendants: int
-    cleanup_confirmed: bool
-    setup_error: str | None = None
+# POSIX-only calls are looked up through vars(os) so the module still imports (for its
+# tests) and type-checks where they do not exist; the supervisor only runs on Linux.
+_waitpid = vars(os)["waitpid"]
+_wnohang: int = getattr(os, "WNOHANG", 1)
+_sigkill: int = getattr(signal, "SIGKILL", 9)
 
 
-_WaitPid = Callable[[int, int], tuple[int, int]]
-_waitpid = cast(_WaitPid, vars(os)["waitpid"])
-_wnohang = cast(int, vars(os)["WNOHANG"])
-_sigkill = cast(int, vars(signal).get("SIGKILL", 9))
-_stop_requested = threading.Event()
+class _Flags:
+    """Supervisor state the SIGTERM/SIGINT handler reads and writes."""
+
+    stop_requested = False
+    # True only while the supervisor blocks in waitpid on its leader, so Stop breaks
+    # that wait instead of the supervisor polling for it.
+    in_leader_wait = False
+
+
+class _LeaderWaitInterruptedError(Exception):
+    """Stop arrived while the supervisor was blocked waiting for its leader."""
 
 
 def _request_stop(_signum: int, _frame: object) -> None:
-    _stop_requested.set()
+    _Flags.stop_requested = True
+    if _Flags.in_leader_wait:
+        raise _LeaderWaitInterruptedError
 
 
 def _enable_subreaper() -> None:
@@ -69,33 +69,64 @@ def _children() -> tuple[int, ...]:
     Enumeration is never proof of emptiness.  Only ``waitpid`` returning ``ECHILD``
     after subreaper adoption supplies that proof.
     """
-    host_parent = _host_pid(Path("/proc/self/status"))
-    depth = len(_namespace_pids(Path("/proc/self/status")))
+    depth = len(_namespace_pids("/proc/self/status"))
     found: list[int] = []
-    for candidate in psutil.process_iter(("pid", "ppid")):
+    for host_pid in _procfs_children():
         try:
-            if int(candidate.info["ppid"]) != host_parent:
-                continue
-            host_pid = int(candidate.info["pid"])
-            found.append(_namespace_pids(Path(f"/proc/{host_pid}/status"))[depth - 1])
-        except (KeyError, TypeError, ValueError, OSError, psutil.Error):
-            continue
+            found.append(_namespace_pids(f"/proc/{host_pid}/status")[depth - 1])
+        except (OSError, ValueError, IndexError, StopIteration):
+            continue          # exited meanwhile; waitpid is the authority anyway
     return tuple(found)
 
 
-def _host_pid(status_path: Path) -> int:
-    status = status_path.read_text(encoding="ascii")
+def _procfs_children() -> tuple[int, ...]:
+    """Direct children as procfs PIDs.
+
+    Read from the kernel's own per-task child lists when it keeps them
+    (CONFIG_PROC_CHILDREN), otherwise by scanning every process's parent. Either is a
+    signal-target list only; no third-party process library is loaded (#455).
+    """
+    pids: list[int] = []
+    try:
+        for task in os.listdir("/proc/self/task"):
+            pids.extend(int(pid) for pid in _read(f"/proc/self/task/{task}/children").split())
+    except FileNotFoundError:
+        pass
+    else:
+        return tuple(pids)
+    parent = _host_pid("/proc/self/status")
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        try:
+            stat = _read(f"/proc/{name}/stat")
+            # Field 4 (ppid) follows the parenthesised command name, which may itself
+            # contain spaces and parentheses.
+            if int(stat.rsplit(")", 1)[1].split()[1]) == parent:
+                pids.append(int(name))
+        except (OSError, ValueError, IndexError):
+            continue
+    return tuple(pids)
+
+
+def _read(path: str) -> str:
+    with open(path, encoding="ascii", errors="replace") as stream:
+        return stream.read()
+
+
+def _host_pid(status_path: str) -> int:
+    status = _read(status_path)
     return int(next(line.split()[1] for line in status.splitlines() if line.startswith("Pid:")))
 
 
-def _namespace_pids(status_path: Path) -> tuple[int, ...]:
+def _namespace_pids(status_path: str) -> tuple[int, ...]:
     """``NSpid``: the process's PID at each level, from procfs's namespace inward.
 
     The supervisor signals in its own namespace, at its own depth. A child that
     created a nested PID namespace (``unshare --pid --fork``) has more levels, and
     its innermost PID (usually 1) names a different process here.
     """
-    status = status_path.read_text(encoding="ascii")
+    status = _read(status_path)
     line = next(line for line in status.splitlines() if line.startswith("NSpid:"))
     return tuple(int(field) for field in line.split()[1:])
 
@@ -141,8 +172,25 @@ def _drain_children(deadline: float) -> tuple[int, bool]:
         time.sleep(_POLL_SECONDS)
 
 
-def _write_report(fd: int, report: SupervisorReport) -> None:
-    payload = json.dumps(asdict(report), sort_keys=True).encode("utf-8") + b"\n"
+def _report_line(
+    leader_exit_code: int | None, stray_descendants: int, *, cleanup_confirmed: bool,
+    setup_error: str | None = None,
+) -> bytes:
+    """The one-line JSON report the runner validates (``_supervisor_report``)."""
+    if setup_error is None:
+        error = "null"
+    else:
+        import json  # only a failed setup has text to escape
+        error = json.dumps(setup_error)
+    code = "null" if leader_exit_code is None else str(int(leader_exit_code))
+    confirmed = "true" if cleanup_confirmed else "false"
+    return (
+        f'{{"cleanup_confirmed": {confirmed}, "leader_exit_code": {code}, '
+        f'"setup_error": {error}, "stray_descendants": {int(stray_descendants)}}}\n'
+    ).encode()
+
+
+def _write_report(fd: int, payload: bytes) -> None:
     view = memoryview(payload)
     while view:
         written = os.write(fd, view)
@@ -157,8 +205,6 @@ def _exit_status(status: int) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    if args[:1] == ["--command-gate"]:
-        return _command_gate(args[1:])
     report_fd_text = os.environ.pop("LCA_POSIX_SUPERVISOR_FD", "")
     if not report_fd_text:
         return 125
@@ -182,29 +228,33 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _report_setup_error(report_fd: int, message: str) -> int:
-    _write_report(report_fd, SupervisorReport(None, 0, False, message))
+    _write_report(report_fd, _report_line(None, 0, cleanup_confirmed=False,
+                                          setup_error=message))
     return 125
 
 
-def _start_leader(args: list[str], report_fd: int) -> subprocess.Popen[bytes] | None:
+def _start_leader(args: list[str], report_fd: int) -> int | None:
+    """Fork the leader held at a pre-exec gate, verify it is a direct child, release it.
+
+    The gate lives in the forked child itself rather than in a second interpreter:
+    no requested command instruction runs before the supervisor has seen the leader
+    among its children and released it (#455: one interpreter per run, not two).
+    """
     gate_read, gate_write = os.pipe()
     try:
-        leader = subprocess.Popen(  # noqa: S603 - fixed Python gate, fixed argv
-            [sys.executable, __file__, "--command-gate", str(gate_read), "--", *args],
-            close_fds=True,
-            pass_fds=(gate_read,),
-            start_new_session=True,
-        )
+        leader: int = vars(os)["fork"]()
     except OSError as exc:
         os.close(gate_read)
         os.close(gate_write)
         _report_setup_error(report_fd, str(exc))
         return None
+    if leader == 0:
+        _exec_when_released(args, gate_read, gate_write)
     os.close(gate_read)
-    if leader.pid not in _children():
+    if leader not in _children():
         os.close(gate_write)
-        leader.kill()
-        leader.wait()
+        os.kill(leader, _sigkill)
+        _waitpid(leader, 0)
         _report_setup_error(report_fd, "direct-child accounting is unavailable")
         return None
     os.write(gate_write, b"go\n")
@@ -225,15 +275,15 @@ def _supervise(args: list[str], report_fd: int, drain_s: float) -> int:
         return 125
 
     leader_status: int | None = None
-    while leader_status is None and not _stop_requested.is_set():
-        try:
-            pid, status = _waitpid(leader.pid, _wnohang)
-        except ChildProcessError:
-            break
-        if pid == leader.pid:
-            leader_status = status
-            break
-        time.sleep(_POLL_SECONDS)
+    try:
+        _Flags.in_leader_wait = True
+        if not _Flags.stop_requested:
+            # Blocks until the leader exits; Stop raises out of it (see _request_stop).
+            _pid, leader_status = _waitpid(leader, 0)
+    except (_LeaderWaitInterruptedError, ChildProcessError):
+        pass
+    finally:
+        _Flags.in_leader_wait = False
 
     deadline = time.monotonic() + drain_s
     if leader_status is None:
@@ -243,28 +293,36 @@ def _supervise(args: list[str], report_fd: int, drain_s: float) -> int:
     else:
         leader_code = _exit_status(leader_status)
         stray_count, confirmed = _drain_children(deadline)
-    _write_report(
-        report_fd,
-        SupervisorReport(leader_code, stray_count, confirmed),
-    )
+    _write_report(report_fd, _report_line(leader_code, stray_count,
+                                          cleanup_confirmed=confirmed))
     if leader_code is None:
         return 143
     return leader_code
 
 
-def _command_gate(args: list[str]) -> int:
-    """Child-side pre-exec gate: no requested command instruction runs before release."""
-    if len(args) < 3 or args[1] != "--":
-        return 125
-    gate_fd = int(args[0])
+def _exec_when_released(args: list[str], gate_read: int, gate_write: int) -> None:
+    """In the forked leader: wait at the gate, then become the requested command.
+
+    Only the forked child runs this, and it never returns (annotated ``None`` only to
+    keep ``typing`` off the start-up path): it execs, or ends the child with a
+    shell-style status (125 not released, 127 exec failed).
+    """
     try:
-        released = os.read(gate_fd, 3)
-    finally:
-        os.close(gate_fd)
-    if released != b"go\n":
-        return 125
-    command = args[2:]
-    os.execvpe(command[0], command, os.environ)  # noqa: S606 - resolved by the owner
+        os.close(gate_write)
+        vars(os)["setsid"]()
+        # exec keeps ignored dispositions, and Python ignores SIGPIPE and SIGXFSZ;
+        # restore what any freshly started program expects, as subprocess does.
+        for name in ("SIGPIPE", "SIGXFSZ", "SIGTERM", "SIGINT"):
+            number = vars(signal).get(name)
+            if number is not None:
+                signal.signal(number, signal.SIG_DFL)
+        released = os.read(gate_read, 3)
+        if released != b"go\n":
+            os._exit(125)
+        os.closerange(3, vars(os)["sysconf"]("SC_OPEN_MAX"))
+        os.execvp(args[0], args)  # noqa: S606 - argv resolved and admitted by the runner
+    except BaseException:  # noqa: BLE001 - a forked child must never return
+        os._exit(127)
 
 
 if __name__ == "__main__":

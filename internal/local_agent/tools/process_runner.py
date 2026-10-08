@@ -429,8 +429,10 @@ class _PosixOwner:
 
     def argv(self, command: list[str]) -> list[str]:
         helper = Path(__file__).with_name("posix_supervisor.py")
-        return [sys.executable, str(helper), "--drain-s", str(_SUPERVISOR_DRAIN_S), "--",
-                *command]
+        # -I -S: an isolated interpreter with no site packages. The supervisor needs
+        # only the standard library, and its start-up is paid by every command (#455).
+        return [sys.executable, "-I", "-S", str(helper), "--drain-s",
+                str(_SUPERVISOR_DRAIN_S), "--", *command]
 
     def environment(self, source: dict[str, str]) -> dict[str, str]:
         result = dict(source)
