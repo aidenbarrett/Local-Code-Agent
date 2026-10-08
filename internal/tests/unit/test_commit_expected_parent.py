@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+import time
 
 import pytest
 
@@ -344,3 +345,137 @@ def test_a_branch_change_in_a_linked_worktree_moves_no_ref(tmp_path, monkeypatch
     assert isinstance(done, CommitRefused), done
     assert _git(user, "rev-parse", "refs/heads/feature").strip() == parent
     assert _git(user, "rev-parse", "HEAD").strip() == parent
+
+
+_MESSAGE = "\n  subject  \n# a comment line\n\n\n body text \n------------------------ >8 ------------------------\nbelow scissors\n\n"
+
+
+def _git_commit_message(tmp_path: Path, cleanup: str | None) -> str:
+    """What plain ``git commit -F -`` records for ``_MESSAGE`` under ``cleanup``."""
+    control = tmp_path / f"control-{cleanup}"
+    control.mkdir()
+    _git(control, "init", "-q")
+    config = [] if cleanup is None else ["-c", f"commit.cleanup={cleanup}"]
+    subprocess.run(  # noqa: S603, S607 - fixed git argv
+        ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *config,
+         "commit", "-q", "--allow-empty", "-F", "-"],
+        cwd=control, input=_MESSAGE, text=True, check=True, capture_output=True,
+    )
+    return _git(control, "cat-file", "commit", "HEAD").split("\n\n", 1)[1]
+
+
+@pytest.mark.parametrize("cleanup", [None, "default", "strip", "whitespace", "verbatim",
+                                     "scissors"])
+def test_the_recorded_message_matches_git_commit_for_every_accepted_cleanup(
+    tmp_path, cleanup,
+):
+    """Restored and widened (Astra, 1e924e5): commit-tree stores its input verbatim, so
+    each accepted commit.cleanup mode must record exactly what ``git commit -F`` does."""
+    (tmp_path / "lca").mkdir()
+    user = _repo(tmp_path / "lca", {"a.txt": "old a\n"})
+    manager, task = _apply(tmp_path / "lca", user, {"a.txt": "candidate\n"})
+    if cleanup is not None:
+        _git(user, "config", "commit.cleanup", cleanup)
+    done = manager.commit_applied(task, user, _MESSAGE)
+    assert isinstance(done, Committed), done
+    recorded = _git(user, "cat-file", "commit", "HEAD").split("\n\n", 1)[1]
+    assert recorded == _git_commit_message(tmp_path, cleanup)
+
+
+def test_an_empty_message_is_refused_before_anything_is_created(tmp_path):
+    user = _repo(tmp_path, {"a.txt": "old a\n"})
+    manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
+    before = _state_one(user)
+    refused = manager.commit_applied(task, user, " \n\n \n")
+    assert isinstance(refused, CommitRefused), refused
+    assert _state_one(user) == before
+
+
+def _state_one(user: Path) -> tuple[str, ...]:
+    return (_git(user, "rev-parse", "HEAD"), _git(user, "ls-files", "--stage"),
+            _git(user, "status", "--porcelain=v1", "--untracked-files=all"))
+
+
+_PAUSING_HOOK = '''
+import importlib.util, pathlib, sys, time
+control = pathlib.Path({control!r})
+spec = importlib.util.spec_from_file_location("lca_hook_under_test", {real!r})
+hook = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = hook          # dataclasses resolve their module by name
+spec.loader.exec_module(hook)
+transaction, state = sys.argv[1], sys.argv[2]
+updates = sys.stdin.read()
+if state == "prepared" and "refs/heads/" in updates:
+    (control / "paused").write_text(updates, encoding="utf-8")
+    deadline = time.monotonic() + 60
+    while not (control / "release").exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+raise SystemExit(hook.main([transaction, state], updates=updates))
+'''
+
+
+@pytest.mark.parametrize("move", ["switch", "detach"])
+def test_no_branch_change_can_cross_a_live_prepared_publication(tmp_path, monkeypatch, move):
+    """Astra (1e924e5): pause the real publication inside its prepared hook, with Git's
+    locks held, and try to switch or detach. Git must refuse on HEAD's lock; once
+    released, exactly the intended branch moves and HEAD still names it."""
+    import threading
+
+    import local_agent.session.workspaces as workspaces_module
+
+    user = _repo(tmp_path, {"a.txt": "old a\n", "b.txt": "old b\n"})
+    manager, task = _apply(tmp_path, user, {"a.txt": "candidate\n"})
+    branch = _git(user, "symbolic-ref", "HEAD").strip()
+    parent = _git(user, "rev-parse", "HEAD").strip()
+    refs_before = set(_git(user, "for-each-ref").splitlines())
+    control = tmp_path / "control"
+    control.mkdir()
+    pausing = tmp_path / "pausing_hook.py"
+    pausing.write_text(_PAUSING_HOOK.format(control=str(control),
+                                            real=commit_index_hook.__file__),
+                       encoding="utf-8")
+    real_environment = workspaces_module.hook_environment
+
+    def pausing_environment(transaction: Path) -> dict[str, str]:
+        env = real_environment(transaction)
+        env["LCA_COMMIT_INDEX_HOOK"] = str(pausing).replace("\\", "/")
+        return env
+
+    monkeypatch.setattr(workspaces_module, "hook_environment", pausing_environment)
+    outcome: list[object] = []
+    worker = threading.Thread(
+        target=lambda: outcome.append(manager.commit_applied(task, user, "candidate")))
+    worker.start()
+    try:
+        deadline = time.monotonic() + 60
+        while not (control / "paused").exists():
+            assert time.monotonic() < deadline, "publication never reached prepared"
+            assert worker.is_alive(), outcome
+            time.sleep(0.02)
+        crossing = subprocess.run(  # noqa: S603, S607 - fixed git argv
+            ["git", "switch", "-q", *(["-c", "elsewhere"] if move == "switch"
+                                      else ["--detach"])],
+            cwd=user, capture_output=True, text=True, check=False,
+        )
+        assert crossing.returncode != 0, "a branch change crossed the live publication"
+        # files backend: HEAD.lock exists; reftable: the whole stack is locked.
+        assert "lock" in crossing.stderr, crossing.stderr
+    finally:
+        (control / "release").write_text("go", encoding="utf-8")
+        worker.join(60)
+    assert not worker.is_alive()
+    done = outcome[0]
+    assert isinstance(done, Committed), done
+    assert _git(user, "symbolic-ref", "HEAD").strip() == branch
+    assert _git(user, "rev-parse", branch).strip() == done.commit
+    assert _git(user, "rev-parse", f"{done.commit}~1").strip() == parent
+    expected = {
+        line if not line.endswith(f"\t{branch}") else f"{done.commit} commit\t{branch}"
+        for line in refs_before
+    }
+    refs_after = set(_git(user, "for-each-ref").splitlines())
+    if move == "switch":
+        # On the files backend the user's own `switch -c` creates its branch before it
+        # fails on HEAD.lock; that ref is the user's, at the parent, not LCA's.
+        refs_after.discard(f"{parent} commit\trefs/heads/elsewhere")
+    assert refs_after == expected
