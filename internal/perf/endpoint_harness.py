@@ -7,6 +7,7 @@ import http.client
 import json
 import os
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 import secrets
 import statistics
@@ -501,6 +502,29 @@ def _owned_process_state(process: subprocess.Popen[Any] | None) -> str:
     return "launcher_exited" if rc == 0 else "exited_with_error"
 
 
+def _compare_snapshots(
+    phase: str,
+    before: EndpointSnapshot,
+    after: EndpointSnapshot,
+    profile: Profile,
+) -> tuple[list[str], list[str]]:
+    """Return (observed breaks, unobservable facts) for one pair of snapshots."""
+    boundary: list[str] = []
+    missing: list[str] = []
+    if not after.ready:
+        boundary.append(f"{phase}: endpoint not ready")
+    if before.model_ids is None or after.model_ids is None:
+        missing.append(f"{phase}: model list not observable")
+    elif before.model_ids != after.model_ids or profile.model not in after.model_ids:
+        boundary.append(f"{phase}: served model set changed")
+    if before.instance is not None and after.instance is not None:
+        if before.instance != after.instance:
+            boundary.append(f"{phase}: endpoint instance identity changed")
+    elif before.instance is not None or after.instance is not None:
+        missing.append(f"{phase}: endpoint instance identity not observable")
+    return boundary, missing
+
+
 def judge_continuity(
     snapshots: tuple[EndpointSnapshot, ...],
     profile: Profile,
@@ -515,18 +539,10 @@ def judge_continuity(
     phases = ("between requests", "after warm request")
     boundary: list[str] = []
     missing: list[str] = []
-    for phase, (before, after) in zip(phases, zip(snapshots, snapshots[1:]), strict=False):
-        if not after.ready:
-            boundary.append(f"{phase}: endpoint not ready")
-        if before.model_ids is None or after.model_ids is None:
-            missing.append(f"{phase}: model list not observable")
-        elif before.model_ids != after.model_ids or profile.model not in after.model_ids:
-            boundary.append(f"{phase}: served model set changed")
-        if before.instance is not None and after.instance is not None:
-            if before.instance != after.instance:
-                boundary.append(f"{phase}: endpoint instance identity changed")
-        elif before.instance is not None or after.instance is not None:
-            missing.append(f"{phase}: endpoint instance identity not observable")
+    for phase, (before, after) in zip(phases, pairwise(snapshots), strict=True):
+        pair_boundary, pair_missing = _compare_snapshots(phase, before, after, profile)
+        boundary.extend(pair_boundary)
+        missing.extend(pair_missing)
 
     process_state = _owned_process_state(process)
     if process_state == "exited_with_error":
