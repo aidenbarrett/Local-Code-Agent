@@ -94,6 +94,47 @@ jobs:
           if ($transcripts[0] -ne $transcripts[1]) { throw 'a second doctor launch reported differently' }
           $global:LASTEXITCODE = 0
 
+      - name: Public launcher declares, builds and tests a fresh CMake repository
+        shell: pwsh
+        run: |
+          # #459: the documented root commands on a new repository in a path with
+          # spaces, no model. R02 must be a verified full build and R03 a verified
+          # full test run, as separate tasks, with Git status unchanged.
+          $launcher = Join-Path $env:LCA_ACCEPTANCE_ROOT 'local-code-agent.ps1'
+          $env:LCA_RUNTIME_ROOT = Join-Path $env:RUNNER_TEMP 'lca fresh runtime'
+          $repo = Join-Path $env:RUNNER_TEMP 'fresh cmake project'
+          if (Test-Path $repo) { Remove-Item -Recurse -Force $repo }
+          New-Item -ItemType Directory -Force -Path (Join-Path $repo 'src') | Out-Null
+          Set-Content -Path (Join-Path $repo 'CMakeLists.txt') -Value @(
+            'cmake_minimum_required(VERSION 3.20)', 'project(fresh CXX)', 'enable_testing()',
+            'add_executable(fresh_test src/fresh_test.cpp)', 'add_test(NAME fresh COMMAND fresh_test)')
+          Set-Content -Path (Join-Path $repo 'src\fresh_test.cpp') -Value 'int main() { return 0; }'
+          Set-Content -Path (Join-Path $repo '.gitignore') -Value @('build/', '.local-agent/')
+          Set-Location $repo
+          git init -q
+          git -c user.email=ci@example.invalid -c user.name=ci add -A
+          git -c user.email=ci@example.invalid -c user.name=ci commit -qm fresh
+          Set-Location (Join-Path $repo 'src')
+          & $launcher init --write
+          if ($LASTEXITCODE -ne 0) { throw "init --write failed with exit code $LASTEXITCODE" }
+          Set-Location $repo
+          git -c user.email=ci@example.invalid -c user.name=ci add .local-agent.toml
+          git -c user.email=ci@example.invalid -c user.name=ci commit -qm declare
+          $before = (git status --porcelain=v1 | Out-String)
+          $evidence = Join-Path $env:RUNNER_TEMP 'fresh evidence'
+          & $launcher acceptance --output $evidence --repo . --allow-build --only R02-build --only R03-tests
+          $after = (git status --porcelain=v1 | Out-String)
+          if ($after -ne $before) { throw 'the journeys changed tracked or unignored work' }
+          $report = Get-Content -Raw (Join-Path $evidence 'journeys.json') | ConvertFrom-Json
+          $build = $report.journeys | Where-Object { $_.id -eq 'R02-build' }
+          $tests = $report.journeys | Where-Object { $_.id -eq 'R03-tests' }
+          Write-Host ("R02-build: {0} scope={1}" -f $build.status, $build.tasks[0].proof_scope)
+          Write-Host ("R03-tests: {0} scope={1} evidence={2}" -f $tests.status, $tests.tasks[0].proof_scope, ($tests.tasks[0].evidence_ids -join ','))
+          if ($build.status -ne 'MEASURED:pass' -or $build.tasks[0].proof_scope -ne 'full_build') { throw 'R02 did not prove a full build' }
+          if ($tests.status -ne 'MEASURED:pass' -or $tests.tasks[0].proof_scope -ne 'full_test') { throw 'R03 did not prove a full test run' }
+          if ($build.tasks[0].task_id -eq $tests.tasks[0].task_id) { throw 'build and test proof are not separate tasks' }
+          $global:LASTEXITCODE = 0
+
       - name: Public launcher ignores hostile ambient Python configuration
         shell: pwsh
         run: |
