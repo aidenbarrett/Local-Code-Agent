@@ -143,6 +143,10 @@ def test_build_it_passes_on_a_clean_tree_with_full_build_proof_and_no_model(sand
         assert result.verified_at_completion is True
         assert result.metrics["proof_binding"]["scope"] == "full_build"
         assert result.evidence_ids == ("build_target:0",)
+        assert result.metrics["llm_calls"] == 0
+        assert result.metrics["plan_steps"] == 2
+        emitted = service.store.replay(service.stream_id, limit=1000)
+        assert not [event for event in emitted if event["kind"] == "worker.llm"]
     finally:
         service.close()
 
@@ -179,6 +183,8 @@ def test_run_the_tests_observes_a_test_failure_and_fix_it_picks_the_test_fix(san
         assert [e.split(":")[0] for e in tested.evidence_ids] == ["build_target", "run_test"]
         assert history.failure_kind(tested.task_id) == "test"
         assert fix_attempts == []
+        assert tested.metrics["llm_calls"] == 0
+        assert tested.metrics["plan_steps"] == 3
 
         gateway.turn("fix it")
         assert fix_attempts == ["fix"]
