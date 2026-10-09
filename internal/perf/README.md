@@ -22,6 +22,40 @@ Closing a stream is never treated as proof that inference stopped. Cancellation 
 
 The JSON report records configured model, runtime and device identity and verifies the model against `/v1/models`. A profile may also point at a generic identity endpoint to prove model/runtime/device identity from the backend.
 
+## Runtime measurement contract
+
+Do not use `cold` and `warm` as aliases for `first request` and `later request`. Keep these clocks and facts separate:
+
+- **Process launch to ready:** client-observed time from starting the configured runtime process until the readiness endpoint responds. This includes whatever the runtime does before readiness and must not be relabelled as model-load or compile time.
+- **Model load/readiness:** report only when the backend exposes an explicit observation for it. Otherwise it is `unknown`; process readiness is not a substitute.
+- **Compile/cache state:** report compile duration or cache hit/miss only when an explicit backend hook exposes it. A fast first request is not proof of a cache hit.
+- **First inference after established cold start:** TTFT and request duration for the first measured generation after the harness has proved the endpoint was not ready, launched it, and observed readiness.
+- **Warm inference:** the same measurement repeated against the same still-running endpoint, without a runtime restart or model/profile switch between the two requests.
+- **Pre-existing endpoint:** if the harness did not establish the endpoint lifecycle, the first request is merely the first request observed by the harness. It must not be reported as cold.
+- **Decode:** tokens per second after first-token arrival, kept separate from TTFT/prefill.
+
+Cold and warm comparisons must state whether the endpoint process was reused. A model/profile switch, endpoint restart, failed readiness transition or unobserved lifecycle boundary starts a new measurement sequence rather than silently continuing a warm series.
+
+## Residency and product cost
+
+Latency is not enough to choose a deployed model. Record backend process memory or working set when it can be observed, with the source named. Client-process RSS is not backend residency. If backend memory cannot be observed, report it as unsupported or unknown rather than inferring it from model size.
+
+Model comparisons used by agent routing or qualification should keep these dimensions side by side:
+
+- verified task completion;
+- process/readiness cost;
+- first-after-cold-start inference latency;
+- same-endpoint warm inference latency;
+- decode rate;
+- observed backend memory footprint;
+- human intervention rate.
+
+For product-level qualification, a **human intervention** is any human edit, human-triggered retry or re-run, or manual Stop/cancel required to reach verified completion. Record the reason for each intervention. Report interventions per attempted task and per verified completion so failed or abandoned runs cannot appear artificially better. Automatic controller retries and automatic recovery are separate machine events and must not be counted as human intervention.
+
+The endpoint harness measures runtime behaviour, not task success or human intervention. Product acceptance/qualification owns those task-level facts and may join them with this harness output by retained run identity. Do not add a second task-verdict or telemetry authority here.
+
+Persistence is an optimisation, not an authority change. A resident endpoint must not weaken Stop, cancellation proof, cleanup, ownership handoff, offline guarantees, or controller verification. Any persistence change that makes those guarantees weaker is a reliability regression even if warm latency improves.
+
 ## Run it
 
 Copy `internal/perf/profile.example.toml` to an ignored local path, fill in the exact endpoint identity and any optional hooks, then run for example:
