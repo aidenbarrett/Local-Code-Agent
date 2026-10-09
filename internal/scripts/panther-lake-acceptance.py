@@ -18,9 +18,18 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+INTERNAL = Path(__file__).resolve().parents[1]
+if str(INTERNAL) not in sys.path:
+    sys.path.insert(0, str(INTERNAL))
+
+from local_agent.config import MODEL_PRESETS  # noqa: E402
+from scripts.model_weights import weight_state  # noqa: E402
+from serving.model_store import default_runtime_root  # noqa: E402
+
 PROFILE = "ptl-npu-8b"
 SCHEMA = "lca.panther-lake-acceptance/1"
 UNKNOWN = "UNKNOWN"
+PREPARE_SCHEMA = "lca.offline-qualification-preflight/1"
 
 
 class AcceptanceCaptureError(RuntimeError):
@@ -31,8 +40,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _run(args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, cwd=cwd, text=True, capture_output=True, check=False)
+def _run(
+    args: list[str], *, cwd: Path | None = None, timeout_s: float | None = None
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args, cwd=cwd, text=True, capture_output=True, check=False, timeout=timeout_s
+    )
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -118,6 +131,70 @@ def _load_json(path: Path, label: str) -> dict[str, Any]:
 
 def _artifact(path: Path) -> dict[str, Any]:
     return {"path": str(path), "sha256": _sha256(path), "bytes": path.stat().st_size}
+
+
+def prepare_qualification(
+    repo: Path, runtime_root: Path, output: Path, profile: str
+) -> dict[str, Any]:
+    """Check local prerequisites before the user disconnects the target machine."""
+    if platform.system() != "Windows":
+        raise AcceptanceCaptureError("physical qualification preparation must run on Windows")
+    if profile not in MODEL_PRESETS:
+        raise AcceptanceCaptureError(
+            f"unknown profile {profile}; run .\\local-code-agent.ps1 models"
+        )
+    if not profile.startswith("ptl-"):
+        raise AcceptanceCaptureError("physical Panther Lake qualification requires a ptl-* profile")
+    if output.exists():
+        raise AcceptanceCaptureError(f"output folder already exists: {output}")
+
+    repo = repo.resolve()
+    runtime_root = runtime_root.resolve()
+    config = MODEL_PRESETS[profile]
+    blockers: list[str] = []
+    state = weight_state(profile, runtime_root)
+
+    launcher = repo / "local-code-agent.ps1"
+    doctor_args = [
+        "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", str(launcher), "doctor", "--repo", str(repo),
+        "--profile", profile,
+    ]
+    try:
+        doctor = _run(doctor_args, cwd=repo, timeout_s=120.0)
+    except subprocess.TimeoutExpired:
+        doctor = subprocess.CompletedProcess(
+            doctor_args, 124, stdout="", stderr="doctor timed out after 120 seconds"
+        )
+    if doctor.returncode != 0:
+        detail = doctor.stderr.strip() or doctor.stdout.strip() or f"exit {doctor.returncode}"
+        blockers.append("doctor is not ready: " + detail[-1000:])
+
+    payload = {
+        "schema": PREPARE_SCHEMA,
+        "phase": "prepare",
+        "captured_at_utc": _now(),
+        "repository": {"root": str(repo), "head": _git(repo, "rev-parse", "HEAD")},
+        "profile": profile,
+        "model": config.model,
+        "quantization": config.quant,
+        "runtime": {"name": config.runtime, "version": config.runtime_version},
+        "configured_device": config.device,
+        "model_weights": state,
+        "doctor": {"exit_code": doctor.returncode, "stdout": doctor.stdout[-4000:]},
+        "offline_evidence": UNKNOWN,
+        "blockers": blockers,
+        "ready_to_disconnect": not blockers,
+        "claim": (
+            "preparation only; network isolation, physical execution and acceptance "
+            "are not certified"
+        ),
+    }
+    output.mkdir(parents=True)
+    (output / "qualification-preflight.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return payload
 
 
 def capture_preflight(repo: Path, runtime_root: Path, output: Path) -> dict[str, Any]:
@@ -290,6 +367,11 @@ def write_summary(acceptance_path: Path, output: Path) -> str:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
+    prepare = sub.add_parser("prepare")
+    prepare.add_argument("--repo", type=Path, required=True)
+    prepare.add_argument("--profile", required=True, choices=sorted(MODEL_PRESETS))
+    prepare.add_argument("--runtime-root", type=Path, default=None)
+    prepare.add_argument("--output", type=Path, required=True)
     pre = sub.add_parser("preflight")
     pre.add_argument("--repo", type=Path, required=True)
     pre.add_argument("--runtime-root", type=Path, required=True)
@@ -309,6 +391,15 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
+        if args.command == "prepare":
+            payload = prepare_qualification(
+                args.repo, args.runtime_root or default_runtime_root(), args.output, args.profile
+            )
+            message = "READY TO DISCONNECT" if payload["ready_to_disconnect"] else "NOT READY"
+            sys.stdout.write(message + "\n")
+            for blocker in payload["blockers"]:
+                sys.stdout.write(f"NEXT: {blocker}\n")
+            return 0 if payload["ready_to_disconnect"] else 3
         if args.command == "preflight":
             capture_preflight(args.repo, args.runtime_root, args.output)
         elif args.command == "finalize":
