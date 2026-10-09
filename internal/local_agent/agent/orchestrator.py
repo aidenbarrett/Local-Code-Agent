@@ -733,11 +733,14 @@ class Orchestrator:
                     )
                     self.observer("server_unavailable", {"error": str(exc), "cause": exc.cause})
                 break
-            state.metrics.observe_call(response.stats)
-            ctx.observe_prompt_tokens(
-                response.stats.prompt_tokens, message_tokens_before_request
-            )
-            self.observer("llm", response.stats.as_dict())
+            if getattr(self.client, "model_free", False):
+                state.metrics.observe_plan_step()
+            else:
+                state.metrics.observe_call(response.stats)
+                ctx.observe_prompt_tokens(
+                    response.stats.prompt_tokens, message_tokens_before_request
+                )
+                self.observer("llm", response.stats.as_dict())
             ctx.append(response.as_assistant_message())
 
             if not response.wants_tools:

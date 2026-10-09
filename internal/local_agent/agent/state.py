@@ -94,6 +94,7 @@ class RunMetrics:
     """
 
     llm_calls: int = 0
+    plan_steps: int = 0
     llm_seconds: float = 0.0
     tool_seconds: float = 0.0
     wall_seconds: float = 0.0
@@ -180,6 +181,10 @@ class RunMetrics:
                 (self.server_predicted_ms_total or 0.0) + predicted_ms
             )
 
+    def observe_plan_step(self) -> None:
+        """Record one deterministic client-shaped step, never as model work."""
+        self.plan_steps += 1
+
     @staticmethod
     def _median(values: list[float]) -> float | None:
         if not values:
@@ -223,6 +228,7 @@ class RunMetrics:
     def as_dict(self) -> dict[str, Any]:
         return {
             "llm_calls": self.llm_calls,
+            "plan_steps": self.plan_steps,
             "llm_seconds": round(self.llm_seconds, 2),
             "tool_seconds": round(self.tool_seconds, 2),
             "overhead_seconds": round(self.overhead_seconds, 2),
