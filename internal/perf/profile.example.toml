@@ -13,6 +13,8 @@ device = "exact-device-identity"
 # model_path = "model.id"
 # runtime_path = "runtime.version"
 # device_path = "device.id"
+# Stable per-process value (e.g. a boot id) that proves warm requests hit the same endpoint instance.
+# instance_path = "instance.id"
 
 [startup]
 # Optional. Required for cold-start measurement.

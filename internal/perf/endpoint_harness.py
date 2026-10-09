@@ -7,7 +7,9 @@ import http.client
 import json
 import os
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
+import secrets
 import statistics
 import subprocess
 import time
@@ -38,6 +40,7 @@ class Profile:
     identity_model_path: str | None = None
     identity_runtime_path: str | None = None
     identity_device_path: str | None = None
+    identity_instance_path: str | None = None
     active_requests_url: str | None = None
     active_request_ids_path: str | None = None
     request_id_header: str | None = None
@@ -97,6 +100,9 @@ def load_profile(path: Path) -> Profile:
         identity_model_path=str(identity["model_path"]) if identity.get("model_path") else None,
         identity_runtime_path=str(identity["runtime_path"]) if identity.get("runtime_path") else None,
         identity_device_path=str(identity["device_path"]) if identity.get("device_path") else None,
+        identity_instance_path=(
+            str(identity["instance_path"]) if identity.get("instance_path") else None
+        ),
         active_requests_url=str(cancellation["active_requests_url"]) if cancellation.get("active_requests_url") else None,
         active_request_ids_path=str(cancellation["active_request_ids_path"]) if cancellation.get("active_request_ids_path") else None,
         request_id_header=str(cancellation["request_id_header"]) if cancellation.get("request_id_header") else None,
@@ -430,6 +436,206 @@ def run_soak(client: EndpointClient, profile: Profile, hours: float, prompt: str
     }
 
 
+FIRST_AFTER_COLD = "first_after_established_cold_start"
+FIRST_OBSERVED = "first_observed_request"
+SAME_ENDPOINT_WARM = "same_endpoint_warm"
+CONTINUITY_UNPROVEN = "subsequent_request_endpoint_reuse_unproven"
+NEW_SEQUENCE = "lifecycle_boundary_observed_new_sequence"
+
+
+# Failures of an optional observation probe. A missing API key (RuntimeError) is a
+# configuration error and must still propagate.
+PROBE_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError, http.client.HTTPException)
+
+
+@dataclass(frozen=True)
+class EndpointSnapshot:
+    """Observable facts that must hold unchanged for a request to count as warm."""
+
+    ready: bool
+    model_ids: tuple[str, ...] | None
+    instance: str | None
+    instance_source: str | None
+
+
+def _model_ids(client: Any, profile: Profile) -> tuple[str, ...] | None:
+    try:
+        payload = client.get_json(urljoin(profile.base_url, "models"))
+    except PROBE_ERRORS:
+        return None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return None
+    return tuple(sorted(str(item.get("id")) for item in data if isinstance(item, dict)))
+
+
+def _instance(client: Any, profile: Profile) -> str | None:
+    if not (profile.identity_url and profile.identity_instance_path):
+        return None
+    try:
+        payload = client.get_json(profile.identity_url)
+    except PROBE_ERRORS:
+        return None
+    value = _deep_get(payload, profile.identity_instance_path)
+    return None if value is None else str(value)
+
+
+def snapshot_endpoint(client: Any, profile: Profile) -> EndpointSnapshot:
+    ready = bool(client.ready())
+    model_ids = _model_ids(client, profile)
+    instance = _instance(client, profile)
+    return EndpointSnapshot(
+        ready=ready,
+        model_ids=model_ids,
+        instance=instance,
+        instance_source="endpoint_observed" if instance is not None else None,
+    )
+
+
+def _owned_process_state(process: subprocess.Popen[Any] | None) -> str:
+    if process is None:
+        return "not_owned_by_harness"
+    rc = process.poll()
+    if rc is None:
+        return "alive"
+    # A launcher that exits 0 after handing off to a daemon proves nothing about the server.
+    return "launcher_exited" if rc == 0 else "exited_with_error"
+
+
+def _compare_snapshots(
+    phase: str,
+    before: EndpointSnapshot,
+    after: EndpointSnapshot,
+    profile: Profile,
+) -> tuple[list[str], list[str]]:
+    """Return (observed breaks, unobservable facts) for one pair of snapshots."""
+    boundary: list[str] = []
+    missing: list[str] = []
+    if not after.ready:
+        boundary.append(f"{phase}: endpoint not ready")
+    if before.model_ids is None or after.model_ids is None:
+        missing.append(f"{phase}: model list not observable")
+    elif before.model_ids != after.model_ids or profile.model not in after.model_ids:
+        boundary.append(f"{phase}: served model set changed")
+    if before.instance is not None and after.instance is not None:
+        if before.instance != after.instance:
+            boundary.append(f"{phase}: endpoint instance identity changed")
+    elif before.instance is not None or after.instance is not None:
+        missing.append(f"{phase}: endpoint instance identity not observable")
+    return boundary, missing
+
+
+def judge_continuity(
+    snapshots: tuple[EndpointSnapshot, ...],
+    profile: Profile,
+    process: subprocess.Popen[Any] | None,
+) -> dict[str, Any]:
+    """Decide whether consecutive requests were served by one still-running endpoint.
+
+    ``snapshots`` are taken before the first request, between requests and after the last.
+    An observed break is a lifecycle boundary; an unobservable fact is missing evidence.
+    Neither may be reported as warm, and missing evidence is never relabelled as a boundary.
+    """
+    phases = ("between requests", "after warm request")
+    boundary: list[str] = []
+    missing: list[str] = []
+    for phase, (before, after) in zip(phases, pairwise(snapshots), strict=True):
+        pair_boundary, pair_missing = _compare_snapshots(phase, before, after, profile)
+        boundary.extend(pair_boundary)
+        missing.extend(pair_missing)
+
+    process_state = _owned_process_state(process)
+    if process_state == "exited_with_error":
+        boundary.append("harness-owned endpoint process exited")
+    instances = {snap.instance for snap in snapshots}
+    if process_state == "alive":
+        reuse_source: str | None = "harness_owned_process_alive"
+    elif None not in instances and len(instances) == 1:
+        reuse_source = "endpoint_reported_instance_unchanged"
+    else:
+        reuse_source = None
+
+    if boundary:
+        classification, reused = NEW_SEQUENCE, False
+    elif reuse_source and not missing:
+        classification, reused = SAME_ENDPOINT_WARM, True
+    else:
+        classification, reused = CONTINUITY_UNPROVEN, None
+    return {
+        "classification": classification,
+        "endpoint_process_reused": reused,
+        "reuse_evidence": reuse_source if reused else None,
+        "boundary_observations": boundary,
+        "missing_evidence": missing,
+        "harness_process_state": process_state,
+    }
+
+
+def _backend_memory(client: Any, profile: Profile) -> dict[str, Any]:
+    if not (profile.telemetry_url and profile.memory_path):
+        return {"supported": False, "reason": "no backend memory telemetry hook configured"}
+    try:
+        value = _backend_value(client, profile, profile.memory_path)
+    except PROBE_ERRORS as exc:
+        return {"supported": False, "reason": f"backend memory probe failed: {exc}"}
+    if value is None:
+        return {"supported": False, "reason": "backend memory hook returned no value"}
+    return {
+        "supported": True,
+        "backend_reported_memory": value,
+        "memory_source": "backend_reported",
+    }
+
+
+def _sequence_prompt(base: str, nonce: str, index: int) -> str:
+    # Differs at the first character so prompt/prefix caching cannot pose as residency.
+    return f"{index}/{nonce} perf: {base}"
+
+
+@dataclass(frozen=True)
+class LifecycleRun:
+    """One measured endpoint lifetime: what to send and what the harness established."""
+
+    prompt: str
+    max_tokens: int
+    nonce: str
+    established_cold: bool
+    process: subprocess.Popen[Any] | None = None
+
+
+def measure_lifecycle_sequence(
+    client: Any,
+    profile: Profile,
+    run: LifecycleRun,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Return (lifecycle, first generation, warm generation) for one endpoint lifetime."""
+    prompt, max_tokens, nonce = run.prompt, run.max_tokens, run.nonce
+    established_cold, process = run.established_cold, run.process
+    before = snapshot_endpoint(client, profile)
+    first = benchmark_generation(client, _sequence_prompt(prompt, nonce, 1), max_tokens)
+    first["sequence_label"] = FIRST_AFTER_COLD if established_cold else FIRST_OBSERVED
+    first["backend_memory"] = _backend_memory(client, profile)
+    between = snapshot_endpoint(client, profile)
+    warm = benchmark_generation(client, _sequence_prompt(prompt, nonce, 2), max_tokens)
+    after = snapshot_endpoint(client, profile)
+    continuity = judge_continuity((before, between, after), profile, process)
+    warm.update(continuity)
+    warm["sequence_label"] = continuity["classification"]
+    warm["backend_memory"] = _backend_memory(client, profile)
+    lifecycle = {
+        "provenance": (
+            "harness_established_cold_start" if established_cold else "pre_existing_endpoint"
+        ),
+        "first_request_label": first["sequence_label"],
+        "warm_request_label": warm["sequence_label"],
+        "endpoint_process_reused": continuity["endpoint_process_reused"],
+        "prompt_prefixes_distinct": True,
+        "sequence_nonce": nonce,
+        "endpoint_instance_source": before.instance_source,
+    }
+    return lifecycle, first, warm
+
+
 def capture_identity(client: EndpointClient, profile: Profile) -> dict[str, Any]:
     result = {
         "model": profile.model,
@@ -493,13 +699,23 @@ def main(argv: list[str] | None = None) -> int:
             cold, started_process = start_for_cold_measurement(client, profile, args.ready_timeout)
         if not client.ready():
             raise RuntimeError("endpoint is not ready; configure startup.command or start it before running the harness")
+        identity = capture_identity(client, profile)
+        lifecycle, first, warm = measure_lifecycle_sequence(client, profile, LifecycleRun(
+            prompt=args.generation_prompt,
+            max_tokens=args.max_tokens,
+            nonce=secrets.token_hex(4),
+            established_cold=bool(cold.get("supported")),
+            process=started_process,
+        ))
         report = {
-            "schema_version": 1,
+            "schema_version": 2,
             "captured_at_unix": time.time(),
             "profile_name": profile.name,
-            "identity": capture_identity(client, profile),
+            "identity": identity,
             "cold_start": cold,
-            "generation": benchmark_generation(client, args.generation_prompt, args.max_tokens),
+            "lifecycle": lifecycle,
+            "generation": first,
+            "warm_generation": warm,
             "context_ladder": benchmark_context_ladder(client, profile, targets),
             "cancellation": benchmark_cancellation(client, profile) if args.cancellation else {"supported": False, "reason": "not requested"},
             "soak": run_soak(client, profile, args.soak_hours, args.generation_prompt, args.max_tokens),
