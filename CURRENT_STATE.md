@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `bab4f94d048987d5078e1ad932b0e7f3fce19826`
-on 2026-10-08.
+Reconciled against GitHub `main` at `7966862696879b3bb204f070fd2f76a6cd6460f9`
+on 2026-10-09.
 
 ## Capability ledger
 
@@ -15,7 +15,7 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-branch-review | What changed on my branch? | Merge-base, upstream and detached-HEAD facts | PR#367, J17-branch-review | deterministic-ci | No upstream means ahead/behind is unknown | Keep read-only | controller |
 | CAP-build-verify | Build it | Configured build with proof bound to stable inputs | PR#433, J01-build-pass | deterministic-ci | Repository must declare a build profile; `init` proposes one for a single-CMake root only (PR#469) | Qualify more repositories | controller |
 | CAP-test-truth | Run the tests | Full or filtered test truth with zero/stale non-PASS | PR#383, J19-test-truth | deterministic-ci | Repository must declare a test profile; `init` proposes one for a single-CMake root only (PR#469) | Qualify more repositories | controller |
-| CAP-failure-diagnosis | Why did that fail? | Uses retained build/test evidence and explicit task identity | PR#250, J02-build-fail | deterministic-ci | Unsupported failures remain unclassified | Extend typed diagnoses | controller |
+| CAP-failure-diagnosis | Why did that fail? | Uses retained build/test evidence and explicit task identity; failed builds and tests name their kind (compile, link, configure; assertion, crash, timeout, failed), first evidence and exact argv | PR#250, PR#474, J02-build-fail, internal/tests/unit/test_failure_kind.py::test_a_failed_build_names_kind_evidence_and_command | deterministic-ci | The kind is in the tool result and answer, not yet a durable typed fact the diagnosis route consumes; unrecognised logs stay unclassified | Feed typed failure facts to 'Why did that fail?' (#462) | controller |
 | CAP-candidate-fix | Fix the build or tests | Isolated candidate with build/test proof | PR#197, J13-candidate-scripted | deterministic-ci | Real-model success is configuration-specific | Finish real-repository qualification | controller |
 | CAP-change | Change this source | Intent-scoped isolated candidate | PR#215, J11-change | deterministic-ci | General arbitrary checkout mutation is refused | Keep candidate boundary | controller |
 | CAP-apply | Apply this candidate | All-or-nothing import with stale-content refusal | PR#378, J13-candidate-scripted | deterministic-ci | Interrupted receipt stays UNKNOWN | Keep restart regressions | controller |
