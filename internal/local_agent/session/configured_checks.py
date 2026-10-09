@@ -90,6 +90,8 @@ class ConfiguredCheckPlan:
     the orchestrator still decides what they prove.
     """
 
+    model_free: Final = True
+
     def __init__(self, check: str) -> None:
         if check not in CONFIGURED_CHECK_STEPS:
             raise ValueError(f"not a configured check: {check}")
