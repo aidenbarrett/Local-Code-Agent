@@ -195,7 +195,7 @@ def test_instance_change_between_requests_starts_a_new_sequence():
     _lifecycle, _first, warm = _sequence(module, endpoint, cold=False, instance=True)
     assert warm["sequence_label"] == "lifecycle_boundary_observed_new_sequence"
     assert warm["endpoint_process_reused"] is False
-    assert "endpoint instance identity changed" in warm["boundary_observations"]
+    assert "between requests: endpoint instance identity changed" in warm["boundary_observations"]
 
 
 def test_model_switch_or_dead_process_is_a_boundary_not_warm():
@@ -203,7 +203,7 @@ def test_model_switch_or_dead_process_is_a_boundary_not_warm():
     switched = _FakeEndpoint([(True, ("m",), None), (True, ("other",), None), (True, ("other",), None)])
     _l, _f, warm = _sequence(module, switched, cold=True, process=_Process())
     assert warm["sequence_label"] == "lifecycle_boundary_observed_new_sequence"
-    assert "served model set changed" in warm["boundary_observations"]
+    assert "between requests: served model set changed" in warm["boundary_observations"]
 
     crashed = _FakeEndpoint([(True, ("m",), None)] * 3)
     _l, _f, warm = _sequence(module, crashed, cold=True, process=_Process(rc=1))
@@ -215,7 +215,7 @@ def test_boundary_after_warm_request_still_invalidates_the_warm_row():
     endpoint = _FakeEndpoint([(True, ("m",), None), (True, ("m",), None), (False, ("m",), None)])
     _l, _f, warm = _sequence(module, endpoint, cold=True, process=_Process())
     assert warm["sequence_label"] == "lifecycle_boundary_observed_new_sequence"
-    assert any(item.startswith("after warm request:") for item in warm["boundary_observations"])
+    assert warm["boundary_observations"] == ["after warm request: endpoint not ready"]
 
 
 def test_launcher_exit_zero_does_not_prove_reuse():
@@ -245,3 +245,30 @@ def test_backend_memory_is_reported_only_from_an_explicit_hook():
     endpoint = _FakeEndpoint([(True, ("m",), None)] * 3)
     _l, first, _w = _sequence(module, endpoint, cold=True, process=_Process())
     assert first["backend_memory"]["supported"] is False
+
+
+def test_unobservable_model_list_is_missing_evidence_never_a_boundary():
+    module = _module()
+
+    class Blind(_FakeEndpoint):
+        def get_json(self, url):
+            if url.endswith("/models"):
+                raise OSError("probe failed")
+            return super().get_json(url)
+
+    endpoint = Blind([(True, ("m",), None)] * 3)
+    _l, _f, warm = _sequence(module, endpoint, cold=True, process=_Process())
+    assert warm["sequence_label"] == "subsequent_request_endpoint_reuse_unproven"
+    assert warm["boundary_observations"] == []
+    assert "between requests: model list not observable" in warm["missing_evidence"]
+
+
+def test_missing_api_key_is_a_configuration_error_not_missing_evidence():
+    module = _module()
+
+    class Keyless(_FakeEndpoint):
+        def get_json(self, url):
+            raise RuntimeError("missing API key environment variable: X")
+
+    with pytest.raises(RuntimeError, match="missing API key"):
+        _sequence(module, Keyless([(True, ("m",), None)] * 3), cold=True, process=_Process())

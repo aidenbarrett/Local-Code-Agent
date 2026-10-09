@@ -502,50 +502,56 @@ def _owned_process_state(process: subprocess.Popen[Any] | None) -> str:
 
 
 def judge_continuity(
-    before: EndpointSnapshot,
-    after: EndpointSnapshot,
+    snapshots: tuple[EndpointSnapshot, ...],
     profile: Profile,
     process: subprocess.Popen[Any] | None,
 ) -> dict[str, Any]:
-    """Decide whether two requests were served by one still-running endpoint.
+    """Decide whether consecutive requests were served by one still-running endpoint.
 
-    A broken fact means a lifecycle boundary was observed. Missing evidence means
-    reuse is unproven. Neither may be reported as warm.
+    ``snapshots`` are taken before the first request, between requests and after the last.
+    An observed break is a lifecycle boundary; an unobservable fact is missing evidence.
+    Neither may be reported as warm, and missing evidence is never relabelled as a boundary.
     """
+    phases = ("between requests", "after warm request")
+    boundary: list[str] = []
+    missing: list[str] = []
+    for phase, (before, after) in zip(phases, zip(snapshots, snapshots[1:]), strict=False):
+        if not after.ready:
+            boundary.append(f"{phase}: endpoint not ready")
+        if before.model_ids is None or after.model_ids is None:
+            missing.append(f"{phase}: model list not observable")
+        elif before.model_ids != after.model_ids or profile.model not in after.model_ids:
+            boundary.append(f"{phase}: served model set changed")
+        if before.instance is not None and after.instance is not None:
+            if before.instance != after.instance:
+                boundary.append(f"{phase}: endpoint instance identity changed")
+        elif before.instance is not None or after.instance is not None:
+            missing.append(f"{phase}: endpoint instance identity not observable")
+
     process_state = _owned_process_state(process)
-    boundary = []
-    if not after.ready:
-        boundary.append("endpoint not ready between requests")
-    if before.model_ids is None or after.model_ids is None:
-        boundary.append("model list not observable")
-    elif before.model_ids != after.model_ids or profile.model not in after.model_ids:
-        boundary.append("served model set changed")
     if process_state == "exited_with_error":
         boundary.append("harness-owned endpoint process exited")
-    instances_known = before.instance is not None and after.instance is not None
-    if instances_known and before.instance != after.instance:
-        boundary.append("endpoint instance identity changed")
-
+    instances = {snap.instance for snap in snapshots}
     if process_state == "alive":
-        reuse_source = "harness_owned_process_alive"
-    elif before.instance is not None and before.instance == after.instance:
+        reuse_source: str | None = "harness_owned_process_alive"
+    elif None not in instances and len(instances) == 1:
         reuse_source = "endpoint_reported_instance_unchanged"
     else:
         reuse_source = None
 
     if boundary:
         classification, reused = NEW_SEQUENCE, False
-    elif reuse_source:
+    elif reuse_source and not missing:
         classification, reused = SAME_ENDPOINT_WARM, True
     else:
         classification, reused = CONTINUITY_UNPROVEN, None
     return {
         "classification": classification,
         "endpoint_process_reused": reused,
-        "reuse_evidence": reuse_source,
+        "reuse_evidence": reuse_source if reused else None,
         "boundary_observations": boundary,
+        "missing_evidence": missing,
         "harness_process_state": process_state,
-        "restarts_between_requests_by_harness": 0,
     }
 
 
@@ -596,18 +602,7 @@ def measure_lifecycle_sequence(
     between = snapshot_endpoint(client, profile)
     warm = benchmark_generation(client, _sequence_prompt(prompt, nonce, 2), max_tokens)
     after = snapshot_endpoint(client, profile)
-    continuity = judge_continuity(before, between, profile, process)
-    tail = judge_continuity(between, after, profile, process)
-    if tail["classification"] == NEW_SEQUENCE:
-        continuity = {
-            **continuity,
-            "classification": NEW_SEQUENCE,
-            "endpoint_process_reused": False,
-            "reuse_evidence": None,
-            "boundary_observations": continuity["boundary_observations"]
-            + ["after warm request: " + item for item in tail["boundary_observations"]],
-            "harness_process_state": tail["harness_process_state"],
-        }
+    continuity = judge_continuity((before, between, after), profile, process)
     warm.update(continuity)
     warm["sequence_label"] = continuity["classification"]
     warm["backend_memory"] = _backend_memory(client, profile)
