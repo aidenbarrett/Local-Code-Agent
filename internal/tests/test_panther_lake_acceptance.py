@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -79,3 +80,57 @@ def test_summary_refuses_wrong_schema(tmp_path: Path) -> None:
 
     with pytest.raises(acceptance.AcceptanceCaptureError, match="schema"):
         acceptance.render_summary(path)
+
+
+def test_prepare_reports_missing_weights_without_certifying_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "local-code-agent.ps1").write_text("launcher", encoding="utf-8")
+    output = tmp_path / "evidence"
+    monkeypatch.setattr(acceptance.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(acceptance, "weight_state", lambda profile, root: "missing")
+    monkeypatch.setattr(acceptance, "_git", lambda repo, *args: "abc123")
+    observed: dict[str, object] = {}
+
+    def run(args, *, cwd=None, timeout_s=None):
+        observed.update(args=args, cwd=cwd, timeout_s=timeout_s)
+        return SimpleNamespace(
+            returncode=3,
+            stdout=(
+                "Weights        MISSING\n"
+                "               next:       .\\local-code-agent.ps1 models pull ptl-gpu-30b\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(acceptance, "_run", run)
+
+    report = acceptance.prepare_qualification(repo, tmp_path / "runtime", output, "ptl-gpu-30b")
+
+    assert report["ready_to_disconnect"] is False
+    assert report["offline_evidence"] == acceptance.UNKNOWN
+    assert report["configured_device"] == "GPU"
+    assert report["quantization"] == "INT4_ASYM"
+    assert len(report["blockers"]) == 1
+    assert "models pull ptl-gpu-30b" in report["blockers"][0]
+    assert observed["args"] == [
+        "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", str(repo.resolve() / "local-code-agent.ps1"),
+        "doctor", "--repo", str(repo.resolve()), "--profile", "ptl-gpu-30b",
+    ]
+    assert observed["cwd"] == repo.resolve()
+    assert observed["timeout_s"] == 120.0
+    retained = json.loads((output / "qualification-preflight.json").read_text(encoding="utf-8"))
+    assert retained["claim"].startswith("preparation only")
+
+
+def test_prepare_refuses_to_overwrite_an_evidence_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(acceptance.platform, "system", lambda: "Windows")
+    output = tmp_path / "existing"
+    output.mkdir()
+    with pytest.raises(acceptance.AcceptanceCaptureError, match="already exists"):
+        acceptance.prepare_qualification(tmp_path, tmp_path, output, "ptl-npu-8b")
