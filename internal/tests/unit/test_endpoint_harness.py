@@ -154,9 +154,9 @@ def _sequence(module, endpoint, *, cold, process=None, instance=False, memory=Fa
         memory_path="memory" if memory else None,
     )
     module.benchmark_generation = lambda client, prompt, max_tokens: client.stream_chat(prompt, max_tokens)
-    return module.measure_lifecycle_sequence(
-        endpoint, profile, "p", 8, established_cold=cold, process=process, nonce="abcd",
-    )
+    return module.measure_lifecycle_sequence(endpoint, profile, module.LifecycleRun(
+        prompt="p", max_tokens=8, nonce="abcd", established_cold=cold, process=process,
+    ))
 
 
 def test_warm_is_claimed_only_when_owned_process_stayed_alive():

@@ -99,7 +99,9 @@ def load_profile(path: Path) -> Profile:
         identity_model_path=str(identity["model_path"]) if identity.get("model_path") else None,
         identity_runtime_path=str(identity["runtime_path"]) if identity.get("runtime_path") else None,
         identity_device_path=str(identity["device_path"]) if identity.get("device_path") else None,
-        identity_instance_path=str(identity["instance_path"]) if identity.get("instance_path") else None,
+        identity_instance_path=(
+            str(identity["instance_path"]) if identity.get("instance_path") else None
+        ),
         active_requests_url=str(cancellation["active_requests_url"]) if cancellation.get("active_requests_url") else None,
         active_request_ids_path=str(cancellation["active_request_ids_path"]) if cancellation.get("active_request_ids_path") else None,
         request_id_header=str(cancellation["request_id_header"]) if cancellation.get("request_id_header") else None,
@@ -440,6 +442,11 @@ CONTINUITY_UNPROVEN = "subsequent_request_endpoint_reuse_unproven"
 NEW_SEQUENCE = "lifecycle_boundary_observed_new_sequence"
 
 
+# Failures of an optional observation probe. A missing API key (RuntimeError) is a
+# configuration error and must still propagate.
+PROBE_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError, http.client.HTTPException)
+
+
 @dataclass(frozen=True)
 class EndpointSnapshot:
     """Observable facts that must hold unchanged for a request to count as warm."""
@@ -453,7 +460,7 @@ class EndpointSnapshot:
 def _model_ids(client: Any, profile: Profile) -> tuple[str, ...] | None:
     try:
         payload = client.get_json(urljoin(profile.base_url, "models"))
-    except Exception:
+    except PROBE_ERRORS:
         return None
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
@@ -465,9 +472,10 @@ def _instance(client: Any, profile: Profile) -> str | None:
     if not (profile.identity_url and profile.identity_instance_path):
         return None
     try:
-        value = _deep_get(client.get_json(profile.identity_url), profile.identity_instance_path)
-    except Exception:
+        payload = client.get_json(profile.identity_url)
+    except PROBE_ERRORS:
         return None
+    value = _deep_get(payload, profile.identity_instance_path)
     return None if value is None else str(value)
 
 
@@ -514,7 +522,8 @@ def judge_continuity(
         boundary.append("served model set changed")
     if process_state == "exited_with_error":
         boundary.append("harness-owned endpoint process exited")
-    if before.instance is not None and after.instance is not None and before.instance != after.instance:
+    instances_known = before.instance is not None and after.instance is not None
+    if instances_known and before.instance != after.instance:
         boundary.append("endpoint instance identity changed")
 
     if process_state == "alive":
@@ -545,29 +554,41 @@ def _backend_memory(client: Any, profile: Profile) -> dict[str, Any]:
         return {"supported": False, "reason": "no backend memory telemetry hook configured"}
     try:
         value = _backend_value(client, profile, profile.memory_path)
-    except Exception as exc:
+    except PROBE_ERRORS as exc:
         return {"supported": False, "reason": f"backend memory probe failed: {exc}"}
     if value is None:
         return {"supported": False, "reason": "backend memory hook returned no value"}
-    return {"supported": True, "backend_reported_memory": value, "memory_source": "backend_reported"}
+    return {
+        "supported": True,
+        "backend_reported_memory": value,
+        "memory_source": "backend_reported",
+    }
 
 
 def _sequence_prompt(base: str, nonce: str, index: int) -> str:
-    # Differs from the first content character so prompt/prefix caching cannot pose as runtime residency.
+    # Differs at the first character so prompt/prefix caching cannot pose as residency.
     return f"{index}/{nonce} perf: {base}"
+
+
+@dataclass(frozen=True)
+class LifecycleRun:
+    """One measured endpoint lifetime: what to send and what the harness established."""
+
+    prompt: str
+    max_tokens: int
+    nonce: str
+    established_cold: bool
+    process: subprocess.Popen[Any] | None = None
 
 
 def measure_lifecycle_sequence(
     client: Any,
     profile: Profile,
-    prompt: str,
-    max_tokens: int,
-    *,
-    established_cold: bool,
-    process: subprocess.Popen[Any] | None,
-    nonce: str,
+    run: LifecycleRun,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Return (lifecycle, first generation, warm generation) for one endpoint lifetime."""
+    prompt, max_tokens, nonce = run.prompt, run.max_tokens, run.nonce
+    established_cold, process = run.established_cold, run.process
     before = snapshot_endpoint(client, profile)
     first = benchmark_generation(client, _sequence_prompt(prompt, nonce, 1), max_tokens)
     first["sequence_label"] = FIRST_AFTER_COLD if established_cold else FIRST_OBSERVED
@@ -591,7 +612,9 @@ def measure_lifecycle_sequence(
     warm["sequence_label"] = continuity["classification"]
     warm["backend_memory"] = _backend_memory(client, profile)
     lifecycle = {
-        "provenance": "harness_established_cold_start" if established_cold else "pre_existing_endpoint",
+        "provenance": (
+            "harness_established_cold_start" if established_cold else "pre_existing_endpoint"
+        ),
         "first_request_label": first["sequence_label"],
         "warm_request_label": warm["sequence_label"],
         "endpoint_process_reused": continuity["endpoint_process_reused"],
@@ -666,12 +689,13 @@ def main(argv: list[str] | None = None) -> int:
         if not client.ready():
             raise RuntimeError("endpoint is not ready; configure startup.command or start it before running the harness")
         identity = capture_identity(client, profile)
-        lifecycle, first, warm = measure_lifecycle_sequence(
-            client, profile, args.generation_prompt, args.max_tokens,
+        lifecycle, first, warm = measure_lifecycle_sequence(client, profile, LifecycleRun(
+            prompt=args.generation_prompt,
+            max_tokens=args.max_tokens,
+            nonce=secrets.token_hex(4),
             established_cold=bool(cold.get("supported")),
             process=started_process,
-            nonce=secrets.token_hex(4),
-        )
+        ))
         report = {
             "schema_version": 2,
             "captured_at_unix": time.time(),
