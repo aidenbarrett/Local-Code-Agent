@@ -13,7 +13,7 @@ param(
     # switch, which prints help.
     [ArgumentCompleter({
         param($commandName, $parameterName, $wordToComplete)
-        @('session', 'chat', 'help', 'doctor', 'init', 'capabilities', 'run-task', 'acceptance', 'models', 'verification-demo', 'advanced') |
+        @('session', 'chat', 'help', 'doctor', 'init', 'capabilities', 'run-task', 'acceptance', 'qualify', 'models', 'verification-demo', 'advanced') |
             Where-Object { $_ -like "$wordToComplete*" } |
             ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
     })]
@@ -187,6 +187,14 @@ switch ($Command.ToLowerInvariant()) {
         # The Session Hub acceptance journeys, one run, every log kept in --output.
         Set-ManagedOvmsEnvironment
         & $python (Join-Path $internal 'scripts\acceptance-journeys.py') @Rest
+        exit $LASTEXITCODE
+    }
+    'qualify' {
+        # Prepare one retained, non-certifying physical qualification run. This
+        # checks local assets while networking may still be available; the
+        # disconnected capture remains a separate explicit step.
+        Set-ManagedOvmsEnvironment
+        & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') prepare --repo $root @Rest
         exit $LASTEXITCODE
     }
     'models' {
