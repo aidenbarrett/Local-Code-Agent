@@ -25,7 +25,7 @@ from .tool_primitives import (
     relpath,
 )
 from .tool_context import ToolContext
-from .logs import parse_test_log
+from .logs import TestLogReport, parse_test_log
 
 # ctest -R takes a regular expression, so the filter has to be able to be one.
 # The old validator stripped |^$() and then demanded [A-Za-z0-9_.:-], which
@@ -43,6 +43,26 @@ _FILTER_MAX = 200
 
 BUILD_STAMP = ".local-agent-build-ok"
 PROFILE_STAMP = ".local-agent-configured-profile"
+
+
+def failed_command_suffix(command: list[str]) -> str:
+    """The exact argv that failed, as the controller ran it.
+
+    Shown as a JSON list because it was executed as an argument list, never through a
+    shell: no shell quoting would be faithful on every platform.
+    """
+    return f" -- command: {json.dumps(command)}"
+
+
+def _failed_tests_summary(report: TestLogReport, command: list[str]) -> str:
+    """Which tests failed, the failure's kind, its first evidence and the failing argv."""
+    names = ", ".join(entry["name"] for entry in report.failed[:5]) or "see log"
+    kind = report.failure_kind or "failed"
+    summary = f"{len(report.failed)} test(s) FAILED ({kind}): {names}"
+    evidence = (report.assertions or report.crash_markers)[:1]
+    if evidence:
+        summary += f"; first {kind} evidence: {evidence[0]['text'][:200]}"
+    return summary + failed_command_suffix(command)
 
 
 @dataclass(frozen=True)
@@ -414,8 +434,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 "configured or not built. Run configure_project and build_target first."
             )
         else:
-            names = ", ".join(f["name"] for f in report.failed[:5]) or "see log"
-            summary = f"{len(report.failed)} test(s) FAILED: {names}"
+            summary = _failed_tests_summary(report, command)
 
         # Every one of these means the binaries ctest just executed are not the
         # binaries this source tree would produce. Prepended in reverse order

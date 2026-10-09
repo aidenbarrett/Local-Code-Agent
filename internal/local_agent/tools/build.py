@@ -27,6 +27,7 @@ from .testing_tools import (
     _source_hashes,
     changed_build_inputs,
     configured_profile,
+    failed_command_suffix,
     set_configured_profile,
     touch_build_stamp,
 )
@@ -49,12 +50,18 @@ def _error_location(root: Path, diagnostic_file: str) -> str:
 
 
 def _first_error_suffix(report: BuildLogReport, root: Path) -> str:
-    """Where the first compiler error is, so the user sees the location without asking."""
-    if not report.errors:
-        return ""
-    first = report.errors[0]
-    where = f"{_error_location(root, first.file)}:{first.line}"
-    return f"; first error at {where}: {first.message.strip()[:160]}"
+    """The first evidence of the failure's kind, so the user sees it without asking."""
+    if report.errors:
+        first = report.errors[0]
+        where = f"{_error_location(root, first.file)}:{first.line}"
+        return f"; first error at {where}: {first.message.strip()[:160]}"
+    if report.link_errors:
+        return f"; first unresolved symbol: {str(report.link_errors[0]['symbol'])[:160]}"
+    configure = [entry for entry in report.cmake_errors
+                 if entry["text"].startswith("CMake Error")]
+    if configure:
+        return f"; first CMake error: {configure[0]['text'][:200]}"
+    return ""
 
 
 def _build_summary(
@@ -80,8 +87,9 @@ def _build_summary(
             f"build ({profile}) succeeded in {outcome.elapsed_s:.1f}s with "
             f"{len(report.warnings)} warning(s)"
         )
+    kind = report.failure_kind or "no recognised diagnostic"
     return (
-        f"build ({profile}) FAILED with {len(report.errors)} compiler "
+        f"build ({profile}) FAILED ({kind}) with {len(report.errors)} compiler "
         f"error(s) and {len(report.link_errors)} link error(s)"
     )
 
@@ -277,7 +285,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             ctx.timeout,
         )
         if not outcome.ok and not outcome.timed_out and not proof_invalidated:
-            summary += _first_error_suffix(report, ctx.root)
+            summary += _first_error_suffix(report, ctx.root) + failed_command_suffix(command)
 
         # Our own wall clock killing the build is an orchestrator fact, not a
         # statement about the code. A build that fails to compile is evidence.
