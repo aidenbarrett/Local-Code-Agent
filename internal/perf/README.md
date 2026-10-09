@@ -36,6 +36,14 @@ Do not use `cold` and `warm` as aliases for `first request` and `later request`.
 
 Cold and warm comparisons must state whether the endpoint process was reused. A model/profile switch, endpoint restart, failed readiness transition or unobserved lifecycle boundary starts a new measurement sequence rather than silently continuing a warm series.
 
+### Report fields (schema 2)
+
+- `lifecycle.provenance`: `harness_established_cold_start` only when `--cold-start` proved the endpoint not ready, launched it and observed readiness; otherwise `pre_existing_endpoint`.
+- `generation`: the first measured request, labelled `first_after_established_cold_start` or `first_observed_request`.
+- `warm_generation`: a second request to the same endpoint. It is labelled `same_endpoint_warm` only when readiness held, the served model set was unchanged before and after it, and reuse is proven by a still-alive harness-owned process or by an unchanged `identity.instance_path` value. Missing evidence gives `subsequent_request_endpoint_reuse_unproven`; an observed break gives `lifecycle_boundary_observed_new_sequence` with the observations listed. A launcher that exits 0 after handing off proves nothing.
+- The two prompts differ from their first character so prompt or prefix caching cannot pose as runtime residency.
+- `backend_memory` on both rows comes only from `telemetry.memory_path`; otherwise it is reported unsupported.
+
 ## Residency and product cost
 
 Latency is not enough to choose a deployed model. Record backend process memory or working set when it can be observed, with the source named. Client-process RSS is not backend residency. If backend memory cannot be observed, report it as unsupported or unknown rather than inferring it from model size.

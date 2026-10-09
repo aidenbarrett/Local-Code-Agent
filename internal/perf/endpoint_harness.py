@@ -8,6 +8,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+import secrets
 import statistics
 import subprocess
 import time
@@ -38,6 +39,7 @@ class Profile:
     identity_model_path: str | None = None
     identity_runtime_path: str | None = None
     identity_device_path: str | None = None
+    identity_instance_path: str | None = None
     active_requests_url: str | None = None
     active_request_ids_path: str | None = None
     request_id_header: str | None = None
@@ -97,6 +99,7 @@ def load_profile(path: Path) -> Profile:
         identity_model_path=str(identity["model_path"]) if identity.get("model_path") else None,
         identity_runtime_path=str(identity["runtime_path"]) if identity.get("runtime_path") else None,
         identity_device_path=str(identity["device_path"]) if identity.get("device_path") else None,
+        identity_instance_path=str(identity["instance_path"]) if identity.get("instance_path") else None,
         active_requests_url=str(cancellation["active_requests_url"]) if cancellation.get("active_requests_url") else None,
         active_request_ids_path=str(cancellation["active_request_ids_path"]) if cancellation.get("active_request_ids_path") else None,
         request_id_header=str(cancellation["request_id_header"]) if cancellation.get("request_id_header") else None,
@@ -430,6 +433,175 @@ def run_soak(client: EndpointClient, profile: Profile, hours: float, prompt: str
     }
 
 
+FIRST_AFTER_COLD = "first_after_established_cold_start"
+FIRST_OBSERVED = "first_observed_request"
+SAME_ENDPOINT_WARM = "same_endpoint_warm"
+CONTINUITY_UNPROVEN = "subsequent_request_endpoint_reuse_unproven"
+NEW_SEQUENCE = "lifecycle_boundary_observed_new_sequence"
+
+
+@dataclass(frozen=True)
+class EndpointSnapshot:
+    """Observable facts that must hold unchanged for a request to count as warm."""
+
+    ready: bool
+    model_ids: tuple[str, ...] | None
+    instance: str | None
+    instance_source: str | None
+
+
+def _model_ids(client: Any, profile: Profile) -> tuple[str, ...] | None:
+    try:
+        payload = client.get_json(urljoin(profile.base_url, "models"))
+    except Exception:
+        return None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return None
+    return tuple(sorted(str(item.get("id")) for item in data if isinstance(item, dict)))
+
+
+def _instance(client: Any, profile: Profile) -> str | None:
+    if not (profile.identity_url and profile.identity_instance_path):
+        return None
+    try:
+        value = _deep_get(client.get_json(profile.identity_url), profile.identity_instance_path)
+    except Exception:
+        return None
+    return None if value is None else str(value)
+
+
+def snapshot_endpoint(client: Any, profile: Profile) -> EndpointSnapshot:
+    ready = bool(client.ready())
+    model_ids = _model_ids(client, profile)
+    instance = _instance(client, profile)
+    return EndpointSnapshot(
+        ready=ready,
+        model_ids=model_ids,
+        instance=instance,
+        instance_source="endpoint_observed" if instance is not None else None,
+    )
+
+
+def _owned_process_state(process: subprocess.Popen[Any] | None) -> str:
+    if process is None:
+        return "not_owned_by_harness"
+    rc = process.poll()
+    if rc is None:
+        return "alive"
+    # A launcher that exits 0 after handing off to a daemon proves nothing about the server.
+    return "launcher_exited" if rc == 0 else "exited_with_error"
+
+
+def judge_continuity(
+    before: EndpointSnapshot,
+    after: EndpointSnapshot,
+    profile: Profile,
+    process: subprocess.Popen[Any] | None,
+) -> dict[str, Any]:
+    """Decide whether two requests were served by one still-running endpoint.
+
+    A broken fact means a lifecycle boundary was observed. Missing evidence means
+    reuse is unproven. Neither may be reported as warm.
+    """
+    process_state = _owned_process_state(process)
+    boundary = []
+    if not after.ready:
+        boundary.append("endpoint not ready between requests")
+    if before.model_ids is None or after.model_ids is None:
+        boundary.append("model list not observable")
+    elif before.model_ids != after.model_ids or profile.model not in after.model_ids:
+        boundary.append("served model set changed")
+    if process_state == "exited_with_error":
+        boundary.append("harness-owned endpoint process exited")
+    if before.instance is not None and after.instance is not None and before.instance != after.instance:
+        boundary.append("endpoint instance identity changed")
+
+    if process_state == "alive":
+        reuse_source = "harness_owned_process_alive"
+    elif before.instance is not None and before.instance == after.instance:
+        reuse_source = "endpoint_reported_instance_unchanged"
+    else:
+        reuse_source = None
+
+    if boundary:
+        classification, reused = NEW_SEQUENCE, False
+    elif reuse_source:
+        classification, reused = SAME_ENDPOINT_WARM, True
+    else:
+        classification, reused = CONTINUITY_UNPROVEN, None
+    return {
+        "classification": classification,
+        "endpoint_process_reused": reused,
+        "reuse_evidence": reuse_source,
+        "boundary_observations": boundary,
+        "harness_process_state": process_state,
+        "restarts_between_requests_by_harness": 0,
+    }
+
+
+def _backend_memory(client: Any, profile: Profile) -> dict[str, Any]:
+    if not (profile.telemetry_url and profile.memory_path):
+        return {"supported": False, "reason": "no backend memory telemetry hook configured"}
+    try:
+        value = _backend_value(client, profile, profile.memory_path)
+    except Exception as exc:
+        return {"supported": False, "reason": f"backend memory probe failed: {exc}"}
+    if value is None:
+        return {"supported": False, "reason": "backend memory hook returned no value"}
+    return {"supported": True, "backend_reported_memory": value, "memory_source": "backend_reported"}
+
+
+def _sequence_prompt(base: str, nonce: str, index: int) -> str:
+    # Differs from the first content character so prompt/prefix caching cannot pose as runtime residency.
+    return f"{index}/{nonce} perf: {base}"
+
+
+def measure_lifecycle_sequence(
+    client: Any,
+    profile: Profile,
+    prompt: str,
+    max_tokens: int,
+    *,
+    established_cold: bool,
+    process: subprocess.Popen[Any] | None,
+    nonce: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Return (lifecycle, first generation, warm generation) for one endpoint lifetime."""
+    before = snapshot_endpoint(client, profile)
+    first = benchmark_generation(client, _sequence_prompt(prompt, nonce, 1), max_tokens)
+    first["sequence_label"] = FIRST_AFTER_COLD if established_cold else FIRST_OBSERVED
+    first["backend_memory"] = _backend_memory(client, profile)
+    between = snapshot_endpoint(client, profile)
+    warm = benchmark_generation(client, _sequence_prompt(prompt, nonce, 2), max_tokens)
+    after = snapshot_endpoint(client, profile)
+    continuity = judge_continuity(before, between, profile, process)
+    tail = judge_continuity(between, after, profile, process)
+    if tail["classification"] == NEW_SEQUENCE:
+        continuity = {
+            **continuity,
+            "classification": NEW_SEQUENCE,
+            "endpoint_process_reused": False,
+            "reuse_evidence": None,
+            "boundary_observations": continuity["boundary_observations"]
+            + ["after warm request: " + item for item in tail["boundary_observations"]],
+            "harness_process_state": tail["harness_process_state"],
+        }
+    warm.update(continuity)
+    warm["sequence_label"] = continuity["classification"]
+    warm["backend_memory"] = _backend_memory(client, profile)
+    lifecycle = {
+        "provenance": "harness_established_cold_start" if established_cold else "pre_existing_endpoint",
+        "first_request_label": first["sequence_label"],
+        "warm_request_label": warm["sequence_label"],
+        "endpoint_process_reused": continuity["endpoint_process_reused"],
+        "prompt_prefixes_distinct": True,
+        "sequence_nonce": nonce,
+        "endpoint_instance_source": before.instance_source,
+    }
+    return lifecycle, first, warm
+
+
 def capture_identity(client: EndpointClient, profile: Profile) -> dict[str, Any]:
     result = {
         "model": profile.model,
@@ -493,13 +665,22 @@ def main(argv: list[str] | None = None) -> int:
             cold, started_process = start_for_cold_measurement(client, profile, args.ready_timeout)
         if not client.ready():
             raise RuntimeError("endpoint is not ready; configure startup.command or start it before running the harness")
+        identity = capture_identity(client, profile)
+        lifecycle, first, warm = measure_lifecycle_sequence(
+            client, profile, args.generation_prompt, args.max_tokens,
+            established_cold=bool(cold.get("supported")),
+            process=started_process,
+            nonce=secrets.token_hex(4),
+        )
         report = {
-            "schema_version": 1,
+            "schema_version": 2,
             "captured_at_unix": time.time(),
             "profile_name": profile.name,
-            "identity": capture_identity(client, profile),
+            "identity": identity,
             "cold_start": cold,
-            "generation": benchmark_generation(client, args.generation_prompt, args.max_tokens),
+            "lifecycle": lifecycle,
+            "generation": first,
+            "warm_generation": warm,
             "context_ladder": benchmark_context_ladder(client, profile, targets),
             "cancellation": benchmark_cancellation(client, profile) if args.cancellation else {"supported": False, "reason": "not requested"},
             "soak": run_soak(client, profile, args.soak_hours, args.generation_prompt, args.max_tokens),
