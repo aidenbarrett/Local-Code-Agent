@@ -34,6 +34,10 @@ def main() -> int:
     term.field("run-task", "Run one controlled engineering task headlessly")
     term.field("verification-demo", "Show stale passing tests being rejected as invalid evidence")
     term.field("acceptance", "Run the acceptance journeys and keep every log; '--compare OLD NEW' sets two runs side by side")
+    term.field(
+        "qualify",
+        "Prepare one physical offline qualification run; checks assets without certifying it",
+    )
     term.field("models", "List models; 'models use <profile>' picks yours, 'models pull <profile>' downloads one")
     term.field("advanced", "Pass arguments directly to the underlying developer CLI")
 
@@ -44,6 +48,10 @@ def main() -> int:
     term.line(r"  .\local-code-agent.ps1 capabilities")
     term.line(r"  .\local-code-agent.ps1 acceptance --output C:\lca-acc\run-1 --allow-model")
     term.line(r"  .\local-code-agent.ps1 acceptance --compare C:\lca-acc\run-1 C:\lca-acc\run-2")
+    term.line(
+        r"  .\local-code-agent.ps1 qualify --profile ptl-gpu-30b "
+        r"--output C:\lca-qualification\gpu30b"
+    )
     term.line(r"  .\local-code-agent.ps1 models")
     term.line(r"  .\local-code-agent.ps1 models pull ptl-gpu-30b")
     term.line(r"  .\local-code-agent.ps1 models use ptl-gpu-30b")

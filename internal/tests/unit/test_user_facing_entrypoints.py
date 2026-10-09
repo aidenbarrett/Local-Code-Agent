@@ -201,6 +201,7 @@ def test_public_help_teaches_model_listing_download_choice_and_one_run_override(
         r".\local-code-agent.ps1 session --profile ptl-npu-8b",
         r".\local-code-agent.ps1 acceptance --output C:\lca-acc\run-1 --allow-model",
         r".\local-code-agent.ps1 acceptance --compare C:\lca-acc\run-1 C:\lca-acc\run-2",
+        r".\local-code-agent.ps1 qualify --profile ptl-gpu-30b --output C:\lca-qualification\gpu30b",
     ):
         assert command in output
     assert "Default worker" in output
@@ -289,6 +290,7 @@ def test_launcher_tab_completion_names_exactly_the_dispatched_commands():
     completed, dispatched = _launcher_commands()
     assert dispatched, "no commands found in the launcher switch"
     assert "acceptance" in dispatched
+    assert "qualify" in dispatched
     assert completed == dispatched
 
 
