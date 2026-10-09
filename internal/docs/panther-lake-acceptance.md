@@ -10,6 +10,18 @@ Use the public setup path to provision the approved runtime, model and local too
 .\install.ps1
 ```
 
+Create a new output folder and check the selected profile's local assets before
+disconnecting. This command does not claim that networking is disabled or that the
+configured device executed anything:
+
+```powershell
+.\local-code-agent.ps1 qualify --profile ptl-gpu-30b --output C:\lca-qualification\gpu30b-1
+```
+
+Resolve every reported `NEXT:` action, then rerun with a different new output folder.
+The retained `qualification-preflight.json` records source, runtime, model,
+quantization, configured device and the deliberately unknown offline evidence.
+
 Update the checkout and dependencies before disconnecting. Do not collect the final acceptance bundle from a dirty checkout.
 
 ## 2. Disconnect external networking
