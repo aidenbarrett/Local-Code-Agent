@@ -52,6 +52,7 @@ _CTEST_FAIL = re.compile(
     r"^\s*(?P<index>\d+)\s*-\s*(?P<name>\S+)\s*\((?P<status>Failed|Timeout|SEGFAULT|"
     r"Subprocess aborted|Exception|Not Run|Child aborted)\)"
 )
+_CRASH_STATUSES = frozenset({"SEGFAULT", "Subprocess aborted", "Exception", "Child aborted"})
 _CTEST_SUMMARY = re.compile(
     r"^(?P<passed>\d+)% tests passed,\s*(?P<failed>\d+) tests failed out of "
     r"(?P<total>\d+)"
@@ -92,8 +93,25 @@ class BuildLogReport:
     cmake_errors: list[dict[str, Any]] = field(default_factory=list)
     tail: list[str] = field(default_factory=list)
 
+    @property
+    def failure_kind(self) -> str | None:
+        """What kind of build failure the log shows, or None when nothing is recognised.
+
+        Compiler errors come first: a failed compile usually also leaves the link step
+        with missing objects, and the compile error is the cause. A CMake error with no
+        compiler or link error is a configuration failure.
+        """
+        if self.errors:
+            return "compile"
+        if self.link_errors:
+            return "link"
+        if any(entry["text"].startswith("CMake Error") for entry in self.cmake_errors):
+            return "configure"
+        return None
+
     def as_dict(self, max_items: int = 10) -> dict[str, Any]:
         return {
+            "failure_kind": self.failure_kind,
             "error_count": len(self.errors),
             "warning_count": len(self.warnings),
             "errors": [d.as_dict() for d in self.errors[:max_items]],
@@ -113,8 +131,28 @@ class TestLogReport:
     assertions: list[dict[str, Any]] = field(default_factory=list)
     tail: list[str] = field(default_factory=list)
 
+    @property
+    def failure_kind(self) -> str | None:
+        """What kind of test failure the log shows, or None when no test failed.
+
+        An assertion is the most specific evidence and also aborts the test, so it is
+        named before the crash it causes; a ctest timeout is the test running too long,
+        not the orchestrator's own budget.
+        """
+        if not self.failed:
+            return None
+        statuses = {entry["status"] for entry in self.failed}
+        if self.assertions:
+            return "assertion"
+        if self.crash_markers or statuses & _CRASH_STATUSES:
+            return "crash"
+        if "Timeout" in statuses:
+            return "timeout"
+        return "failed"
+
     def as_dict(self, max_items: int = 10) -> dict[str, Any]:
         return {
+            "failure_kind": self.failure_kind,
             "totals": self.totals,
             "failed": self.failed[:max_items],
             "passed_count": len(self.passed),
