@@ -24,6 +24,7 @@ from .conversation_store import (
     turn_ref,
 )
 from .intents import (
+    RULE_TASK_DIAGNOSTIC,
     CorrectionStatus,
     ExplicitMode,
     PendingRouteRef,
@@ -35,6 +36,7 @@ from .intents import (
 )
 from .endpoint_client import ModelEndpointQuarantinedError
 from .session_store import ArtifactIntegrityError
+from .task_history import TaskObservation
 
 
 SYSTEM = """You are Local Code Agent's conversation interface.
@@ -427,6 +429,35 @@ class ConversationGateway:
             "I cannot resolve that request deterministically. Please clarify. No task was run.",
         )
 
+    @staticmethod
+    def _recorded_check_diagnosis(
+        decision: RouteDecision,
+        failure_observations: dict[str, object],
+    ) -> str | None:
+        """Answer "Why did that fail?" for a configured check from its recorded result.
+
+        A configured check's answer is written by the controller from its tool results,
+        not by a model, and the durable admission record (never the answer text) says
+        the task was one. So the recorded failure is reported directly: no model call
+        and no new task. Any other referenced task keeps the diagnostic worker.
+        """
+        if decision.rule_id != RULE_TASK_DIAGNOSTIC or not decision.reference_ids:
+            return None
+        observation = failure_observations.get(decision.reference_ids[0])
+        if not isinstance(observation, TaskObservation):
+            return None
+        check = observation.configured_check
+        if check is None:
+            return None
+        asked = {"run-build": "build it", "run-tests": "run the tests"}[check]
+        return (
+            f"Task {observation.task_id} ({asked}) failed. Its recorded result:\n"
+            f"{observation.answer}\n\n"
+            "This is the result recorded when that check ran, not a new check; no task was run. "
+            "Next: say \"fix it\" to prepare an isolated candidate fix, or change the code "
+            f"yourself and say \"{asked}\" again."
+        )
+
     def _rule_task_text(
         self,
         said: str,
@@ -677,6 +708,10 @@ class ConversationGateway:
                 return answer
 
             if decision.action == RouteAction.WORK:
+                recorded = self._recorded_check_diagnosis(decision, failure_observations)
+                if recorded is not None:
+                    self._record_exchange(said, recorded)
+                    return recorded
                 saved_turn = self._record_user(said)
                 if decision.source == RouteSource.RULE:
                     task = self._rule_task_text(said, decision, failure_observations)

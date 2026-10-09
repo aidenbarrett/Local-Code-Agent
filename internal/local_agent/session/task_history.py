@@ -18,10 +18,30 @@ from .candidate_facts import CandidateFacts, result_fields_for, validate_candida
 _RESULT_MEDIA_TYPE = "application/vnd.lca.task-result+json"
 
 
+# A configured check is admitted only by these rules with these skills; the controller,
+# not a model, writes its answer from the tool results (configured_checks.py).
+_CONFIGURED_CHECK_RULES = {"build-and-test/v1": "run-build", "run-tests/v1": "run-tests"}
+
+
+def admitted_configured_check(payload: dict[str, Any]) -> str | None:
+    """The configured check a durable task.admitted payload names, or None.
+
+    Only the controller-owned admission record decides this; nothing in a retained
+    answer can. Both the rule origin and the admitted skill must agree.
+    """
+    origin = payload.get("origin")
+    if not isinstance(origin, dict) or origin.get("kind") != "user_rule":
+        return None
+    expected = _CONFIGURED_CHECK_RULES.get(str(origin.get("rule_id")))
+    return expected if expected is not None and payload.get("skill") == expected else None
+
+
 @dataclass(frozen=True)
 class TaskCandidate:
     task_id: str
     turn_ref: dict[str, object]
+    # Set only from the durable admission record: "run-build" or "run-tests".
+    configured_check: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +67,8 @@ class TaskObservation:
     verdict: str
     answer: str
     evidence_ids: tuple[str, ...]
+    # The configured check the admission record names; None for every other task.
+    configured_check: str | None = None
 
     def prompt_text(self) -> str:
         evidence = ", ".join(self.evidence_ids) or "none"
@@ -144,6 +166,7 @@ class DurableTaskHistory:
         record: dict[str, Any],
         *,
         turn_ref: dict[str, object],
+        configured_check: str | None = None,
     ) -> TaskObservation | None:
         result = self._result_from_record(record)
         if result is None:
@@ -155,6 +178,7 @@ class DurableTaskHistory:
             verdict=result.verdict,
             answer=result.answer,
             evidence_ids=result.evidence_ids,
+            configured_check=configured_check,
         )
 
     def latest(self, conversation_id: str) -> TaskObservation | None:
@@ -167,7 +191,10 @@ class DurableTaskHistory:
         record = self.store.task_record(candidate.task_id)
         if record is None or not bool(record.get("terminal")):
             return None
-        return self._observation_from_record(record, turn_ref=dict(candidate.turn_ref))
+        return self._observation_from_record(
+            record, turn_ref=dict(candidate.turn_ref),
+            configured_check=candidate.configured_check,
+        )
 
     def _stream_events(self) -> list[dict[str, Any]]:
         if self.stream_id is None:
@@ -220,7 +247,10 @@ class DurableTaskHistory:
                 ref = origin.get("turn_ref")
                 if not isinstance(ref, dict) or ref.get("conversation_id") != conversation_id:
                     continue
-                candidate = TaskCandidate(task_id=task_id, turn_ref=dict(ref))
+                candidate = TaskCandidate(
+                    task_id=task_id, turn_ref=dict(ref),
+                    configured_check=admitted_configured_check(event["payload"]),
+                )
                 admissions[task_id] = candidate
                 order.append(task_id)
             elif event.get("kind") == "task.verdict" and isinstance(task_id, str):
