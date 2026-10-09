@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 import importlib.util
@@ -17,6 +18,7 @@ import socket
 import subprocess
 import sys
 import time
+from typing import Any
 from urllib.parse import urlsplit
 from urllib.request import build_opener, ProxyHandler
 import xml.etree.ElementTree as ET
@@ -284,7 +286,7 @@ def preflight(plan, config, allow_experimental=False):
     return record
 
 
-def write_json(path, value):
+def write_json(path: str | Path, value: object) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(".tmp")
@@ -293,7 +295,7 @@ def write_json(path, value):
 
 
 @contextmanager
-def profile_lock(plan):
+def profile_lock(plan: dict[str, Any]) -> Iterator[None]:
     # OS locks release on a controller crash; no stale lock-file deletion races.
     path = Path(plan["state_file"]).with_suffix(".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -319,14 +321,17 @@ def profile_lock(plan):
             unlock()
 
 
-def read_record(plan):
+def read_record(plan: dict[str, Any]) -> dict[str, Any] | None:
     path = Path(plan["state_file"])
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise Refusal(f"unreadable process record {path}; inspect before restarting") from exc
+    if not isinstance(value, dict):
+        raise Refusal(f"unreadable process record {path}; inspect before restarting")
+    return value
 
 
 def owned_process(record):
@@ -349,6 +354,36 @@ def owned_process(record):
         return None
     except (KeyError, psutil.AccessDenied) as exc:
         raise Refusal("process ownership could not be established") from exc
+
+
+# What the server process actually received. Client-side settings in
+# ``model_configuration`` (temperature, timeouts, budgets) never reach the server,
+# so they are not part of server identity; the server-side ones (model, device,
+# prompt length, tool parser) are already encoded in ``args``/``env``/``model_dir``.
+LAUNCH_FIELDS = ("exe", "args", "env", "model_dir")
+
+
+def _resolved_executable(exe: str) -> str:
+    return os.path.normcase(str(Path(shutil.which(exe) or exe).resolve()))
+
+
+def launch_differences(recorded_plan: dict[str, Any], plan: dict[str, Any]) -> tuple[str, ...]:
+    """Launch fields on which a recorded server differs from ``plan``.
+
+    The one compatibility owner: empty means the recorded server was launched
+    exactly as ``plan`` would launch it. Both ``start`` and managed reuse use this,
+    so a configuration change is never served by a stale process.
+    """
+    differences = []
+    for field in LAUNCH_FIELDS:
+        if field == "exe":
+            recorded = recorded_plan.get("exe")
+            if recorded is None or (
+                    _resolved_executable(recorded) != _resolved_executable(plan["exe"])):
+                differences.append(field)
+        elif recorded_plan.get(field) != plan.get(field):
+            differences.append(field)
+    return tuple(differences)
 
 
 def get_json(url):
@@ -385,7 +420,8 @@ def status(plan):
             "resolved_max_prompt_length": active["model_configuration"]["server_max_prompt_length"] if record else None,
             "resolution_basis": active["max_prompt_length_basis"] if record else "not launched",
             "server_observed_device": None, "server_observed_max_prompt_length": None,
-            "uptime_seconds": max(0, time.time() - record["create_time"]) if process else None,
+            "uptime_seconds": (max(0, time.time() - record["create_time"])
+                               if process and record else None),
             "stdout": active["stdout"], "stderr": active["stderr"],
             "preflight": record.get("preflight") if record else None}
 
@@ -403,17 +439,17 @@ def start(plan, config, *, allow_experimental=False, wait_seconds=900):
     with profile_lock(plan):
         old = read_record(plan)
         if old and owned_process(old):
-            same = all(old["plan"].get(k) == plan.get(k) for k in
-                       ("model_configuration", "args", "env", "model_dir"))
-            same = same and os.path.normcase(str(Path(shutil.which(plan["exe"]) or plan["exe"]).resolve())) == os.path.normcase(str(Path(old["plan"]["exe"]).resolve()))
-            if not same:
-                raise Refusal("live profile has different configuration; stop it explicitly first")
+            differences = launch_differences(old["plan"], plan)
+            if differences:
+                raise Refusal("live profile has different configuration "
+                              f"({', '.join(differences)}); stop it explicitly first")
             state = status(plan)
             if state["healthy"]:
                 return state
             raise Refusal(f"owned PID is live but unhealthy; inspect {plan['stdout']} and {plan['stderr']}")
         evidence = preflight(plan, config, allow_experimental)
         write_json(plan["spec_file"], plan)
+        launched = time.monotonic()
         proc = launch(plan)
         try:
             tracked = psutil.Process(proc.pid)
@@ -431,10 +467,35 @@ def start(plan, config, *, allow_experimental=False, wait_seconds=900):
     while True:
         state = status(plan)
         if state["healthy"]:
-            return state
+            return _record_readiness(plan, record, state, launched)
         if not state["process_alive"] or time.monotonic() >= deadline:
             raise Refusal(f"server not ready; inspect {plan['stdout']} and {plan['stderr']}; live process retained")
         time.sleep(0.25)
+
+
+def _record_readiness(
+    plan: dict[str, Any], record: dict[str, Any], state: dict[str, Any], launched: float,
+) -> dict[str, Any]:
+    """Record client-observed launch-to-ready for the process this call launched.
+
+    The measurement covers launch through the first healthy readiness poll: it is
+    not model-load or compile time, and nothing is recorded for a reused server.
+    The record is updated only while it still names the process launched here.
+    """
+    launch_to_ready_ms = max(0, round((time.monotonic() - launched) * 1000))
+    ready_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        with profile_lock(plan):
+            current = read_record(plan)
+            if current is not None and (current.get("pid"), current.get("create_time")) == (
+                    record["pid"], record["create_time"]):
+                write_json(plan["state_file"], {**current, "ready_utc": ready_utc,
+                                                "launch_to_ready_ms": launch_to_ready_ms})
+    except (Refusal, OSError):
+        # The server is ready either way; a busy profile lock or unwritable record
+        # only means the timing is not persisted, never that the start failed.
+        pass
+    return {**state, "ready_utc": ready_utc, "launch_to_ready_ms": launch_to_ready_ms}
 
 
 def stop(plan, grace_seconds=10):

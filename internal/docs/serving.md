@@ -23,7 +23,9 @@ Normal users should not need these commands. The public setup/chat/Session Hub p
 
 A reachable HTTP endpoint is not automatically ours. A process is reusable or stoppable only when the controller can establish its recorded ownership and compatible launch identity. A foreign endpoint, reused PID or ambiguous live process is never adopted or killed merely because it occupies the expected port.
 
-A healthy owned process may be reused only when the configured model/device launch identity matches. Startup failure over an already-owned stale process may be reconciled once by stopping that proven-owned process and retrying. Unknown ownership fails closed.
+A healthy owned process may be reused only when it was launched exactly as the current profile would launch it: the same resolved executable, arguments, child environment and model directory (`serve.launch_differences`, shared by `serve.start` and `serving/managed_runtime.ensure_managed_runtime`). Client-side settings such as temperature or timeouts are not server identity and never force a restart; a changed server argument always does. Startup failure over an already-owned stale process may be reconciled once by stopping that proven-owned process and retrying. Unknown ownership fails closed.
+
+`ensure_managed_runtime` is the one owner of that decision for every product entrypoint (Session Hub, `run-task`, `chat`). Its outcome is typed: `reused`, `started`, `replaced` (with `dead`, `unhealthy` or `config_changed` and the differing launch fields) or `refused` (with `foreign_endpoint`, `start_failed` or `not_healthy`). A launch made by that call carries `launch_to_ready_ms`: the client-observed time from launching the process to the first healthy readiness poll, also stored with `ready_utc` in the profile's `process.json`. It is not model-load or compile time, and a reused server reports none.
 
 ## Product qualification
 

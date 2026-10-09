@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 import hashlib
-import os
 from pathlib import Path
 import sys
 
@@ -30,7 +29,12 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from local_agent.config import MODEL_PRESETS, ModelConfig  # noqa: E402
-from serving import serve  # noqa: E402
+from serving.managed_runtime import (  # noqa: E402
+    RefusedReason,
+    RuntimeLifecycle,
+    RuntimeStep,
+    ensure_managed_runtime,
+)
 from serving.model_choice import local_presets  # noqa: E402
 from serving.model_store import default_runtime_root as _runtime_root  # noqa: E402
 from scripts.model_weights import weight_state  # noqa: E402
@@ -126,61 +130,37 @@ def _session_header(name: str, config: ModelConfig, term, persona: Persona | Non
     term.line()
 
 
-def _reachable(config: ModelConfig) -> bool:
-    import urllib.error
-    import urllib.request
-
-    root = config.base_url.rstrip("/").rsplit("/", 1)[0]
-    for url in (f"{config.base_url.rstrip('/')}/models", f"{root}/v1/models"):
-        try:
-            with urllib.request.urlopen(url, timeout=3):
-                return True
-        except (urllib.error.URLError, OSError, ValueError):
-            continue
-    return False
-
-
 def _ensure_server(profile: str, config: ModelConfig, term=None) -> bool:
-    """Reuse only an owned compatible server; otherwise start through the controller."""
+    """Render the managed-runtime owner's outcome; the decision is never made here."""
     term = term or ui()
-    executable = os.environ.get("LCA_OVMS_EXECUTABLE") if config.runtime == "ovms" else None
-    plan = serve.make_plan(profile, config, _runtime_root(), executable=executable)
-    record = serve.read_record(plan)
-    if record:
-        state = serve.status(plan)
-        recorded = (record.get("plan") or {}).get("model_configuration") or {}
-        record_device = recorded.get("device")
-        record_model = recorded.get("model")
-        if state.get("healthy") and record_device == config.device and record_model == config.model:
-            term.status("ok", f"Local model server already ready on {config.device}")
-            return True
-        if state.get("process_alive"):
-            term.status("info", f"Stopping previous {record_device or 'local'} model server")
-            serve.stop(plan)
-    if _reachable(config):
-        term.line()
+
+    def progress(step: RuntimeStep) -> None:
+        if step is RuntimeStep.STOPPING:
+            term.status("info", "Stopping the previous local model server")
+        else:
+            target = device_label(config.device)
+            term.status("active", f"Starting {_model_label(config)} on {target}")
+
+    result = ensure_managed_runtime(profile, config, _runtime_root(), progress=progress)
+    if result.lifecycle is RuntimeLifecycle.REUSED:
+        term.status("ok", f"Local model server already ready on {config.device}")
+        return True
+    if result.ok:
+        term.status("ok", "Model server ready")
+        return True
+    term.line()
+    if result.refused_reason is RefusedReason.FOREIGN_ENDPOINT:
         term.status("warn", "The configured local endpoint is already in use")
         term.line("  That server is not owned by Local Code Agent, so it will not be adopted or stopped.")
         term.line("  Stop that server, then run this chat command again.")
-        term.line()
-        return False
-    term.status("active", f"Starting {_model_label(config)} on {device_label(config.device)}")
-    try:
-        state = serve.start(plan, config, wait_seconds=900)
-    except (serve.Refusal, OSError) as exc:
-        term.line()
+    else:
         term.status("fail", "Model server could not be started")
-        term.line(f"  {exc}")
+        term.line(f"  {result.message}")
         term.line()
         term.line("  Run the root setup command and try again:")
         term.line(r"    .\install.ps1")
-        term.line()
-        return False
-    if not state.get("healthy"):
-        term.status("fail", "Model server did not become ready")
-        return False
-    term.status("ok", "Model server ready")
-    return True
+    term.line()
+    return False
 
 
 def _system_message(config: ModelConfig) -> dict[str, str]:

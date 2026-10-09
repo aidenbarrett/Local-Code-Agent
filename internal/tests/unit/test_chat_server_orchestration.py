@@ -1,6 +1,5 @@
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-from types import SimpleNamespace
 
 
 INTERNAL = Path(__file__).resolve().parents[2]
@@ -21,85 +20,76 @@ def _config(chat, name="qwen3-8b-npu"):
     return resolved
 
 
-def test_chat_reuses_owned_compatible_server(monkeypatch, tmp_path):
+def _render(monkeypatch, tmp_path, outcome, steps=()):
+    """Run chat's presenter against a stubbed owner; return (ok, transcript)."""
+    from io import StringIO
+
+    from terminal_ui import ui
+
     chat = _chat()
     profile, _, config = _config(chat)
-    plan = SimpleNamespace()
-    record = {"plan": {"model_configuration": {"device": "NPU", "model": config.model}}}
+    calls = []
+
+    def ensure(seen_profile, seen_config, root, *, progress):
+        calls.append((seen_profile, seen_config, root))
+        for step in steps:
+            progress(step)
+        return outcome
 
     monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
-    monkeypatch.setattr(chat.serve, "make_plan", lambda *a, **k: plan)
-    monkeypatch.setattr(chat.serve, "read_record", lambda p: record)
-    monkeypatch.setattr(chat.serve, "status", lambda p: {"healthy": True, "process_alive": True})
-    monkeypatch.setattr(chat.serve, "start", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not start")))
+    monkeypatch.setattr(chat, "ensure_managed_runtime", ensure)
+    stream = StringIO()
+    ok = chat._ensure_server(profile, config, term=ui(stream=stream, colour=False))
+    assert calls == [(profile, config, tmp_path)], "chat must delegate to the one owner"
+    return ok, stream.getvalue()
 
-    assert chat._ensure_server(profile, config) is True
+
+def test_chat_has_no_server_decision_logic_of_its_own():
+    source = (INTERNAL / "scripts" / "chat.py").read_text(encoding="utf-8")
+    for duplicate in ("serve.start(", "serve.stop(", "serve.read_record(", "def _reachable("):
+        assert duplicate not in source, duplicate
 
 
-def test_chat_stops_owned_wrong_device_before_starting_requested_device(monkeypatch, tmp_path):
-    chat = _chat()
-    profile, _, config = _config(chat)
-    plan = SimpleNamespace()
-    record = {"plan": {"model_configuration": {"device": "GPU", "model": config.model}}}
-    events = []
+def test_chat_reports_a_reused_server(monkeypatch, tmp_path):
+    from serving.managed_runtime import RuntimeEnsureResult, RuntimeLifecycle
 
-    monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
-    monkeypatch.setattr(chat.serve, "make_plan", lambda *a, **k: plan)
-    monkeypatch.setattr(chat.serve, "read_record", lambda p: record)
-    monkeypatch.setattr(chat.serve, "status", lambda p: {"healthy": True, "process_alive": True})
-    monkeypatch.setattr(chat.serve, "stop", lambda p: events.append("stop"))
-    monkeypatch.setattr(chat, "_reachable", lambda c: False)
-    monkeypatch.setattr(chat.serve, "start", lambda *a, **k: events.append("start") or {"healthy": True})
+    ok, text = _render(monkeypatch, tmp_path, RuntimeEnsureResult(RuntimeLifecycle.REUSED, "x"))
+    assert ok is True
+    assert "already ready" in text and "Starting" not in text
 
-    assert chat._ensure_server(profile, config) is True
-    assert events == ["stop", "start"]
+
+def test_chat_announces_stop_and_start_before_a_replacement(monkeypatch, tmp_path):
+    from serving.managed_runtime import (
+        ReplacedReason,
+        RuntimeEnsureResult,
+        RuntimeLifecycle,
+        RuntimeStep,
+    )
+
+    outcome = RuntimeEnsureResult(RuntimeLifecycle.REPLACED, "x",
+                                  replaced_reason=ReplacedReason.CONFIG_CHANGED,
+                                  changed_fields=("args",), launch_to_ready_ms=10)
+    ok, text = _render(monkeypatch, tmp_path, outcome,
+                       steps=(RuntimeStep.STOPPING, RuntimeStep.STARTING))
+    assert ok is True
+    assert text.index("Stopping") < text.index("Starting") < text.index("Model server ready")
 
 
 def test_chat_refuses_to_adopt_unmanaged_server(monkeypatch, tmp_path):
-    chat = _chat()
-    profile, _, config = _config(chat)
-    plan = SimpleNamespace()
-    started = []
+    from serving.managed_runtime import RefusedReason, RuntimeEnsureResult, RuntimeLifecycle
 
-    monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
-    monkeypatch.setattr(chat.serve, "make_plan", lambda *a, **k: plan)
-    monkeypatch.setattr(chat.serve, "read_record", lambda p: None)
-    monkeypatch.setattr(chat, "_reachable", lambda c: True)
-    monkeypatch.setattr(chat.serve, "start", lambda *a, **k: started.append(True))
-
-    assert chat._ensure_server(profile, config) is False
-    assert started == []
+    outcome = RuntimeEnsureResult(RuntimeLifecycle.REFUSED, "reachable but not owned",
+                                  refused_reason=RefusedReason.FOREIGN_ENDPOINT)
+    ok, text = _render(monkeypatch, tmp_path, outcome)
+    assert ok is False
+    assert "not owned by Local Code Agent" in text and "install.ps1" not in text
 
 
-def test_chat_starts_requested_server_when_endpoint_is_free(monkeypatch, tmp_path):
-    chat = _chat()
-    profile, _, config = _config(chat)
-    plan = SimpleNamespace()
-    calls = []
+def test_chat_reports_a_failed_start_with_the_setup_step(monkeypatch, tmp_path):
+    from serving.managed_runtime import RefusedReason, RuntimeEnsureResult, RuntimeLifecycle
 
-    monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
-    monkeypatch.setattr(chat.serve, "make_plan", lambda *a, **k: plan)
-    monkeypatch.setattr(chat.serve, "read_record", lambda p: None)
-    monkeypatch.setattr(chat, "_reachable", lambda c: False)
-    monkeypatch.setattr(chat.serve, "start", lambda p, c, wait_seconds: calls.append((c.device, wait_seconds)) or {"healthy": True})
-
-    assert chat._ensure_server(profile, config) is True
-    assert calls == [("NPU", 900)]
-
-
-def test_chat_refuses_unmanaged_server_even_with_a_stale_ownership_record(monkeypatch, tmp_path):
-    chat = _chat()
-    profile, _, config = _config(chat)
-    plan = SimpleNamespace()
-    started = []
-    stale = {"plan": {"model_configuration": {"device": config.device, "model": config.model}}}
-
-    monkeypatch.setattr(chat, "_runtime_root", lambda: tmp_path)
-    monkeypatch.setattr(chat.serve, "make_plan", lambda *a, **k: plan)
-    monkeypatch.setattr(chat.serve, "read_record", lambda p: stale)
-    monkeypatch.setattr(chat.serve, "status", lambda p: {"healthy": False, "process_alive": False})
-    monkeypatch.setattr(chat, "_reachable", lambda c: True)
-    monkeypatch.setattr(chat.serve, "start", lambda *a, **k: started.append(True))
-
-    assert chat._ensure_server(profile, config) is False
-    assert started == []
+    outcome = RuntimeEnsureResult(RuntimeLifecycle.REFUSED, "managed model endpoint could not be started: boom",
+                                  refused_reason=RefusedReason.START_FAILED)
+    ok, text = _render(monkeypatch, tmp_path, outcome)
+    assert ok is False
+    assert "could not be started: boom" in text and "install.ps1" in text

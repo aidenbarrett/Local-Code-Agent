@@ -81,9 +81,11 @@ def test_chat_is_one_product_subcommand_and_never_teaches_old_plumbing():
     source = (INTERNAL / "scripts" / "chat.py").read_text(encoding="utf-8")
     assert ".\\local-code-agent.ps1 chat qwen3-8b-npu" in source
     assert ".\\chat.ps1" not in source
-    assert "serve.start(plan, config" in source
-    assert "serve.read_record(plan)" in source
-    assert "serve.status(plan)" in source
+    # The server is started through the one managed-runtime owner, never by chat itself.
+    assert "ensure_managed_runtime(profile, config, _runtime_root()" in source
+    # Reuse, ownership and start decisions live in that owner, not in chat.
+    for decision in ("serve.start(", "serve.read_record(", "serve.status("):
+        assert decision not in source, decision
     assert "Run the root setup command" in source
     assert ".\\install.ps1" in source
     assert ".\\scripts\\demo-accelerator.ps1" not in source

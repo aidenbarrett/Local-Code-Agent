@@ -230,11 +230,10 @@
     "unreachable": 1
    },
    "internal/scripts/chat.py": {
-    "no-untyped-call": 5,
     "no-untyped-def": 5
    },
    "internal/scripts/demo-accelerator.py": {
-    "no-untyped-call": 7,
+    "no-untyped-call": 6,
     "no-untyped-def": 2,
     "redundant-expr": 1
    },
@@ -263,7 +262,7 @@
     "type-arg": 1
    },
    "internal/serving/managed_runtime.py": {
-    "no-untyped-call": 5
+    "no-untyped-call": 4
    },
    "internal/serving/serve.py": {
     "arg-type": 1,
@@ -271,8 +270,8 @@
     "attr-defined": 6,
     "call-overload": 1,
     "import-not-found": 1,
-    "no-untyped-call": 38,
-    "no-untyped-def": 26,
+    "no-untyped-call": 33,
+    "no-untyped-def": 23,
     "return-value": 1,
     "union-attr": 2,
     "var-annotated": 1
@@ -503,11 +502,10 @@
     "union-attr": 6
    },
    "internal/scripts/chat.py": {
-    "no-untyped-call": 5,
     "no-untyped-def": 5
    },
    "internal/scripts/demo-accelerator.py": {
-    "no-untyped-call": 7,
+    "no-untyped-call": 6,
     "no-untyped-def": 2,
     "redundant-expr": 1
    },
@@ -535,7 +533,7 @@
     "type-arg": 1
    },
    "internal/serving/managed_runtime.py": {
-    "no-untyped-call": 5
+    "no-untyped-call": 4
    },
    "internal/serving/serve.py": {
     "arg-type": 1,
@@ -544,8 +542,8 @@
     "call-overload": 1,
     "func-returns-value": 1,
     "import-not-found": 1,
-    "no-untyped-call": 38,
-    "no-untyped-def": 26,
+    "no-untyped-call": 33,
+    "no-untyped-def": 23,
     "union-attr": 2,
     "var-annotated": 1
    }
@@ -1079,7 +1077,6 @@
     "PLR0912": 1,
     "PLR0915": 1,
     "RUF001": 1,
-    "S310": 1,
     "SIM108": 1,
     "SIM401": 1,
     "T201": 3
@@ -1166,7 +1163,7 @@
    "internal/serving/serve.py": {
     "BLE001": 1,
     "E402": 3,
-    "E501": 12,
+    "E501": 11,
     "E702": 4,
     "E731": 4,
     "F401": 1,
@@ -1188,5 +1185,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1654
+ "total": 1622
 }
