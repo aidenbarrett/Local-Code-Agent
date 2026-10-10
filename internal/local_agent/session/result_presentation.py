@@ -112,6 +112,57 @@ def render_result_evidence(task: TaskSnapshot) -> str:
     return "\n".join(lines)
 
 
+def render_candidate_navigation(task: TaskSnapshot) -> str | None:
+    """Render candidate commands from durable candidate facts, never from prose.
+
+    These are user requests the existing controller may revalidate and refuse; showing
+    them here grants no effect authority. Terminal candidate states deliberately expose
+    no stale mutation command.
+    """
+    if not isinstance(task, TaskSnapshot):
+        raise TypeError("candidate navigation requires TaskSnapshot")
+    candidate = task.candidate
+    if candidate is None:
+        return None
+
+    candidate_id = candidate.candidate_task_id
+    if candidate.role == "prepared":
+        if not (
+            candidate.retained
+            and task.verdict == "VERIFIED"
+            and task.result_verified_at_completion is True
+        ):
+            return (
+                "Candidate: prepared but not completion-verified; "
+                "no checkout mutation command is offered."
+            )
+        return (
+            "Candidate: verified and retained; controller checks still apply.\n"
+            f"  Review: /diff {candidate_id}\n"
+            f"  Apply after review: /apply {candidate_id}"
+        )
+
+    if candidate.role == "applied":
+        return (
+            "Candidate: applied to the checkout; follow-up requests are revalidated.\n"
+            f"  Undo: /undo {candidate_id}\n"
+            f"  Commit exact candidate: /commit {candidate_id}"
+        )
+
+    if candidate.role == "apply_refused":
+        return "Candidate: apply refused; inspect the durable failure before retrying."
+    if candidate.role == "undone":
+        return "Candidate: undone; the pre-apply checkout state was restored."
+    if candidate.role == "committed":
+        return f"Candidate: committed as {candidate.commit}; no candidate action remains."
+    if candidate.role == "discarded":
+        return "Candidate: discarded; no candidate action remains."
+
+    # Retained candidate parsing validates roles before this presentation seam. Keep a
+    # fail-closed fallback for malformed fixtures or future values.
+    return f"Candidate: unsupported durable state {candidate.role!r}; no action is offered."
+
+
 def render_result_next_action(task: TaskSnapshot) -> str:
     """Render one next action selected only from durable controller facts."""
     if not isinstance(task, TaskSnapshot):
@@ -124,7 +175,7 @@ def render_result_next_action(task: TaskSnapshot) -> str:
         and task.verdict == "VERIFIED"
         and task.result_verified_at_completion is True
     ):
-        action = f"review the retained candidate with /diff {task.task_id}."
+        action = f"review the retained candidate with /diff {candidate.candidate_task_id}."
     elif not task.terminal:
         action = "monitor this task until it reaches a durable terminal state."
     elif task.verdict_reason == "endpoint_unavailable":
@@ -152,6 +203,7 @@ def render_result_context(task: TaskSnapshot) -> str:
 
 
 __all__ = [
+    "render_candidate_navigation",
     "render_result_context",
     "render_result_evidence",
     "render_result_next_action",
