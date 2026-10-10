@@ -51,6 +51,12 @@ from .configured_checks import (
     configured_check_sha256,
 )
 from .proof_binding import binding_from_run
+from .repository_state import (
+    REPOSITORY_STATE,
+    REPOSITORY_STATE_PROCEDURE,
+    RepositoryStatePlan,
+    repository_state_sha256,
+)
 from .workspaces import Workspace, WorkspaceError, WorkspaceStoppedError
 
 if TYPE_CHECKING:
@@ -332,6 +338,10 @@ class TaskController:
             # The check runs under the build-and-test procedure, which must exist.
             self._resolve_worker_skill(CONFIGURED_CHECK_SKILL)
             return skill_name
+        if skill_name == REPOSITORY_STATE:
+            # The state question runs under the git-review procedure's read-only tools.
+            self._resolve_worker_skill(REPOSITORY_STATE_PROCEDURE)
+            return skill_name
         return self._resolve_worker_skill(skill_name)
 
     def _resolve_worker_skill(self, skill_name: str) -> str:
@@ -359,6 +369,8 @@ class TaskController:
             return configured_check_sha256(
                 skill_name, self.effective_skill_sha256(CONFIGURED_CHECK_SKILL),
             )
+        if skill_name == REPOSITORY_STATE:
+            return repository_state_sha256(self.effective_skill_sha256(REPOSITORY_STATE_PROCEDURE))
         skill = self._resolved_skill(skill_name)
         root = skill.path.resolve()
         manifest: list[dict[str, object]] = []
@@ -778,6 +790,13 @@ class TaskController:
                 # model decides whether they run: a fixed plan drives the same worker.
                 result = self._run_worker(
                     task, CONFIGURED_CHECK_SKILL, ConfiguredCheckPlan(resolved_skill),
+                    _ExecutionScope(task_id, durable_activity, cancellation_probe),
+                )
+            elif resolved_skill == REPOSITORY_STATE:
+                # Reading and explaining git's state needs no judgement: a fixed plan
+                # runs git_status through the same worker, tools and durable activity.
+                result = self._run_worker(
+                    task, REPOSITORY_STATE_PROCEDURE, RepositoryStatePlan(),
                     _ExecutionScope(task_id, durable_activity, cancellation_probe),
                 )
             else:

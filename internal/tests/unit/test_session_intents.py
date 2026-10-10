@@ -317,7 +317,7 @@ def test_annotated_route_counts_still_reject_non_integer_runtime_values(value):
 
 @pytest.mark.parametrize("text", ["what have I changed?", "What have I changed", "what changed on my branch?",
                                   "explain this conflict", "Explain my merge conflicts?",
-                                  "why is my rebase stuck?", "what state is my repo in?"])
+                                  "why is my rebase stuck?"])
 def test_worktree_inspection_phrase_routes_read_only(text):
     decision = decide_route(text, active_repo_count=1)
     assert decision.action == RouteAction.WORK
