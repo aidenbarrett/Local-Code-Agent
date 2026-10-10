@@ -217,21 +217,21 @@ def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
         return ()
     candidate_id = candidate.candidate_task_id
     if candidate.role == "prepared" and candidate.retained:
-        lines = (
+        lines = [
             "Candidate: READY · NOT APPLIED",
             f"Candidate task: {candidate_id}",
             f"Candidate base: {candidate.base_commit or 'unknown'}",
             f"Candidate patch: {candidate.patch_sha256 or 'unknown'}",
             "Proof applies to the isolated candidate tree, not the checkout.",
-        )
+        ]
         if task.verdict == "VERIFIED" and task.result_verified_at_completion is True:
-            return lines + (
+            lines.extend((
                 f"Review: /diff {candidate_id}",
                 f"Apply: /apply {candidate_id}",
-            )
-        return lines + (
-            "Candidate actions: unavailable — completion verification is not established.",
-        )
+            ))
+        else:
+            lines.append("Candidate actions: unavailable — completion verification is not established.")
+        return tuple(lines)
     if candidate.role == "applied":
         return (
             "Candidate: APPLIED · checkout import verified",
