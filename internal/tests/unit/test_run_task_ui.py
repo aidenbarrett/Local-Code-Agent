@@ -117,7 +117,7 @@ def test_root_run_task_uses_the_product_presenter_not_raw_cli_output():
 
 def test_default_stored_and_explicit_choice_drive_server_agent_and_labels(tmp_path, monkeypatch):
     from serving.model_choice import store_preset
-    from serving.managed_runtime import RuntimeEnsureResult
+    from serving.managed_runtime import RuntimeEnsureResult, RuntimeLifecycle
     presenter = _presenter()
     monkeypatch.setattr(presenter, "default_runtime_root", lambda: tmp_path)
     cases = [(None, []), ("ptl-gpu-30b", []), ("ptl-gpu-30b", ["--profile", "ptl-npu-8b"])]
@@ -131,7 +131,7 @@ def test_default_stored_and_explicit_choice_drive_server_agent_and_labels(tmp_pa
         calls = []
         def ensure(profile, seen, root):
             calls.append((profile, seen, root))
-            return RuntimeEnsureResult(True, "ready")
+            return RuntimeEnsureResult(RuntimeLifecycle.REUSED, "ready")
         monkeypatch.setattr(presenter, "ensure_managed_runtime", ensure)
         def run(term, args):
             command = presenter._agent_command(args)
