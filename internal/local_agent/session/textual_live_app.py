@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from textual.widgets import Static
 
 from .result_presentation import (
+    render_candidate_navigation,
     render_result_context,
     render_result_evidence,
     render_result_next_action,
@@ -52,12 +53,17 @@ def render_live_activity(state: HubViewState) -> str:
         task = state.tasks[-1]
     if task is None:
         return detail
-    return (
-        f"{render_result_context(task)}\n"
-        f"{render_result_summary(task)}\n"
-        f"{render_result_evidence(task)}\n"
-        f"{render_result_next_action(task)}\n\n{detail}"
-    )
+
+    sections = [
+        render_result_context(task),
+        render_result_summary(task),
+        render_result_evidence(task),
+    ]
+    candidate_navigation = render_candidate_navigation(task)
+    if candidate_navigation is not None:
+        sections.append(candidate_navigation)
+    sections.append(render_result_next_action(task))
+    return "\n".join(sections) + f"\n\n{detail}"
 
 
 class LiveSessionHubApp(SessionHubApp):
