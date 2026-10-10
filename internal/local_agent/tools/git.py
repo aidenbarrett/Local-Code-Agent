@@ -7,10 +7,13 @@ your way into `push --force` because there is nothing to approve.
 
 from __future__ import annotations
 
+import io
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from ..git_filters import GitFilterCheckError, filter_drivers_in_use
 from .tool_primitives import Risk, ToolError, ToolRegistry, ToolResult
 from .tool_context import ToolContext
 
@@ -35,12 +38,12 @@ def _no_hooks_dir(ctx: ToolContext) -> Path:
     return path
 
 
-def _git(
-    ctx: ToolContext, args: list[str], *, literal_paths: bool = False,
-) -> tuple[int, str, str]:
-    if not args or args[0] not in _ALLOWED_SUBCOMMANDS:
-        raise ToolError(f"git subcommand {args[:1]} is not permitted by this agent")
-    proc = subprocess.run(
+def _git_process(
+    ctx: ToolContext, args: Sequence[str], *, literal_paths: bool = False,
+    stdin: bytes | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    """The one git subprocess for these tools: hooks, fsmonitor and external diff off."""
+    return subprocess.run(
         [
             "git",
             *(["--literal-pathspecs"] if literal_paths else []),
@@ -51,12 +54,58 @@ def _git(
             *args,
         ],
         cwd=str(ctx.root),
+        input=stdin,
         capture_output=True,
-        text=True,
-        errors="replace",
+        check=False,
         timeout=_GIT_TIMEOUT,
     )
+
+
+def _as_text(raw: bytes) -> str:
+    """Decode exactly as ``subprocess.run(text=True, errors="replace")`` did: the default
+    locale encoding with universal newlines, so moving to one byte-level git process
+    changes no tool output."""
+    return io.TextIOWrapper(io.BytesIO(raw), errors="replace").read()
+
+
+def _git(
+    ctx: ToolContext, args: list[str], *, literal_paths: bool = False,
+) -> tuple[int, str, str]:
+    if not args or args[0] not in _ALLOWED_SUBCOMMANDS:
+        raise ToolError(f"git subcommand {args[:1]} is not permitted by this agent")
+    proc = _git_process(ctx, args, literal_paths=literal_paths)
+    return proc.returncode, _as_text(proc.stdout), _as_text(proc.stderr)
+
+
+# Read-only probes of the filter configuration. None of these runs a filter.
+_FILTER_PROBE_SUBCOMMANDS = {"config", "ls-files", "check-attr"}
+
+
+def _git_probe(
+    ctx: ToolContext, args: Sequence[str], stdin: bytes | None,
+) -> tuple[int, bytes, bytes]:
+    if not args or args[0] not in _FILTER_PROBE_SUBCOMMANDS:
+        raise ToolError(f"git subcommand {list(args)[:1]} is not a filter probe")
+    proc = _git_process(ctx, args, stdin=stdin)
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _refuse_filtered_worktree(ctx: ToolContext, action: str) -> None:
+    """Refuse a worktree read or stage that would run a repository's filter programs.
+
+    ``git status``, worktree ``git diff`` and ``git add`` run a configured clean
+    filter, which is a program named in Git configuration. The same trust policy as
+    candidate changes (#398) applies: refuse rather than run or strip it (#464).
+    """
+    try:
+        used = filter_drivers_in_use(lambda args, stdin: _git_probe(ctx, args, stdin))
+    except GitFilterCheckError as exc:
+        raise ToolError(f"whether this repository's files use Git filters could not be "
+                        f"checked ({exc}), so {action} is refused") from exc
+    if used:
+        raise ToolError(f"this repository's files use the Git filter(s) {', '.join(used)}, "
+                        f"which run programs from Git configuration; {action} would run "
+                        "them, so it is refused")
 
 
 def _resolve_commit(ctx: ToolContext, value: str, *, label: str) -> str | None:
@@ -209,6 +258,7 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         Risk.READ,
     )
     def git_status() -> ToolResult:
+        _refuse_filtered_worktree(ctx, "git status")
         code, out, err = _git(ctx, ["status", "--porcelain=v2", "--branch", "-z"])
         if code != 0:
             raise ToolError(f"git status failed: {err.strip()}")
@@ -260,6 +310,9 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         ]
         if staged:
             args.append("--cached")
+        else:
+            # The staged diff compares index and HEAD only; the worktree diff runs filters.
+            _refuse_filtered_worktree(ctx, "a working-tree git diff")
         if stat_only:
             args.append("--stat")
         if path:
@@ -417,6 +470,7 @@ def register(reg: ToolRegistry, ctx: ToolContext, journal: object | None = None)
         for p in paths:
             if p in (".", "-A", "--all", "*"):
                 raise ToolError("blanket staging is not permitted; name the files")
+        _refuse_filtered_worktree(ctx, "git add")
         # Named files only: a name like `note[1].txt` must not also stage `note1.txt`.
         code, _, err = _git(ctx, ["add", "--", *paths], literal_paths=True)
         if code != 0:
