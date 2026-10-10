@@ -952,7 +952,6 @@
     "FBT002": 3,
     "PIE810": 1,
     "PLR0915": 1,
-    "PLW1510": 1,
     "S603": 1,
     "S607": 1
    },
@@ -1185,5 +1184,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1622
+ "total": 1621
 }

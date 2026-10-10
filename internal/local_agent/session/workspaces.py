@@ -36,7 +36,7 @@ import stat
 import subprocess
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,6 +44,8 @@ from uuid import UUID, uuid4
 
 import psutil
 
+from ..git_filters import GitFilterCheckError, filter_drivers_in_use
+from ..git_filters import split_z as _split_z
 from ..tools.process_runner import (
     CancellationProbe,
     CommandCancellationRequested,
@@ -318,10 +320,6 @@ def _failed_commit_reason(done: subprocess.CompletedProcess[bytes]) -> str:
 
 def _confirmation(*, confirmed: bool | None) -> str:
     return {True: "yes", False: "no", None: "not needed"}[confirmed]
-
-
-def _split_z(raw: bytes) -> tuple[str, ...]:
-    return tuple(item.decode("utf-8", "surrogateescape") for item in raw.split(b"\0") if item)
 
 
 # A candidate that changes .gitattributes changes which programs git runs on the user's
@@ -627,42 +625,20 @@ class GitWorkspaceManager:
         handling is not a filter and stays supported. /commit still uses the user's own
         commit-signing configuration: committing is an effect the user asked for.
 
-        Reading this needs only `git config` and `git check-attr`, neither of which runs
-        a filter.
+        Detection is the one shared owner in ``local_agent.git_filters``, also used by
+        the read-only Git tools; it runs no filter.
         """
         root = Path(repository_root)
-        drivers = set()
-        found = self._git(
-            root, "config", "--null", "--name-only", "--get-regexp",
-            r"^filter\..*\.(clean|smudge|process)$", check=False,
-        )
-        if found.returncode not in (0, 1):  # 1 is "no such key"; anything else is unknown
-            message = found.stderr.decode("utf-8", "replace").strip()
-            raise WorkspaceError(f"git config could not be read ({found.returncode}): {message}")
-        for entry in _split_z(found.stdout):
-            name = entry.split(".", 1)[1].rsplit(".", 1)[0] if "." in entry else ""
-            if name:
-                drivers.add(name)
-        if not drivers:
-            return ()
-        # Failure to read either is unknown, never "no filter in use" (#411 review).
-        files = self._git(root, "ls-files", "-z", "--cached", "--others",
-                          "--exclude-standard").stdout
-        requested = _split_z(files)
-        if not requested:
-            return ()
-        attrs = _split_z(self._git(root, "check-attr", "-z", "--stdin", "filter",
-                                   stdin=files).stdout)
-        answered_paths = attrs[0::3]
-        answered_attributes = attrs[1::3]
-        if (len(attrs) != len(requested) * 3
-                or sorted(answered_paths) != sorted(requested)
-                or any(attribute != "filter" for attribute in answered_attributes)):
-            raise WorkspaceError(
-                "git check-attr did not return one complete answer for every requested path"
-            )
-        used = {attrs[i + 2] for i in range(0, len(attrs), 3)}
-        return tuple(sorted(used & drivers))
+
+        def run(args: Sequence[str], stdin: bytes | None) -> tuple[int, bytes, bytes]:
+            proc = self._git(root, *args, stdin=stdin, check=False)
+            return proc.returncode, proc.stdout, proc.stderr
+
+        try:
+            return filter_drivers_in_use(run)
+        except GitFilterCheckError as exc:
+            # Failure to read is unknown, never "no filter in use" (#411 review).
+            raise WorkspaceError(str(exc)) from exc
 
     def _filter_refusal(self, repository_root: Path) -> str | None:
         try:
