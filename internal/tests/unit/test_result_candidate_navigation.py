@@ -81,7 +81,11 @@ def test_unverified_prepared_candidate_exposes_no_checkout_command():
     assert "completion verification is not established" in rendered
     for command in ("/diff ", "/apply ", "/undo ", "/commit "):
         assert command not in rendered
-    assert render_attention((task,)) == ""
+
+    attention = render_attention((task,))
+    assert "FAILED" in attention
+    for command in ("/diff ", "/apply ", "/undo ", "/commit "):
+        assert command not in attention
 
 
 def test_applied_candidate_exposes_only_undo_and_exact_commit():
