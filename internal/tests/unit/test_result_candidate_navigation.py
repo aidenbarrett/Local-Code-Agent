@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 
+from local_agent.session.attention import render_attention
 from local_agent.session.candidate_facts import CandidateFacts, validate_candidate
 from local_agent.session.result_presentation import render_result_next_action
 from local_agent.session.task_read_model import TaskSnapshot
@@ -65,6 +66,10 @@ def test_verified_prepared_candidate_has_one_review_and_apply_path():
     assert render_result_next_action(task) == (
         f"Next action: review the retained candidate with /diff {candidate_id}."
     )
+    attention = render_attention((task,))
+    assert attention.count(f"/diff {candidate_id}") == 1
+    assert attention.count(f"/apply {candidate_id}") == 1
+    assert task.task_id not in attention
 
 
 def test_unverified_prepared_candidate_exposes_no_checkout_command():
@@ -76,6 +81,7 @@ def test_unverified_prepared_candidate_exposes_no_checkout_command():
     assert "completion verification is not established" in rendered
     for command in ("/diff ", "/apply ", "/undo ", "/commit "):
         assert command not in rendered
+    assert render_attention((task,)) == ""
 
 
 def test_applied_candidate_exposes_only_undo_and_exact_commit():
