@@ -176,6 +176,66 @@ def test_a_journey_whose_claim_does_not_hold_fails_the_run(tmp_path, monkeypatch
     assert "clean tree build was fail/verification_failed" in wrong["reason"]
 
 
+def _model_precondition(tmp_path, monkeypatch, args):
+    """Run only the preconditions of a model run; return (preconditions, summary text)."""
+    monkeypatch.setattr(journeys, "model_call_probe", lambda _config: {"ok": True, "seconds": 0.4})
+    _skip_redundant_fixture_probe(monkeypatch)
+    out = tmp_path / "acc"
+    journeys.main(["--output", str(out), "--allow-model", *args, "--only", "J08-fix-build"])
+    report = json.loads((out / "journeys.json").read_text(encoding="utf-8"))
+    return report["preconditions"], (out / "summary.txt").read_text(encoding="utf-8")
+
+
+def test_a_managed_model_server_lifecycle_is_retained_as_evidence(tmp_path, monkeypatch):
+    """#481: a run says whether it started, replaced or reused the server, from the owner."""
+    from serving.managed_runtime import ReplacedReason, RuntimeEnsureResult, RuntimeLifecycle
+
+    outcome = RuntimeEnsureResult(
+        RuntimeLifecycle.REPLACED, "managed model endpoint ready",
+        replaced_reason=ReplacedReason.CONFIG_CHANGED, changed_fields=("args",),
+        launch_to_ready_ms=41250,
+    )
+    monkeypatch.setattr(journeys.HUB, "ensure_managed_runtime", lambda *_args: outcome)
+    pre, summary = _model_precondition(tmp_path, monkeypatch, [])
+    assert pre["model_endpoint"] == {
+        "ok": True, "message": "managed model endpoint ready", "lifecycle": "replaced",
+        "replaced_reason": "config_changed", "refused_reason": None,
+        "changed_fields": ["args"], "launch_to_ready_ms": 41250,
+    }
+    assert "server started by this run, replacing a config_changed server (launch to ready 41.2s)" in summary
+
+
+def test_a_reused_server_reports_no_launch_time(tmp_path, monkeypatch):
+    from serving.managed_runtime import RuntimeEnsureResult, RuntimeLifecycle
+
+    outcome = RuntimeEnsureResult(RuntimeLifecycle.REUSED, "owned model endpoint already ready")
+    monkeypatch.setattr(journeys.HUB, "ensure_managed_runtime", lambda *_args: outcome)
+    pre, summary = _model_precondition(tmp_path, monkeypatch, [])
+    assert pre["model_endpoint"]["lifecycle"] == "reused"
+    assert pre["model_endpoint"]["launch_to_ready_ms"] is None
+    assert "server reused (already running before this run)" in summary
+
+
+def test_an_explicit_endpoint_lifecycle_is_unknown_not_inferred(tmp_path, monkeypatch):
+    monkeypatch.setattr(journeys, "endpoint_reachable", lambda _config: True)
+    monkeypatch.setattr(journeys.HUB, "ensure_managed_runtime",
+                        lambda *_args: (_ for _ in ()).throw(AssertionError("explicit endpoint was managed")))
+    pre, summary = _model_precondition(
+        tmp_path, monkeypatch, ["--base-url", "http://127.0.0.1:9/v1", "--model", "m"])
+    assert pre["model_endpoint"]["lifecycle"] == "not_managed"
+    assert pre["model_endpoint"]["launch_to_ready_ms"] is None
+    assert "explicit --base-url); lifecycle unknown" in summary
+
+
+@pytest.mark.parametrize(("endpoint", "phrase"), [
+    ({"lifecycle": "started", "launch_to_ready_ms": 1500}, "server started by this run (launch to ready 1.5s)"),
+    ({"lifecycle": "started", "launch_to_ready_ms": None}, "launch to ready not recorded"),
+    ({}, "server lifecycle unknown"),
+])
+def test_the_lifecycle_phrase_reports_only_what_was_recorded(endpoint, phrase):
+    assert phrase in journeys.lifecycle_phrase(endpoint)
+
+
 def test_a_model_the_product_cannot_call_is_one_precondition_not_every_journey(tmp_path, monkeypatch):
     # /models answers, but the product's own client cannot complete a call.
     monkeypatch.setattr(journeys, "endpoint_reachable", lambda _config: True)
@@ -192,6 +252,7 @@ def test_a_model_the_product_cannot_call_is_one_precondition_not_every_journey(t
     assert pre["model_call"]["ok"] is False
     assert pre["model_endpoint"]["ok"] is False
     assert "No module named 'jiter'" in pre["model_endpoint"]["message"]
+    assert pre["model_endpoint"]["lifecycle"] == "not_managed", "a failed call keeps the lifecycle"
     assert "Model     NOT USABLE: " in (out / "summary.txt").read_text(encoding="utf-8")
     fix = _report(out)["J08-fix-build"]
     assert fix["status"] == "UNKNOWN"

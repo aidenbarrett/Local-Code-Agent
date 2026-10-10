@@ -2042,15 +2042,18 @@ class Runner:
                 # An endpoint the user started: use it, but only if it answers.
                 reachable = endpoint_reachable(self.chat_config)
                 facts["model_endpoint"] = {"ok": reachable, "message": "explicit --base-url"
-                                           + ("" if reachable else " is not reachable")}
+                                           + ("" if reachable else " is not reachable"),
+                                           **_UNMANAGED_LIFECYCLE}
             else:
                 ensured = HUB.ensure_managed_runtime(self.profile, self.chat_config, HUB._runtime_root())
-                facts["model_endpoint"] = {"ok": bool(ensured.ok), "message": str(ensured.message)}
+                facts["model_endpoint"] = {"ok": bool(ensured.ok), "message": str(ensured.message),
+                                           **endpoint_lifecycle(ensured)}
             if facts["model_endpoint"]["ok"]:
                 probe = model_call_probe(self.chat_config)
                 facts["model_call"] = probe
                 if not probe["ok"]:
                     facts["model_endpoint"] = {
+                        **facts["model_endpoint"],
                         "ok": False,
                         "message": "the endpoint answers but a model call through the product "
                                    f"client failed: {probe['error']}",
@@ -2278,14 +2281,54 @@ def source_line(product: Any) -> str:
             f" · source sha256 {str(product.get('source_sha256', 'UNKNOWN'))[:16]}")
 
 
+# An endpoint the user started: whether it was cold is unknown to this run, never inferred.
+_UNMANAGED_LIFECYCLE: dict[str, Any] = {
+    "lifecycle": "not_managed", "replaced_reason": None, "refused_reason": None,
+    "changed_fields": [], "launch_to_ready_ms": None,
+}
+
+
+def endpoint_lifecycle(ensured: Any) -> dict[str, Any]:
+    """The managed-runtime owner's typed outcome, retained as acceptance evidence (#481)."""
+
+    def value(field: Any) -> Any:
+        return None if field is None else str(field)
+
+    return {
+        "lifecycle": value(ensured.lifecycle),
+        "replaced_reason": value(ensured.replaced_reason),
+        "refused_reason": value(ensured.refused_reason),
+        "changed_fields": list(ensured.changed_fields),
+        "launch_to_ready_ms": ensured.launch_to_ready_ms,
+    }
+
+
 def model_line(preconditions: dict[str, Any]) -> str:
     endpoint = preconditions.get("model_endpoint")
     if not isinstance(endpoint, dict):
         return "not used (run with --allow-model to include the model journeys)"
     call = preconditions.get("model_call")
     if isinstance(call, dict) and call.get("ok"):
-        return f"a call through the product client answered in {call.get('seconds')}s"
+        return (f"a call through the product client answered in {call.get('seconds')}s"
+                f"; {lifecycle_phrase(endpoint)}")
     return f"NOT USABLE: {endpoint.get('message')}"
+
+
+def lifecycle_phrase(endpoint: dict[str, Any]) -> str:
+    """What the run did to the model server, from the recorded outcome only."""
+    lifecycle = endpoint.get("lifecycle")
+    if lifecycle == "reused":
+        return "server reused (already running before this run)"
+    if lifecycle in ("started", "replaced"):
+        elapsed = endpoint.get("launch_to_ready_ms")
+        ready = f"launch to ready {elapsed / 1000:.1f}s" if isinstance(elapsed, int) else (
+            "launch to ready not recorded")
+        why = (f", replacing a {endpoint.get('replaced_reason')} server"
+               if lifecycle == "replaced" else "")
+        return f"server started by this run{why} ({ready})"
+    if lifecycle == "not_managed":
+        return "server not managed by this run (explicit --base-url); lifecycle unknown"
+    return "server lifecycle unknown"
 
 
 def corpus_summary_lines(repo: corpus.CorpusRepository, metrics: dict[str, Any]) -> list[str]:
