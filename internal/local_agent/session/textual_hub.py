@@ -230,7 +230,9 @@ def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
                 f"Apply: /apply {candidate_id}",
             ))
         else:
-            lines.append("Candidate actions: unavailable — completion verification is not established.")
+            lines.append(
+                "Candidate actions: unavailable — completion verification is not established."
+            )
         return tuple(lines)
     if candidate.role == "applied":
         return (
