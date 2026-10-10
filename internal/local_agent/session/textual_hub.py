@@ -215,17 +215,30 @@ def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
     candidate = task.candidate
     if candidate is None:
         return ()
+    candidate_id = candidate.candidate_task_id
     if candidate.role == "prepared" and candidate.retained:
-        return (
+        lines = (
             "Candidate: READY · NOT APPLIED",
-            f"Candidate task: {candidate.candidate_task_id}",
+            f"Candidate task: {candidate_id}",
             f"Candidate base: {candidate.base_commit or 'unknown'}",
             f"Candidate patch: {candidate.patch_sha256 or 'unknown'}",
             "Proof applies to the isolated candidate tree, not the checkout.",
-            f"Apply: /apply {candidate.candidate_task_id}",
+        )
+        if task.verdict == "VERIFIED" and task.result_verified_at_completion is True:
+            return lines + (
+                f"Review: /diff {candidate_id}",
+                f"Apply: /apply {candidate_id}",
+            )
+        return lines + (
+            "Candidate actions: unavailable — completion verification is not established.",
+        )
+    if candidate.role == "applied":
+        return (
+            "Candidate: APPLIED · checkout import verified",
+            f"Undo: /undo {candidate_id}",
+            f"Commit exact candidate: /commit {candidate_id}",
         )
     labels = {
-        "applied": "Candidate: APPLIED · checkout import verified",
         "apply_refused": "Candidate: NOT APPLIED · apply refused",
         "undone": "Candidate: UNDONE",
         "discarded": "Candidate: DISCARDED",
