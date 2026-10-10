@@ -15,6 +15,7 @@ from uuid import UUID
 from ..cpp_symbols import cpp_symbol_rejection
 from .change_requests import change_request_refusal, natural_change_target
 from .configured_checks import RUN_BUILD_CHECK, RUN_TEST_CHECK
+from .repository_state import REPOSITORY_STATE
 from .contracts import MAX_MESSAGE_CHARS, RouteSource
 from .value_validation import (
     require_exact_keys,
@@ -25,6 +26,7 @@ from .value_validation import (
 
 
 RULE_GIT_REVIEW = "git-review/v1"
+RULE_REPOSITORY_STATE = "repository-state/v1"
 RULE_REPO_NAVIGATION = "repo-navigation/v1"
 RULE_BUILD_AND_TEST = "build-and-test/v1"
 RULE_RUN_TESTS = "run-tests/v1"
@@ -195,8 +197,16 @@ _GIT_REVIEW = re.compile(
     r"^(?:what changed on my branch|what have I changed"
     # Read-only questions about a stopped merge, rebase or pick (checklist G01).
     r"|explain (?:this|the|my) (?:merge |rebase )?conflicts?"
-    r"|why is my (?:merge|rebase|cherry-pick|revert) stuck"
-    r"|what state is (?:my|this|the) (?:repo|repository) in)\??$",
+    r"|why is my (?:merge|rebase|cherry-pick|revert) stuck)\??$",
+    re.IGNORECASE,
+)
+# "What is the state of my repository?": the controller reads and explains git
+# state itself, with no model (#464). Anchored like every rule.
+_REPOSITORY_STATE = re.compile(
+    r"^(?:what state is (?:my|this|the) (?:repo|repository) in"
+    r"|what(?:'s| is) wrong with (?:my|this|the) (?:repo|repository)"
+    r"|what git operation is (?:active|in progress|running)"
+    r"|is (?:a|an) (?:merge|rebase|cherry-pick|revert|bisect) in progress)\??$",
     re.IGNORECASE,
 )
 _REPO_INSPECT = re.compile(r"^inspect (?:this|the) (?:repo|repository)[.!]?$", re.IGNORECASE)
@@ -481,6 +491,18 @@ def decide_route(
             source=RouteSource.RULE,
             rule_id=RULE_GIT_REVIEW,
             skill="git-review",
+        )
+
+    if _REPOSITORY_STATE.fullmatch(stripped):
+        reason = _repository_target_reason(active_repo_count)
+        if reason is not None:
+            return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
+        return RouteDecision(
+            RouteAction.WORK,
+            objective=text,
+            source=RouteSource.RULE,
+            rule_id=RULE_REPOSITORY_STATE,
+            skill=REPOSITORY_STATE,
         )
 
     if _BUILD.fullmatch(stripped):
