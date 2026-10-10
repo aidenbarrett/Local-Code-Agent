@@ -127,40 +127,40 @@ def render_candidate_navigation(task: TaskSnapshot) -> str | None:
 
     candidate_id = candidate.candidate_task_id
     if candidate.role == "prepared":
-        if not (
+        if (
             candidate.retained
             and task.verdict == "VERIFIED"
             and task.result_verified_at_completion is True
         ):
-            return (
+            rendered = (
+                "Candidate: verified and retained; controller checks still apply.\n"
+                f"  Review: /diff {candidate_id}\n"
+                f"  Apply after review: /apply {candidate_id}"
+            )
+        else:
+            rendered = (
                 "Candidate: prepared but not completion-verified; "
                 "no checkout mutation command is offered."
             )
-        return (
-            "Candidate: verified and retained; controller checks still apply.\n"
-            f"  Review: /diff {candidate_id}\n"
-            f"  Apply after review: /apply {candidate_id}"
-        )
-
-    if candidate.role == "applied":
-        return (
+    elif candidate.role == "applied":
+        rendered = (
             "Candidate: applied to the checkout; follow-up requests are revalidated.\n"
             f"  Undo: /undo {candidate_id}\n"
             f"  Commit exact candidate: /commit {candidate_id}"
         )
-
-    if candidate.role == "apply_refused":
-        return "Candidate: apply refused; inspect the durable failure before retrying."
-    if candidate.role == "undone":
-        return "Candidate: undone; the pre-apply checkout state was restored."
-    if candidate.role == "committed":
-        return f"Candidate: committed as {candidate.commit}; no candidate action remains."
-    if candidate.role == "discarded":
-        return "Candidate: discarded; no candidate action remains."
-
-    # Retained candidate parsing validates roles before this presentation seam. Keep a
-    # fail-closed fallback for malformed fixtures or future values.
-    return f"Candidate: unsupported durable state {candidate.role!r}; no action is offered."
+    elif candidate.role == "apply_refused":
+        rendered = "Candidate: apply refused; inspect the durable failure before retrying."
+    elif candidate.role == "undone":
+        rendered = "Candidate: undone; the pre-apply checkout state was restored."
+    elif candidate.role == "committed":
+        rendered = f"Candidate: committed as {candidate.commit}; no candidate action remains."
+    elif candidate.role == "discarded":
+        rendered = "Candidate: discarded; no candidate action remains."
+    else:
+        # Retained candidate parsing validates roles before this presentation seam. Keep a
+        # fail-closed fallback for malformed fixtures or future values.
+        rendered = f"Candidate: unsupported durable state {candidate.role!r}; no action is offered."
+    return rendered
 
 
 def render_result_next_action(task: TaskSnapshot) -> str:
