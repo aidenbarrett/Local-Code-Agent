@@ -50,6 +50,7 @@ def test_completed_turn_refreshes_canonical_conversation_not_returned_prose(tmp_
     async def scenario() -> None:
         service = _service(tmp_path)
         conversation: list[ConversationEntry] = []
+        release = threading.Event()
 
         class Gateway:
             def turn(self, text, *, explicit_mode=None):
@@ -57,6 +58,7 @@ def test_completed_turn_refreshes_canonical_conversation_not_returned_prose(tmp_
                     (ConversationEntry("user", text), ConversationEntry("assistant", "persisted answer"))
                 )
                 _opened(service, "after-turn")
+                assert release.wait(3)
                 return "returned prose must not be injected"
 
         dispatcher = HubTurnDispatcher(Gateway())
@@ -74,6 +76,9 @@ def test_completed_turn_refreshes_canonical_conversation_not_returned_prose(tmp_
                     and [entry.text for entry in app.view_state.conversation]
                     == ["hello exactly", "persisted answer"]
                 )
+                assert app.view_state.status == "Working · conversation turn in progress"
+                release.set()
+                await _wait_until(lambda: app.view_state.status == "Live · durable seq 1")
                 await pilot.pause()
                 assert [entry.text for entry in app.view_state.conversation] == [
                     "hello exactly",
@@ -85,6 +90,7 @@ def test_completed_turn_refreshes_canonical_conversation_not_returned_prose(tmp_
                 assert app.live_binding.state.status == "Live · durable seq 1"
                 assert app.view_state.status == "Live · durable seq 1"
         finally:
+            release.set()
             dispatcher.close()
             service.close()
 
