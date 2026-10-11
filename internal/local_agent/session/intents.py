@@ -16,6 +16,7 @@ from ..cpp_symbols import cpp_symbol_rejection
 from .change_requests import change_request_refusal, natural_change_target
 from .configured_checks import RUN_BUILD_CHECK, RUN_TEST_CHECK
 from .repository_state import REPOSITORY_STATE
+from .configured_build import CONFIGURED_BUILD
 from .contracts import MAX_MESSAGE_CHARS, RouteSource
 from .value_validation import (
     require_exact_keys,
@@ -28,6 +29,7 @@ from .value_validation import (
 RULE_GIT_REVIEW = "git-review/v1"
 RULE_REPOSITORY_STATE = "repository-state/v1"
 RULE_REPO_NAVIGATION = "repo-navigation/v1"
+RULE_CONFIGURED_BUILD = "configured-build/v1"
 RULE_BUILD_AND_TEST = "build-and-test/v1"
 RULE_RUN_TESTS = "run-tests/v1"
 RULE_TASK_DIAGNOSTIC = "task-diagnostic/v1"
@@ -222,12 +224,15 @@ _REPO_QUESTION = re.compile(
     r"^(?:what does (?:this|the) (?:repo|repository|project|codebase) do"
     r"|what is (?:this|the) (?:repo|repository|project|codebase)(?: for)?"
     r"|(?:describe|summari[sz]e|explain) (?:this|the) (?:repo|repository|project|codebase)"
-    r"|how is (?:this|the) (?:repo|repository|project|codebase) (?:built|tested|built and tested)"
     r"|where is the (?:[a-z][a-z0-9_]*)(?: [a-z][a-z0-9_]*){0,3} implemented"
     r")[?.!]?$",
     re.IGNORECASE,
 )
 _BUILD = re.compile(r"^build (?:it|this|the repo|the repository)[.!]?$", re.IGNORECASE)
+_CONFIGURED_BUILD = re.compile(
+    r"^how is (?:this|the) (?:repo|repository|project|codebase) "
+    r"(?:built|tested|built and tested)[?.!]?$", re.IGNORECASE,
+)
 _RUN_TESTS = re.compile(
     r"^(?:run (?:the )?tests|test it|test this|run the test suite)[.!]?$", re.IGNORECASE,
 )
@@ -465,10 +470,12 @@ def decide_route(
         rejection = cpp_symbol_rejection(symbol_lookup.group("symbol"))
         if rejection is not None:
             return RouteDecision(RouteAction.CLARIFY, reason_code=rejection)
+    configured_build = _CONFIGURED_BUILD.fullmatch(stripped) is not None
     if (
         _REPO_INSPECT.fullmatch(stripped)
         or symbol_lookup is not None
         or _REPO_QUESTION.fullmatch(stripped)
+        or configured_build
     ):
         reason = _repository_target_reason(active_repo_count)
         if reason is not None:
@@ -477,8 +484,8 @@ def decide_route(
             RouteAction.WORK,
             objective=text,
             source=RouteSource.RULE,
-            rule_id=RULE_REPO_NAVIGATION,
-            skill="repo-navigation",
+            rule_id=RULE_CONFIGURED_BUILD if configured_build else RULE_REPO_NAVIGATION,
+            skill=CONFIGURED_BUILD if configured_build else "repo-navigation",
         )
 
     if _GIT_REVIEW.fullmatch(stripped):
