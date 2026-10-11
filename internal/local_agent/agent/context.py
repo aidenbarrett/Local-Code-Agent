@@ -39,6 +39,8 @@ Rules that are enforced outside this prompt, so do not attempt to work around th
 - Build and test commands come from the repository configuration. Never invent one.
 - Edits are proposed as diffs first and applied only after approval.
 - Paths outside the repository root are rejected.
+- Call at most one tool per response and wait for its result before the next
+  call. A response containing several tool calls is rejected before any runs.
 
 How to work:
 - Establish facts with tools before asserting anything. No guessing at file
