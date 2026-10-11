@@ -2303,5 +2303,47 @@
       }
     }
   ],
-  "post_model_cleanup": "Existing serving owner stopped its owned CPU30B runtime after reporting; forced=true. This is operator runtime cleanup, not observed endpoint-side generation cancellation."
+  "post_model_cleanup": "Existing serving owner stopped its owned CPU30B runtime after reporting; forced=true. This is operator runtime cleanup, not observed endpoint-side generation cancellation.",
+  "fresh_bootstrap": {
+    "scope": "New exported source and Python3.12 environment; staged OVMS tools on an already-provisioned Windows host, no model weights or model download. This is bootstrap-stage evidence, not full model or physical/offline qualification.",
+    "source_commit": "9950b276fd806e90db2d3d022a1621226ccf35bd",
+    "archive_sha256": "45bc6861bfa2c2d86033cec2451e0abea0213fdbe070802bf95a7aa0e02076ce",
+    "first_launch": {
+      "source_commit": "9950b276fd806e90db2d3d022a1621226ccf35bd",
+      "models_root_existed": true,
+      "models_exit": 0,
+      "scope": "Fresh exported source/new Python env; staged OVMS tools, no weights, not a fresh/offline machine",
+      "bootstrap_exit": 3,
+      "models_use_exit": 0,
+      "check_only_exit": 2
+    },
+    "second_launch": {
+      "models_second_exit": 0,
+      "scope": "Missing-weight readiness remains pending; repeated public launch on fresh exported source",
+      "doctor_second_exit": 3,
+      "doctor_first_exit": 3
+    },
+    "doctor_outputs_equal": true,
+    "setup_report": {
+      "generated_at": "2026-10-11T17:38:43.4116295+01:00",
+      "repo_root": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-rc-bootstrap-9950b27-20261011\\Local Code Agent",
+      "repo_commit": null,
+      "runtime_root": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-rc-bootstrap-9950b27-20261011\\Runtime",
+      "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+      "endpoint": "http://127.0.0.1:18001/v3",
+      "profile": "ptl-gpu-30b",
+      "qualification": "deferred: model weights not present",
+      "model_weights": "pending: C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-rc-bootstrap-9950b27-20261011\\Runtime\\models\\OpenVINO\\Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+      "fixture_smoke": "pass"
+    },
+    "public_commands": [
+      "install.ps1 -CheckOnly",
+      "install.ps1 -InstallMissing -SkipModelDownload",
+      "local-code-agent.ps1 models",
+      "local-code-agent.ps1 models use nuc-cpu-30b",
+      "local-code-agent.ps1 models",
+      "local-code-agent.ps1 doctor",
+      "local-code-agent.ps1 doctor"
+    ]
+  }
 }

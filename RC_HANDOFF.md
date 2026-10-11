@@ -62,7 +62,7 @@ See [QUICKSTART.md](QUICKSTART.md) for setup details and
 | Public pinned-main J24 continuous run after #502 | One composed scripted engineering workflow | Real-model performance |
 | Public pinned-main cxxopts Q01–Q05, all five PASS | Real build/test, seeded failure truth, scripted repair/apply/undo/commit and Stop with unrelated-work preservation | General repository support |
 | Same-source CPU 8B/30B reference measurements | Retained configuration-specific answers, repair outcomes, client timing and sampled RSS | Answer correctness, isolated model-size effect, PTL device behaviour |
-| Fresh exported setup with prepared dependencies | New Python environment and runtime/cache startup exercised | Successful readiness: 30B CPU 7k context probe timed out |
+| Fresh exported bootstrap and repeated public launch | New Python environment, staged OVMS, C++ validation 4/4; bootstrap exit3 for missing weights; models/use exit0; repeated doctor exit3 naming model download | Full readiness pending; separate prepared-weight CPU30B setup timed out at 7k |
 
 Measured CPU reference source: 3b3fe9cb87f78cd041a5c6dc1c62a39e84f602c5,
 source_sha256 d7da2817b0e0d6b0f5196ea725f1c807cfb0376ff3c31ff2137fe4f325a4a699.
