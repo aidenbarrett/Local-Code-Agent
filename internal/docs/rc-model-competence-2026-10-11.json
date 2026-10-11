@@ -1,6 +1,6 @@
 {
   "schema": "lca.rc-model-measurement/1",
-  "status": "changed-source-model-build-verified-independent-tests-pending",
+  "status": "real-model-candidate-build-and-tests-verified-byte-fidelity-defect-open",
   "instruction_repair": {
     "changed_source_sha256": "0dc19ebe28bdbff307d752ee46e4271c9c10fa9f6c838743c09cda8ed4c8a541",
     "change": "Existing fix-build-failure instruction permits compiler/link repairs in test source while forbidding assertion weakening/removal/skipping or expectation changes to manufacture green.",
@@ -14,7 +14,7 @@
       "journey_timeout_seconds": 300,
       "stop_budget_seconds": 60,
       "prompts_fixtures_or_budgets_changed": false,
-      "request_trace": "SDK OPENAI_LOG=debug for this local attempt; retain exact messages/tool arguments and results. No isolated latency comparison is claimed.",
+      "request_trace": "SDK debug was requested; actual logs contain HTTP method/status/timing only, not bodies or tool arguments. No isolated latency comparison is claimed.",
       "operator_candidate_edits": 0,
       "result": {
         "report_sha256": "d7fa7a3f530326c2458f0cbede456b5d1a655fb075ed2fb2742854ef46d96399",
@@ -50,7 +50,7 @@
               "ok": true,
               "seconds": 8.1
             },
-            "runtime_header": "preset nuc-cpu-8b · model OpenVINO/Qwen3-8B-int4-cw-ov (observed) · device CPU (declared) · endpoint http://127.0.0.1:8001/v3 · execution enabled",
+            "runtime_header": "preset nuc-cpu-8b \u00b7 model OpenVINO/Qwen3-8B-int4-cw-ov (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8001/v3 \u00b7 execution enabled",
             "corpus": {
               "name": "cxxopts",
               "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
@@ -876,6 +876,64 @@
           "causation": "one treatment attempt, no rate or sole-cause inference"
         },
         "candidate": {
+          "independent_verification": {
+            "report_sha256": "273008081ab7bb2ccb21b5f6af7f119853b1d4a135c8418980c65aaf834156e7",
+            "preconditions": {
+              "product": {
+                "package_commit": "4be9da0965637cf29a063339ca1ddb7982b4229a",
+                "package_dirty": false,
+                "package_source": "git",
+                "source_sha256": "0dc19ebe28bdbff307d752ee46e4271c9c10fa9f6c838743c09cda8ed4c8a541"
+              },
+              "platform": "Windows-11-10.0.26200-SP0",
+              "python": "3.13.5",
+              "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+              "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+              "fixture_builds": true,
+              "runtime_header": "preset nuc-cpu-8b \u00b7 model OpenVINO/Qwen3-8B-int4-cw-ov (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8001/v3 \u00b7 execution enabled"
+            },
+            "result": {
+              "id": "R03-tests",
+              "title": "run the tests in your repository",
+              "kind": "product",
+              "status": "MEASURED:pass",
+              "reason": "verification_passed; evidence build_target, run_test",
+              "seconds": 20.6,
+              "notes": [],
+              "tasks": [
+                {
+                  "said": "run the tests",
+                  "seconds": 20.3,
+                  "task_id": "7bdc140d-886f-55ca-bce9-6bcd25675a43",
+                  "outcome": "pass",
+                  "reason_code": "verification_passed",
+                  "verified": true,
+                  "evidence_ids": [
+                    "build_target:0",
+                    "run_test:1"
+                  ],
+                  "proof_scope": "full_test",
+                  "llm_calls": 0,
+                  "prompt_tokens": 0,
+                  "context_peak_tokens": 3580,
+                  "compactions": 0
+                }
+              ],
+              "measured": {},
+              "tool_failures": [],
+              "attempted": true
+            },
+            "candidate_post_blob": "7451992927abb68923de940aaa8e9c34350aed69",
+            "classification": "Controller-only independent full configured tests over a model-produced candidate; zero model calls; not another model repair attempt.",
+            "archived_report_path": "internal/docs/rc-model-independent-tests-2026-10-11.json",
+            "archive_encoding": "UTF-8 with LF; original Windows CRLF report bytes recover by LF to CRLF conversion",
+            "archived_report_sha256": "15b5cb12785d122f69154483bbc668a0cb7d2b90dc28c3c1187b6b3797884f7b",
+            "original_bytes_reconstruction_verified": true
+          },
+          "owned_server_after_trial": {
+            "stopped": true,
+            "forced": true
+          },
           "candidate_sha256": "e12e525f7a778c96ed7f56e08721cfd75eea2d1c4e20ff5c97e9be752575c9d0",
           "actual_patch_sha256": "e12e525f7a778c96ed7f56e08721cfd75eea2d1c4e20ff5c97e9be752575c9d0",
           "workspace": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-model8b-compiler-guard-20261011\\hub\\Q07-fix-model\\ws\\0ed5e596-f97",
@@ -889,7 +947,7 @@
           "artifact": "internal/docs/rc-model-candidate-2026-10-11.json",
           "raw_candidate_file_sha256": "3887b5164febcdb2e4f4b4242f808ce2ea6534eecfe82d1ea2686f341b570fbe",
           "license": "internal/docs/rc-model-candidate-2026-10-11.LICENSE",
-          "assessment": "Normalized change repairs only the undefined identifier and preserves assertions/expectations. Full build verified; independent tests pending. LF-to-CRLF churn is an observed product mutation defect, not a test deletion."
+          "assessment": "Normalized change repairs only the undefined identifier and preserves assertions/expectations. Exact candidate full build and independent configured full tests passed. LF-to-CRLF churn remains an observed product mutation defect."
         }
       }
     },
@@ -1072,7 +1130,7 @@
           "ok": true,
           "seconds": 6.5
         },
-        "runtime_header": "preset nuc-cpu-8b · model OpenVINO/Qwen3-8B-int4-cw-ov (observed) · device CPU (declared) · endpoint http://127.0.0.1:8001/v3 · execution enabled",
+        "runtime_header": "preset nuc-cpu-8b \u00b7 model OpenVINO/Qwen3-8B-int4-cw-ov (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8001/v3 \u00b7 execution enabled",
         "corpus": {
           "name": "cxxopts",
           "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
@@ -1756,7 +1814,7 @@
             "changed_fields": [],
             "launch_to_ready_ms": null
           },
-          "runtime_header": "preset nuc-cpu-30b · model unobserved (observed) · device CPU (declared) · endpoint http://127.0.0.1:8000/v3 · execution enabled",
+          "runtime_header": "preset nuc-cpu-30b \u00b7 model unobserved (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8000/v3 \u00b7 execution enabled",
           "corpus": {
             "name": "cxxopts",
             "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
@@ -1931,7 +1989,7 @@
             "ok": true,
             "seconds": 1.8
           },
-          "runtime_header": "preset nuc-cpu-30b · model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov (observed) · device CPU (declared) · endpoint http://127.0.0.1:8000/v3 · execution enabled",
+          "runtime_header": "preset nuc-cpu-30b \u00b7 model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8000/v3 \u00b7 execution enabled",
           "corpus": {
             "name": "cxxopts",
             "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
