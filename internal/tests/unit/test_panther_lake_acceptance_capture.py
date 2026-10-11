@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -104,6 +105,112 @@ def test_preflight_uses_selected_profile_for_every_owned_artifact(tmp_path, monk
         "weights": "downloaded",
     }
     assert observed["args"][-2:] == ["--profile", "ptl-gpu-30b"]
+
+
+def test_one_run_composes_existing_capture_and_acceptance_owners(tmp_path, monkeypatch):
+    module = _load()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "local-code-agent.ps1").write_text("launcher", encoding="utf-8")
+    output = tmp_path / "qualification"
+    observed = {}
+
+    def prepare(_repo, _runtime, destination, profile):
+        destination.mkdir()
+        observed["prepared"] = profile
+        return {"ready_to_disconnect": True, "blockers": []}
+
+    def preflight(_repo, _runtime, destination, profile):
+        payload = {
+            "schema": module.SCHEMA,
+            "phase": "preflight",
+            "profile": profile,
+            "repository": {"root": str(repo), "head": "abc", "clean": True},
+            "offline_gate": {"passed": True},
+        }
+        destination.write_text(json.dumps(payload), encoding="utf-8")
+        observed["preflight"] = profile
+        return payload
+
+    def run(args, **_kwargs):
+        destination = Path(args[args.index("--output") + 1])
+        destination.mkdir()
+        rows = [
+            {"id": journey_id, "status": "PASS", "reason": "", "measured": {}}
+            for journey_id in ("J05-stop-build", "J07-stop-model", "J24-continuous")
+        ]
+        (destination / "journeys.json").write_text(
+            json.dumps(
+                {
+                    "profile": "ptl-gpu-30b",
+                    "preconditions": {"product": {"package_commit": "abc"}},
+                    "journeys": rows,
+                }
+            ),
+            encoding="utf-8",
+        )
+        observed["command"] = args
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(module, "prepare_qualification", prepare)
+    monkeypatch.setattr(module, "capture_preflight", preflight)
+    monkeypatch.setattr(module, "_run", run)
+    monkeypatch.setattr(module, "active_default_routes", lambda: [])
+    monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        module, "_git", lambda _repo, *args: "abc" if "rev-parse" in args else ""
+    )
+
+    payload = module.run_qualification(
+        repo, tmp_path / "runtime", output, "ptl-gpu-30b", confirm_disconnected=True
+    )
+
+    assert observed["prepared"] == observed["preflight"] == "ptl-gpu-30b"
+    assert observed["command"][-3:] == ["--profile", "ptl-gpu-30b", "--allow-model"]
+    assert payload["self_certified"] is False
+    assert payload["run_evidence"]["journeys"]["J24-continuous"]["status"] == "PASS"
+    assert (output / "acceptance.json").is_file()
+    assert "Cold model ms   UNKNOWN" in (output / "summary.txt").read_text(encoding="utf-8")
+
+
+def test_composed_finalize_refuses_missing_required_journey(tmp_path, monkeypatch):
+    module = _load()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    preflight = tmp_path / "preflight.json"
+    preflight.write_text(
+        json.dumps(
+            {
+                "schema": module.SCHEMA,
+                "phase": "preflight",
+                "profile": "ptl-gpu-30b",
+                "repository": {"root": str(repo), "head": "abc", "clean": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    journeys = tmp_path / "journeys.json"
+    journeys.write_text(
+        json.dumps(
+            {
+                "profile": "ptl-gpu-30b",
+                "preconditions": {"product": {"package_commit": "abc"}},
+                "journeys": [
+                    {"id": "J05-stop-build", "status": "PASS", "measured": {}}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        module, "_git", lambda _repo, *args: "abc" if "rev-parse" in args else ""
+    )
+
+    with pytest.raises(module.AcceptanceCaptureError, match="missing required journeys"):
+        module.finalize_qualification_run(
+            preflight, journeys, tmp_path / "acceptance.json", "qualify"
+        )
 
 
 def test_finalize_refuses_checkout_drift_before_accepting_evidence(tmp_path, monkeypatch):
