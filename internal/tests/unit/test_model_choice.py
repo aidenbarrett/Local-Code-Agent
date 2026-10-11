@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS
+from local_agent.llm.client import OpenAICompatibleClient
 from serving import model_choice
 from serving.model_choice import (
     ModelChoiceError,
@@ -30,6 +31,16 @@ def _script(name: str):
 def test_the_default_is_a_real_local_preset():
     assert DEFAULT_MODEL_PRESET in MODEL_PRESETS
     assert DEFAULT_MODEL_PRESET in local_presets()
+
+
+def test_cpu_8b_requests_visible_answers_without_spending_the_budget_on_thinking():
+    client = OpenAICompatibleClient(MODEL_PRESETS["nuc-cpu-8b"])
+    request = client._kwargs(
+        [{"role": "user", "content": "Reply with exactly READY"}], None, max_tokens=16,
+    )
+    assert request["extra_body"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert request["max_tokens"] == 16
+    assert "tools" not in request
 
 
 def test_resolution_order_is_explicit_then_stored_then_default(tmp_path):

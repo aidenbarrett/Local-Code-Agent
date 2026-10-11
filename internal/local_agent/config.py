@@ -221,6 +221,7 @@ MODEL_PRESETS: dict[str, ModelConfig] = {
         quant="INT4_SYM",
         runtime_version=MANAGED_OVMS_VERSION,
         tool_parser="hermes3",
+        thinking=False,
         tier="cheap",
     ),
     # --------------------------------------------------------- llama-server

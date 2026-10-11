@@ -252,13 +252,14 @@ if ($AttemptWslInstall -and !$wslUsable) {
 }
 
 Section "3. Intel NPU and driver"
+. (Join-Path $PSScriptRoot 'scripts\windows-npu-device.ps1')
 $npuDevices = @()
-try { $npuDevices = @(Get-PnpDevice -PresentOnly | Where-Object { $_.FriendlyName -match "NPU|Neural Processing|AI Boost" }) }
+try { $npuDevices = @(Get-PnpDevice -PresentOnly | Where-Object { Test-LcaNpuDeviceName $_.FriendlyName }) }
 catch { Result "PnP query" "WARN" "Get-PnpDevice failed" $_.Exception.Message }
 
 if ($npuDevices.Count -gt 0) {
     foreach ($d in $npuDevices) {
-        Result "NPU device" "PASS" "$($d.FriendlyName) [$($d.Status)]"
+        Result "NPU inventory match" "INFO" "$($d.FriendlyName) [$($d.Status)]; execution not verified"
         try {
             $drv = Get-CimInstance Win32_PnPSignedDriver | Where-Object { $_.DeviceID -eq $d.InstanceId } | Select-Object -First 1
             if ($drv) { Result "NPU driver" "INFO" "version $($drv.DriverVersion), provider $($drv.DriverProviderName)" }

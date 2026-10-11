@@ -185,8 +185,10 @@ def check_device(device, available):
 def driver_version():
     if os.name != "nt":
         return {"version": None, "quality": "unobserved", "reason": "Windows inventory only"}
-    script = ("Get-CimInstance Win32_PnPSignedDriver | Where-Object {"
-              "$_.DeviceName -match 'NPU|AI Boost|Neural'} | "
+    helper = str(ROOT / "scripts" / "windows-npu-device.ps1").replace("'", "''")
+    script = (f". '{helper}'\n"
+              "Get-CimInstance Win32_PnPSignedDriver | Where-Object {"
+              "Test-LcaNpuDeviceName $_.DeviceName} | "
               "Select-Object DeviceName,DriverVersion | ConvertTo-Json -Compress")
     try:
         result = subprocess.run(["powershell.exe", "-NoProfile", "-Command", script],
