@@ -27,7 +27,7 @@ DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambi
                  "J06-authority", "J13-candidate-scripted", "J15-dirty-worktree", "J15b-rename-binary",
                  "J16-malformed-calls", "J17-branch-review", "J19-test-truth", "J19b-test-policy",
                  "J20-conflict-explain", "J21-exact-commit", "J21b-commit-policy",
-                 "J22-repo-explain", "J23-symbol-lookup", "J24-continuous-engineering"]
+                 "J22-repo-explain", "J23-symbol-lookup", "J24-continuous"]
 
 
 def test_continuous_worker_scopes_compile_fix_to_the_current_turn():
