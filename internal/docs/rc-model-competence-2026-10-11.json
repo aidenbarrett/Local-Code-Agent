@@ -1,0 +1,146 @@
+{
+  "schema": "lca.rc-model-measurement/1",
+  "status": "planned",
+  "owner": "Codex current RC push",
+  "question": "Does merged CPU8B thinking-off and enforced single-call worker protocol complete a verified repair in pinned real cxxopts?",
+  "product": {
+    "base_commit": "80f73921fcebac45310b259db6a5de0ed166d56d",
+    "base_tree": "ebe36155cf889a0f506675311ce725e72786448c",
+    "source_sha256": "ebd75dea1293b882779b421f78bafc738fc7a8ab2d0f447b80900a54a26b771c"
+  },
+  "configuration": {
+    "profile": "nuc-cpu-8b",
+    "model": "OpenVINO/Qwen3-8B-int4-cw-ov",
+    "weights_revision": "27ae5b116eb7e6df79bac2ca7b7c0c9f63f79cb7",
+    "quant": "INT4_SYM",
+    "runtime": "OVMS2026.3.0",
+    "thinking_requested": false,
+    "parallel_tool_calls": false,
+    "hardware": "i9-12900/64GB/Windows11 reference; CPU declared, not physical PTL",
+    "runtime_root": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-fresh-8b-509-20261011\\Runtime",
+    "preexisting_owned_server": {
+      "pid": 26932,
+      "create_time": 1791742890.917938,
+      "note": "Record actual owner lifecycle from acceptance preconditions; do not presume warm."
+    }
+  },
+  "methodology": {
+    "corpus": "cxxopts",
+    "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+    "licence": "MIT",
+    "journey": "Q07-fix-model",
+    "repeat": 1,
+    "journey_timeout_seconds": 300,
+    "stop_budget_seconds": 60,
+    "operator_candidate_edits": 0,
+    "manual_stops_planned": 0,
+    "operator_retries_planned": 0,
+    "fixtures_or_prompts_changed": false,
+    "qualification_thresholds_changed": false,
+    "observations": [
+      "retain complete acceptance report/transcript/tool events and hashes",
+      "retain candidate diff and exact independent build proof if created",
+      "record unknown cancellation without inventing missing counters",
+      "stop model process through its existing owner after trial"
+    ],
+    "limits": [
+      "one controlled CPU configuration attempt, no pooled success rate",
+      "not the physical GPU30B repeat3 J10 measurement required by #293",
+      "scripted/controller, real-model, CI and physical/offline evidence stay distinct"
+    ]
+  },
+  "prior_first_use": {
+    "receipt": {
+      "product": {
+        "package_commit": "e1bcb679b8b8b49304c3d7e406321890db66bfab",
+        "package_dirty": false,
+        "package_source": "stamp",
+        "package_built_at": null,
+        "source_sha256": "10eda329effc9bdc0b7b648a336142e68cce5895c0c01a02cd3b5c66ba688ea6"
+      },
+      "qualification": {
+        "base_url": "http://127.0.0.1:8001/v3/",
+        "checks": [
+          {
+            "data": {
+              "served_models": [
+                "OpenVINO/Qwen3-8B-int4-cw-ov"
+              ]
+            },
+            "detail": "OpenVINO/Qwen3-8B-int4-cw-ov",
+            "name": "configured model present",
+            "status": "PASS"
+          },
+          {
+            "data": {
+              "decode_tokens_per_second": null,
+              "ttft_s": 6.219000000040978
+            },
+            "detail": "ttft=6.219000000040978, decode_tps=None",
+            "name": "plain chat",
+            "status": "PASS"
+          },
+          {
+            "data": {},
+            "detail": "observed 1 tool call(s)",
+            "name": "schema constrained tool call",
+            "status": "FAIL"
+          },
+          {
+            "data": {
+              "observed_prompt_tokens": 1013,
+              "requested_approx_tokens": 1000
+            },
+            "detail": "request accepted",
+            "name": "context probe ~1000",
+            "status": "PASS"
+          },
+          {
+            "data": {
+              "observed_prompt_tokens": 4013,
+              "requested_approx_tokens": 4000
+            },
+            "detail": "request accepted",
+            "name": "context probe ~4000",
+            "status": "PASS"
+          },
+          {
+            "data": {
+              "observed_prompt_tokens": 7013,
+              "requested_approx_tokens": 7000
+            },
+            "detail": "request accepted",
+            "name": "context probe ~7000",
+            "status": "PASS"
+          }
+        ],
+        "failed": true,
+        "model": "OpenVINO/Qwen3-8B-int4-cw-ov",
+        "profile": "nuc-cpu-8b",
+        "schema_version": 1
+      },
+      "phases": [
+        {
+          "finished_utc": "2026-10-11T18:23:51.7163756Z",
+          "phase": "install",
+          "started_utc": "2026-10-11T18:20:04.5225104Z",
+          "exit_code": 2
+        }
+      ]
+    },
+    "result": "FAIL: plain chat/context pass, schema call fails; doctor phases not executed; no readiness claim"
+  },
+  "integration": {
+    "ci_only_pr": 512,
+    "merged_order": [
+      507,
+      508,
+      510,
+      511
+    ],
+    "final_main": "80f73921fcebac45310b259db6a5de0ed166d56d",
+    "tree_match": true,
+    "full_linux_windows_ci": true
+  },
+  "result": null
+}
