@@ -77,6 +77,105 @@ def _worktrees(root: Path) -> int:
     return out.count("worktree ")
 
 
+@pytest.mark.parametrize("scenario,skill,turns,scope", [
+    ("compile_error", "fix-build-failure", _fixing_turns, "full_build"),
+    ("test_failure", "fix-test-failure", lambda: _test_fixing_turns(), "full_test"),
+])
+def test_a_proven_repair_finishes_before_another_model_call(
+    sandbox, tmp_path, scenario, skill, turns, scope,
+):
+    sandbox.scenario(scenario)
+    before = (sandbox.root / RING).read_bytes()
+    calls_after_proof = []
+
+    def stalled_report(messages):
+        calls_after_proof.append(messages)
+        raise RuntimeError("the reporting model call never finishes")
+
+    controller, manager = _controller(sandbox.root, tmp_path, turns()[:6] + [stalled_report])
+    task_id = str(uuid4())
+    result = controller.run("fix the failure", task_id=task_id, skill_name=skill)
+
+    assert result.outcome is TaskOutcome.PASS, result.answer
+    assert result.verified_at_completion
+    assert not calls_after_proof
+    assert result.metrics["proof_binding"]["scope"] == scope
+    assert result.metrics["proof_binding"]["evidence_ids"]
+    assert result.metrics["candidate"]["retained"]
+    assert (sandbox.root / RING).read_bytes() == before
+    verdict_block_from_task_result(result)
+    manager.discard(manager.load(task_id)[0])
+
+
+@pytest.mark.parametrize("unfinished", ["mutation", "proposal", "targeted", "general-change"])
+def test_completion_consumes_the_entire_batch_and_only_a_narrow_full_proof(
+    sandbox, tmp_path, unfinished,
+):
+    sandbox.scenario("compile_error")
+    turns = _fixing_turns()[:5]
+    proof = tool_call("build_target", {}, "proof")
+    comment = tool_call("propose_patch", {
+        "path": RING, "find": "++count_;", "replace": "++count_; // candidate note",
+    }, "pending")
+    skill = "fix-build-failure"
+    if unfinished == "mutation":
+        turns += [ChatResponse(tool_calls=[comment]), lambda m: ChatResponse(tool_calls=[
+            proof, tool_call("apply_patch", {"patch_id": _patch_id(m)}, "late-edit"),
+        ])]
+    elif unfinished == "proposal":
+        turns += [ChatResponse(tool_calls=[proof, comment])]
+    elif unfinished == "targeted":
+        turns += [ChatResponse(tool_calls=[tool_call("build_target", {"target": "sandbox"}, "part")])]
+    else:
+        skill = "implement-change"
+        turns += [ChatResponse(tool_calls=[proof, tool_call("run_test", {}, "tests")])]
+    calls_after_batch = []
+
+    def unfinished_report(messages):
+        calls_after_batch.append(messages)
+        raise RuntimeError("unfinished worker")
+
+    controller, _manager = _controller(sandbox.root, tmp_path, turns + [unfinished_report])
+    result = controller.run("repair the source", task_id=str(uuid4()), skill_name=skill)
+    assert calls_after_batch, "the batch was incorrectly completed from insufficient proof"
+    assert result.outcome is TaskOutcome.NO_VERDICT
+    assert not result.verified_at_completion
+    assert _worktrees(sandbox.root) == 1
+
+
+def test_stop_between_passing_proof_and_completion_discards_the_candidate(
+    sandbox, tmp_path, monkeypatch,
+):
+    from local_agent.session import task_controller
+    from local_agent.session.cancellation import CancellationToken
+
+    sandbox.scenario("compile_error")
+    task_id = str(uuid4())
+    token = CancellationToken(task_id, 0)
+    original_completion = task_controller._repair_completion
+    completed = []
+
+    def stop_at_proof(skill, state):
+        answer = original_completion(skill, state)
+        if answer is not None:
+            completed.append(answer)
+            token.request()
+        return answer
+
+    monkeypatch.setattr(task_controller, "_repair_completion", stop_at_proof)
+    controller, manager = _controller(sandbox.root, tmp_path, _fixing_turns()[:6])
+    result = controller.run("fix the build", task_id=task_id, skill_name="fix-build-failure",
+                            cancellation_probe=token)
+    assert completed
+    assert result.outcome is TaskOutcome.BLOCKED and result.reason_code == "cancelled"
+    assert not result.verified_at_completion
+    assert result.metrics["candidate"]["retained"] is False
+    assert result.metrics["candidate"]["workspace_removed"] is True
+    assert _worktrees(sandbox.root) == 1
+    with pytest.raises(WorkspaceError):
+        manager.load(task_id)
+
+
 def test_route_sends_explicit_build_fix_phrasing_to_the_candidate_skill():
     for text in ("fix the build", "Fix the compilation errors", "make it compile"):
         decision = decide_route(text, active_repo_count=1)

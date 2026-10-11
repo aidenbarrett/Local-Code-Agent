@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, assert_never
 
 from ..config import RepoConfig
+from ..verification import CONTRADICTS_CURRENT_TREE
 from .contracts import TaskOutcome, TaskResult
 from .contracts import MAX_MESSAGE_CHARS
 from .intents import (
@@ -40,7 +41,7 @@ from .workspaces import (
 )
 
 if TYPE_CHECKING:
-    from ..agent.orchestrator import RunResult
+    from ..agent.state import AgentState
     from ..agent.policy import Decision
     from ..tools.tool_primitives import Tool
 
@@ -65,19 +66,26 @@ _REQUIRED_PROOF_KINDS = {
 }
 
 
-def candidate_proof_satisfied(skill: str, run: RunResult) -> bool:
+def candidate_proof_satisfied(skill: str, state: AgentState) -> bool:
     """Whether the worker's current-epoch history holds the proof this skill requires.
 
-    Requires the orchestrator's own `verified` (no later contradiction on the current
-    tree) and at least one current-epoch proof of a required kind.
+    Requires the orchestrator's own `verified` and a current-epoch proof of a
+    required kind after the last contradiction. Rebuilding after a test failure
+    cannot restore an earlier test pass.
     """
-    if not run.state.verified:
+    if not state.verified:
         return False
     required = _REQUIRED_PROOF_KINDS[skill]
-    epoch = run.state.mutation_epoch
-    return any(
-        record.epoch == epoch and record.proof in required for record in run.state.history
-    )
+    epoch = state.mutation_epoch
+    satisfied = False
+    for record in state.history:
+        if record.epoch != epoch:
+            continue
+        if record.proof in CONTRADICTS_CURRENT_TREE:
+            satisfied = False
+        elif record.proof in required:
+            satisfied = True
+    return satisfied
 
 # Controller-owned actions admitted like skills but executed without a model or tools.
 APPLY_CANDIDATE_ACTION = "apply-candidate"

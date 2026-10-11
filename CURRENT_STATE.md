@@ -1,8 +1,8 @@
 # Current state
 
-Reconciled against GitHub `main` at `14d9e91cb23b74011ac7c79b5ed4f210a22565b0`
-on 2026-10-11; the qualification flow and compact Hub recovery are merged in
-PR#499 and PR#500.
+Reconciled against GitHub `main` at `36fe3614bc349013b68b1499c5c3649eb1cb1347`
+on 2026-10-11; qualification, compact Hub recovery and first-use repairs are
+merged in PR#499, PR#500 and PR#501.
 
 ## Capability ledger
 
@@ -19,7 +19,7 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-build-verify | Build it | Configured build with proof bound to stable inputs | PR#433, J01-build-pass | deterministic-ci | Repository must declare a build profile; `init` proposes one for a single-CMake root only (PR#469) | Qualify more repositories | controller |
 | CAP-test-truth | Run the tests | Full or filtered test truth with zero/stale non-PASS | PR#383, J19-test-truth | deterministic-ci | Repository must declare a test profile; `init` proposes one for a single-CMake root only (PR#469) | Qualify more repositories | controller |
 | CAP-failure-diagnosis | Why did that fail? | Uses retained build/test evidence and explicit task identity; failed builds and tests name their kind (compile, link, configure; assertion, crash, timeout, failed), first evidence and exact argv | PR#250, PR#474, J02-build-fail, internal/tests/unit/test_failure_kind.py::test_a_failed_build_names_kind_evidence_and_command | deterministic-ci | The kind is in the tool result and answer, not yet a durable typed fact the diagnosis route consumes; unrecognised logs stay unclassified | Feed typed failure facts to 'Why did that fail?' (#462) | controller |
-| CAP-candidate-fix | Fix the build or tests | Isolated candidate with build/test proof | PR#197, J13-candidate-scripted | deterministic-ci | Real-model success is configuration-specific | Finish real-repository qualification | controller |
+| CAP-candidate-fix | Fix the build or tests | Isolated candidate with build/test proof; narrow repairs finish from current configured proof without another model reporting turn, while Stop still discards the candidate | PR#197, J13-candidate-scripted, internal/tests/unit/test_candidate_change_journey.py::test_a_proven_repair_finishes_before_another_model_call, internal/tests/unit/test_candidate_change_journey.py::test_stop_between_passing_proof_and_completion_discards_the_candidate | deterministic-ci | Real-model success is configuration-specific; a general change still requires the worker to finish its semantic request | Finish real-repository qualification | controller |
 | CAP-change | Change this source | Intent-scoped isolated candidate | PR#215, J11-change | deterministic-ci | General arbitrary checkout mutation is refused | Keep candidate boundary | controller |
 | CAP-apply | Apply this candidate | All-or-nothing import with stale-content refusal | PR#378, J13-candidate-scripted | deterministic-ci | Interrupted receipt stays UNKNOWN | Keep restart regressions | controller |
 | CAP-undo | Undo this candidate | Restores owned pre-import bytes and modes | PR#407, J13-candidate-scripted | deterministic-ci | Refuses after later user edits | Keep preservation regressions | controller |
