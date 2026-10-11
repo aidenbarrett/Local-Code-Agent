@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import sys
@@ -13,7 +14,7 @@ from local_agent.session.session_event_service import DurableSessionService, Wri
 from local_agent.session.session_store import SQLiteSessionStore
 from local_agent.session.textual_feed import DurableHubFeed
 from local_agent.session.textual_hub import render_activity
-from local_agent.session.textual_live_app import HubLiveBinding
+from local_agent.session.textual_live_app import HubLiveBinding, LiveSessionHubApp
 
 # Durable routes allow 30 seconds; these tests measure result projection, not
 # writer scheduling latency under a busy Windows CI runner.
@@ -186,6 +187,43 @@ def test_live_hub_exposes_integrity_checked_retained_answer(tmp_path):
         assert "Result verification: ran but did not establish success" in rendered
     finally:
         service.close()
+
+
+@pytest.mark.parametrize("size", [(72, 24), (100, 24), (130, 40)])
+def test_reopened_failure_details_are_keyboard_accessible_without_reissuing_task(tmp_path, size):
+    async def scenario() -> None:
+        service = _service(tmp_path)
+        stream_id, session_id = service.stream_id, service.session_id
+        answer = "Compiler failed in " + "long-repository-path/" * 30 + "last-file.cpp:42"
+        try:
+            task_id = _admit(service)
+            _finish(service, task_id, answer=answer)
+            sequence = service.store.next_sequence(stream_id)
+        finally:
+            service.close()
+        reopened = DurableSessionService(
+            SQLiteSessionStore(tmp_path / "session.db"), stream_id=stream_id, session_id=session_id,
+        )
+        try:
+            app = LiveSessionHubApp(DurableHubFeed(reopened))
+            async with app.run_test(size=size) as pilot:
+                await pilot.pause()
+                assert app.view_state.tasks[0].task_id == task_id
+                assert app.view_state.tasks[0].result_answer == answer
+                pane = app.query_one("#activity-pane")
+                assert pane.region.bottom <= app.query_one("#status").region.y
+                pane.focus()
+                await pilot.press("end")
+                await pilot.pause()
+                await app.animator.wait_for_idle()
+                assert pane.max_scroll_y > 0
+                assert pane.scroll_y == pane.max_scroll_y
+                assert "last-file.cpp:42" in str(app.query_one("#activity").render())
+                assert reopened.store.next_sequence(stream_id) == sequence
+        finally:
+            reopened.close()
+
+    asyncio.run(scenario())
 
 
 def test_idle_hub_poll_does_not_reread_500_retained_results(tmp_path, monkeypatch):

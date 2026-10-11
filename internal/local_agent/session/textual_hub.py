@@ -17,7 +17,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from textual import events
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import Input, Static
 
@@ -364,6 +364,7 @@ def _css(palette: Mapping[str, str]) -> str:
     #side-column {{
         width: 45%;
         height: 1fr;
+        overflow-y: auto;
     }}
     #workspace.medium #conversation-column,
     #workspace.medium #side-column,
@@ -372,7 +373,8 @@ def _css(palette: Mapping[str, str]) -> str:
         width: 100%;
     }}
     #workspace.medium #conversation-column {{
-        height: 3fr;
+        height: 1fr;
+        min-height: 6;
     }}
     #workspace.medium #side-column {{
         height: 2fr;
@@ -384,10 +386,13 @@ def _css(palette: Mapping[str, str]) -> str:
     #workspace.compact #conversation {{
         display: none;
     }}
+    #workspace.compact #conversation-pane {{
+        display: none;
+    }}
     #workspace.compact #side-column {{
         height: 1fr;
     }}
-    #conversation {{
+    #conversation-pane {{
         height: 1fr;
         padding: 1 2;
         overflow-y: auto;
@@ -399,26 +404,39 @@ def _css(palette: Mapping[str, str]) -> str:
         background: {palette['surface']};
         color: {palette['foreground']};
     }}
-    #attention {{
+    #attention-pane {{
         height: auto;
         max-height: 10;
         padding: 0 2;
         border: round {palette['warn']};
         overflow-y: auto;
     }}
-    #activity {{
+    #activity-pane {{
         height: 1fr;
         min-height: 8;
         padding: 1 2;
         border: round {palette['secondary']};
         overflow-y: auto;
     }}
-    #watch {{
+    #watch-pane {{
         height: 1fr;
         min-height: 8;
         padding: 1 2;
         border: round {palette['accent']};
         overflow-y: auto;
+    }}
+    #workspace.medium #attention-pane, #workspace.compact #attention-pane {{
+        max-height: 5;
+        padding: 0 1;
+    }}
+    #workspace.medium #activity-pane, #workspace.compact #activity-pane {{
+        min-height: 3;
+        padding: 0 1;
+    }}
+    #workspace.medium #watch-pane, #workspace.compact #watch-pane {{
+        height: 3;
+        min-height: 3;
+        padding: 0 1;
     }}
     #status {{
         height: 1;
@@ -433,6 +451,7 @@ class SessionHubApp(App):
     """Textual presentation shell with no controller authority."""
 
     TITLE = "Local Code Agent · Session Hub"
+    AUTO_FOCUS = "#composer"
     CSS = _css(load_palette("neon"))
 
     def __init__(self, state: HubViewState | None = None, *, palette_name: str = "neon") -> None:
@@ -452,12 +471,21 @@ class SessionHubApp(App):
         )
         with Horizontal(id="workspace"):
             with Vertical(id="conversation-column"):
-                yield Static(render_conversation(self.view_state.conversation), id="conversation", markup=False)
+                with VerticalScroll(id="conversation-pane"):
+                    yield Static(
+                        render_conversation(self.view_state.conversation),
+                        id="conversation", markup=False,
+                    )
                 yield Input(placeholder="Message Local Code Agent…", id="composer")
             with Vertical(id="side-column"):
-                yield Static(render_attention(self.view_state.tasks), id="attention", markup=False)
-                yield Static(render_activity(self.view_state), id="activity", markup=False)
-                yield Static(render_watches(self.view_state.watches), id="watch", markup=False)
+                with VerticalScroll(id="attention-pane"):
+                    yield Static(
+                        render_attention(self.view_state.tasks), id="attention", markup=False,
+                    )
+                with VerticalScroll(id="activity-pane"):
+                    yield Static(render_activity(self.view_state), id="activity", markup=False)
+                with VerticalScroll(id="watch-pane"):
+                    yield Static(render_watches(self.view_state.watches), id="watch", markup=False)
         yield Static(self.view_state.status, id="status", markup=False)
 
     def on_mount(self) -> None:
@@ -478,10 +506,12 @@ class SessionHubApp(App):
     def _apply_watch_visibility(self) -> None:
         watch = self.query_one("#watch", Static)
         watch.display = bool(self.view_state.watches)
+        self.query_one("#watch-pane").display = watch.display
 
     def _apply_attention_visibility(self) -> None:
         attention = self.query_one("#attention", Static)
         attention.display = bool(render_attention(self.view_state.tasks))
+        self.query_one("#attention-pane").display = attention.display
 
     def replace_state(self, state: HubViewState) -> None:
         """Replace already-derived presentation state on the Textual thread."""
