@@ -7,6 +7,38 @@ from local_agent.config import MODEL_PRESETS
 from serving import serve
 
 
+def test_pull_prepares_namespace_and_posix_path_before_ovms_clone(tmp_path, monkeypatch):
+    config = MODEL_PRESETS["nuc-cpu-8b"]
+    plan = serve.make_plan("nuc-cpu-8b", config, tmp_path)
+    repository = Path(plan["model_repository"])
+    destination = repository / config.model
+    monkeypatch.setattr(serve, "check_disk", lambda *args: None)
+    calls = []
+
+    def clone(argv, *, check, env):
+        assert destination.parent.is_dir(), "OVMS requires the namespace before clone"
+        assert not destination.exists(), "an empty target would make OVMS skip downloading"
+        assert check is True
+        calls.append(argv)
+
+    monkeypatch.setattr(serve.subprocess, "run", clone)
+    serve.pull(plan, config)
+    assert len(calls) == 1
+    assert calls[0][calls[0].index("--source_model") + 1] == config.model
+    assert calls[0][calls[0].index("--model_repository_path") + 1] == repository.as_posix()
+
+
+@pytest.mark.parametrize("model", ["../outside/model", ".", "nested/../../outside"])
+def test_pull_refuses_escaping_or_empty_destination_before_effects(tmp_path, monkeypatch, model):
+    config = replace(MODEL_PRESETS["nuc-cpu-8b"], model=model)
+    plan = serve.make_plan("nuc-cpu-8b", config, tmp_path)
+    monkeypatch.setattr(serve.subprocess, "run", lambda *a, **k: pytest.fail("download started"))
+    with pytest.raises(serve.Refusal, match="within the model repository"):
+        serve.pull(plan, config)
+    assert not Path(plan["model_repository"]).exists()
+    assert not Path(plan["state_file"]).parent.exists()
+
+
 def free_port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))

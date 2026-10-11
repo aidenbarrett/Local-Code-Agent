@@ -221,8 +221,8 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         limit = max(1, min(limit, 200))
 
         if _rg_available():
-            args = ["--line-number", "--null", "--no-heading", "--color", "never",
-                    "--max-count", "20"]
+            args = ["--line-number", "--with-filename", "--null", "--no-heading",
+                    "--color", "never", "--max-count", "20"]
             if not case_sensitive:
                 args.append("--ignore-case")
             if glob:

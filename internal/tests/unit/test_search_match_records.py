@@ -72,3 +72,19 @@ def test_native_search_preserves_leading_dash_patterns(tmp_path, monkeypatch, us
     assert result.data["matches"] == [
         {"file": "source.cpp", "line": 1, "text": "// -needle: source text"}
     ]
+
+
+@pytest.mark.parametrize("use_rg", [True, False])
+def test_native_search_of_one_file_keeps_filename_and_scope(tmp_path, monkeypatch, use_rg):
+    if use_rg and shutil.which("rg") is None:
+        pytest.skip("ripgrep is unavailable")
+    run(["git", "init", "-q", str(tmp_path)], check=True)
+    source = tmp_path / "README.md"
+    source.write_text("cxxopts command line parser\n", encoding="utf-8")
+    (tmp_path / "other.md").write_text("cxxopts unrelated match\n", encoding="utf-8")
+    monkeypatch.setattr(search, "_rg_available", lambda: use_rg)
+    result = _registry(tmp_path).get("search_text").handler(pattern="cxxopts", path="README.md")
+    assert result.ok
+    assert result.data["matches"] == [
+        {"file": "README.md", "line": 1, "text": "cxxopts command line parser"}
+    ]

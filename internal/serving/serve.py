@@ -523,12 +523,18 @@ def pull(plan, config, *, allow_experimental=False):
         raise Refusal("download your chosen GGUF explicitly, then pass --gguf")
     if plan["experimental"] and not allow_experimental:
         raise Refusal("unproven profile; --allow-experimental required for pull")
+    repository = Path(plan["model_repository"]).resolve()
+    destination = (repository / config.model).resolve()
+    if destination == repository or not destination.is_relative_to(repository):
+        raise Refusal("model download path must stay within the model repository")
     check_disk(plan["model_repository"], config.minimum_pull_disk_gib)
     # Pull is download/configuration only, never a serving/compile operation.
     argv = [plan["exe"], "--pull", "--source_model", config.model,
-            "--model_repository_path", plan["model_repository"], "--target_device", config.device,
+            "--model_repository_path", repository.as_posix(), "--target_device", config.device,
             "--task", "text_generation", "--tool_parser", config.tool_parser]
     with profile_lock(plan):
+        # OVMS owns the clone target, but requires its namespace to exist first.
+        destination.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(argv, check=True, env=runtime_process_env(plan))
     return {"pulled": config.model, "model_dir": str(model_directory(Path(plan["model_repository"]), config.model))}
 
