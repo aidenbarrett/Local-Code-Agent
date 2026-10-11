@@ -50,7 +50,7 @@ def test_retired_paths_are_actually_absent():
 def test_public_docs_do_not_present_archived_generation_results():
     tokens = ["Generation" + " 1", "Gen" + "1", "9" + "/30", "23" + "/29"]
     offenders = []
-    for relative in ("README.md", "PROJECT_OVERVIEW.md", "CURRENT_STATE.md"):
+    for relative in ("README.md", "docs/project/PROJECT_OVERVIEW.md", "docs/project/CURRENT_STATE.md"):
         path = ROOT / relative
         text = path.read_text(encoding="utf-8", errors="replace")
         for token in tokens:

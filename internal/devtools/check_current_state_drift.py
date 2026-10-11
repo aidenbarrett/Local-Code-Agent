@@ -22,7 +22,7 @@ _RUN = re.compile(r"^run:[^\s|]+$")
 def recorded_sha(text: str) -> str:
     match = _SHA.search(text)
     if match is None:
-        raise ValueError("CURRENT_STATE.md must contain one full reconciliation SHA")
+        raise ValueError("docs/project/CURRENT_STATE.md must contain one full reconciliation SHA")
     return match.group(1).lower()
 
 
@@ -57,7 +57,7 @@ def _journey_ids(root: Path) -> set[str]:
 def _ledger_rows(text: str) -> list[dict[str, str]]:
     marker = "## Capability ledger"
     if marker not in text:
-        raise ValueError("CURRENT_STATE.md must contain a capability ledger")
+        raise ValueError("docs/project/CURRENT_STATE.md must contain a capability ledger")
     section = text.split(marker, 1)[1].split("\n## ", 1)[0]
     rows = [line for line in section.splitlines() if line.startswith("|")]
     if len(rows) < 3:
@@ -126,7 +126,7 @@ def _git(root: Path, *args: str) -> str:
 def check(root: Path, *, target: str = "HEAD", max_behind: int = 5) -> int:
     if max_behind < 0:
         raise ValueError("max_behind must be non-negative")
-    state_text = (root / "CURRENT_STATE.md").read_text(encoding="utf-8")
+    state_text = (root / "docs/project/CURRENT_STATE.md").read_text(encoding="utf-8")
     recorded = recorded_sha(state_text)
     validate_ledger(root, state_text)
     resolved_target = _git(root, "rev-parse", target)
@@ -141,14 +141,16 @@ def check(root: Path, *, target: str = "HEAD", max_behind: int = 5) -> int:
     behind = int(_git(root, "rev-list", "--first-parent", "--count", f"{recorded}..{resolved_target}"))
     if behind > max_behind:
         raise RuntimeError(
-            f"CURRENT_STATE.md is {behind} first-parent commits behind {resolved_target}; "
+            f"docs/project/CURRENT_STATE.md is {behind} first-parent commits behind "
+            f"{resolved_target}; "
             f"allowed drift is {max_behind}. Reconcile the document against current main."
         )
     return behind
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Fail when CURRENT_STATE.md drifts too far from source.")
+    parser = argparse.ArgumentParser(
+        description="Fail when docs/project/CURRENT_STATE.md drifts too far from source.")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--target", default="HEAD")
     parser.add_argument("--max-behind", type=int, default=5)

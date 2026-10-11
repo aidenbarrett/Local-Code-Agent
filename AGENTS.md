@@ -2,7 +2,7 @@
 
 Local Code Agent is product-first. Close correctness gaps in the Session Hub and self-engineering loop before adding feature breadth.
 
-Read `PROJECT_OVERVIEW.md` and `CURRENT_STATE.md` before substantial work. Use `TRICKS.md` for first-release journeys, `internal/docs/product-roadmap.md` for long-term direction and `internal/docs/product-execution-priorities.md` for the active priority ladder.
+Read `docs/project/PROJECT_OVERVIEW.md` and `docs/project/CURRENT_STATE.md` before substantial work. Use `docs/development/TRICKS.md` for first-release journeys, `internal/docs/product-roadmap.md` for long-term direction and `internal/docs/product-execution-priorities.md` for the active priority ladder.
 
 The destination is a dependable offline worker for finding, moving, Git and coding work. Deep-reasoning competition is not a goal. Roadmap items are not implemented features and do not replace source-derived product status.
 
@@ -28,9 +28,9 @@ The Session Hub is a projection of authoritative state, not a place to invent st
 
 | Working on | Read |
 |---|---|
-| Current status | `CURRENT_STATE.md`, then current source/PRs |
+| Current status | `docs/project/CURRENT_STATE.md`, then current source/PRs |
 | Product priorities | `internal/docs/product-execution-priorities.md` |
-| First-release journeys | `TRICKS.md` |
+| First-release journeys | `docs/development/TRICKS.md` |
 | Session Hub | `internal/local_agent/session/`, `internal/docs/session-hub-design.md` |
 | Endpoint ownership | `internal/local_agent/session/endpoint_lease.py`, `endpoint_runtime.py`, `endpoint_call.py` |
 | Local runtime ownership | `internal/serving/`, `internal/docs/serving.md` |

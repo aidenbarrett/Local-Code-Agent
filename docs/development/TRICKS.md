@@ -1,6 +1,6 @@
 # Public journeys: first useful Local Code Agent release
 
-This is the short acceptance contract for the public `local-code-agent.ps1` Session Hub. `CURRENT_STATE.md` records what is implemented now; `internal/docs/product-roadmap.md` owns longer-term scope.
+This is the short acceptance contract for the public `local-code-agent.ps1` Session Hub. `docs/project/CURRENT_STATE.md` records what is implemented now; `internal/docs/product-roadmap.md` owns longer-term scope.
 
 The first release should let a new user inspect a repository, find code, understand a branch, run configured builds/tests, explain failures and see truthful local runtime/model/device facts. Stop must also be truthful. Bounded isolated candidates, explicit apply/undo and exact candidate commit are implemented; direct conflict mutation, push and recurring watches remain later journeys.
 

@@ -42,8 +42,8 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-merge-policy | Require reviewed green integration | Existing checker observes branch/ruleset enforcement | PR#276 | unknown | Last successful observation 2026-10-11: main unprotected, no active required-status-check ruleset, no required checks; latest recheck unknown (GitHub HTTP 403 rate limit) | Configure reviewed-green PR/check enforcement, then re-observe | Aiden |
 
 Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rationale,
-[TRICKS.md](TRICKS.md) for first-release public journeys and acceptance evidence, and
-[product-execution-priorities.md](internal/docs/product-execution-priorities.md) for the
+[TRICKS.md](../development/TRICKS.md) for first-release public journeys and acceptance evidence, and
+[product-execution-priorities.md](../../internal/docs/product-execution-priorities.md) for the
 priority ladder after the immediate first-release gate.
 
 ## Direction and public path
@@ -54,8 +54,8 @@ Session Hub launched by `local-code-agent.ps1`; the deterministic controller own
 effects, proof and durable state, while qualified model/runtime backends remain replaceable.
 
 Detailed architecture is in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md), public journeys are
-in [TRICKS.md](TRICKS.md), and the active priority ladder is in
-[product-execution-priorities.md](internal/docs/product-execution-priorities.md).
+in [TRICKS.md](../development/TRICKS.md), and the active priority ladder is in
+[product-execution-priorities.md](../../internal/docs/product-execution-priorities.md).
 
 ## Boundaries that remain open
 
@@ -83,9 +83,9 @@ human edits/retries/manual Stops remain unknown.
   `CAP-candidate-fix` and #418.
 
 Historical per-PR status prose is preserved unchanged in
-[internal/docs/history/current-state-log.md](internal/docs/history/current-state-log.md);
+[internal/docs/history/current-state-log.md](../../internal/docs/history/current-state-log.md);
 it is not current product status.
 
 The pinned development walkthrough and separate CI/model/physical limits are in
-[RC_HANDOFF.md](RC_HANDOFF.md). The retained CPU trials produced no verified model
+[RC_HANDOFF.md](../releases/RC_HANDOFF.md). The retained CPU trials produced no verified model
 repair; this does not certify PTL/offline readiness or close #293/#403/#465.
