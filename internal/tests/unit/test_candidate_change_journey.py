@@ -917,7 +917,8 @@ def test_journal_revert_removes_a_file_the_agent_created(tmp_path):
     from local_agent.agent.journal import MutationJournal
 
     created = tmp_path / "new.cpp"
-    created.write_text("int n();\n", encoding="utf-8")
+    created.write_bytes(b"int n();\n")
+    assert created.read_bytes() == b"int n();\n"
     journal = MutationJournal()
     journal.record_write(created, None, "int n();\n", "apply_patch")
     assert journal.revert()["reverted"] == [str(created)]

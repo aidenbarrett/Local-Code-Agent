@@ -208,9 +208,13 @@ def _tolerant_replace(original: str, find: str, replace: str) -> tuple[str | Non
         return file_indent + line[len(model_indent):]
 
     body = [reindent(line) for line in replace.splitlines()]
-    last = lines[start + len(key) - 1]
-    ending = "\n" if last.endswith("\n") else ""
-    replacement = "\n".join(body) + (ending if body else "")
+    # Matching ignores whitespace; writing preserves the source's line endings.
+    endings = [line[len(line.rstrip("\r\n")):] for line in lines[start:start + len(key)]]
+    if len(body) == len(endings):
+        replacement = "".join(line + ending for line, ending in zip(body, endings, strict=True))
+    else:
+        separator = next((ending for ending in endings if ending), "\n")
+        replacement = separator.join(body) + (endings[-1] if body else "")
     return "".join(lines[:start]) + replacement + "".join(lines[start + len(key):]), 1
 
 
@@ -312,7 +316,7 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
         if not target.is_file():
             raise ToolError(f"{path!r} is not a file")
 
-        original = target.read_text(encoding="utf-8")
+        original = target.read_bytes().decode("utf-8")
         if not find.strip():
             # An empty find matches everywhere, and "appears N times" would send a
             # small model hunting for a problem it does not have.
@@ -458,13 +462,13 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
             # Refuse, rather than follow, a parent that resolved outside the repo.
             assert_writable(ctx.root, patch.path, _protected(ctx))
         else:
-            current = patch.path.read_text(encoding="utf-8")
-            if current != patch.original:
+            current = patch.path.read_bytes()
+            if current != patch.original.encode("utf-8"):
                 raise ToolError(
                     f"{relpath(ctx.root, patch.path)} changed since patch {patch_id} was "
                     "proposed. Re-read the file and propose again."
                 )
-        patch.path.write_text(patch.updated, encoding="utf-8")
+        patch.path.write_bytes(patch.updated.encode("utf-8"))
         if store.journal is not None:
             store.journal.record_write(
                 patch.path, patch.original, patch.updated, "apply_patch"
