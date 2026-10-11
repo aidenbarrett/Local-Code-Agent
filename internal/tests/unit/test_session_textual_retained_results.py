@@ -213,6 +213,10 @@ def test_reopened_failure_details_are_keyboard_accessible_without_reissuing_task
                 pane = app.query_one("#activity-pane")
                 assert pane.region.bottom <= app.query_one("#status").region.y
                 pane.focus()
+                # focus() posts a deferred callback; the key must reach the
+                # pane rather than racing the still-focused composer.
+                await pilot.pause()
+                assert app.focused is pane
                 await pilot.press("end")
                 await pilot.pause()
                 await app.animator.wait_for_idle()
