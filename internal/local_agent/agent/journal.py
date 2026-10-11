@@ -147,17 +147,17 @@ class MutationJournal:
         skipped: list[str] = []
         for entry in reversed(self.entries):
             try:
-                current = entry.path.read_text(encoding="utf-8")
+                current = entry.path.read_bytes()
             except OSError:
                 skipped.append(f"{entry.path} (unreadable)")
                 continue
-            if current != entry.after:
+            if current != entry.after.encode("utf-8"):
                 skipped.append(f"{entry.path} (changed by someone else since)")
                 continue
             if entry.before is None:
                 entry.path.unlink()
             else:
-                entry.path.write_text(entry.before, encoding="utf-8")
+                entry.path.write_bytes(entry.before.encode("utf-8"))
             reverted.append(str(entry.path))
 
         result = {
