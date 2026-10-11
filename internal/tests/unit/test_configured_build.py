@@ -52,9 +52,31 @@ def test_missing_or_truncated_configuration_stays_unknown(data):
     (first,) = plan.chat([]).tool_calls
     assert first.name == "repo_info"
     (answer,) = plan.chat([{"role": "tool", "name": "repo_info", "content": json.dumps({
-        "execution": "ok", "data": data})}]).tool_calls
+        "execution": "ok", "result": "pass", "data": data})}]).tool_calls
     assert answer.arguments["claim"] == "diagnosis"
     assert "unknown" in answer.arguments["summary"]
+
+
+@pytest.mark.parametrize("result", ["fail", "unknown", None])
+def test_non_passing_tool_facts_never_supply_declared_commands(result):
+    (answer,) = ConfiguredBuildPlan().chat([{
+        "role": "tool", "name": "repo_info", "content": json.dumps({
+            "execution": "ok", "result": result, "data": _data(),
+        }),
+    }]).tool_calls
+    assert "unknown" in answer.arguments["summary"]
+    assert "cmake" not in answer.arguments["summary"]
+
+
+def test_actual_tool_result_envelope_supplies_only_configured_facts():
+    from local_agent.tools.tool_primitives import ToolResult
+
+    result = ToolResult(ok=True, summary="configuration", data=_data())
+    (answer,) = ConfiguredBuildPlan().chat([{
+        "role": "tool", "name": "repo_info", "content": result.to_json(),
+    }]).tool_calls
+    assert "default profile: debug" in answer.arguments["summary"]
+    assert answer.arguments["claim"] == "diagnosis"
 
 
 def test_durable_gateway_reports_configuration_without_a_model_or_build(sandbox, tmp_path):

@@ -60,7 +60,8 @@ class ConfiguredBuildPlan:
                 continue
             try:
                 payload: object = json.loads(str(message.get("content") or "{}"))
-                if not isinstance(payload, dict) or payload.get("execution") != "ok":
+                if (not isinstance(payload, dict) or payload.get("execution") != "ok"
+                        or payload.get("result") != "pass"):
                     raise ValueError("repo_info could not be read")
                 summary = explain_configured_build(payload.get("data"))
             except ValueError as exc:
