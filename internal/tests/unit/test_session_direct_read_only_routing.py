@@ -10,6 +10,7 @@ from local_agent.session.conversation_gateway import ConversationGateway
 from local_agent.session.durable_routes import DurableRouteEvents
 from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.intents import (
+    RULE_CONFIGURED_BUILD,
     RULE_REPO_NAVIGATION,
     RouteAction,
     decide_route,
@@ -185,8 +186,10 @@ def test_everyday_repository_questions_route_to_read_only_navigation(text):
     # Found on the Panther Lake run: these went to the conversation model, which
     # cannot read the repository and answered "I do not have access to it".
     decision = decide_route(text, active_repo_count=1)
-    assert (decision.action, decision.rule_id, decision.skill) == (
-        RouteAction.WORK, RULE_REPO_NAVIGATION, "repo-navigation")
+    expected = ((RULE_CONFIGURED_BUILD, "configured-build")
+                if text == "how is this repository built and tested?"
+                else (RULE_REPO_NAVIGATION, "repo-navigation"))
+    assert (decision.action, decision.rule_id, decision.skill) == (RouteAction.WORK, *expected)
 
 
 @pytest.mark.parametrize(
