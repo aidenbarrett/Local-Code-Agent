@@ -193,6 +193,16 @@ switch ($Command.ToLowerInvariant()) {
         # One public command family owns preparation, disconnected preflight,
         # finalization and summary. Arguments without an explicit diagnostic
         # phase run the complete bounded qualification flow.
+        # Select the same root before resolving managed OVMS and its child-only
+        # environment. Python still owns qualification argument validation.
+        for ($argumentIndex = 0; $Rest -and $argumentIndex -lt $Rest.Count; $argumentIndex++) {
+            if ($Rest[$argumentIndex] -eq '--runtime-root' -and $argumentIndex + 1 -lt $Rest.Count) {
+                $env:LCA_RUNTIME_ROOT = $Rest[$argumentIndex + 1]
+                $argumentIndex++
+            } elseif ($Rest[$argumentIndex].StartsWith('--runtime-root=')) {
+                $env:LCA_RUNTIME_ROOT = $Rest[$argumentIndex].Substring('--runtime-root='.Length)
+            }
+        }
         Set-ManagedOvmsEnvironment
         $qualificationPhases = @('prepare', 'preflight', 'finalize', 'summary')
         if ($Rest -and $Rest.Count -gt 0 -and $qualificationPhases -contains $Rest[0]) {

@@ -246,6 +246,43 @@ def test_custom_runtime_root_reaches_child_without_changing_parent(tmp_path, mon
     assert module.os.environ["LCA_RUNTIME_ROOT"] == "parent-root"
 
 
+@pytest.mark.parametrize("equals_form", [False, True])
+def test_public_qualification_resolves_ovms_from_selected_root(tmp_path, equals_form):
+    shell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if shell is None:
+        pytest.skip("PowerShell is unavailable")
+    checkout = tmp_path / "checkout"
+    scripts = checkout / "internal" / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copy2(REPO / "local-code-agent.ps1", checkout / "local-code-agent.ps1")
+    shutil.copy2(REPO / "internal" / "scripts" / "runtime-root.ps1", scripts)
+    (checkout / "pyproject.toml").write_text("", encoding="utf-8")
+    (scripts / "runtime-preflight.py").write_text("", encoding="utf-8")
+    (scripts / "panther-lake-acceptance.py").write_text(
+        "import os,json; print(json.dumps({k:os.environ.get(k) "
+        "for k in ['LCA_RUNTIME_ROOT','LCA_OVMS_EXECUTABLE']}))", encoding="utf-8",
+    )
+    runtime = tmp_path / "custom runtime"
+    ovms = runtime / "tools" / "ovms-2026.3.0"
+    ovms.mkdir(parents=True)
+    executable = ovms / "ovms.exe"
+    executable.write_text("", encoding="utf-8")
+    (ovms / "setupvars.ps1").write_text("# test setup\n", encoding="utf-8")
+    env = {**_load().os.environ, "LCA_RUNTIME_ROOT": str(tmp_path / "default"),
+           "LCA_OVMS_EXECUTABLE": str(tmp_path / "default" / "ovms.exe")}
+    env["PATH"] = str(Path(sys.executable).parent) + _load().os.pathsep + env["PATH"]
+    arguments = [f"--runtime-root={runtime}"] if equals_form else ["--runtime-root", str(runtime)]
+    result = subprocess.run(
+        [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+         str(checkout / "local-code-agent.ps1"), "qualify", *arguments],
+        env=env, text=True, capture_output=True, check=False, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout.strip())
+    assert Path(payload["LCA_RUNTIME_ROOT"]) == runtime
+    assert Path(payload["LCA_OVMS_EXECUTABLE"]) == executable
+
+
 @pytest.mark.parametrize("exit_code", [0, 1])
 def test_one_run_composes_existing_capture_and_acceptance_owners(
     tmp_path, monkeypatch, capsys, exit_code
