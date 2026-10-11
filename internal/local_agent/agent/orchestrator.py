@@ -264,6 +264,7 @@ class Orchestrator:
         allow_escalation: bool = True,
         journal: MutationJournal | None = None,
         replay_evidence: bool = True,
+        completion: Callable[[AgentState], str | None] | None = None,
     ) -> None:
         self.repo = repo
         self.registry = registry
@@ -279,6 +280,9 @@ class Orchestrator:
         # escalation hands the strong tier a tree the cheap tier already broke.
         self.journal = journal
         self.replay_evidence = replay_evidence
+        # A product controller may consume proof before another inference call.
+        # Standalone/evaluation callers retain the normal model reporting loop.
+        self.completion = completion
 
     # ------------------------------------------------------------------ run
 
@@ -891,6 +895,14 @@ class Orchestrator:
             if halt:
                 state.phase = Phase.HALTED
                 break
+            # Consume proof only after the whole tool batch: a later mutation can
+            # invalidate a passing check, and an unapplied proposal is unfinished work.
+            if self.completion is not None and _edit_reminder(state, state.claim) is None:
+                completed = self.completion(state)
+                if completed is not None:
+                    answer = completed
+                    state.phase = Phase.REPORT
+                    break
 
         state.metrics.wall_seconds = time.monotonic() - run_started
         if tiered is not None:

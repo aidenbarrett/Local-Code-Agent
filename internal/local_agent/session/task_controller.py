@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 from ..agent import Orchestrator, SkillLibrary, default_search_path
 from ..agent.policy import deny_all_approvals
-from ..agent.state import HaltCause
+from ..agent.state import AgentState, HaltCause
 from ..config import RepoConfig
 from ..tools import build_registry
 from ..tools.tool_primitives import Risk, ToolRegistry
@@ -164,12 +164,31 @@ def _needs_controller_check(run: RunResult) -> bool:
     )
 
 
-def _process_cleanup_unknown(run: RunResult) -> bool:
+def _process_cleanup_unknown(state: AgentState) -> bool:
     """Did any tool run end with a process tree the runner could not show ended?
 
     Read from the typed tool record (Reason.CLEANUP_UNKNOWN), never from prose.
     """
-    return any(item.reason == "cleanup_unknown" for item in run.state.history)
+    return any(item.reason == "cleanup_unknown" for item in state.history)
+
+
+def _repair_completion(skill: str, state: AgentState) -> str | None:
+    """Finish a narrow repair from current proof, without a model reporting turn.
+
+    General changes still need the worker to finish their semantic request. A repair
+    may finish only after an applied edit and the required configured check; the
+    controller's existing Stop and candidate settlement boundaries still decide.
+    """
+    if (
+        skill not in ("fix-build-failure", "fix-test-failure")
+        or state.mutation_epoch == 0
+        or state.halt_cause is not None
+        or state.claim not in (None, "success")
+        or _process_cleanup_unknown(state)
+        or not candidate_proof_satisfied(skill, state)
+    ):
+        return None
+    return f"The candidate passed its configured {CANDIDATE_PROOF[skill]}."
 
 
 def _current_tree_observed_failure(run: RunResult) -> bool:
@@ -418,7 +437,7 @@ class TaskController:
             # The profile could not hold the task. Nothing about the code was decided,
             # so this is not a FAILED verdict, whatever the worker's own outcome was.
             return TaskOutcome.BLOCKED
-        if _process_cleanup_unknown(run):
+        if _process_cleanup_unknown(run.state):
             # A command's process tree could not be shown ended, so its effects are not
             # owned: neither a pass nor an engineering failure (#436 review).
             return TaskOutcome.NO_VERDICT
@@ -462,7 +481,7 @@ class TaskController:
             # Stop revokes the execution, so this result never commits; if it ever
             # did, it must not claim a clean cancellation it did not reconcile.
             return "cancel_unreconciled"
-        if outcome is TaskOutcome.NO_VERDICT and _process_cleanup_unknown(run):
+        if outcome is TaskOutcome.NO_VERDICT and _process_cleanup_unknown(run.state):
             return "cleanup_unknown"
         if outcome.succeeded:
             return "verification_passed"
@@ -626,6 +645,8 @@ class TaskController:
                     durable_activity, payload
                 ) if kind == "tool_rejected" and durable_activity is not None else None,
                 context_budget_tokens=self.context_budget_tokens, allow_escalation=False,
+                completion=(lambda state: _repair_completion(resolved_skill, state))
+                if resolved_skill in ("fix-build-failure", "fix-test-failure") else None,
             )
             run = worker.run(task, skill_name=resolved_skill)
 
@@ -707,7 +728,7 @@ class TaskController:
         outcome = self._product_outcome(run)
         verified = bool(outcome.succeeded and run.state.verified)
         reason_code = self._reason_code(run, outcome)
-        if verified and not candidate_proof_satisfied(resolved_skill, run):
+        if verified and not candidate_proof_satisfied(resolved_skill, run.state):
             # Verified by the wrong kind of proof for this request (a test fix that
             # only rebuilt). Not a success, and not a failure of the code.
             verified, outcome, reason_code = False, TaskOutcome.NO_VERDICT, "missing_evidence"
@@ -718,11 +739,11 @@ class TaskController:
         # run the configured check this request requires on the candidate, through
         # the same tools and durable activity, and let its result decide.
         check = self._controller_check(resolved_skill, work_repo, registry)
-        if _process_cleanup_unknown(check):
+        if _process_cleanup_unknown(check.state):
             # The check ran on the candidate after the worker changed it; a tree it
             # could not show ended is the later, stronger fact and decides (#436 review).
             return _CandidateProof(TaskOutcome.NO_VERDICT, False, "cleanup_unknown", check, check)
-        if candidate_proof_satisfied(resolved_skill, check):
+        if candidate_proof_satisfied(resolved_skill, check.state):
             return _CandidateProof(TaskOutcome.PASS, True, "verification_passed", check, check)
         if check.state.verification_attempted and _current_tree_observed_failure(check):
             return _CandidateProof(TaskOutcome.FAIL, False, "verification_failed", check, check)
