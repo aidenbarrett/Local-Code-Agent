@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
+import pytest
 from textual.widgets import Input, Static
 
 from local_agent.session.task_read_model import TaskSnapshot, ToolActivity
@@ -196,5 +197,64 @@ def test_watch_pane_appears_when_a_watch_arrives_after_mount():
 
             assert watch_widget.display is True
             assert "enabled" in str(watch_widget.render())
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("size", [(72, 24), (100, 24), (130, 40)])
+def test_first_keystrokes_reach_composer_without_clicking(size):
+    async def scenario() -> None:
+        app = SessionHubApp(HubViewState())
+        async with app.run_test(size=size) as pilot:
+            composer = app.query_one("#composer", Input)
+            assert app.focused is composer
+            await pilot.press("h", "i")
+            assert composer.value == "hi"
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("size", [(72, 24), (72, 30), (100, 24), (100, 30), (130, 40)])
+def test_outage_and_long_path_keep_task_watch_and_composer_inside_viewport(size, tmp_path):
+    async def scenario() -> None:
+        task = _task()
+        task.state = "failed"
+        task.verdict = "NO_VERDICT"
+        task.verdict_reason = "endpoint_unavailable"
+        task.verdict_lines = ("NO_VERDICT", "Scope: endpoint unavailable", "Evidence: unavailable")
+        long_path = "repository-with-long-path/" * 30 + "last-file.cpp"
+        task.faults.append(("endpoint_unavailable", f"Endpoint dropped while inspecting {long_path}"))
+        watch = _watch()
+        state = HubViewState(tasks=(task,), watches=(watch,), status="Endpoint unavailable")
+        app = SessionHubApp(state)
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            status = app.query_one("#status", Static)
+            for name in ("attention-pane", "activity-pane", "watch-pane", "composer"):
+                widget = app.query_one(f"#{name}")
+                assert widget.display and widget.visible
+                assert widget.region.y >= 0
+                assert widget.region.bottom <= status.region.y, (name, widget.region, status.region)
+            attention = app.query_one("#attention", Static)
+            assert long_path in str(attention.render())
+            attention_pane = app.query_one("#attention-pane")
+            assert attention_pane.max_scroll_y > 0
+            await pilot.click("#composer")
+            await pilot.press("tab")
+            assert app.focused is attention_pane
+            await pilot.press("end")
+            await pilot.pause()
+            await app.animator.wait_for_idle()
+            assert attention_pane.scroll_y == attention_pane.max_scroll_y
+            assert "completed/VERIFIED" in str(app.query_one("#watch", Static).render())
+            app.save_screenshot(filename=f"hub-outage-{size[0]}x{size[1]}.svg", path=tmp_path)
+            await pilot.click("#composer")
+            await pilot.press("i", "n", "s", "p", "e", "c", "t")
+            assert app.query_one("#composer", Input).value == "inspect"
+            app.replace_state(HubViewState(tasks=(_task(),), watches=(watch,), status="Ready"))
+            await pilot.pause()
+            assert attention.display is False
+            assert app.query_one("#composer", Input).value == "inspect"
+            assert app.query_one("#watch-pane").region.bottom <= status.region.y
 
     asyncio.run(scenario())
