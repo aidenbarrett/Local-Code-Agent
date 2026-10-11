@@ -840,6 +840,23 @@ class ScriptedSymbolLookup(ScriptedCompileFix):
         )
 
 
+class ScriptedContinuousEngineering(ScriptedRepoExplain, ScriptedSymbolLookup):
+    """Compose the existing scripted inspection and compile-fix owners in one session."""
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:
+        latest = max(i for i, message in enumerate(messages) if message.get("role") == "user")
+        request = str(messages[latest].get("content", ""))
+        if "repository" in request:
+            return ScriptedRepoExplain.chat(self, messages, tools, max_tokens)
+        if "RingBuffer::full" in request:
+            return ScriptedSymbolLookup.chat(self, messages, tools, max_tokens)
+        # ScriptedCompileFix predates multi-turn scripted sessions and counts tool
+        # results from every message it receives. Give it this turn only so the
+        # preceding explain/find tools cannot advance its patch/build state machine.
+        return ScriptedCompileFix.chat(self, messages[latest:], tools, max_tokens)
+
+
 # ---------------------------------------------------------------- answer grounding
 #
 # What the grounding check covers, exactly (the CAP-repo-explain claim says the same):
@@ -1101,6 +1118,92 @@ def j_symbol_lookup(s: Session) -> None:
            "symbol lookup changed the repository")
     s.journey.passed("public route found and read RingBuffer::full with a file/line citation, "
                      "plain and quoted with ()")
+
+
+def _exercise_continuous_candidate(s: Session, built: TaskResult, broken: bytes) -> None:
+    """Exercise candidate controls while unrelated index/worktree state remains exact."""
+    _, fixed = s.turn(f"fix task {built.task_id}")
+    if fixed is None or fixed.outcome is not TaskOutcome.PASS:
+        raise JourneyFailed("the scripted fix did not produce a verified candidate")
+    candidate_id = fixed.task_id
+    diff, diff_result = s.turn(f"/diff {candidate_id}")
+    expect(diff_result is None and RING in diff, "/diff did not show the candidate target")
+
+    notes = s.repo / "NOTES.md"
+    notes.write_text("my staged notes\n", encoding="utf-8")
+    _git(s.repo, "add", "--", "NOTES.md")
+    readme = s.repo / "README.md"
+    readme_before = readme.read_bytes()
+    readme.write_bytes(readme_before + b"\nmy unrelated edit\n")
+    untracked = s.repo / "private-notes.bin"
+    untracked_bytes = b"untracked\x00private\xff\r\n"
+    untracked.write_bytes(untracked_bytes)
+    staged_before = _git(s.repo, "ls-files", "--stage", "--", "NOTES.md")
+
+    def user_work_intact() -> bool:
+        return (
+            readme.read_bytes() == readme_before + b"\nmy unrelated edit\n"
+            and _git(s.repo, "ls-files", "--stage", "--", "NOTES.md") == staged_before
+            and untracked.read_bytes() == untracked_bytes
+        )
+
+    (s.repo / RING).write_bytes(broken + b"\n// my concurrent edit\n")
+    _, refused = s.turn(f"/apply {candidate_id}")
+    expect(refused is not None and refused.outcome is not TaskOutcome.PASS,
+           "stale candidate apply was accepted")
+    expect((s.repo / RING).read_bytes() == broken + b"\n// my concurrent edit\n",
+           "stale refusal overwrote the concurrent edit")
+    expect(user_work_intact(), "stale refusal changed unrelated user work")
+    (s.repo / RING).write_bytes(broken)
+
+    _, applied = s.turn(f"/apply {candidate_id}")
+    expect(applied is not None and applied.outcome is TaskOutcome.PASS,
+           "clean candidate apply failed")
+    expect(user_work_intact(), "apply changed unrelated user work")
+    _, undone = s.turn(f"/undo {candidate_id}")
+    expect(undone is not None and undone.outcome is TaskOutcome.PASS, "exact undo failed")
+    expect((s.repo / RING).read_bytes() == broken, "undo did not restore exact target bytes")
+    expect(user_work_intact(), "undo changed unrelated user work")
+
+    _, second = s.turn(f"fix task {built.task_id}")
+    if second is None or second.outcome is not TaskOutcome.PASS:
+        raise JourneyFailed("fresh second candidate was not verified")
+    _, second_applied = s.turn(f"/apply {second.task_id}")
+    expect(second_applied is not None and second_applied.outcome is TaskOutcome.PASS,
+           "fresh second candidate did not apply")
+    parent = _git(s.repo, "rev-parse", "HEAD").strip()
+    _, committed = s.turn(f"/commit {second.task_id}")
+    expect(committed is not None and committed.outcome is TaskOutcome.PASS,
+           "exact candidate commit failed")
+    expect(_git(s.repo, "rev-parse", "HEAD^").strip() == parent,
+           "candidate commit has the wrong parent")
+    expect(_git(s.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split()
+           == [RING], "candidate commit included unrelated paths")
+    expect(user_work_intact(), "commit changed unrelated staged, unstaged or untracked work")
+    s.journey.measured["continuous_task_count"] = len(s.admitted())
+    s.journey.measured["unrelated_work_preserved"] = True
+    s.journey.passed("one Session/repository: explain, find, failed build, deterministic "
+                     "diagnosis, "
+                     "verified candidate, diff, stale refusal, apply, exact undo, fresh apply and "
+                     "exact commit; unrelated staged, unstaged and untracked work preserved")
+
+
+def j_continuous_engineering(s: Session) -> None:
+    """One installed Session/repository from inspection through an exact candidate commit."""
+    j_repo_explain(s)
+    j_symbol_lookup(s)
+
+    broken = (s.repo / RING).read_bytes()
+    _, built = s.turn("build it")
+    if built is None or built.outcome is not TaskOutcome.FAIL:
+        raise JourneyFailed("the seeded compile failure did not fail")
+    diagnosis, diagnosed = s.turn("why did that fail?")
+    expect(diagnosed is None, "deterministic diagnosis admitted another task")
+    expect(diagnosis.startswith(f"Task {built.task_id} (build it) failed."),
+           "diagnosis did not retain the failed task identity")
+    expect("FAILED (" in diagnosis and " -- command: [" in diagnosis,
+           "diagnosis omitted the failure evidence or exact command")
+    _exercise_continuous_candidate(s, built, broken)
 
 
 def dirty_work_snapshot(repo: Path, tracked: str, untracked: str) -> dict[str, bytes]:
@@ -1617,6 +1720,7 @@ REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
 
 # Product journeys with scripted workers instead of the model.
 SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
+                    "J24-continuous-engineering": ScriptedContinuousEngineering,
                     "J21-exact-commit": ScriptedCompileFix,
                     "J21b-commit-policy": ScriptedCompileFix,
                     "J15-dirty-worktree": ScriptedDirtyReview,
@@ -1667,6 +1771,8 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
      "product", "clean", False, {}, j_repo_explain),
     ("J23-symbol-lookup", "find a C++ symbol through the public repository route",
      "product", "clean", False, {}, j_symbol_lookup),
+    ("J24-continuous-engineering", "one continuous installed engineering workflow",
+     "product", "compile_error", False, {"allow_commit": True}, j_continuous_engineering),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
 ]
