@@ -1335,5 +1335,973 @@
       "profile": "nuc-cpu-30b",
       "schema_version": 1
     }
-  }
+  },
+  "pinned_main_public_runs": [
+    {
+      "report": "pinned-main-cxxopts",
+      "report_sha256": "8454a4599c3edd96c58bd96cb2f6c41962c8e9ffc42b19275029ca68788f3aad",
+      "report_data": {
+        "schema": "lca.acceptance-journeys/1",
+        "started_unix": 1791736238.5158062,
+        "finished_unix": 1791736427.4637153,
+        "profile": "nuc-cpu-30b",
+        "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+        "base_url": "http://127.0.0.1:8000/v3",
+        "preconditions": {
+          "product": {
+            "package_commit": "9950b276fd806e90db2d3d022a1621226ccf35bd",
+            "package_dirty": false,
+            "package_source": "git",
+            "source_sha256": "a59bceaa878c92e120b092b2133b6e88cb74fde765e92103c2fef5a0c243f0b3"
+          },
+          "platform": "Windows-11-10.0.26200-SP0",
+          "python": "3.13.5",
+          "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+          "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+          "fixture_builds": null,
+          "runtime_header": "preset nuc-cpu-30b \u00b7 model unobserved (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8000/v3 \u00b7 execution enabled",
+          "corpus": {
+            "name": "cxxopts",
+            "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+            "licence": "MIT",
+            "cache": "C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\qualification-cache",
+            "ready": true,
+            "problem": null
+          }
+        },
+        "journeys": [
+          {
+            "id": "Q01-build-test",
+            "title": "build and test a real repository",
+            "kind": "product",
+            "status": "PASS",
+            "reason": "clean real repository: build and full CTest suite PASS with proof; an independent run of the same profile is green",
+            "seconds": 56.0,
+            "notes": [],
+            "tasks": [
+              {
+                "said": "build it",
+                "seconds": 7.8,
+                "task_id": "765b4b52-d595-50c3-a019-642f21446efe",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [
+                  "build_target:0"
+                ],
+                "proof_scope": "full_build",
+                "llm_calls": 0,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 2966,
+                "compactions": 0
+              },
+              {
+                "said": "run the tests",
+                "seconds": 24.1,
+                "task_id": "e836ad95-cec5-5390-95eb-feb1205c61ce",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [
+                  "build_target:0",
+                  "run_test:1"
+                ],
+                "proof_scope": "full_test",
+                "llm_calls": 0,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3540,
+                "compactions": 0
+              }
+            ],
+            "measured": {
+              "cold_build_s": 7.8,
+              "warm_test_s": 24.1,
+              "unrelated_work_preserved": true
+            },
+            "tool_failures": [],
+            "attempted": true
+          },
+          {
+            "id": "Q02-compile-diagnosis",
+            "title": "diagnose a seeded compile error with file and line",
+            "kind": "product",
+            "status": "PASS",
+            "reason": "seeded compile error: FAIL with diagnosis at test/options.cpp:95",
+            "seconds": 7.5,
+            "notes": [],
+            "tasks": [
+              {
+                "said": "build it",
+                "seconds": 6.5,
+                "task_id": "2a07e1a2-1e5f-59c7-9087-231a58a82438",
+                "outcome": "fail",
+                "reason_code": "verification_failed",
+                "verified": false,
+                "evidence_ids": [
+                  "build_target:0"
+                ],
+                "proof_scope": "observed_build_failure",
+                "llm_calls": 0,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3270,
+                "compactions": 0
+              }
+            ],
+            "measured": {
+              "answer": "[Controller: fail; verification: ran, did not establish success; reason: verification_failed; evidence: 1 item(s); task: 2a07e1a2-1e5f-59c7-9087-231a58a82438]\nProof scope: observed_build_failure\nRequest SHA-256: 779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428\nTree SHA-256: e1b6b1dc43a4829bd223ce28fc3832b8615807634a146e8729094c41289ab5fc\nEvidence IDs: build_target:0\n\nUnverified task detail (not proof of a completed change):\nbuild_target: build (debug) FAILED (compile) with 2 compiler error(s) and 0 link error(s); first error at test/options.cpp:95: 'reslt': undeclared identifie",
+              "unrelated_work_preserved": true
+            },
+            "tool_failures": [],
+            "attempted": true
+          },
+          {
+            "id": "Q03-test-truth",
+            "title": "name the seeded failing CTest tests",
+            "kind": "product",
+            "status": "PASS",
+            "reason": "seeded test failure: FAIL naming exactly options, options_no_regex",
+            "seconds": 53.2,
+            "notes": [],
+            "tasks": [
+              {
+                "said": "run the tests",
+                "seconds": 26.4,
+                "task_id": "50311403-83d3-5dc7-92ef-ca5e288a54e9",
+                "outcome": "fail",
+                "reason_code": "verification_failed",
+                "verified": false,
+                "evidence_ids": [
+                  "build_target:0",
+                  "run_test:1"
+                ],
+                "proof_scope": "observed_test_failure",
+                "llm_calls": 0,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3573,
+                "compactions": 0
+              }
+            ],
+            "measured": {
+              "answer": "[Controller: fail; verification: ran, did not establish success; reason: verification_failed; evidence: 2 item(s); task: 50311403-83d3-5dc7-92ef-ca5e288a54e9]\nProof scope: observed_test_failure\nRequest SHA-256: 26884d6a10442a36f964786dbe2810ffa443ce48e44c54044d7c322037fe686e\nTree SHA-256: 3214480c76300d7a8f535d397a2c00ee3774e5d2f0127d8903f8fdf2ba978a55\nEvidence IDs: build_target:0, run_test:1\n\nUnverified task detail (not proof of a completed change):\nbuild_target: build (debug) succeeded in 5.9s with 0 warning(s); run_test: 2 test(s) FAILED (failed): options, options_no_regex -- command: [\"ctest\", \"--test-dir\", \"build\", \"-C\", \"Debug\", \"--output-on-failure\"]",
+              "unrelated_work_preserved": true
+            },
+            "tool_failures": [],
+            "attempted": true
+          },
+          {
+            "id": "Q04-candidate-scripted",
+            "title": "scripted fix: apply, undo, re-apply, exact commit amid user work",
+            "kind": "product",
+            "status": "PASS",
+            "reason": "scripted fix on a real repository: apply, independent build, exact undo, re-apply, exact commit; staged, unstaged and pattern-named work preserved",
+            "seconds": 57.8,
+            "notes": [
+              "a candidate is single-use after /undo; a fresh one is prepared"
+            ],
+            "tasks": [
+              {
+                "said": "build it",
+                "seconds": 6.5,
+                "task_id": "d6ea5e98-fffe-547a-abb3-ae72b5e5165a",
+                "outcome": "fail",
+                "reason_code": "verification_failed",
+                "verified": false,
+                "evidence_ids": [
+                  "build_target:0"
+                ],
+                "proof_scope": "observed_build_failure",
+                "llm_calls": 0,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3273,
+                "compactions": 0
+              },
+              {
+                "said": "fix it",
+                "seconds": 9.4,
+                "task_id": "fdcde92a-0642-54cc-be05-52da6345e3bd",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [
+                  "propose_patch:0",
+                  "apply_patch:1",
+                  "build_target:2"
+                ],
+                "proof_scope": "full_build",
+                "llm_calls": 3,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3016,
+                "compactions": 0
+              },
+              {
+                "said": "/apply fdcde92a-0642-54cc-be05-52da6345e3bd",
+                "seconds": 1.1,
+                "task_id": "33c0a6ba-6764-54fc-8a4b-1d61602b124b",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              },
+              {
+                "said": "/undo fdcde92a-0642-54cc-be05-52da6345e3bd",
+                "seconds": 0.4,
+                "task_id": "c5652232-f56c-5696-b66d-3d64b79f1a3f",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              },
+              {
+                "said": "/apply fdcde92a-0642-54cc-be05-52da6345e3bd",
+                "seconds": 0.2,
+                "task_id": "9c82ff27-07e3-591a-a746-5781691f48b3",
+                "outcome": "blocked",
+                "reason_code": "invalid_input",
+                "verified": false,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              },
+              {
+                "said": "fix task d6ea5e98-fffe-547a-abb3-ae72b5e5165a",
+                "seconds": 9.8,
+                "task_id": "df99e98f-a442-5c59-9a60-330513ed61ca",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [
+                  "propose_patch:0",
+                  "apply_patch:1",
+                  "build_target:2"
+                ],
+                "proof_scope": "full_build",
+                "llm_calls": 3,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3026,
+                "compactions": 0
+              },
+              {
+                "said": "/apply df99e98f-a442-5c59-9a60-330513ed61ca",
+                "seconds": 1.1,
+                "task_id": "35356597-bb85-544d-be05-2dd7cc308f87",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              },
+              {
+                "said": "/commit df99e98f-a442-5c59-9a60-330513ed61ca",
+                "seconds": 2.6,
+                "task_id": "2cf1e474-5f6a-56d5-9223-74faaf533559",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              }
+            ],
+            "measured": {
+              "unrelated_work_preserved": true
+            },
+            "tool_failures": [],
+            "attempted": true
+          },
+          {
+            "id": "Q05-stop-build",
+            "title": "Stop during the real build",
+            "kind": "product",
+            "status": "PASS",
+            "reason": "Stop during the real build: terminal in 0.3s, no surviving processes, the next build passed",
+            "seconds": 12.1,
+            "notes": [],
+            "tasks": [
+              {
+                "said": "build it",
+                "seconds": 7.5,
+                "task_id": "187cebc2-5e4b-5c8d-96a3-2d1f44d03618",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [
+                  "build_target:0"
+                ],
+                "proof_scope": "full_build",
+                "llm_calls": 0,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 2966,
+                "compactions": 0
+              }
+            ],
+            "measured": {
+              "processes_before_stop": 2,
+              "stop_to_terminal_s": 0.27,
+              "surviving_processes": [],
+              "unrelated_work_preserved": true
+            },
+            "tool_failures": [
+              {
+                "detail": "Stop interrupted this command; its output is not a result. Process-tree cleanup confirmed=true (containment=job_object).",
+                "process_started": true,
+                "schema": "lca.tool-failure/2",
+                "tool_name": "build_target",
+                "tool_reason": "command_cancelled"
+              }
+            ],
+            "attempted": true
+          },
+          {
+            "id": "Q06-repo-explain",
+            "title": "grounded explanation of a real repository",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q07-fix-model",
+            "title": "fix the seeded compile error with the model",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          }
+        ],
+        "corpus": {
+          "name": "cxxopts",
+          "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+          "licence": "MIT",
+          "metrics": {
+            "attempted": 5,
+            "completed_verified": 5,
+            "not_attempted": 0,
+            "unknown_outcomes": 0,
+            "refusal_correctness": null,
+            "user_interventions": null,
+            "cold_build_s": 7.8,
+            "warm_test_s": 24.1,
+            "unrelated_work_preserved": {
+              "Q01-build-test": true,
+              "Q02-compile-diagnosis": true,
+              "Q03-test-truth": true,
+              "Q04-candidate-scripted": true,
+              "Q05-stop-build": true
+            },
+            "failure_reasons": {},
+            "rate_claimed": false
+          }
+        }
+      }
+    },
+    {
+      "report": "pinned-main-continuous",
+      "report_sha256": "2e3e05646bb0360a0a29e4a9ddeaf9f3988ca6219721ec50668d42280f2b0f3f",
+      "report_data": {
+        "schema": "lca.acceptance-journeys/1",
+        "started_unix": 1791736427.4527872,
+        "finished_unix": 1791736457.7285385,
+        "profile": "nuc-cpu-30b",
+        "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+        "base_url": "http://127.0.0.1:8000/v3",
+        "preconditions": {
+          "product": {
+            "package_commit": "9950b276fd806e90db2d3d022a1621226ccf35bd",
+            "package_dirty": false,
+            "package_source": "git",
+            "source_sha256": "a59bceaa878c92e120b092b2133b6e88cb74fde765e92103c2fef5a0c243f0b3"
+          },
+          "platform": "Windows-11-10.0.26200-SP0",
+          "python": "3.13.5",
+          "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+          "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+          "fixture_builds": true,
+          "runtime_header": "preset nuc-cpu-30b \u00b7 model unobserved (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8000/v3 \u00b7 execution enabled"
+        },
+        "journeys": [
+          {
+            "id": "J01-build-pass",
+            "title": "build it on a clean tree",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J02-build-fail",
+            "title": "build it on a compile error",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J03-tests-fail",
+            "title": "run the tests with a failing test",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J04-ambiguous",
+            "title": "fix it with two failures",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J05-stop-build",
+            "title": "Stop during a configured build",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J06-authority",
+            "title": "requests outside its authority",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J07-stop-model",
+            "title": "Stop during model work",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J08-fix-build",
+            "title": "fix it after a failed build",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J09-candidate",
+            "title": "diff, stale apply, apply, undo, commit",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J10-fix-tests",
+            "title": "fix it after a failing test",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J11-change",
+            "title": "change: a small edit",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J12-questions",
+            "title": "questions about the repository",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J14-regression-test",
+            "title": "write a regression test that catches a seeded bug",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J15b-rename-binary",
+            "title": "inspect staged rename and modified binary",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J15-dirty-worktree",
+            "title": "preserve staged, unstaged and untracked work",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J16-malformed-calls",
+            "title": "refuse malformed model tool calls",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J17-branch-review",
+            "title": "review my branch: merge base, upstream, detached HEAD",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J19-test-truth",
+            "title": "filtered, empty and stale test-run truth",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J19b-test-policy",
+            "title": "typed refusal when repository policy disables tests",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J20-conflict-explain",
+            "title": "explain a stopped merge or rebase without touching it",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J21-exact-commit",
+            "title": "commit only an applied candidate and preserve the index",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J21b-commit-policy",
+            "title": "typed refusal when repository policy disables commit",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J22-repo-explain",
+            "title": "explain the repository and how it is built, with real files only",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J23-symbol-lookup",
+            "title": "find a C++ symbol through the public repository route",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "J24-continuous",
+            "title": "one continuous installed engineering workflow",
+            "kind": "product",
+            "status": "PASS",
+            "reason": "one Session/repository: explain, find, failed build, deterministic diagnosis, verified candidate, diff, stale refusal, apply, exact undo, fresh apply and exact commit; unrelated staged, unstaged and untracked work preserved",
+            "seconds": 23.3,
+            "notes": [],
+            "tasks": [
+              {
+                "said": "explain this repository",
+                "seconds": 0.3,
+                "task_id": "254e23d5-736e-583a-a1ef-75b7171b92dd",
+                "outcome": "no_verdict",
+                "reason_code": "missing_evidence",
+                "verified": false,
+                "evidence_ids": [
+                  "repo_info:0",
+                  "list_files:1"
+                ],
+                "proof_scope": "none",
+                "llm_calls": 3,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3128,
+                "compactions": 0
+              },
+              {
+                "said": "how is this repository built and tested?",
+                "seconds": 0.3,
+                "task_id": "c741bb7d-cf22-5461-849b-6419e9564d1b",
+                "outcome": "no_verdict",
+                "reason_code": "missing_evidence",
+                "verified": false,
+                "evidence_ids": [
+                  "repo_info:0",
+                  "list_files:1"
+                ],
+                "proof_scope": "none",
+                "llm_calls": 3,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3132,
+                "compactions": 0
+              },
+              {
+                "said": "where is RingBuffer::full defined?",
+                "seconds": 0.4,
+                "task_id": "ecdd29a4-8f3c-5856-992d-a8bf350ad2fa",
+                "outcome": "no_verdict",
+                "reason_code": "missing_evidence",
+                "verified": false,
+                "evidence_ids": [
+                  "find_definition:0",
+                  "read_file:1"
+                ],
+                "proof_scope": "none",
+                "llm_calls": 3,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3072,
+                "compactions": 0
+              },
+              {
+                "said": "where is `RingBuffer::full()` defined?",
+                "seconds": 0.4,
+                "task_id": "7d147119-93d6-58ec-bca1-07c0535e15b8",
+                "outcome": "no_verdict",
+                "reason_code": "missing_evidence",
+                "verified": false,
+                "evidence_ids": [
+                  "find_definition:0",
+                  "read_file:1"
+                ],
+                "proof_scope": "none",
+                "llm_calls": 3,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3074,
+                "compactions": 0
+              },
+              {
+                "said": "build it",
+                "seconds": 3.2,
+                "task_id": "c3ca4515-7ff9-5820-be69-8a6f930a63b5",
+                "outcome": "fail",
+                "reason_code": "verification_failed",
+                "verified": false,
+                "evidence_ids": [
+                  "build_target:0"
+                ],
+                "proof_scope": "observed_build_failure",
+                "llm_calls": 0,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3091,
+                "compactions": 0
+              },
+              {
+                "said": "fix task c3ca4515-7ff9-5820-be69-8a6f930a63b5",
+                "seconds": 5.2,
+                "task_id": "a00885d3-45f5-5a86-9223-90ddf2db4cca",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [
+                  "propose_patch:0",
+                  "apply_patch:1",
+                  "propose_patch:2",
+                  "apply_patch:3",
+                  "build_target:4"
+                ],
+                "proof_scope": "full_build",
+                "llm_calls": 5,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3327,
+                "compactions": 0
+              },
+              {
+                "said": "/diff a00885d3-45f5-5a86-9223-90ddf2db4cca",
+                "seconds": 0.3,
+                "task_id": "90bab7f7-a598-5c50-b00a-a230a52c3028",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              },
+              {
+                "said": "/apply a00885d3-45f5-5a86-9223-90ddf2db4cca",
+                "seconds": 0.5,
+                "task_id": "da26cb72-ca5b-5064-addb-1b589ea96d48",
+                "outcome": "fail",
+                "reason_code": "scope_changed",
+                "verified": false,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              },
+              {
+                "said": "/apply a00885d3-45f5-5a86-9223-90ddf2db4cca",
+                "seconds": 1.1,
+                "task_id": "cdd63309-3449-5cea-8593-2342c6420d45",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              },
+              {
+                "said": "/undo a00885d3-45f5-5a86-9223-90ddf2db4cca",
+                "seconds": 0.7,
+                "task_id": "909f92c6-7247-5149-9ae2-cecf3b892cdb",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              },
+              {
+                "said": "fix task c3ca4515-7ff9-5820-be69-8a6f930a63b5",
+                "seconds": 5.8,
+                "task_id": "c4489dc1-88ab-53ef-9468-17b196698ddf",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [
+                  "propose_patch:0",
+                  "apply_patch:1",
+                  "propose_patch:2",
+                  "apply_patch:3",
+                  "build_target:4"
+                ],
+                "proof_scope": "full_build",
+                "llm_calls": 5,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3327,
+                "compactions": 0
+              },
+              {
+                "said": "/apply c4489dc1-88ab-53ef-9468-17b196698ddf",
+                "seconds": 1.2,
+                "task_id": "e57d8036-4414-5eb8-9d1c-1e0c8aa11583",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              },
+              {
+                "said": "/commit c4489dc1-88ab-53ef-9468-17b196698ddf",
+                "seconds": 2.4,
+                "task_id": "eddaa5fd-9f7d-54f1-b198-c7305b754241",
+                "outcome": "pass",
+                "reason_code": "verification_passed",
+                "verified": true,
+                "evidence_ids": [],
+                "proof_scope": null,
+                "llm_calls": null,
+                "prompt_tokens": null,
+                "context_peak_tokens": null,
+                "compactions": null
+              }
+            ],
+            "measured": {
+              "continuous_task_count": 13,
+              "unrelated_work_preserved": true
+            },
+            "tool_failures": [],
+            "attempted": true
+          },
+          {
+            "id": "J13-candidate-scripted",
+            "title": "candidate controls with a scripted fix (no model)",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0.0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          }
+        ]
+      }
+    }
+  ],
+  "post_model_cleanup": "Existing serving owner stopped its owned CPU30B runtime after reporting; forced=true. This is operator runtime cleanup, not observed endpoint-side generation cancellation."
 }

@@ -12,15 +12,19 @@ git clone https://github.com/aidenbarrett/Local-Code-Agent.git
 cd Local-Code-Agent
 git checkout --detach 9950b276fd806e90db2d3d022a1621226ccf35bd
 .\install.ps1 -CheckOnly
+.\install.ps1 -InstallMissing -SkipModelDownload
 .\local-code-agent.ps1 models
 ```
 
-Choose the preset for the machine explicitly. The PTL GPU 30B weights are about
+The bootstrap installs prerequisites, the managed Python environment and OVMS
+before model commands can run. If the selected weights are absent, its expected
+exit is 3 with the model folder named; readiness is still pending. Other refusals
+need their named prerequisite resolved. Choose the preset for the machine explicitly. The PTL GPU 30B weights are about
 17 GB. A selected preset declares a device; it does not prove physical execution.
 
 ```powershell
-.\local-code-agent.ps1 models pull ptl-gpu-30b
 .\local-code-agent.ps1 models use ptl-gpu-30b
+.\local-code-agent.ps1 models pull ptl-gpu-30b
 .\install.ps1 -InstallMissing
 .\local-code-agent.ps1 doctor
 $lca = (Resolve-Path .\local-code-agent.ps1).Path
@@ -55,8 +59,8 @@ See [QUICKSTART.md](QUICKSTART.md) for setup details and
 | Evidence | What it supports | What remains unknown |
 |---|---|---|
 | Reviewed exact-tree Linux/Windows CI for #499, #500, #501 and #502 | Deterministic controller, preservation, public surfaces, compact recovery and first-use repair regressions | Physical offline execution and general model competence |
-| Public merged-main J24 continuous run after #499 | One composed scripted engineering workflow | Real-model performance |
-| Windows cxxopts build/full CTest run | Real repository build/test and unrelated-work preservation | General repository support |
+| Public pinned-main J24 continuous run after #502 | One composed scripted engineering workflow | Real-model performance |
+| Public pinned-main cxxopts Q01–Q05, all five PASS | Real build/test, seeded failure truth, scripted repair/apply/undo/commit and Stop with unrelated-work preservation | General repository support |
 | Same-source CPU 8B/30B reference measurements | Retained configuration-specific answers, repair outcomes, client timing and sampled RSS | Answer correctness, isolated model-size effect, PTL device behaviour |
 | Fresh exported setup with prepared dependencies | New Python environment and runtime/cache startup exercised | Successful readiness: 30B CPU 7k context probe timed out |
 
@@ -82,7 +86,10 @@ The full report fields, source identity, artifact revisions and operator receipt
 are retained in [the measurement record](internal/docs/rc-evidence-2026-10-11.json).
 Authoritative CI: [#501](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38149211547)
 and [#502](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38151450475).
-Their merged trees match the reviewed/tested trees. Explanation correctness remains unknown.
+Their merged trees match the reviewed/tested trees. On pinned main, J24 passed
+in 23.3s (report SHA-256 2e3e05646bb0360a0a29e4a9ddeaf9f3988ca6219721ec50668d42280f2b0f3f),
+and cxxopts Q01–Q05 all passed (report SHA-256
+8454a4599c3edd96c58bd96cb2f6c41962c8e9ffc42b19275029ca68788f3aad). Explanation correctness remains unknown.
 The 8B repeat overlapped a model download and the final interval of setup/server
 startup; these timings do not isolate model-size effects. No aggregate success or
 intervention rate is inferred from these small, differently prepared runs.
