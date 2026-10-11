@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Final
 
 from ..llm.client import tool_call
@@ -12,6 +13,7 @@ CONFIGURED_BUILD: Final = "configured-build"
 CONFIGURED_BUILD_PROCEDURE: Final = "repo-navigation"
 _STEP: Final = "repo_info"
 _PLAN_VERSION: Final = 1
+_PLAIN_ARGUMENT: Final = re.compile(r"[A-Za-z0-9_./:=+,-]+")
 
 
 def configured_build_sha256(skill_sha256: str) -> str:
@@ -38,7 +40,14 @@ def explain_configured_build(data: object) -> str:
             argv = commands.get(stage)
             if not isinstance(argv, list) or not all(isinstance(arg, str) for arg in argv):
                 raise ValueError(f"repo_info did not retain {stage} command arguments")
-            rendered = json.dumps(argv, ensure_ascii=False) if argv else "not configured"
+            if not argv:
+                rendered = "not configured"
+            elif all(_PLAIN_ARGUMENT.fullmatch(arg) for arg in argv):
+                rendered = " ".join(argv)
+            else:
+                # Preserve argument boundaries when spaces or shell metacharacters
+                # would make a command-line display ambiguous. This is never run.
+                rendered = "argument vector " + json.dumps(argv, ensure_ascii=False)
             lines.append(f"  {stage}: {rendered}")
     lines.append("These are the declared commands; no build or test was run for this question.")
     return "\n".join(lines)
