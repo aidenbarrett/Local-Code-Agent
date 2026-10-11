@@ -1,8 +1,10 @@
 # Current state
 
-Reconciled against GitHub `main` at `700345b529d10792bb0dbc30a1dfdf7c964df02b`
-on 2026-10-11; qualification, Hub recovery, first-use repairs and proof-driven
-repair completion are merged in PR#499 through PR#502.
+Reconciled against GitHub `main` at `80f73921fcebac45310b259db6a5de0ed166d56d`
+on 2026-10-11; PR#507, PR#508, PR#510 and PR#511 are merged after exact combined
+Linux/Windows CI and review in PR#512. Real-model repair and physical/offline
+qualification remain unproven; the CPU reference measurements are retained in
+`internal/docs/rc-model-competence-2026-10-11.json`.
 
 ## Capability ledger
 
