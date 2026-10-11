@@ -50,6 +50,8 @@ declaration, or a source file missing from the CMake target.
 - Never suppress a diagnostic to make it go away: no casts to silence a real
   type error, no `#pragma` to hide a warning, no removing a `static_assert`.
 - Never widen an interface to fix a caller unless the request asked for it.
-- Never edit a test to make the build pass.
+- Never weaken, remove or skip a test assertion, or change its expected outcome,
+  to manufacture a passing build. Compiler or linker repairs in test source are
+  allowed when the assertions and their intended expectations are preserved.
 - If the fix is not obvious from the evidence, say so and report what you found.
   A wrong confident patch costs more than an honest "I need more context".
