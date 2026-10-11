@@ -112,7 +112,7 @@ def require_offline(routes: Iterable[dict[str, Any]]) -> None:
 
 def configured_devices(device: str) -> list[dict[str, Any]]:
     if device == "NPU":
-        predicate = "$_.FriendlyName -match 'NPU|Neural Processing|AI Boost'"
+        predicate = "Test-LcaNpuDeviceName $_.FriendlyName"
     elif device == "GPU":
         predicate = "$_.Class -eq 'Display'"
     else:
@@ -129,6 +129,9 @@ $devices = Get-PnpDevice -PresentOnly -ErrorAction Stop |
 @($devices) | ConvertTo-Json -Compress
 '''
     script = script.replace("__PREDICATE__", predicate)
+    if device == "NPU":
+        helper = str(INTERNAL / "scripts" / "windows-npu-device.ps1").replace("'", "''")
+        script = f". '{helper}'\n" + script
     return [dict(item) for item in _as_list(_powershell_json(script))]
 
 
