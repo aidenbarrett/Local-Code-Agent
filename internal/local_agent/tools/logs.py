@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 # gcc / clang:  src/queue.cpp:81:17: error: use of undeclared identifier 'count'
+# A Windows absolute path has one drive colon before the line/column separators.
 _GNU = re.compile(
-    r"^(?P<file>[^\s:][^:]*):(?P<line>\d+):(?:(?P<col>\d+):)?\s+"
+    r"^(?P<file>(?:[A-Za-z]:[\\/])?[^\s:][^:]*):(?P<line>\d+):(?:(?P<col>\d+):)?\s+"
     r"(?P<severity>error|warning|note|fatal error):\s+(?P<message>.*)$"
 )
 

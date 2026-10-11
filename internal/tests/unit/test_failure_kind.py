@@ -35,6 +35,33 @@ def test_a_build_log_is_reduced_to_one_kind(log, kind):
     assert report.as_dict()["failure_kind"] == kind
 
 
+@pytest.mark.parametrize("path", [
+    r"C:\work tree\src\a.cpp",
+    "D:/work tree/src/a.cpp",
+    "src/a.cpp",
+    "/work tree/src/a.cpp",
+])
+@pytest.mark.parametrize("severity", ["error", "fatal error"])
+def test_gnu_diagnostics_keep_the_complete_path_and_first_error(path, severity, tmp_path):
+    from local_agent.tools.build import _first_error_suffix
+
+    report = parse_build_log(f"{path}:13:7: {severity}: expected ';'\n")
+    assert report.failure_kind == "compile"
+    assert len(report.errors) == 1
+    first = report.errors[0]
+    assert (first.file, first.line, first.column, first.message) == (path, 13, 7, "expected ';'")
+    assert f"{path.replace(chr(92), '/')}:13" in _first_error_suffix(report, tmp_path)
+
+
+@pytest.mark.parametrize("log", [
+    "tool: warning: compile failed\n",
+    "C:/src/a.cpp:unknown: error: failed\n",
+    "note: src/a.cpp:13:7: error: quoted diagnostic\n",
+])
+def test_non_diagnostics_do_not_become_compile_failures(log):
+    assert parse_build_log(log).failure_kind is None
+
+
 @pytest.mark.parametrize(("log", "kind"), [
     ("  1 - order (Failed)\n", "failed"),
     ("  1 - slow (Timeout)\n", "timeout"),
