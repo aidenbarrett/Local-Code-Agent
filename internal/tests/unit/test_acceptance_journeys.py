@@ -30,6 +30,24 @@ DETERMINISTIC = ["J01-build-pass", "J02-build-fail", "J03-tests-fail", "J04-ambi
                  "J22-repo-explain", "J23-symbol-lookup", "J24-continuous-engineering"]
 
 
+def test_continuous_worker_scopes_compile_fix_to_the_current_turn():
+    worker = journeys.ScriptedContinuousEngineering()
+    messages = [
+        {"role": "user", "content": "how is this repository built and tested?"},
+        {"role": "tool", "content": '{"data": {}}'},
+        {"role": "tool", "content": '{"data": {}}'},
+        {"role": "user", "content": "where is RingBuffer::full defined?"},
+        {"role": "tool", "content": '{"data": {}}'},
+        {"role": "tool", "content": '{"data": {}}'},
+        {"role": "user", "content": "fix task 00000000-0000-0000-0000-000000000000"},
+    ]
+
+    response = worker.chat(messages)
+
+    assert len(response.tool_calls) == 1
+    assert response.tool_calls[0].name == "propose_patch"
+
+
 def _report(output: Path) -> dict[str, dict[str, object]]:
     report = json.loads((output / "journeys.json").read_text(encoding="utf-8"))
     assert report["schema"] == "lca.acceptance-journeys/1"
