@@ -843,6 +843,19 @@ class ScriptedSymbolLookup(ScriptedCompileFix):
 class ScriptedContinuousEngineering(ScriptedRepoExplain, ScriptedSymbolLookup):
     """Compose the existing scripted inspection and compile-fix owners in one session."""
 
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:
+        latest = max(i for i, message in enumerate(messages) if message.get("role") == "user")
+        request = str(messages[latest].get("content", ""))
+        if "repository" in request:
+            return ScriptedRepoExplain.chat(self, messages, tools, max_tokens)
+        if "RingBuffer::full" in request:
+            return ScriptedSymbolLookup.chat(self, messages, tools, max_tokens)
+        # ScriptedCompileFix predates multi-turn scripted sessions and counts tool
+        # results from every message it receives. Give it this turn only so the
+        # preceding explain/find tools cannot advance its patch/build state machine.
+        return ScriptedCompileFix.chat(self, messages[latest:], tools, max_tokens)
+
 
 # ---------------------------------------------------------------- answer grounding
 #
