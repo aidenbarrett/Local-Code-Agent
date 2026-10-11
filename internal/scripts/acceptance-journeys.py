@@ -1127,7 +1127,8 @@ def _exercise_continuous_candidate(s: Session, built: TaskResult, broken: bytes)
         raise JourneyFailed("the scripted fix did not produce a verified candidate")
     candidate_id = fixed.task_id
     diff, diff_result = s.turn(f"/diff {candidate_id}")
-    expect(diff_result is None and RING in diff, "/diff did not show the candidate target")
+    expect(diff_result is not None and diff_result.outcome is TaskOutcome.PASS and RING in diff,
+           "/diff did not return a verified view of the candidate target")
 
     notes = s.repo / "NOTES.md"
     notes.write_text("my staged notes\n", encoding="utf-8")
