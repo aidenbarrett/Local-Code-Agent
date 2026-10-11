@@ -1,6 +1,24 @@
 {
   "schema": "lca.rc-model-measurement/1",
-  "status": "cpu-8b-failed-cpu-30b-startup-retry-planned",
+  "status": "baseline-measured-compiler-guidance-repair-planned",
+  "instruction_repair": {
+    "changed_source_sha256": "0dc19ebe28bdbff307d752ee46e4271c9c10fa9f6c838743c09cda8ed4c8a541",
+    "change": "Existing fix-build-failure instruction permits compiler/link repairs in test source while forbidding assertion weakening/removal/skipping or expectation changes to manufacture green.",
+    "reason": "Official real cxxopts Q07 compiler fault is in a test translation unit; the prior blanket test-edit ban conflicts with that supported repair. Independent review confirmed no second ban and existing effect authority remains unchanged.",
+    "causation": "Not established as sole cause of CPU8B failure; original failed/UNKNOWN measurements remain unrescored.",
+    "next_controlled_measurement": {
+      "profile": "nuc-cpu-8b",
+      "corpus_commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+      "journey": "Q07-fix-model",
+      "repeat": 1,
+      "journey_timeout_seconds": 300,
+      "stop_budget_seconds": 60,
+      "prompts_fixtures_or_budgets_changed": false,
+      "operator_candidate_edits": 0,
+      "result": null
+    },
+    "scope_limits": "No J10 fixture/test-fix prompt tuning, model artifact/profile change, new architecture, validation suppression or physical/offline claim."
+  },
   "owner": "Codex current RC push",
   "question": "Does merged CPU8B thinking-off and enforced single-call worker protocol complete a verified repair in pinned real cxxopts?",
   "product": {
@@ -1002,6 +1020,777 @@
       "weights_copied_or_downloaded": false,
       "global_runtime_modified": false,
       "pre_attempt_startup_retries": 1
+    },
+    "result": {
+      "report_sha256": "9fb30263f7b6a56bbf12ef2e63687bc954815242b7e19104089e287afd29212f",
+      "report": {
+        "schema": "lca.acceptance-journeys/1",
+        "started_unix": 1791756454.403577,
+        "finished_unix": 1791756804.2527306,
+        "profile": "nuc-cpu-30b",
+        "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+        "base_url": "http://127.0.0.1:8000/v3",
+        "preconditions": {
+          "product": {
+            "package_commit": "4b916e7d750f908bc02bdd9b58e804466dd8204d",
+            "package_dirty": false,
+            "package_source": "git",
+            "source_sha256": "ebd75dea1293b882779b421f78bafc738fc7a8ab2d0f447b80900a54a26b771c"
+          },
+          "platform": "Windows-11-10.0.26200-SP0",
+          "python": "3.13.5",
+          "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+          "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+          "fixture_builds": null,
+          "model_endpoint": {
+            "ok": true,
+            "message": "managed model endpoint ready",
+            "lifecycle": "started",
+            "replaced_reason": null,
+            "refused_reason": null,
+            "changed_fields": [],
+            "launch_to_ready_ms": 32839
+          },
+          "model_call": {
+            "ok": true,
+            "seconds": 1.8
+          },
+          "runtime_header": "preset nuc-cpu-30b · model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov (observed) · device CPU (declared) · endpoint http://127.0.0.1:8000/v3 · execution enabled",
+          "corpus": {
+            "name": "cxxopts",
+            "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+            "licence": "MIT",
+            "cache": "C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\qualification-cache",
+            "ready": true,
+            "problem": null
+          }
+        },
+        "journeys": [
+          {
+            "id": "Q01-build-test",
+            "title": "build and test a real repository",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q02-compile-diagnosis",
+            "title": "diagnose a seeded compile error with file and line",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q03-test-truth",
+            "title": "name the seeded failing CTest tests",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q04-candidate-scripted",
+            "title": "scripted fix: apply, undo, re-apply, exact commit amid user work",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q05-stop-build",
+            "title": "Stop during the real build",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q06-repo-explain",
+            "title": "grounded explanation of a real repository",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q07-fix-model",
+            "title": "fix the seeded compile error with the model",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "timed out: 'fix it' did not finish within 300s",
+            "seconds": 310.2,
+            "notes": [],
+            "tasks": [
+              {
+                "said": "build it",
+                "seconds": 6.6,
+                "task_id": "53427a5e-c487-5905-9042-8647dd399998",
+                "outcome": "fail",
+                "reason_code": "verification_failed",
+                "verified": false,
+                "evidence_ids": [
+                  "build_target:0"
+                ],
+                "proof_scope": "observed_build_failure",
+                "llm_calls": 0,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3317,
+                "compactions": 0
+              }
+            ],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": true
+          }
+        ],
+        "corpus": {
+          "name": "cxxopts",
+          "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+          "licence": "MIT",
+          "metrics": {
+            "attempted": 1,
+            "completed_verified": 0,
+            "not_attempted": 0,
+            "unknown_outcomes": 1,
+            "refusal_correctness": null,
+            "user_interventions": null,
+            "cold_build_s": null,
+            "warm_test_s": null,
+            "unrelated_work_preserved": {
+              "Q07-fix-model": null
+            },
+            "failure_reasons": {
+              "Q07-fix-model": "timed out: 'fix it' did not finish within 300s"
+            },
+            "rate_claimed": false
+          }
+        }
+      },
+      "events": [
+        {
+          "event_id": "1041be35-b039-4f80-8195-a7bede5ddad1",
+          "kind": "session.opened",
+          "occurred_utc": "2026-10-11T22:08:14.583522Z",
+          "payload": {
+            "capabilities": [
+              "conversation",
+              "repository_read",
+              "durable_session_events",
+              "durable_task_execution",
+              "durable_task_history",
+              "durable_tool_activity",
+              "deterministic_routing",
+              "textual_session_hub",
+              "non_blocking_turn_dispatch",
+              "explicit_model_route_acceptance",
+              "task_execution_epoch_fencing",
+              "in_process_endpoint_arbitration",
+              "user_stop_request"
+            ],
+            "controller_commit": "4b916e7d750f908bc02bdd9b58e804466dd8204d",
+            "conversation_id": "2026-10-11T22-08-14-465552Z-e994",
+            "recovered": false,
+            "repository_id": "cxxopts:57388292a9991fba"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 1,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": null
+        },
+        {
+          "event_id": "b12b6282-5580-4e52-b6ad-a32766524dfe",
+          "kind": "task.admitted",
+          "occurred_utc": "2026-10-11T22:08:14.764338Z",
+          "payload": {
+            "contract_sha256": "ec58a9d5a8c752cf882fe6509da2d8ad90fb120f1e131d44bba9d37a1884db1b",
+            "deadline_utc": "2026-10-12T04:08:14Z",
+            "execution_epoch": 0,
+            "origin": {
+              "kind": "user_rule",
+              "rule_id": "build-and-test/v1",
+              "turn_ref": {
+                "conversation_id": "2026-10-11T22-08-14-465552Z-e994",
+                "turn_index": 0,
+                "turn_sha256": "bb294d2a0fb100b9fe0d6f810158220571bf50d668ad479373710ff1b8942cf0"
+              }
+            },
+            "repository_id": "cxxopts:57388292a9991fba",
+            "request_ref": {
+              "artifact_id": "0f2c8cfd-71ca-598a-b1b0-a7e82bdc2814",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-request+json",
+              "sha256": "48220594b38ca6f417ec452cd96acd216fb1f4374ab9a399fd892bdf97443f4f",
+              "size_bytes": 385
+            },
+            "skill": "run-build"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 2,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "944ab246-d906-4cdb-b87a-b49a01b7429b",
+          "kind": "task.state_changed",
+          "occurred_utc": "2026-10-11T22:08:14.775923Z",
+          "payload": {
+            "current": "running",
+            "execution_epoch": 0,
+            "previous": "admitted",
+            "reason_code": "requested"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 3,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "578a113e-aaea-4eac-b908-c9b1e96604fb",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:08:14.869886Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "a93adf8a-9b6d-52cc-a774-c846b23fb535",
+            "deadline_utc": "2026-10-12T04:08:14Z",
+            "execution_epoch": 0,
+            "tool_name": "build_target"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 4,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "d1d76c42-feff-40e3-a693-27aa07cf1a94",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:08:21.201050Z",
+          "payload": {
+            "call_id": "a93adf8a-9b6d-52cc-a774-c846b23fb535",
+            "domain": "fail",
+            "duration_ms": 6317,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": 1,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "build_target"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 5,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "81684719-2e35-46c7-966f-42aa4e1f4cf6",
+          "kind": "task.verdict",
+          "occurred_utc": "2026-10-11T22:08:21.302987Z",
+          "payload": {
+            "completion": {
+              "result_ref": {
+                "artifact_id": "176ae3bc-10aa-4f86-86b3-7c954c7d47c3",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-result+json",
+                "sha256": "5eb8ea8da2d56d0aa85f5a65319ef20f246a6b9c0daf9f6fff7cac94d2217855",
+                "size_bytes": 649
+              },
+              "status": "failed",
+              "task_id": "53427a5e-c487-5905-9042-8647dd399998",
+              "verdict_block": {
+                "evidence_ids": [
+                  "build_target:0"
+                ],
+                "reason_code": "verification_failed",
+                "rendered_lines": [
+                  "FAILED: fail.",
+                  "Reason: verification_failed.",
+                  "Verification: ran but did not establish success.",
+                  "Tree SHA-256: e17f8f8062a3983d51c45e708e194d6736ff2c658ad564f35c148575ab98c469.",
+                  "Proof scope: observed_build_failure; request: 779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428.",
+                  "Evidence: build_target:0"
+                ],
+                "scope": "observed_build_failure; request_sha256=779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428",
+                "tree_sha256": "e17f8f8062a3983d51c45e708e194d6736ff2c658ad564f35c148575ab98c469",
+                "verdict": "FAILED"
+              },
+              "worker_artifact_ref": null
+            }
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 6,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "4606072b-c762-413e-913a-4bf25308db07",
+          "kind": "task.closed",
+          "occurred_utc": "2026-10-11T22:08:21.304468Z",
+          "payload": {
+            "cleanup": "not_needed",
+            "result_ref": {
+              "artifact_id": "176ae3bc-10aa-4f86-86b3-7c954c7d47c3",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-result+json",
+              "sha256": "5eb8ea8da2d56d0aa85f5a65319ef20f246a6b9c0daf9f6fff7cac94d2217855",
+              "size_bytes": 649
+            },
+            "status": "failed"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 7,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "bf07ba42-23dd-4474-a3e0-3ecc9784f776",
+          "kind": "task.admitted",
+          "occurred_utc": "2026-10-11T22:08:21.392642Z",
+          "payload": {
+            "contract_sha256": "0f1dd21be9d9ab4369a9b2d1495511512d25b293b6192afc8e3d81b71d82a85c",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "origin": {
+              "kind": "user_rule",
+              "rule_id": "fix-referent/v1",
+              "turn_ref": {
+                "conversation_id": "2026-10-11T22-08-14-465552Z-e994",
+                "turn_index": 1,
+                "turn_sha256": "266f3c0cdb7abdec4484733156b1408993427869a967d88af8f065174c36c40a"
+              }
+            },
+            "repository_id": "cxxopts:57388292a9991fba",
+            "request_ref": {
+              "artifact_id": "e18911fb-bfc4-52b3-ab73-ae272896606f",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-request+json",
+              "sha256": "8820734b3c15dbb56c354c30c7d70becac1678a2b3b3cd30071d656bea7555c4",
+              "size_bytes": 1003
+            },
+            "skill": "fix-build-failure"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 8,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "526c6a42-b45c-4e66-b4b4-1081c98bc6ff",
+          "kind": "task.state_changed",
+          "occurred_utc": "2026-10-11T22:08:21.404498Z",
+          "payload": {
+            "current": "running",
+            "execution_epoch": 0,
+            "previous": "admitted",
+            "reason_code": "requested"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 9,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "28b04148-4dca-429a-93a8-025e6236ea9a",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:09:56.085712Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "b823b321-a1c8-57b7-8fae-de23e3357fcc",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "build_target"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 10,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "32b87c53-5083-4969-8ba0-ea8e93481363",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:10:02.086237Z",
+          "payload": {
+            "call_id": "b823b321-a1c8-57b7-8fae-de23e3357fcc",
+            "domain": "fail",
+            "duration_ms": 5985,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": 1,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "build_target"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 11,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "d267ed10-70b2-4217-a8c3-b195a272f900",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:12:05.270824Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "92af6ffa-d73e-57e8-ab71-c814c72f2e96",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "read_file"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 12,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "094f6c92-dbb2-452e-ab74-99693160edee",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:12:05.284472Z",
+          "payload": {
+            "call_id": "92af6ffa-d73e-57e8-ab71-c814c72f2e96",
+            "domain": "pass",
+            "duration_ms": 0,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": null,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "read_file"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 13,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "3dd5cc85-224c-4f42-ba89-afce6d95e547",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:12:35.883572Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "dbbab5f0-f15d-5300-aa21-615ab76ff57d",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "read_file"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 14,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "be37f764-b67e-440d-b06e-67022e5138af",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:12:35.898745Z",
+          "payload": {
+            "call_id": "dbbab5f0-f15d-5300-aa21-615ab76ff57d",
+            "domain": "pass",
+            "duration_ms": 1,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": null,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "read_file"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 15,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "b5fc0f43-8fe4-4002-852a-dcf028e97f54",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:13:08.897215Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "138395ff-9cea-5987-a361-8b5339e3ffff",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "propose_patch"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 16,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "acc3b216-73a2-4303-9b97-5de0eeb9bb37",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:13:08.915579Z",
+          "payload": {
+            "call_id": "138395ff-9cea-5987-a361-8b5339e3ffff",
+            "domain": "pass",
+            "duration_ms": 4,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": null,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "propose_patch"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 17,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "cb7d22d5-9f8d-4634-b46d-6cdfa9d9c196",
+          "kind": "task.cancel_requested",
+          "occurred_utc": "2026-10-11T22:13:21.421516Z",
+          "payload": {
+            "execution_epoch": 0,
+            "reason_code": "requested",
+            "request_id": "44d955cd-adc2-4448-a15d-d8ceba029aac",
+            "source": "user"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 18,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "9d572e00-e011-44bd-b7cb-2295b590890e",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:13:24.030906Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "b0803ed6-8e81-51dd-929e-cb1b8ae8b0f5",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "apply_patch"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 19,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "f93f7ab3-dedb-4854-8448-97f573bd34b8",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:13:24.047761Z",
+          "payload": {
+            "call_id": "b0803ed6-8e81-51dd-929e-cb1b8ae8b0f5",
+            "domain": "pass",
+            "duration_ms": 2,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": null,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "apply_patch"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 20,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "bed2888d-6e40-4662-83bd-c38412296d44",
+          "kind": "task.verdict",
+          "occurred_utc": "2026-10-11T22:13:24.196419Z",
+          "payload": {
+            "completion": {
+              "result_ref": {
+                "artifact_id": "64d0ac17-c7b9-47e2-99c1-19df56a28903",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-result+json",
+                "sha256": "8a529216b285f8574a2cfe619a8bfca39d519ba9251426ad912fc76051947ba7",
+                "size_bytes": 378
+              },
+              "status": "unknown",
+              "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16",
+              "verdict_block": {
+                "evidence_ids": [],
+                "reason_code": "cancel_unreconciled",
+                "rendered_lines": [
+                  "NO_VERDICT: no_verdict.",
+                  "Reason: cancel_unreconciled.",
+                  "Verification: not established.",
+                  "Tree SHA-256: none.",
+                  "Evidence: none."
+                ],
+                "scope": "controller task result at durable completion",
+                "tree_sha256": null,
+                "verdict": "NO_VERDICT"
+              },
+              "worker_artifact_ref": {
+                "artifact_id": "64d0ac17-c7b9-47e2-99c1-19df56a28903",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-result+json",
+                "sha256": "8a529216b285f8574a2cfe619a8bfca39d519ba9251426ad912fc76051947ba7",
+                "size_bytes": 378
+              }
+            }
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 21,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "b7c81748-d076-4e3b-b2d8-be7faecc0733",
+          "kind": "task.closed",
+          "occurred_utc": "2026-10-11T22:13:24.198048Z",
+          "payload": {
+            "cleanup": "not_needed",
+            "result_ref": {
+              "artifact_id": "64d0ac17-c7b9-47e2-99c1-19df56a28903",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-result+json",
+              "sha256": "8a529216b285f8574a2cfe619a8bfca39d519ba9251426ad912fc76051947ba7",
+              "size_bytes": 378
+            },
+            "status": "unknown"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 22,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        }
+      ],
+      "transcript": "[23:08:21] USER: build it   (6.6s)\n  RESULT: {\"task_id\": \"53427a5e-c487-5905-9042-8647dd399998\", \"outcome\": \"fail\", \"reason_code\": \"verification_failed\", \"verified\": false, \"evidence_ids\": [\"build_target:0\"], \"proof_scope\": \"observed_build_failure\", \"llm_calls\": 0, \"prompt_tokens\": 0, \"context_peak_tokens\": 3317, \"compactions\": 0}\n  ANSWER:\n    [Controller: fail; verification: ran, did not establish success; reason: verification_failed; evidence: 1 item(s); task: 53427a5e-c487-5905-9042-8647dd399998]\n    Proof scope: observed_build_failure\n    Request SHA-256: 779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428\n    Tree SHA-256: e17f8f8062a3983d51c45e708e194d6736ff2c658ad564f35c148575ab98c469\n    Evidence IDs: build_target:0\n    \n    Unverified task detail (not proof of a completed change):\n    build_target: build (debug) FAILED (compile) with 2 compiler error(s) and 0 link error(s); first error at test/options.cpp:95: 'reslt': undeclared identifier [C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-model30b-merged-isolated-20261011\\repos\\Q07-fix-model\\build\\test\\options_test.vcxproj] -- command: [\"cmake\", \"--build\", \"build\", \"--config\", \"Debug\", \"--parallel\", \"4\"]\n\n[23:13:21] USER: fix it\n  ANSWER:\n    (no answer after 300s; timed out)\n\n",
+      "operator": {
+        "candidate_edits": 0,
+        "manual_stops_during_trial": 0,
+        "automatic_budget_stops": 1,
+        "model_attempt_retries": 0,
+        "pre_attempt_startup_retries": 1,
+        "memory_not_sampled": true,
+        "note": "No rates or physicalhardwareclaim. Tool payload refsnull; unknown verdict doesnotinvent omittedcallcounts or preservationproof.",
+        "owned_server_after_trial": {
+          "stopped": true,
+          "forced": true
+        },
+        "candidate_payload": {
+          "availability": "unavailable",
+          "reason": "Stop cleanup removed isolated workspace; tool argument/result refs were null, no patch payload retained",
+          "claims": "propose_patch/apply_patch events observed, no patch contents or correctness invented; no full candidate build proof"
+        }
+      }
     },
     "note": "Existing stronger profile on same merged product, no broad timeout increase; cold/reuse identity recorded from real lifecycle. No pooled model-size effect or physical J10 claim."
   }
