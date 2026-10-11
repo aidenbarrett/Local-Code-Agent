@@ -1,6 +1,6 @@
 {
   "schema": "lca.rc-model-measurement/1",
-  "status": "measured-cpu-8b-failed-next-cpu-30b-planned",
+  "status": "cpu-8b-failed-cpu-30b-startup-retry-planned",
   "owner": "Codex current RC push",
   "question": "Does merged CPU8B thinking-off and enforced single-call worker protocol complete a verified repair in pinned real cxxopts?",
   "product": {
@@ -819,7 +819,7 @@
     "status": "planned",
     "profile": "nuc-cpu-30b",
     "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
-    "weights_revision": "21140cdfb9db057e6dac9c17bfd45a4c2f4780b7",
+    "weights_revision": "21140c68a63012da511fe50656319e00be2f6542",
     "quant": "INT4_ASYM",
     "runtime": "OVMS2026.3.0",
     "tool_parser": "qwen3coder",
@@ -832,6 +832,177 @@
     "stop_budget_seconds": 60,
     "operator_candidate_edits": 0,
     "qualification_thresholds_or_prompt_changes": false,
+    "unattempted_startup": {
+      "report_sha256": "6363a3f6458c315e786eee2e24ce11e5a5e4d7faad82e9740dec7661cd66dc14",
+      "report": {
+        "schema": "lca.acceptance-journeys/1",
+        "started_unix": 1791756216.537376,
+        "finished_unix": 1791756237.043135,
+        "profile": "nuc-cpu-30b",
+        "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+        "base_url": "http://127.0.0.1:8000/v3",
+        "preconditions": {
+          "product": {
+            "package_commit": "508f8fecf15f4b2db8ced04e0021c6aac0101ff1",
+            "package_dirty": false,
+            "package_source": "git",
+            "source_sha256": "ebd75dea1293b882779b421f78bafc738fc7a8ab2d0f447b80900a54a26b771c"
+          },
+          "platform": "Windows-11-10.0.26200-SP0",
+          "python": "3.13.5",
+          "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+          "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+          "fixture_builds": null,
+          "model_endpoint": {
+            "ok": false,
+            "message": "managed model endpoint could not be started: server not ready; inspect C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\runtime\\nuc-cpu-30b\\stdout.log and C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\runtime\\nuc-cpu-30b\\stderr.log; live process retained",
+            "lifecycle": "refused",
+            "replaced_reason": null,
+            "refused_reason": "start_failed",
+            "changed_fields": [],
+            "launch_to_ready_ms": null
+          },
+          "runtime_header": "preset nuc-cpu-30b · model unobserved (observed) · device CPU (declared) · endpoint http://127.0.0.1:8000/v3 · execution enabled",
+          "corpus": {
+            "name": "cxxopts",
+            "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+            "licence": "MIT",
+            "cache": "C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\qualification-cache",
+            "ready": true,
+            "problem": null
+          }
+        },
+        "journeys": [
+          {
+            "id": "Q01-build-test",
+            "title": "build and test a real repository",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q02-compile-diagnosis",
+            "title": "diagnose a seeded compile error with file and line",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q03-test-truth",
+            "title": "name the seeded failing CTest tests",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q04-candidate-scripted",
+            "title": "scripted fix: apply, undo, re-apply, exact commit amid user work",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q05-stop-build",
+            "title": "Stop during the real build",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q06-repo-explain",
+            "title": "grounded explanation of a real repository",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q07-fix-model",
+            "title": "fix the seeded compile error with the model",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "the model endpoint is not ready: {'ok': False, 'message': 'managed model endpoint could not be started: server not ready; inspect C:\\\\Users\\\\aiden\\\\AppData\\\\Local\\\\LocalCodeAgent\\\\runtime\\\\nuc-cpu-30b\\\\stdout.log and C:\\\\Users\\\\aiden\\\\AppData\\\\Local\\\\LocalCodeAgent\\\\runtime\\\\nuc-cpu-30b\\\\stderr.log; live process retained', 'lifecycle': 'refused', 'replaced_reason': None, 'refused_reason': 'start_failed', 'changed_fields': [], 'launch_to_ready_ms': None}",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          }
+        ],
+        "corpus": {
+          "name": "cxxopts",
+          "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+          "licence": "MIT",
+          "metrics": {
+            "attempted": 0,
+            "completed_verified": 0,
+            "not_attempted": 1,
+            "unknown_outcomes": 0,
+            "refusal_correctness": null,
+            "user_interventions": null,
+            "cold_build_s": null,
+            "warm_test_s": null,
+            "unrelated_work_preserved": {},
+            "failure_reasons": {},
+            "rate_claimed": false
+          }
+        }
+      },
+      "operator": {
+        "model_attempted": false,
+        "reason": "OVMS native create_directories failed for global cache/nuc-cpu-30b. Cache parent and its junction target DO exist; child absent. Later owner status observed process dead. Exact native I/O cause not established; global junction unchanged.",
+        "preparation": "New isolated runtime with real cache directory; models junction to existing global pinned weights, tools junction to freshly downloaded OVMS2026.3.0. No candidate/source edits.",
+        "pre_attempt_startup_retries_planned": 1,
+        "qualification_or_trial_deadlines_changed": false
+      }
+    },
+    "preparation": {
+      "isolated_runtime": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-30b-merged-runtime-20261011",
+      "models_link": "C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\models",
+      "tools_link": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-fresh-8b-509-20261011\\Runtime\\tools",
+      "cache": "real directory in isolated runtime",
+      "weights_revision_observed": "21140c68a63012da511fe50656319e00be2f6542",
+      "weights_bytes": 16314043317,
+      "weights_copied_or_downloaded": false,
+      "global_runtime_modified": false,
+      "pre_attempt_startup_retries": 1
+    },
     "note": "Existing stronger profile on same merged product, no broad timeout increase; cold/reuse identity recorded from real lifecycle. No pooled model-size effect or physical J10 claim."
   }
 }
