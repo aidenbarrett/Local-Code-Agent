@@ -107,7 +107,10 @@ def test_preflight_uses_selected_profile_for_every_owned_artifact(tmp_path, monk
     assert observed["args"][-2:] == ["--profile", "ptl-gpu-30b"]
 
 
-def test_one_run_composes_existing_capture_and_acceptance_owners(tmp_path, monkeypatch):
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_one_run_composes_existing_capture_and_acceptance_owners(
+    tmp_path, monkeypatch, capsys, exit_code
+):
     module = _load()
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -150,7 +153,7 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(tmp_path, monke
             encoding="utf-8",
         )
         observed["command"] = args
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=exit_code, stdout="journey output", stderr="journey errors")
 
     monkeypatch.setattr(module, "prepare_qualification", prepare)
     monkeypatch.setattr(module, "capture_preflight", preflight)
@@ -161,9 +164,16 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(tmp_path, monke
         module, "_git", lambda _repo, *args: "abc" if "rev-parse" in args else ""
     )
 
-    payload = module.run_qualification(
-        repo, tmp_path / "runtime", output, "ptl-gpu-30b", confirm_disconnected=True
-    )
+    if exit_code:
+        with pytest.raises(module.AcceptanceCaptureError, match="reported failure"):
+            module.run_qualification(
+                repo, tmp_path / "runtime", output, "ptl-gpu-30b", confirm_disconnected=True
+            )
+        payload = json.loads((output / "acceptance.json").read_text(encoding="utf-8"))
+    else:
+        payload = module.run_qualification(
+            repo, tmp_path / "runtime", output, "ptl-gpu-30b", confirm_disconnected=True
+        )
 
     assert observed["prepared"] == observed["preflight"] == "ptl-gpu-30b"
     assert observed["command"][-3:] == ["--profile", "ptl-gpu-30b", "--allow-model"]
@@ -171,6 +181,52 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(tmp_path, monke
     assert payload["run_evidence"]["journeys"]["J24-continuous"]["status"] == "PASS"
     assert (output / "acceptance.json").is_file()
     assert "Cold model ms   UNKNOWN" in (output / "summary.txt").read_text(encoding="utf-8")
+    assert (output / "journeys.stdout.log").read_text(encoding="utf-8") == "journey output"
+    assert (output / "journeys.stderr.log").read_text(encoding="utf-8") == "journey errors"
+    visible = capsys.readouterr().out
+    assert "READY TO DISCONNECT" in visible
+    assert str(output / "journeys") in visible
+    assert (output / "summary.txt").read_text(encoding="utf-8") in visible
+
+
+def test_unready_run_prints_next_actions_and_never_crosses_disconnect_boundary(
+    tmp_path, monkeypatch, capsys
+):
+    module = _load()
+    monkeypatch.setattr(
+        module, "prepare_qualification",
+        lambda *_args: {"ready_to_disconnect": False, "blockers": ["install weights"]},
+    )
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("an unready run must never prompt or perform disconnected preflight")
+
+    monkeypatch.setattr("builtins.input", forbidden)
+    monkeypatch.setattr(module, "capture_preflight", forbidden)
+    with pytest.raises(module.AcceptanceCaptureError, match="not ready to disconnect"):
+        module.run_qualification(
+            tmp_path, tmp_path, tmp_path / "output", "ptl-gpu-30b", confirm_disconnected=False
+        )
+    assert capsys.readouterr().out == "NOT READY\nNEXT: install weights\n"
+
+
+@pytest.mark.parametrize("response", ["", "yes", "disconnected"])
+def test_run_requires_exact_disconnect_confirmation(tmp_path, monkeypatch, response):
+    module = _load()
+    monkeypatch.setattr(
+        module, "prepare_qualification",
+        lambda *_args: {"ready_to_disconnect": True, "blockers": []},
+    )
+    monkeypatch.setattr("builtins.input", lambda *_args: response)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("preflight cannot run without exact confirmation")
+
+    monkeypatch.setattr(module, "capture_preflight", forbidden)
+    with pytest.raises(module.AcceptanceCaptureError, match="exact confirmation"):
+        module.run_qualification(
+            tmp_path, tmp_path, tmp_path / "output", "ptl-gpu-30b", confirm_disconnected=False
+        )
 
 
 def test_composed_finalize_refuses_missing_required_journey(tmp_path, monkeypatch):

@@ -413,6 +413,7 @@ def run_qualification(
     repo: Path, runtime_root: Path, output: Path, profile: str, *, confirm_disconnected: bool
 ) -> dict[str, Any]:
     preparation = prepare_qualification(repo, runtime_root, output, profile)
+    _print_preparation(preparation)
     if not preparation["ready_to_disconnect"]:
         blockers = "; ".join(str(value) for value in preparation["blockers"])
         raise AcceptanceCaptureError("not ready to disconnect: " + blockers)
@@ -429,6 +430,8 @@ def run_qualification(
     capture_preflight(repo, runtime_root, preflight_path, profile)
     journeys_dir = output / "journeys"
     launcher = repo.resolve() / "local-code-agent.ps1"
+    sys.stdout.write(f"Running public acceptance journeys; evidence: {journeys_dir}\n")
+    sys.stdout.flush()
     acceptance = _run(
         [
             "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
@@ -437,6 +440,8 @@ def run_qualification(
         ],
         cwd=repo.resolve(),
     )
+    (output / "journeys.stdout.log").write_text(acceptance.stdout, encoding="utf-8")
+    (output / "journeys.stderr.log").write_text(acceptance.stderr, encoding="utf-8")
     post_run_routes = active_default_routes()
     require_offline(post_run_routes)
     journeys_path = journeys_dir / "journeys.json"
@@ -455,13 +460,21 @@ def run_qualification(
     (output / "acceptance.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    write_summary(output / "acceptance.json", output / "summary.txt")
+    sys.stdout.write(write_summary(output / "acceptance.json", output / "summary.txt"))
     if acceptance.returncode != 0:
         raise AcceptanceCaptureError(
             f"acceptance journeys reported failure (exit {acceptance.returncode}); "
             "retained report is complete"
         )
     return payload
+
+
+def _print_preparation(payload: dict[str, Any]) -> None:
+    message = "READY TO DISCONNECT" if payload["ready_to_disconnect"] else "NOT READY"
+    sys.stdout.write(message + "\n")
+    for blocker in payload["blockers"]:
+        sys.stdout.write(f"NEXT: {blocker}\n")
+    sys.stdout.flush()
 
 
 
@@ -598,10 +611,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = prepare_qualification(
                 args.repo, args.runtime_root or default_runtime_root(), args.output, args.profile
             )
-            message = "READY TO DISCONNECT" if payload["ready_to_disconnect"] else "NOT READY"
-            sys.stdout.write(message + "\n")
-            for blocker in payload["blockers"]:
-                sys.stdout.write(f"NEXT: {blocker}\n")
+            _print_preparation(payload)
             return 0 if payload["ready_to_disconnect"] else 3
         elif args.command == "preflight":
             capture_preflight(args.repo, args.runtime_root, args.output, args.profile)
