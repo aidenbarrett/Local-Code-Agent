@@ -83,14 +83,18 @@ def active_default_routes() -> list[dict[str, Any]]:
 $active = Get-NetRoute -ErrorAction Stop |
     Where-Object { ($_.DestinationPrefix -eq '0.0.0.0/0' -or $_.DestinationPrefix -eq '::/0') -and $_.State -eq 'Alive' } |
     ForEach-Object {
-        $adapter = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue
-        if ($adapter -and $adapter.Status -eq 'Up') {
+        $adapter = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction Stop
+        if (-not $adapter) { throw 'Cannot observe the default route adapter' }
+        if ($adapter.Status -eq 'Up') {
             [pscustomobject]@{DestinationPrefix=$_.DestinationPrefix;InterfaceIndex=$_.InterfaceIndex;InterfaceAlias=$adapter.Name}
         }
     }
-@($active) | ConvertTo-Json -Compress
+ConvertTo-Json -InputObject @($active) -Compress
 '''
-    return [dict(item) for item in _as_list(_powershell_json(script))]
+    routes = _powershell_json(script)
+    if not isinstance(routes, list) or any(not isinstance(row, dict) for row in routes):
+        raise AcceptanceCaptureError("default route probe did not return an observed route list")
+    return [dict(item) for item in routes]
 
 
 def require_offline(routes: Iterable[dict[str, Any]]) -> None:
@@ -113,9 +117,10 @@ def configured_devices(device: str) -> list[dict[str, Any]]:
 $devices = Get-PnpDevice -PresentOnly -ErrorAction Stop |
     Where-Object { __PREDICATE__ } |
     ForEach-Object {
+        $device = $_
         $drv = Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue |
-            Where-Object { $_.DeviceID -eq $_.InstanceId } | Select-Object -First 1
-        [pscustomobject]@{name=$_.FriendlyName;status=$_.Status;instance_id=$_.InstanceId;driver_version=$drv.DriverVersion;driver_provider=$drv.DriverProviderName}
+            Where-Object { $_.DeviceID -eq $device.InstanceId } | Select-Object -First 1
+        [pscustomobject]@{name=$device.FriendlyName;status=$device.Status;instance_id=$device.InstanceId;driver_version=$drv.DriverVersion;driver_provider=$drv.DriverProviderName}
     }
 @($devices) | ConvertTo-Json -Compress
 '''

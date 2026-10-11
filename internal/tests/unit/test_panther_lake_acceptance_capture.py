@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -33,6 +35,69 @@ def test_offline_gate_refuses_any_active_default_route():
 def test_offline_gate_accepts_no_default_routes():
     module = _load()
     module.require_offline([])
+
+
+@pytest.mark.parametrize("result", [None, {}, "", [None]])
+def test_route_probe_refuses_unknown_instead_of_reporting_offline(monkeypatch, result):
+    module = _load()
+    monkeypatch.setattr(module, "_powershell_json", lambda _script: result)
+    with pytest.raises(module.AcceptanceCaptureError, match="observed route list"):
+        module.active_default_routes()
+
+
+def _powershell_probe(module, monkeypatch, prelude):
+    shell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if shell is None:
+        pytest.skip("PowerShell is unavailable")
+
+    def probe(script):
+        result = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-Command", prelude + script],
+            text=True, capture_output=True, check=False,
+        )
+        if result.returncode:
+            raise module.AcceptanceCaptureError(result.stderr)
+        return json.loads(result.stdout)
+
+    monkeypatch.setattr(module, "_powershell_json", probe)
+
+
+def test_route_probe_serializes_an_observed_empty_list(monkeypatch):
+    module = _load()
+    _powershell_probe(module, monkeypatch, "function Get-NetRoute { param($ErrorAction) };\n")
+    assert module.active_default_routes() == []
+
+
+def test_route_adapter_observation_failure_never_becomes_offline(monkeypatch):
+    module = _load()
+    _powershell_probe(module, monkeypatch, r'''
+function Get-NetRoute { param($ErrorAction)
+    [pscustomobject]@{DestinationPrefix='0.0.0.0/0';State='Alive';InterfaceIndex=12}
+}
+function Get-NetAdapter { [CmdletBinding()] param($InterfaceIndex)
+    Write-Error 'adapter lookup failed'
+}
+''')
+    with pytest.raises(module.AcceptanceCaptureError, match="adapter lookup failed"):
+        module.active_default_routes()
+
+
+def test_device_driver_is_matched_to_the_observed_device(monkeypatch):
+    module = _load()
+    _powershell_probe(module, monkeypatch, r'''
+function Get-PnpDevice { param([switch]$PresentOnly, $ErrorAction)
+    [pscustomobject]@{FriendlyName='Intel GPU';Class='Display';Status='OK';InstanceId='gpu-id'}
+}
+function Get-CimInstance { param($ClassName, $ErrorAction)
+    [pscustomobject]@{DeviceID='other-id';DriverVersion='wrong';DriverProviderName='other'}
+    [pscustomobject]@{DeviceID='gpu-id';DriverVersion='observed';DriverProviderName='Intel'}
+}
+''')
+    devices = module.configured_devices("GPU")
+    assert len(devices) == 1
+    assert devices[0]["instance_id"] == "gpu-id"
+    assert devices[0]["driver_version"] == "observed"
+    assert devices[0]["driver_provider"] == "Intel"
 
 
 def test_preflight_parser_requires_and_retains_selected_profile():
