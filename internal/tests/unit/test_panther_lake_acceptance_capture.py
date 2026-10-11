@@ -34,6 +34,78 @@ def test_offline_gate_accepts_no_default_routes():
     module.require_offline([])
 
 
+def test_preflight_parser_requires_and_retains_selected_profile():
+    module = _load()
+    args = module.parser().parse_args(
+        [
+            "preflight",
+            "--repo", ".",
+            "--profile", "ptl-gpu-30b",
+            "--runtime-root", "runtime",
+            "--output", "preflight.json",
+        ]
+    )
+
+    assert args.profile == "ptl-gpu-30b"
+
+
+def test_preflight_uses_selected_profile_for_every_owned_artifact(tmp_path, monkeypatch):
+    module = _load()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "local-code-agent.ps1").write_text("launcher", encoding="utf-8")
+    runtime_root = tmp_path / "runtime-root"
+    runtime_profile = runtime_root / "runtime" / "profiles" / "ptl-gpu-30b.json"
+    qualification = runtime_root / "reports" / "qualification-ptl-gpu-30b.json"
+    runtime_profile.parent.mkdir(parents=True)
+    qualification.parent.mkdir(parents=True)
+    runtime_profile.write_text(json.dumps({"runtime": "ovms", "device": "GPU"}), encoding="utf-8")
+    qualification.write_text(json.dumps({"ok": True, "model": "gpu-model"}), encoding="utf-8")
+    output = tmp_path / "run" / "preflight.json"
+    output.parent.mkdir()
+    (output.parent / "qualification-preflight.json").write_text(
+        json.dumps(
+            {
+                "schema": module.PREPARE_SCHEMA,
+                "phase": "prepare",
+                "profile": "ptl-gpu-30b",
+                "repository": {"head": "head"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(module, "_git", lambda _repo, *args: "head" if "rev-parse" in args else "")
+    monkeypatch.setattr(module, "active_default_routes", lambda: [])
+    observed = {}
+
+    def devices(device):
+        observed["device"] = device
+        return [{"name": "GPU device"}]
+
+    monkeypatch.setattr(module, "configured_devices", devices)
+    monkeypatch.setattr(module, "weight_state", lambda profile, root: "downloaded")
+
+    def run(args, **_kwargs):
+        observed["args"] = args
+        return type("Result", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
+
+    monkeypatch.setattr(module, "_run", run)
+
+    payload = module.capture_preflight(
+        repo, runtime_root, output, "ptl-gpu-30b"
+    )
+
+    assert payload["profile"] == "ptl-gpu-30b"
+    assert payload["runtime"]["device"] == "GPU"
+    assert observed["device"] == "GPU"
+    assert payload["model_manifest_summary"] == {
+        "source_model": module.MODEL_PRESETS["ptl-gpu-30b"].model,
+        "weights": "downloaded",
+    }
+    assert observed["args"][-2:] == ["--profile", "ptl-gpu-30b"]
+
+
 def test_finalize_refuses_checkout_drift_before_accepting_evidence(tmp_path, monkeypatch):
     module = _load()
     repo = tmp_path / "repo"
