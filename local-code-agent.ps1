@@ -190,11 +190,16 @@ switch ($Command.ToLowerInvariant()) {
         exit $LASTEXITCODE
     }
     'qualify' {
-        # Prepare one retained, non-certifying physical qualification run. This
-        # checks local assets while networking may still be available; the
-        # disconnected capture remains a separate explicit step.
+        # One public command family owns preparation, disconnected preflight,
+        # finalization and summary. Preserve the original shorthand by treating
+        # arguments that do not begin with a phase as `prepare` arguments.
         Set-ManagedOvmsEnvironment
-        & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') prepare --repo $root @Rest
+        $qualificationPhases = @('prepare', 'preflight', 'finalize', 'summary')
+        if ($Rest -and $Rest.Count -gt 0 -and $qualificationPhases -contains $Rest[0]) {
+            & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') @Rest
+        } else {
+            & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') prepare --repo $root @Rest
+        }
         exit $LASTEXITCODE
     }
     'models' {
