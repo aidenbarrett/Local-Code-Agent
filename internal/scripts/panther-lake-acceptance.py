@@ -26,7 +26,6 @@ from local_agent.config import MODEL_PRESETS  # noqa: E402
 from scripts.model_weights import weight_state  # noqa: E402
 from serving.model_store import default_runtime_root  # noqa: E402
 
-PROFILE = "ptl-npu-8b"
 SCHEMA = "lca.panther-lake-acceptance/1"
 UNKNOWN = "UNKNOWN"
 PREPARE_SCHEMA = "lca.offline-qualification-preflight/1"
@@ -103,10 +102,16 @@ def require_offline(routes: Iterable[dict[str, Any]]) -> None:
         )
 
 
-def npu_devices() -> list[dict[str, Any]]:
+def configured_devices(device: str) -> list[dict[str, Any]]:
+    if device == "NPU":
+        predicate = "$_.FriendlyName -match 'NPU|Neural Processing|AI Boost'"
+    elif device == "GPU":
+        predicate = "$_.Class -eq 'Display'"
+    else:
+        raise AcceptanceCaptureError(f"unsupported Panther Lake device probe: {device}")
     script = r'''
 $devices = Get-PnpDevice -PresentOnly -ErrorAction Stop |
-    Where-Object { $_.FriendlyName -match 'NPU|Neural Processing|AI Boost' } |
+    Where-Object { __PREDICATE__ } |
     ForEach-Object {
         $drv = Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue |
             Where-Object { $_.DeviceID -eq $_.InstanceId } | Select-Object -First 1
@@ -114,6 +119,7 @@ $devices = Get-PnpDevice -PresentOnly -ErrorAction Stop |
     }
 @($devices) | ConvertTo-Json -Compress
 '''
+    script = script.replace("__PREDICATE__", predicate)
     return [dict(item) for item in _as_list(_powershell_json(script))]
 
 
@@ -197,7 +203,9 @@ def prepare_qualification(
     return payload
 
 
-def capture_preflight(repo: Path, runtime_root: Path, output: Path) -> dict[str, Any]:
+def capture_preflight(
+    repo: Path, runtime_root: Path, output: Path, profile: str
+) -> dict[str, Any]:
     if platform.system() != "Windows":
         raise AcceptanceCaptureError("Panther Lake physical acceptance must run on Windows")
     repo = repo.resolve()
@@ -206,18 +214,38 @@ def capture_preflight(repo: Path, runtime_root: Path, output: Path) -> dict[str,
     if status:
         raise AcceptanceCaptureError("acceptance checkout must be clean; git status is not empty")
 
+    preparation = _load_json(
+        output.parent / "qualification-preflight.json", "qualification preparation"
+    )
+    if preparation.get("schema") != PREPARE_SCHEMA or preparation.get("phase") != "prepare":
+        raise AcceptanceCaptureError("qualification preparation schema/phase is not current")
+    if preparation.get("profile") != profile:
+        raise AcceptanceCaptureError("selected profile does not match qualification preparation")
+    prepared_repo = preparation.get("repository")
+    prepared_head = prepared_repo.get("head") if isinstance(prepared_repo, dict) else None
+    if prepared_head != head:
+        raise AcceptanceCaptureError("checkout drifted after qualification preparation")
+
     routes = active_default_routes()
     require_offline(routes)
-    devices = npu_devices()
+    if profile not in MODEL_PRESETS:
+        raise AcceptanceCaptureError(
+            f"unknown profile {profile}; run .\\local-code-agent.ps1 models"
+        )
+    if not profile.startswith("ptl-"):
+        raise AcceptanceCaptureError("physical Panther Lake qualification requires a ptl-* profile")
+    config = MODEL_PRESETS[profile]
+    devices = configured_devices(config.device)
     if not devices:
-        raise AcceptanceCaptureError("no present Windows NPU device matched the approved probe")
-
+        raise AcceptanceCaptureError(
+            f"no present Windows {config.device} device matched the approved probe"
+        )
+    if weight_state(profile, runtime_root) != "downloaded":
+        raise AcceptanceCaptureError(f"model weights for {profile} are not complete")
     reports = runtime_root / "reports"
-    runtime_profile = runtime_root / "runtime" / "profiles" / f"{PROFILE}.json"
-    model_manifest = reports / "model-qwen3-8b-int4-cw-ov-manifest.json"
-    qualification = reports / f"qualification-{PROFILE}.json"
+    runtime_profile = runtime_root / "runtime" / "profiles" / f"{profile}.json"
+    qualification = reports / f"qualification-{profile}.json"
     runtime = _load_json(runtime_profile, "managed runtime profile")
-    model = _load_json(model_manifest, "model manifest")
     qual = _load_json(qualification, "qualification report")
 
     launcher = repo / "local-code-agent.ps1"
@@ -225,7 +253,7 @@ def capture_preflight(repo: Path, runtime_root: Path, output: Path) -> dict[str,
         raise AcceptanceCaptureError("public launcher is missing")
     check = _run([
         "powershell.exe", "-NoProfile", "-File", str(launcher),
-        "session", "--check", "--repo", str(repo), "--profile", PROFILE,
+        "session", "--check", "--repo", str(repo), "--profile", profile,
     ], cwd=repo)
     if check.returncode != 0:
         raise AcceptanceCaptureError(
@@ -238,17 +266,16 @@ def capture_preflight(repo: Path, runtime_root: Path, output: Path) -> dict[str,
         "captured_at_utc": _now(),
         "repository": {"root": str(repo), "head": head, "clean": True},
         "offline_gate": {"method": "no alive default route on an Up Windows adapter", "passed": True, "routes": routes},
-        "profile": PROFILE,
-        "npu_devices": devices,
+        "profile": profile,
+        "device_candidates": devices,
         "runtime": runtime,
         "model_manifest_summary": {
-            "source_model": model.get("source_model"),
-            "file_count": len(model.get("files", [])) if isinstance(model.get("files"), list) else None,
+            "source_model": config.model,
+            "weights": "downloaded",
         },
         "qualification_summary": {"ok": qual.get("ok"), "model": qual.get("model")},
         "artifacts": {
             "runtime_profile": _artifact(runtime_profile),
-            "model_manifest": _artifact(model_manifest),
             "qualification": _artifact(qualification),
         },
         "public_check": {"exit_code": check.returncode, "stdout": check.stdout[-4000:]},
@@ -374,6 +401,7 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--output", type=Path, required=True)
     pre = sub.add_parser("preflight")
     pre.add_argument("--repo", type=Path, required=True)
+    pre.add_argument("--profile", required=True, choices=sorted(MODEL_PRESETS))
     pre.add_argument("--runtime-root", type=Path, required=True)
     pre.add_argument("--output", type=Path, required=True)
     fin = sub.add_parser("finalize")
@@ -401,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stdout.write(f"NEXT: {blocker}\n")
             return 0 if payload["ready_to_disconnect"] else 3
         if args.command == "preflight":
-            capture_preflight(args.repo, args.runtime_root, args.output)
+            capture_preflight(args.repo, args.runtime_root, args.output, args.profile)
         elif args.command == "finalize":
             finalize(args.preflight, args.output, args.evidence, args.cold_latency_ms, args.warm_latency_ms)
         else:
