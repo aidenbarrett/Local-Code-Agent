@@ -1721,7 +1721,7 @@ REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
 
 # Product journeys with scripted workers instead of the model.
 SCRIPTED_WORKERS = {"J13-candidate-scripted": ScriptedCompileFix,
-                    "J24-continuous-engineering": ScriptedContinuousEngineering,
+                    "J24-continuous": ScriptedContinuousEngineering,
                     "J21-exact-commit": ScriptedCompileFix,
                     "J21b-commit-policy": ScriptedCompileFix,
                     "J15-dirty-worktree": ScriptedDirtyReview,
@@ -1772,7 +1772,7 @@ JOURNEYS: list[tuple[str, str, str, str, bool, dict[str, bool], Callable[[Sessio
      "product", "clean", False, {}, j_repo_explain),
     ("J23-symbol-lookup", "find a C++ symbol through the public repository route",
      "product", "clean", False, {}, j_symbol_lookup),
-    ("J24-continuous-engineering", "one continuous installed engineering workflow",
+    ("J24-continuous", "one continuous installed engineering workflow",
      "product", "compile_error", False, {"allow_commit": True}, j_continuous_engineering),
     ("J13-candidate-scripted", "candidate controls with a scripted fix (no model)", "product",
      "compile_error", False, {"allow_commit": True}, j_candidate_lifecycle),
