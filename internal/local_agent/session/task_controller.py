@@ -51,6 +51,9 @@ from .configured_checks import (
     configured_check_sha256,
 )
 from .proof_binding import binding_from_run
+from .configured_build import (
+    CONFIGURED_BUILD, CONFIGURED_BUILD_PROCEDURE, ConfiguredBuildPlan, configured_build_sha256,
+)
 from .repository_state import (
     REPOSITORY_STATE,
     REPOSITORY_STATE_PROCEDURE,
@@ -351,6 +354,9 @@ class TaskController:
         return skill
 
     def resolve_skill(self, skill_name: str) -> str:
+        if skill_name == CONFIGURED_BUILD:
+            self._resolve_worker_skill(CONFIGURED_BUILD_PROCEDURE)
+            return skill_name
         if skill_name in CONTROLLER_ACTIONS:
             return skill_name
         if skill_name in CONFIGURED_CHECKS:
@@ -382,6 +388,8 @@ class TaskController:
         Symlinks escaping the skill directory are refused rather than leaving provenance
         dependent on unbound external bytes.
         """
+        if skill_name == CONFIGURED_BUILD:
+            return configured_build_sha256(self.effective_skill_sha256(CONFIGURED_BUILD_PROCEDURE))
         if skill_name in CONTROLLER_ACTIONS:
             return controller_action_sha256(skill_name)
         if skill_name in CONFIGURED_CHECKS:
@@ -805,6 +813,11 @@ class TaskController:
                 result = self._run_candidate_change(
                     task, task_id, resolved_skill, durable_activity,
                     cancellation_probe=cancellation_probe,
+                )
+            elif resolved_skill == CONFIGURED_BUILD:
+                result = self._run_worker(
+                    task, CONFIGURED_BUILD_PROCEDURE, ConfiguredBuildPlan(),
+                    _ExecutionScope(task_id, durable_activity, cancellation_probe),
                 )
             elif resolved_skill in CONFIGURED_CHECKS:
                 # No judgement is needed to run the configured build or tests, so no
