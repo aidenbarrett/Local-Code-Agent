@@ -110,6 +110,7 @@ class Journey:
     tasks: list[dict[str, Any]] = field(default_factory=list)
     measured: dict[str, Any] = field(default_factory=dict)
     tool_failures: list[dict[str, Any]] = field(default_factory=list)
+    attempted: bool = False
 
     def passed(self, reason: str = "") -> None:
         self.status, self.reason = "PASS", reason
@@ -2076,16 +2077,19 @@ SCRIPTED_WORKERS["Q04-candidate-scripted"] = ScriptedCorpusCompileFix
 
 def corpus_metrics(journeys: list[Journey]) -> dict[str, Any]:
     """Astra's qualification counts. Counts only: no rate from fewer than 10 attempts."""
-    ran = [j for j in journeys if j.reason != "not selected"]
+    selected = [j for j in journeys if j.reason != "not selected"]
+    ran = [j for j in selected if j.attempted]
     # Only proved outcomes count. Free model prose (Q06's evidence-grounded) is an
     # observation whose correctness is unknown, never a completed verification.
     verified = [j for j in ran if j.status in ("PASS", "MEASURED:verified")]
-    refusals = [j for j in ran if j.status == "UNKNOWN" or j.status.startswith("MEASURED:unknown")]
+    unknowns = [j for j in ran if j.status == "UNKNOWN" or j.status.startswith("MEASURED:unknown")]
     return {
         "attempted": len(ran),
         "completed_verified": len(verified),
-        "correct_refusals_or_unknowns": len(refusals),
-        "user_interventions": 0,
+        "not_attempted": len(selected) - len(ran),
+        "unknown_outcomes": len(unknowns),
+        "refusal_correctness": None,
+        "user_interventions": None,
         "cold_build_s": next((j.measured.get("cold_build_s") for j in ran
                               if "cold_build_s" in j.measured), None),
         "warm_test_s": next((j.measured.get("warm_test_s") for j in ran
@@ -2193,6 +2197,7 @@ class Runner:
                 continue
             print(f"--> {jid}: {title}", flush=True)
             started = time.monotonic()
+            journey.attempted = True
             try:
                 with Session(self, journey, repo, allow_execution=needs_build).open() as session:
                     fn(session)
@@ -2243,6 +2248,7 @@ class Runner:
 
     def _execute(self, journey: Journey, repo: Path, fn: Callable[[Session], None],
                  started: float) -> None:
+        journey.attempted = True
         try:
             with Session(self, journey, repo).open() as session:
                 fn(session)
@@ -2444,8 +2450,8 @@ def corpus_summary_lines(repo: corpus.CorpusRepository, metrics: dict[str, Any])
         f"Real repository {repo.name} @ {repo.commit[:12]} ({repo.licence})",
         f"  completed verified {metrics['completed_verified']} of {metrics['attempted']} "
         "attempted; "
-        f"correct refusals/unknowns {metrics['correct_refusals_or_unknowns']}; "
-        f"user interventions {metrics['user_interventions']}",
+        f"not attempted {metrics['not_attempted']}; unknown outcomes {metrics['unknown_outcomes']}",
+        "  refusal correctness UNKNOWN; human edits/retries/manual Stops UNKNOWN (not recorded)",
         "  cold build " + (f"{metrics['cold_build_s']}s" if metrics["cold_build_s"] is not None
                            else "not measured")
         + ", warm test " + (f"{metrics['warm_test_s']}s" if metrics["warm_test_s"] is not None
@@ -2576,6 +2582,20 @@ def _prepare_corpus_args(parser: argparse.ArgumentParser, args: argparse.Namespa
     return 0
 
 
+def _selected_journeys(
+    parser: argparse.ArgumentParser, args: argparse.Namespace,
+) -> set[str] | None:
+    available = {row[0] for row in (CORPUS_JOURNEYS if args.corpus else JOURNEYS)}
+    if args.repo:
+        available.update(row[0] for row in REPO_JOURNEYS)
+    selected = set(args.only)
+    invalid = selected - available
+    if invalid:
+        parser.error("--only has unavailable journey ids: " + ", ".join(sorted(invalid))
+                     + "; available for this run: " + ", ".join(sorted(available)))
+    return selected or None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--compare", nargs=2, type=Path, metavar=("OLD", "NEW"),
@@ -2605,6 +2625,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--corpus-cache", type=Path,
                         help="qualification cache directory (default: under the runtime root)")
     args = parser.parse_args(argv)
+    selected = _selected_journeys(parser, args)
     if args.corpus is not None or args.fetch:
         fetched = _prepare_corpus_args(parser, args)
         if fetched is not None:
@@ -2636,7 +2657,6 @@ def main(argv: list[str] | None = None) -> int:
         started = time.time()
         runner.check_preconditions()
         print(json.dumps(runner.preconditions, indent=1), flush=True)
-        selected = set(args.only) or None
         journeys = (runner.run_corpus(selected) if runner.corpus is not None
                     else runner.run(selected))
         if args.repo:

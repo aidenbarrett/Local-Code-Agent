@@ -972,7 +972,6 @@
     "FBT001": 1,
     "FBT002": 1,
     "PLW1510": 2,
-    "RUF059": 1,
     "S603": 2,
     "S607": 2
    },
@@ -1108,8 +1107,7 @@
     "T201": 13
    },
    "internal/scripts/panther-lake-acceptance.py": {
-    "E501": 12,
-    "F401": 1,
+    "E501": 8,
     "S603": 1,
     "T201": 2,
     "UP017": 1,
@@ -1184,5 +1182,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1621
+ "total": 1615
 }

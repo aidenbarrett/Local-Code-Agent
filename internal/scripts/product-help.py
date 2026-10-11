@@ -36,7 +36,7 @@ def main() -> int:
     term.field("acceptance", "Run the acceptance journeys and keep every log; '--compare OLD NEW' sets two runs side by side")
     term.field(
         "qualify",
-        "Prepare one physical offline qualification run; checks assets without certifying it",
+        "Run and retain one physical offline qualification without self-certifying it",
     )
     term.field("models", "List models; 'models use <profile>' picks yours, 'models pull <profile>' downloads one")
     term.field("advanced", "Pass arguments directly to the underlying developer CLI")

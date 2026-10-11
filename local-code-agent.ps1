@@ -190,11 +190,26 @@ switch ($Command.ToLowerInvariant()) {
         exit $LASTEXITCODE
     }
     'qualify' {
-        # Prepare one retained, non-certifying physical qualification run. This
-        # checks local assets while networking may still be available; the
-        # disconnected capture remains a separate explicit step.
+        # One public command family owns preparation, disconnected preflight,
+        # finalization and summary. Arguments without an explicit diagnostic
+        # phase run the complete bounded qualification flow.
+        # Select the same root before resolving managed OVMS and its child-only
+        # environment. Python still owns qualification argument validation.
+        for ($argumentIndex = 0; $Rest -and $argumentIndex -lt $Rest.Count; $argumentIndex++) {
+            if ($Rest[$argumentIndex] -eq '--runtime-root' -and $argumentIndex + 1 -lt $Rest.Count) {
+                $env:LCA_RUNTIME_ROOT = $Rest[$argumentIndex + 1]
+                $argumentIndex++
+            } elseif ($Rest[$argumentIndex].StartsWith('--runtime-root=')) {
+                $env:LCA_RUNTIME_ROOT = $Rest[$argumentIndex].Substring('--runtime-root='.Length)
+            }
+        }
         Set-ManagedOvmsEnvironment
-        & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') prepare --repo $root @Rest
+        $qualificationPhases = @('prepare', 'preflight', 'finalize', 'summary')
+        if ($Rest -and $Rest.Count -gt 0 -and $qualificationPhases -contains $Rest[0]) {
+            & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') @Rest
+        } else {
+            & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') run --repo $root @Rest
+        }
         exit $LASTEXITCODE
     }
     'models' {

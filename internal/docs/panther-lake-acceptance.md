@@ -2,7 +2,7 @@
 
 This is the evidence procedure for the first-release hardware gate. It exercises the current public product path on the physical Windows target machine with external networking unavailable. Passing CI, a hardware demo, a configured device profile or an older smoke run does not establish this gate.
 
-## 1. Prepare while networking is available
+## One retained qualification run
 
 Use the public setup path to provision the approved runtime, model and local toolchain:
 
@@ -10,36 +10,46 @@ Use the public setup path to provision the approved runtime, model and local too
 .\install.ps1
 ```
 
-Create a new output folder and check the selected profile's local assets before
-disconnecting. This command does not claim that networking is disabled or that the
-configured device executed anything:
+Run one root command with the selected existing profile and a new output folder:
 
 ```powershell
 .\local-code-agent.ps1 qualify --profile ptl-gpu-30b --output C:\lca-qualification\gpu30b-1
 ```
 
-Resolve every reported `NEXT:` action, then rerun with a different new output folder.
-The retained `qualification-preflight.json` records source, runtime, model,
-quantization, configured device and the deliberately unknown offline evidence.
+The command checks assets, the serving owner's recorded launch plan and the
+selected profile's installation protocol report while networking is available. Resolve every reported
+`NEXT:` action and start again with a different new folder. When ready, it asks you
+to disconnect external networking and type `DISCONNECTED`; it then performs the
+fail-closed offline/device preflight, runs the existing public acceptance journeys,
+finalizes their retained evidence and writes `summary.txt`. It does not download
+anything after the disconnect boundary.
 
-Update the checkout and dependencies before disconnecting. Do not collect the final acceptance bundle from a dirty checkout.
+The folder contains `qualification-preflight.json`, `offline-preflight.json`, the
+complete `journeys` folder, `acceptance.json`, and the compact `summary.txt`.
 
-## 2. Disconnect external networking
+Update the checkout and dependencies before the successful preparation run. Do not
+collect the final acceptance bundle from a dirty or subsequently changed checkout.
+
+## Disconnect boundary
 
 Disable the interfaces/routes that provide WAN connectivity while retaining the local inference path required by the product. Record the exact isolation method used. Unknown network state is not offline evidence.
 
-## 3. Capture preflight
+## Individual diagnostic phases
 
-From the repository root:
+The explicit `qualify prepare`, `preflight`, `finalize`, and `summary` phases remain
+available for diagnosis. They are not required for the normal qualification run.
+
+For example, the disconnected preflight is:
 
 ```powershell
-.\.venv-workstation\Scripts\python.exe internal\scripts\panther-lake-acceptance.py preflight `
+.\local-code-agent.ps1 qualify preflight `
   --repo . `
+  --profile ptl-gpu-30b `
   --runtime-root "$env:LOCALAPPDATA\LocalCodeAgent" `
-  --output "$env:LOCALAPPDATA\LocalCodeAgent\reports\panther-lake-preflight.json"
+  --output "C:\lca-qualification\gpu30b-1\offline-preflight.json"
 ```
 
-Preflight records or verifies the exact Git HEAD, clean checkout, offline gate, present device/driver facts, configured runtime profile, local model identity and public Session Hub self-check.
+Preflight records or verifies the exact Git HEAD, clean checkout, offline gate, present device/driver facts, selected profile, complete local model weights, configured launch plan, installation protocol report and public Session Hub self-check. It revalidates the launch/report identities and hashes those artifacts into the bundle. It fails if the profile or checkout differs from the preparation retained in the same output folder.
 
 A preflight result is not hardware acceptance by itself.
 
@@ -74,9 +84,9 @@ Retain the JSON beside the acceptance evidence. Client-observed timing and backe
 Pass the actual journey evidence plus measured cold/warm latency values required by the existing capture script:
 
 ```powershell
-.\.venv-workstation\Scripts\python.exe internal\scripts\panther-lake-acceptance.py finalize `
-  --preflight "$env:LOCALAPPDATA\LocalCodeAgent\reports\panther-lake-preflight.json" `
-  --output "$env:LOCALAPPDATA\LocalCodeAgent\reports\panther-lake-acceptance.json" `
+.\local-code-agent.ps1 qualify finalize `
+  --preflight "C:\lca-qualification\gpu30b-1\offline-preflight.json" `
+  --output "C:\lca-qualification\gpu30b-1\acceptance.json" `
   --cold-latency-ms 1234 `
   --warm-latency-ms 456 `
   --evidence C:\path\to\cold-session.log `
@@ -92,9 +102,9 @@ Finalization ties the supplied evidence to the checkout and offline preflight. I
 After finalization, render a compact projection for the one-way test machine:
 
 ```powershell
-.\.venv-workstation\Scripts\python.exe internal\scripts\panther-lake-acceptance.py summary `
-  --acceptance "$env:LOCALAPPDATA\LocalCodeAgent\reports\panther-lake-acceptance.json" `
-  --output "$env:LOCALAPPDATA\LocalCodeAgent\reports\panther-lake-summary.txt"
+.\local-code-agent.ps1 qualify summary `
+  --acceptance "C:\lca-qualification\gpu30b-1\acceptance.json" `
+  --output "C:\lca-qualification\gpu30b-1\summary.txt"
 ```
 
 The summary is deliberately not another acceptance authority. It shows only facts present in

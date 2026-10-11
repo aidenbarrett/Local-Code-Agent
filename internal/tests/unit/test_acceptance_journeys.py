@@ -331,6 +331,21 @@ def test_repeat_must_be_positive(tmp_path, capsys):
     assert not (tmp_path / "acc").exists()
 
 
+@pytest.mark.parametrize("selection,mode", [
+    ("J24", []),
+    ("Q01-build-test", []),
+    ("R02-build", []),
+    ("J24-continuous", ["--corpus", "cxxopts"]),
+])
+def test_unavailable_selection_refuses_before_setup(tmp_path, capsys, selection, mode):
+    out = tmp_path / "acc"
+    with pytest.raises(SystemExit) as refusal:
+        journeys.main(["--output", str(out), "--only", selection, *mode])
+    assert refusal.value.code == 2
+    assert "--only has unavailable journey ids: " + selection in capsys.readouterr().err
+    assert not out.exists()
+
+
 def test_fixture_probe_seam_preserves_real_runtime_preconditions(tmp_path, monkeypatch):
     class RuntimeFactsStub:
         @staticmethod
@@ -981,11 +996,66 @@ def test_model_answers_are_never_counted_as_completed_verified():
     """Q06 prose is an observation, not a verification (AGENTS: model prose is not
     authority). Only proved outcomes reach completed_verified."""
     measured = journeys.Journey("Q06-repo-explain", "explain", "model")
+    measured.attempted = True
     measured.measured_as("evidence-grounded", "contradictory but cites a real file")
     proved = journeys.Journey("Q01-build-test", "build", "model")
+    proved.attempted = True
     proved.passed("built and tested")
     metrics = journeys.corpus_metrics([measured, proved])
     assert metrics["completed_verified"] == 1
+
+
+def test_corpus_metrics_count_dispatch_instead_of_skip_reasons():
+    skipped = journeys.Journey("Q07-fix-model", "fix", "model")
+    skipped.unknown("needs the model; run with --allow-model")
+    attempted = journeys.Journey("Q01-build-test", "build", "product")
+    attempted.attempted = True
+    attempted.passed("independently verified")
+    metrics = journeys.corpus_metrics([skipped, attempted])
+    assert metrics["attempted"] == 1
+    assert metrics["not_attempted"] == 1
+    assert metrics["completed_verified"] == 1
+    assert metrics["unknown_outcomes"] == 0
+
+
+def test_unknown_outcomes_do_not_certify_refusal_correctness_or_zero_interventions():
+    unknown = journeys.Journey("Q07-fix-model", "fix", "model")
+    unknown.attempted = True
+    unknown.unknown("harness error: broken observer")
+    metrics = journeys.corpus_metrics([unknown])
+    assert metrics["unknown_outcomes"] == 1
+    assert metrics["refusal_correctness"] is None
+    assert metrics["user_interventions"] is None
+    assert "correct_refusals_or_unknowns" not in metrics
+
+
+def test_execution_boundary_records_an_attempt_even_when_session_open_fails(
+    tmp_path, monkeypatch
+):
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("session unavailable")
+
+    monkeypatch.setattr(journeys, "Session", unavailable)
+    runner = object.__new__(journeys.Runner)
+    journey = journeys.Journey("Q07-fix-model", "fix", "model")
+    runner._execute(journey, tmp_path, lambda _session: pytest.fail("must not run"),
+                    journeys.time.monotonic())
+    assert journey.attempted is True
+    assert journey.status == "UNKNOWN"
+    assert "session unavailable" in journey.reason
+
+
+def test_corpus_summary_labels_unmeasured_interventions_and_refusal_correctness(tmp_path):
+    corpus = journeys.corpus.CorpusRepository(
+        "cxxopts", "https://example.invalid/cxxopts", "a" * 40, "MIT", tmp_path, ()
+    )
+    skipped = journeys.Journey("Q07-fix-model", "fix", "model")
+    skipped.unknown("needs the model")
+    text = "\n".join(journeys.corpus_summary_lines(corpus, journeys.corpus_metrics([skipped])))
+    assert "completed verified 0 of 0 attempted; not attempted 1" in text
+    assert "refusal correctness UNKNOWN" in text
+    assert "human edits/retries/manual Stops UNKNOWN (not recorded)" in text
+    assert "user interventions 0" not in text
 
 
 def test_grading_is_linear_on_pathological_whitespace(tmp_path):

@@ -64,12 +64,18 @@ declaration. It only looks; nothing is written or run:
 
 ```powershell
 cd C:\src\my-project
-<path-to>\Local-Code-Agent\local-code-agent.ps1 init
+$lca = 'C:\src\Local-Code-Agent\local-code-agent.ps1' # your installed checkout
+& $lca init
 ```
 
 Review the proposal, then write it with `init --write` (it never replaces an
 existing declaration) and confirm with `doctor`. Build and test still run only in a
 session you open with `session --allow-execution`.
+
+```powershell
+& $lca init --write
+& $lca doctor --repo .
+```
 
 To prove the declaration works before involving a model, build and test the
 repository in place. No model is used and each step gets its own verified result.
@@ -79,17 +85,19 @@ under `.local-agent/`. Both should be in your `.gitignore`: a check that leaves
 tracked or unignored files changed fails instead of passing.
 
 ```powershell
-<path-to>\Local-Code-Agent\local-code-agent.ps1 acceptance --repo . --allow-build --only R02-build --only R03-tests
+& $lca acceptance --repo . --allow-build --output C:\lca-evidence\my-project-1 --only R02-build --only R03-tests
 ```
 
 `R02-build` passes only on a verified full build; `R03-tests` passes only on a
 verified full test run (a build, then the tests). Every log is kept in the run's
 output directory.
 
+Choose a new output directory for each run; existing evidence is never replaced.
+
 ## 3. Open the product
 
 ```powershell
-.\local-code-agent.ps1
+& $lca session --repo . --allow-execution
 ```
 
 That opens the Textual Session Hub, the default human interface for conversation plus controller-owned repository work.
@@ -97,10 +105,10 @@ That opens the Textual Session Hub, the default human interface for conversation
 Useful explicit modes:
 
 ```powershell
-.\local-code-agent.ps1 help
-.\local-code-agent.ps1 capabilities
-.\local-code-agent.ps1 session --profile ptl-npu-8b
-.\local-code-agent.ps1 chat ptl-gpu-30b
+& $lca help
+& $lca capabilities
+& $lca session --repo . --profile ptl-npu-8b --allow-execution
+& $lca chat ptl-gpu-30b
 ```
 
 An explicit `session --profile <preset>` overrides the remembered choice for
@@ -118,15 +126,29 @@ Where is EndpointRuntime used?
 What changed on my branch?
 Build it.
 Why did that fail?
+Fix the build.
+Fix the failing tests.
 ```
 
 The controller decides the permitted route/tools and owns verification. The model never receives arbitrary shell authority and cannot certify its own success.
+
+A verified fix is an isolated candidate. Copy its task ID from the result, inspect
+`/diff <task-id>`, then explicitly `/apply <task-id>` to change your checkout.
+After applying, `/undo <task-id>` restores that candidate's owned changes or
+`/commit <task-id>` commits exactly those changes. Commit does not push. Stale
+candidates and later conflicting edits refuse; read the result before retrying.
+
+Stop fences further work and reconciles owned commands. With OVMS, an in-flight
+generation may still have to finish; a stopped UI does not prove endpoint-side
+cancellation. Close and reopen the same repository to inspect retained results;
+interrupted effects are not silently replayed.
 
 ## 5. Hardware demo
 
 The demo scripts run the configured local model on a selected device for a visible smoke test:
 
 ```powershell
+Set-Location (Split-Path -Parent $lca)
 .\demo\run-qwen-on-npu.ps1
 .\demo\run-qwen-on-gpu.ps1
 .\demo\run-qwen-on-cpu.ps1

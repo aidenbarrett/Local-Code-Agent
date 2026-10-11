@@ -10,6 +10,12 @@ The model is a replaceable dependency. The deterministic controller owns authori
 
 ## Delivery order
 
+The first useful release gate takes priority over optional clients, Watch and remote
+topology: fresh setup, the composed engineering workflow and physical disconnected
+qualification of each claimed configuration must come first. The active ordering is
+in `product-execution-priorities.md`; P6 below describes later packaging refinement,
+not permission to defer offline acceptance until after P4/P5.
+
 ### P1: finish the useful read-only Session Hub
 
 Make normal repository inspection, symbol lookup, branch review, build/test and failure follow-up work through ordinary conversation. Runtime/model/device facts shown in the UI must come from owning records, not profile-name inference.
