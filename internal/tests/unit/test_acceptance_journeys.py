@@ -331,6 +331,21 @@ def test_repeat_must_be_positive(tmp_path, capsys):
     assert not (tmp_path / "acc").exists()
 
 
+@pytest.mark.parametrize("selection,mode", [
+    ("J24", []),
+    ("Q01-build-test", []),
+    ("R02-build", []),
+    ("J24-continuous", ["--corpus", "cxxopts"]),
+])
+def test_unavailable_selection_refuses_before_setup(tmp_path, capsys, selection, mode):
+    out = tmp_path / "acc"
+    with pytest.raises(SystemExit) as refusal:
+        journeys.main(["--output", str(out), "--only", selection, *mode])
+    assert refusal.value.code == 2
+    assert "--only has unavailable journey ids: " + selection in capsys.readouterr().err
+    assert not out.exists()
+
+
 def test_fixture_probe_seam_preserves_real_runtime_preconditions(tmp_path, monkeypatch):
     class RuntimeFactsStub:
         @staticmethod

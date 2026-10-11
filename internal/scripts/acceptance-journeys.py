@@ -2582,6 +2582,20 @@ def _prepare_corpus_args(parser: argparse.ArgumentParser, args: argparse.Namespa
     return 0
 
 
+def _selected_journeys(
+    parser: argparse.ArgumentParser, args: argparse.Namespace,
+) -> set[str] | None:
+    available = {row[0] for row in (CORPUS_JOURNEYS if args.corpus else JOURNEYS)}
+    if args.repo:
+        available.update(row[0] for row in REPO_JOURNEYS)
+    selected = set(args.only)
+    invalid = selected - available
+    if invalid:
+        parser.error("--only has unavailable journey ids: " + ", ".join(sorted(invalid))
+                     + "; available for this run: " + ", ".join(sorted(available)))
+    return selected or None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--compare", nargs=2, type=Path, metavar=("OLD", "NEW"),
@@ -2611,6 +2625,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--corpus-cache", type=Path,
                         help="qualification cache directory (default: under the runtime root)")
     args = parser.parse_args(argv)
+    selected = _selected_journeys(parser, args)
     if args.corpus is not None or args.fetch:
         fetched = _prepare_corpus_args(parser, args)
         if fetched is not None:
@@ -2642,7 +2657,6 @@ def main(argv: list[str] | None = None) -> int:
         started = time.time()
         runner.check_preconditions()
         print(json.dumps(runner.preconditions, indent=1), flush=True)
-        selected = set(args.only) or None
         journeys = (runner.run_corpus(selected) if runner.corpus is not None
                     else runner.run(selected))
         if args.repo:
