@@ -334,6 +334,84 @@ def test_composed_finalize_refuses_missing_required_journey(tmp_path, monkeypatc
         )
 
 
+@pytest.mark.parametrize("defect,reason", [
+    ("profile", "profile does not match"),
+    ("source", "source identity does not match"),
+    ("head", "checkout drifted"),
+    ("dirty", "checkout became dirty"),
+    ("schema", "schema/phase"),
+    ("empty", "no journey outcomes"),
+])
+def test_composed_finalize_refuses_unbound_or_stale_evidence(tmp_path, monkeypatch, defect, reason):
+    module = _load()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    prepared = {
+        "schema": module.SCHEMA,
+        "phase": "preflight",
+        "profile": "ptl-gpu-30b",
+        "repository": {"root": str(repo), "head": "abc", "clean": True},
+    }
+    report = {
+        "profile": "ptl-gpu-30b",
+        "preconditions": {"product": {"package_commit": "abc"}},
+        "journeys": [
+            {"id": jid, "status": "PASS"}
+            for jid in ("J05-stop-build", "J07-stop-model", "J24-continuous")
+        ],
+    }
+    if defect == "profile":
+        report["profile"] = "ptl-npu-8b"
+    elif defect == "source":
+        report["preconditions"]["product"]["package_commit"] = "other"
+    elif defect == "schema":
+        prepared["schema"] = "obsolete"
+    elif defect == "empty":
+        report["journeys"] = []
+    preflight = tmp_path / "preflight.json"
+    preflight.write_text(json.dumps(prepared), encoding="utf-8")
+    journeys = tmp_path / "journeys.json"
+    journeys.write_text(json.dumps(report), encoding="utf-8")
+    monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+
+    def git(_repo, *args):
+        if "rev-parse" in args:
+            return "other" if defect == "head" else "abc"
+        return " M changed.cpp" if defect == "dirty" else ""
+
+    monkeypatch.setattr(module, "_git", git)
+    output = tmp_path / "acceptance.json"
+    with pytest.raises(module.AcceptanceCaptureError, match=reason):
+        module.finalize_qualification_run(preflight, journeys, output, "qualify")
+    assert not output.exists()
+
+
+def test_composed_run_retains_logs_but_refuses_finalization_after_network_returns(
+    tmp_path, monkeypatch
+):
+    module = _load()
+    output = tmp_path / "output"
+
+    def prepare(*_args):
+        output.mkdir()
+        return {"ready_to_disconnect": True, "blockers": []}
+
+    monkeypatch.setattr(module, "prepare_qualification", prepare)
+    monkeypatch.setattr(module, "capture_preflight", lambda *_args: {})
+    monkeypatch.setattr(module, "_run", lambda *_args, **_kwargs:
+                        SimpleNamespace(returncode=0, stdout="retained", stderr=""))
+    monkeypatch.setattr(module, "active_default_routes", lambda: [{"InterfaceAlias": "Wi-Fi"}])
+
+    def forbidden(*_args):
+        pytest.fail("reconnected qualification cannot be finalized")
+
+    monkeypatch.setattr(module, "finalize_qualification_run", forbidden)
+    with pytest.raises(module.AcceptanceCaptureError, match="active default route"):
+        module.run_qualification(tmp_path, tmp_path, output, "ptl-gpu-30b", confirm_disconnected=True)
+    assert (output / "journeys.stdout.log").read_text(encoding="utf-8") == "retained"
+    assert not (output / "acceptance.json").exists()
+
+
 def test_finalize_refuses_checkout_drift_before_accepting_evidence(tmp_path, monkeypatch):
     module = _load()
     repo = tmp_path / "repo"

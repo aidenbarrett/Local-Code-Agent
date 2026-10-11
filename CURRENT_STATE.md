@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `94e716868bee83c2fb4025b419ce0377f9caa73e`
-on 2026-10-10.
+Reconciled against GitHub `main` at `ba81cc56e038b3287bc3fb7ccbffe37d28e6d4db`
+on 2026-10-11; qualification-flow changes are recorded in PR#499.
 
 ## Capability ledger
 
@@ -10,6 +10,7 @@ is deliberate where the required physical or repository-setting observation is a
 
 | ID | Public request | Implemented behaviour | Evidence | Qualification | Known limit | Next action | Owner |
 |---|---|---|---|---|---|---|---|
+| CAP-continuous-engineering | Inspect, find, diagnose, fix, review, apply, undo and commit in one session | One repository/session carries the complete scripted workflow, rejects stale apply and preserves unrelated staged, unstaged and untracked work; machine-delimited search handles Windows drive paths with ripgrep installed | PR#498, PR#499, J24-continuous, internal/tests/unit/test_search_match_records.py::test_absolute_ripgrep_match_is_a_portable_repo_relative_definition | deterministic-ci | Scripted worker evidence does not measure real model competence | Run the same engineering outcomes with the selected physical model and external repository | controller |
 | CAP-inspect | Inspect this repository | Read-only paths, files and text search | PR#250, J12-questions | deterministic-ci | Model answers need grounding checks | Keep R01 coverage | controller |
 | CAP-symbol | Where is this symbol? | Bounded declaration/definition candidates and include-relative lookup for non-template C++ identifiers | PR#386, PR#448, J23-symbol-lookup | deterministic-ci | Textual heuristic; template-ids and language-aware indexing are not claimed; zero candidates does not prove absence | Add a language-aware owner only from measured failures | controller |
 | CAP-branch-review | What changed on my branch? | Merge-base, upstream and detached-HEAD facts | PR#367, J17-branch-review | deterministic-ci | No upstream means ahead/behind is unknown | Keep read-only | controller |
@@ -33,8 +34,8 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-repo-explain | What does this repository do? | Observes, never certifies, answers about the repository: every cited file must be a regular file contained in the repository (missing, traversal, absolute, drive, UNC, file: URI and outward-symlink references are ungrounded); the configured commands must be given for how-it-is-built questions (J22, R01 and Q06 alike); the repository must be unchanged; a bounded refusal signal counts only the listed opening forms, never length. J22's scripted worker is a deterministic PASS. Model answers (J12, R01, Q06) are MEASURED on those dimensions only and never count as completed or verified | PR#413, PR#449, J22-repo-explain, R01-questions, internal/tests/unit/test_acceptance_journeys.py::test_unreal_and_external_references_are_never_grounded, internal/tests/unit/test_acceptance_journeys.py::test_model_answers_are_never_counted_as_completed_verified | deterministic-ci | Whether a model answer is correct is not measured: it stays unknown and is read in the transcript. A real token in a wrong or contradictory sentence is still only a real token. Path detection covers a directory separator with a lettered suffix or a bare name with a known source/build suffix, after removing a :line or #Lline anchor; any file: token is outside with no suffix needed, percent-decoded once when well-formed and reported raw when malformed; network URLs are skipped | Measure Q06 on the NUC (#418); add an independent, retained scorer before any correctness claim | controller |
 | CAP-install | Install and first run | Checks Python, CMake and Windows C++ toolchain; read-only `doctor` reports readiness with one next action per gap; `init` declares a repository without guessing | PR#374, PR#467, PR#468, PR#469, internal/tests/unit/test_doctor.py::test_main_exits_3_when_not_ready_and_repeats_identically, internal/tests/unit/test_repo_setup.py::test_a_nested_git_repository_never_inherits_an_ancestor_declaration | deterministic-ci | Physical offline first run is unqualified | Run disconnected PTL acceptance | Aiden |
 | CAP-runtime-lifecycle | Keep the local model server warm between sessions | One owner (`ensure_managed_runtime`) reuses an owned server only when it was launched exactly as the current profile would launch it (resolved executable, args, child env, model directory); a changed server argument replaces it, client-only settings never do. The outcome is typed (reused, started, replaced with dead/unhealthy/config_changed, refused with foreign_endpoint/start_failed/not_healthy), and a launch made by that call records client-observed launch-to-ready in `process.json`. Hub, `run-task` and `chat` share it | PR#484, internal/tests/unit/test_runtime_lifecycle.py::test_a_healthy_server_with_stale_arguments_is_replaced_not_reused, internal/tests/unit/test_runtime_lifecycle.py::test_start_records_launch_to_ready_for_the_process_it_launched | deterministic-ci | The lifecycle outcome is not yet in the durable session stream; `endpoint.state_changed` has a consumer but no producer; launch-to-ready is not model-load or compile time. Cold/warm endpoint measurement lives in the perf harness (PR#483), not in product telemetry | Agree and add a durable session-scoped runtime fact (#481 slice B) | Claude |
-| CAP-offline-physical | Work fully offline on target hardware | Capture path exists; `qualify --profile <p> --output <dir>` prepares one run (readiness via doctor, retained source/model/runtime/device facts, offline evidence recorded as unknown); qualification is not complete | PR#232, PR#479, internal/tests/test_panther_lake_acceptance.py::test_prepare_reports_missing_weights_without_certifying_offline | unknown | No current disconnected exact-head hardware run; `qualify` is preparation only and certifies nothing | Run `qualify`, disconnect, execute and retain the physical run | Aiden |
-| CAP-merge-policy | Require reviewed green integration | Offline checker can observe branch/ruleset enforcement | PR#276 | unknown | Observed 2026-10-07: main unprotected, no ruleset, no required checks | Configure reviewed-green PR/check enforcement, then re-observe | Aiden |
+| CAP-offline-physical | Work fully offline on target hardware | `qualify --profile <p> --output <new-dir>` owns preparation, exact disconnect confirmation, offline preflight, public acceptance execution, finalization and printed/retained summary; failed route/adapter observation refuses, configured devices remain distinct from physical execution | PR#232, PR#479, PR#499, internal/tests/test_panther_lake_acceptance.py::test_prepare_reports_missing_weights_without_certifying_offline | unknown | No disconnected exact-head Panther Lake run; scripted results never certify physical execution; cold/warm model timings and human interventions remain unknown without independent records | Run the public flow on the target machine and review retained device/offline evidence | Aiden |
+| CAP-merge-policy | Require reviewed green integration | Existing checker observes branch/ruleset enforcement | PR#276 | unknown | Re-observed 2026-10-11: main unprotected, no active required-status-check ruleset, no required checks | Configure reviewed-green PR/check enforcement, then re-observe | Aiden |
 
 Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rationale,
 [TRICKS.md](TRICKS.md) for first-release public journeys and acceptance evidence, and
@@ -54,6 +55,14 @@ in [TRICKS.md](TRICKS.md), and the active priority ladder is in
 
 ## Boundaries that remain open
 
+#403 remains the release decision. Its child defects #392–#402 are closed, and
+the capability ledger plus J24 now cover the repaired composed controller path.
+This is a development handoff, not an offline-qualified release: physical target
+evidence, configuration-specific model competence and enforced merge policy still
+need evidence. Qualification reports count dispatched attempts; skipped model work
+is not an attempt, unknown outcomes do not prove correct refusal, and unrecorded
+human edits/retries/manual Stops remain unknown.
+
 - Physical disconnected Panther Lake qualification is unknown: see
   `CAP-offline-physical` and #418.
 - Stop reaches workspace Git and owned commands (#436, #437, #451, #452). In-flight model generation is
@@ -63,7 +72,7 @@ in [TRICKS.md](TRICKS.md), and the active priority ladder is in
   and `CAP-stop-generation`.
 - Native-endpoint deployment and cross-process endpoint ownership are not qualified serving
   capabilities: see #403.
-- Merge policy was observed not enforced on 2026-10-07 (main unprotected, no ruleset,
+- Merge policy was observed not enforced on 2026-10-11 (main unprotected, no active ruleset,
   no required checks): see `CAP-merge-policy` and #403.
 - Real-model coding evidence remains configuration- and repository-specific: see
   `CAP-candidate-fix` and #418.

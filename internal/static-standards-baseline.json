@@ -972,7 +972,6 @@
     "FBT001": 1,
     "FBT002": 1,
     "PLW1510": 2,
-    "RUF059": 1,
     "S603": 2,
     "S607": 2
    },
@@ -1184,5 +1183,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1617
+ "total": 1616
 }

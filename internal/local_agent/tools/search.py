@@ -125,7 +125,7 @@ def _run_rg(args: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
         errors="replace",
         timeout=timeout,
     )
-    return proc.returncode, proc.stdout
+    return proc.returncode, proc.stdout if proc.returncode in (0, 1) else proc.stderr
 
 
 def _run_git_grep(args: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
@@ -137,7 +137,7 @@ def _run_git_grep(args: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
         errors="replace",
         timeout=timeout,
     )
-    return proc.returncode, proc.stdout
+    return proc.returncode, proc.stdout if proc.returncode in (0, 1) else proc.stderr
 
 
 def _git_grep_pathspecs(root: Path, base: Path, glob: str | None) -> list[str]:
@@ -157,15 +157,18 @@ def _git_grep_pathspecs(root: Path, base: Path, glob: str | None) -> list[str]:
     return pathspecs
 
 
-def _parse_matches(stdout: str, limit: int) -> list[dict[str, object]]:
+def _parse_matches(stdout: str, limit: int, line_separator: str) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
-    for raw in stdout.splitlines():
-        parts = raw.split(":", 2)
-        if len(parts) < 3:
-            continue
-        path, line_no, text = parts
-        if not line_no.isdigit():
-            continue
+    remaining = stdout
+    while remaining:
+        # Both backends delimit filenames with NUL. A drive letter, colon or
+        # newline in a filename must never be mistaken for the line-number field.
+        path, path_boundary, rest = remaining.partition("\0")
+        line_no, line_boundary, rest = rest.partition(line_separator)
+        text, _, remaining = rest.partition("\n")
+        if (not path or not path_boundary or not line_boundary
+                or not line_no.isascii() or not line_no.isdecimal()):
+            raise ToolError("repository search returned malformed match records")
         out.append(
             {"file": path, "line": int(line_no), "text": text.strip()[:240]}
         )
@@ -218,7 +221,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         limit = max(1, min(limit, 200))
 
         if _rg_available():
-            args = ["--line-number", "--no-heading", "--color", "never",
+            args = ["--line-number", "--null", "--no-heading", "--color", "never",
                     "--max-count", "20"]
             if not case_sensitive:
                 args.append("--ignore-case")
@@ -226,24 +229,28 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 args += ["--glob", glob]
             for ex in _EXCLUDES:
                 args += ["--glob", ex]
-            args += [pattern, str(base)]
+            args += ["-e", pattern, "--", str(base)]
             code, stdout = _run_rg(args, ctx.root, timeout=60)
+            line_separator = ":"
         else:
             # --untracked: a file the user (or the agent) has just created is part of
             # the working tree. Without it the fallback silently searched only what
             # git already tracks, while ripgrep searched everything.
-            args = ["-n", "-I", "-E", "--untracked"]
+            args = ["-n", "-z", "-I", "-E", "--untracked"]
             if not case_sensitive:
                 args.append("-i")
-            args += [pattern, "--", *_git_grep_pathspecs(ctx.root, base, glob)]
+            args += ["-e", pattern, "--", *_git_grep_pathspecs(ctx.root, base, glob)]
             code, stdout = _run_git_grep(args, ctx.root, timeout=60)
+            line_separator = "\0"
 
         # rg/git grep both return 1 for "no matches", which is not an error.
-        matches = _parse_matches(stdout, limit)
+        if code not in (0, 1):
+            raise ToolError(f"repository search failed (exit {code}): {stdout.strip()[:1000]}")
+        matches = _parse_matches(stdout, limit, line_separator)
         for m in matches:
             p = Path(str(m["file"]))
             if p.is_absolute():
-                m["file"] = relpath(ctx.root, p)
+                m["file"] = Path(relpath(ctx.root, p)).as_posix()
 
         return ToolResult(
             ok=True,
