@@ -316,6 +316,10 @@ class OpenAICompatibleClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+            # ChatResponse qualifies one call per response. Ask the server for
+            # that contract; the response boundary still rejects batches when
+            # a backend ignores this request.
+            kwargs["parallel_tool_calls"] = False
         if self.config.thinking is not None and self._chat_template_kwargs_supported is not False:
             # llama.cpp and vLLM honour this for Qwen3. A server that rejects it
             # is detected once and never asked again.
