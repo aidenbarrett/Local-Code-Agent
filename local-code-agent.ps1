@@ -191,14 +191,14 @@ switch ($Command.ToLowerInvariant()) {
     }
     'qualify' {
         # One public command family owns preparation, disconnected preflight,
-        # finalization and summary. Preserve the original shorthand by treating
-        # arguments that do not begin with a phase as `prepare` arguments.
+        # finalization and summary. Arguments without an explicit diagnostic
+        # phase run the complete bounded qualification flow.
         Set-ManagedOvmsEnvironment
         $qualificationPhases = @('prepare', 'preflight', 'finalize', 'summary')
         if ($Rest -and $Rest.Count -gt 0 -and $qualificationPhases -contains $Rest[0]) {
             & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') @Rest
         } else {
-            & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') prepare --repo $root @Rest
+            & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') run --repo $root @Rest
         }
         exit $LASTEXITCODE
     }
