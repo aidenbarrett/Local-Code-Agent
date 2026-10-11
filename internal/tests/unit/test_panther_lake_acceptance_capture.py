@@ -115,18 +115,33 @@ def test_preflight_parser_requires_and_retains_selected_profile():
     assert args.profile == "ptl-gpu-30b"
 
 
-def test_preflight_uses_selected_profile_for_every_owned_artifact(tmp_path, monkeypatch):
+def _installed_artifacts(module, runtime_root):
+    profile = "ptl-gpu-30b"
+    config = module.MODEL_PRESETS[profile]
+    plan = module.serve.make_plan(
+        profile, config, runtime_root, executable=module.os.environ.get("LCA_OVMS_EXECUTABLE"),
+    )
+    launch = Path(plan["spec_file"])
+    launch.parent.mkdir(parents=True)
+    launch.write_text(json.dumps(plan), encoding="utf-8")
+    qualification = runtime_root / "reports" / f"qualification-{profile}.json"
+    qualification.parent.mkdir(parents=True)
+    report = {"schema_version": 1, "profile": profile, "model": config.model,
+              "base_url": config.base_url, "failed": False,
+              "checks": [{"name": name, "status": "PASS", "detail": "observed", "data": {}}
+                         for name in ("configured model present", "plain chat",
+                                      "schema constrained tool call")]}
+    qualification.write_text(json.dumps(report), encoding="utf-8")
+    return launch, qualification
+
+
+def test_preflight_uses_current_install_and_serving_artifacts(tmp_path, monkeypatch):
     module = _load()
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "local-code-agent.ps1").write_text("launcher", encoding="utf-8")
     runtime_root = tmp_path / "runtime-root"
-    runtime_profile = runtime_root / "runtime" / "profiles" / "ptl-gpu-30b.json"
-    qualification = runtime_root / "reports" / "qualification-ptl-gpu-30b.json"
-    runtime_profile.parent.mkdir(parents=True)
-    qualification.parent.mkdir(parents=True)
-    runtime_profile.write_text(json.dumps({"runtime": "ovms", "device": "GPU"}), encoding="utf-8")
-    qualification.write_text(json.dumps({"ok": True, "model": "gpu-model"}), encoding="utf-8")
+    launch, qualification = _installed_artifacts(module, runtime_root)
     output = tmp_path / "run" / "preflight.json"
     output.parent.mkdir()
     (output.parent / "qualification-preflight.json").write_text(
@@ -154,6 +169,7 @@ def test_preflight_uses_selected_profile_for_every_owned_artifact(tmp_path, monk
 
     def run(args, **_kwargs):
         observed["args"] = args
+        observed["runtime_root"] = _kwargs["runtime_root"]
         return type("Result", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
 
     monkeypatch.setattr(module, "_run", run)
@@ -164,12 +180,70 @@ def test_preflight_uses_selected_profile_for_every_owned_artifact(tmp_path, monk
 
     assert payload["profile"] == "ptl-gpu-30b"
     assert payload["runtime"]["device"] == "GPU"
+    assert payload["qualification_summary"]["ok"] is True
+    assert payload["artifacts"]["launch_plan"]["path"] == str(launch)
+    assert payload["artifacts"]["qualification"]["path"] == str(qualification)
     assert observed["device"] == "GPU"
     assert payload["model_manifest_summary"] == {
         "source_model": module.MODEL_PRESETS["ptl-gpu-30b"].model,
         "weights": "downloaded",
     }
     assert observed["args"][-2:] == ["--profile", "ptl-gpu-30b"]
+    assert observed["runtime_root"] == runtime_root
+
+
+@pytest.mark.parametrize("artifact,field,value", [
+    ("launch", "profile", "ptl-npu-8b"),
+    ("launch", "args", []),
+    ("qualification", "profile", "ptl-npu-8b"),
+    ("qualification", "model", "wrong-model"),
+    ("qualification", "base_url", "http://127.0.0.1:1/v3"),
+    ("qualification", "schema_version", 2),
+    ("qualification", "failed", True),
+    ("qualification", "failed", 0),
+    ("qualification", "checks", []),
+    ("qualification", "checks", [{"name": [], "status": "PASS"}]),
+])
+def test_installed_evidence_refuses_stale_or_incomplete_artifacts(
+    tmp_path, artifact, field, value,
+):
+    module = _load()
+    launch, qualification = _installed_artifacts(module, tmp_path)
+    path = launch if artifact == "launch" else qualification
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload[field] = value
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(module.AcceptanceCaptureError):
+        module.installed_runtime_evidence("ptl-gpu-30b", tmp_path)
+
+
+def test_preparation_checks_current_artifacts_before_ready(tmp_path, monkeypatch):
+    module = _load()
+    monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(module, "_git", lambda *_args: "head")
+    monkeypatch.setattr(module, "weight_state", lambda *_args: "downloaded")
+    monkeypatch.setattr(module, "_run", lambda *_args, **_kwargs:
+                        subprocess.CompletedProcess([], 0, stdout="ready", stderr=""))
+    runtime = tmp_path / "runtime"
+    blocked = module.prepare_qualification(tmp_path, runtime, tmp_path / "missing", "ptl-gpu-30b")
+    assert blocked["ready_to_disconnect"] is False
+    assert "install.ps1" in blocked["blockers"][0]
+    _installed_artifacts(module, runtime)
+    ready = module.prepare_qualification(tmp_path, runtime, tmp_path / "ready", "ptl-gpu-30b")
+    assert ready["ready_to_disconnect"] is True
+    assert ready["offline_evidence"] == module.UNKNOWN
+
+
+def test_custom_runtime_root_reaches_child_without_changing_parent(tmp_path, monkeypatch):
+    module = _load()
+    monkeypatch.setenv("LCA_RUNTIME_ROOT", "parent-root")
+    result = module._run(
+        [sys.executable, "-c", "import os; print(os.environ['LCA_RUNTIME_ROOT'])"],
+        runtime_root=tmp_path,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == str(tmp_path.resolve())
+    assert module.os.environ["LCA_RUNTIME_ROOT"] == "parent-root"
 
 
 @pytest.mark.parametrize("exit_code", [0, 1])
@@ -202,6 +276,7 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(
 
     def run(args, **_kwargs):
         destination = Path(args[args.index("--output") + 1])
+        observed["runtime_root"] = _kwargs["runtime_root"]
         destination.mkdir()
         rows = [
             {"id": journey_id, "status": "PASS", "reason": "", "measured": {}}
@@ -242,6 +317,7 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(
 
     assert observed["prepared"] == observed["preflight"] == "ptl-gpu-30b"
     assert observed["command"][-3:] == ["--profile", "ptl-gpu-30b", "--allow-model"]
+    assert observed["runtime_root"] == tmp_path / "runtime"
     assert payload["self_certified"] is False
     assert payload["run_evidence"]["journeys"]["J24-continuous"]["status"] == "PASS"
     assert (output / "acceptance.json").is_file()

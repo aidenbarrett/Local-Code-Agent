@@ -94,8 +94,8 @@ def test_prepare_reports_missing_weights_without_certifying_offline(
     monkeypatch.setattr(acceptance, "_git", lambda repo, *args: "abc123")
     observed: dict[str, object] = {}
 
-    def run(args, *, cwd=None, timeout_s=None):
-        observed.update(args=args, cwd=cwd, timeout_s=timeout_s)
+    def run(args, *, cwd=None, timeout_s=None, runtime_root=None):
+        observed.update(args=args, cwd=cwd, timeout_s=timeout_s, runtime_root=runtime_root)
         return SimpleNamespace(
             returncode=3,
             stdout=(
@@ -122,6 +122,7 @@ def test_prepare_reports_missing_weights_without_certifying_offline(
     ]
     assert observed["cwd"] == repo.resolve()
     assert observed["timeout_s"] == 120.0
+    assert observed["runtime_root"] == (tmp_path / "runtime").resolve()
     retained = json.loads((output / "qualification-preflight.json").read_text(encoding="utf-8"))
     assert retained["claim"].startswith("preparation only")
 

@@ -16,7 +16,7 @@ import platform
 import subprocess
 import sys
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 INTERNAL = Path(__file__).resolve().parents[1]
 if str(INTERNAL) not in sys.path:
@@ -24,11 +24,13 @@ if str(INTERNAL) not in sys.path:
 
 from local_agent.config import MODEL_PRESETS  # noqa: E402
 from scripts.model_weights import weight_state  # noqa: E402
+from serving import serve  # noqa: E402
 from serving.model_store import default_runtime_root  # noqa: E402
 
 SCHEMA = "lca.panther-lake-acceptance/1"
 UNKNOWN = "UNKNOWN"
 PREPARE_SCHEMA = "lca.offline-qualification-preflight/1"
+_make_plan: Callable[..., dict[str, Any]] = serve.make_plan
 
 
 class AcceptanceCaptureError(RuntimeError):
@@ -40,10 +42,12 @@ def _now() -> str:
 
 
 def _run(
-    args: list[str], *, cwd: Path | None = None, timeout_s: float | None = None
+    args: list[str], *, cwd: Path | None = None, timeout_s: float | None = None,
+    runtime_root: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "LCA_RUNTIME_ROOT": str(runtime_root.resolve())} if runtime_root else None
     return subprocess.run(
-        args, cwd=cwd, text=True, capture_output=True, check=False, timeout=timeout_s
+        args, cwd=cwd, text=True, capture_output=True, check=False, timeout=timeout_s, env=env
     )
 
 
@@ -144,6 +148,48 @@ def _artifact(path: Path) -> dict[str, Any]:
     return {"path": str(path), "sha256": _sha256(path), "bytes": path.stat().st_size}
 
 
+def installed_runtime_evidence(profile: str, runtime_root: Path) -> dict[str, Any]:
+    """Consume the serving/install owners' current artifacts, never legacy profiles."""
+    config = MODEL_PRESETS[profile]
+    executable = os.environ.get("LCA_OVMS_EXECUTABLE") if config.runtime == "ovms" else None
+    plan = _make_plan(profile, config, runtime_root, executable=executable)
+    launch_path = Path(plan["spec_file"])
+    launch = _load_json(launch_path, "managed launch plan")
+    if (launch.get("profile") != profile
+            or launch.get("model_configuration") != config.identity()
+            or serve.launch_differences(launch, plan)):
+        raise AcceptanceCaptureError("managed launch plan differs from the selected profile")
+    qualification_path = runtime_root / "reports" / f"qualification-{profile}.json"
+    qualification = _load_json(qualification_path, "installation qualification report")
+    if (qualification.get("schema_version") != 1
+            or qualification.get("profile") != profile
+            or qualification.get("model") != config.model
+            or not isinstance(qualification.get("base_url"), str)
+            or qualification["base_url"].rstrip("/") != config.base_url.rstrip("/")):
+        raise AcceptanceCaptureError(
+            "installation qualification identity/schema differs from profile"
+        )
+    checks = qualification.get("checks")
+    required = {"configured model present", "plain chat", "schema constrained tool call"}
+    if (qualification.get("failed") is not False or not isinstance(checks, list)
+            or any(not isinstance(row, dict) or not isinstance(row.get("name"), str)
+                   or not isinstance(row.get("status"), str)
+                   or row["status"] not in {"PASS", "SKIP"}
+                   for row in checks)
+            or not required.issubset({row.get("name") for row in checks
+                                     if row.get("status") == "PASS"})):
+        raise AcceptanceCaptureError("installation qualification is incomplete or failed")
+    return {
+        "runtime": {"runtime": config.runtime, "device": config.device,
+                    "version": config.runtime_version, "launch_plan": launch,
+                    "claim": "recorded launch configuration; physical device execution unobserved"},
+        "qualification_summary": {"ok": True, "model": config.model,
+                                  "scope": "retained installation protocol checks"},
+        "artifacts": {"launch_plan": _artifact(launch_path),
+                      "qualification": _artifact(qualification_path)},
+    }
+
+
 def prepare_qualification(
     repo: Path, runtime_root: Path, output: Path, profile: str
 ) -> dict[str, Any]:
@@ -172,7 +218,7 @@ def prepare_qualification(
         "--profile", profile,
     ]
     try:
-        doctor = _run(doctor_args, cwd=repo, timeout_s=120.0)
+        doctor = _run(doctor_args, cwd=repo, timeout_s=120.0, runtime_root=runtime_root)
     except subprocess.TimeoutExpired:
         doctor = subprocess.CompletedProcess(
             doctor_args, 124, stdout="", stderr="doctor timed out after 120 seconds"
@@ -180,6 +226,14 @@ def prepare_qualification(
     if doctor.returncode != 0:
         detail = doctor.stderr.strip() or doctor.stdout.strip() or f"exit {doctor.returncode}"
         blockers.append("doctor is not ready: " + detail[-1000:])
+    else:
+        try:
+            installed_runtime_evidence(profile, runtime_root)
+        except (AcceptanceCaptureError, serve.Refusal) as exc:
+            blockers.append(
+                f"{exc}; run .\\local-code-agent.ps1 models use {profile}, then "
+                ".\\install.ps1 before disconnecting"
+            )
 
     payload = {
         "schema": PREPARE_SCHEMA,
@@ -247,11 +301,7 @@ def capture_preflight(
         )
     if weight_state(profile, runtime_root) != "downloaded":
         raise AcceptanceCaptureError(f"model weights for {profile} are not complete")
-    reports = runtime_root / "reports"
-    runtime_profile = runtime_root / "runtime" / "profiles" / f"{profile}.json"
-    qualification = reports / f"qualification-{profile}.json"
-    runtime = _load_json(runtime_profile, "managed runtime profile")
-    qual = _load_json(qualification, "qualification report")
+    installed = installed_runtime_evidence(profile, runtime_root)
 
     launcher = repo / "local-code-agent.ps1"
     if not launcher.is_file():
@@ -259,7 +309,7 @@ def capture_preflight(
     check = _run([
         "powershell.exe", "-NoProfile", "-File", str(launcher),
         "session", "--check", "--repo", str(repo), "--profile", profile,
-    ], cwd=repo)
+    ], cwd=repo, runtime_root=runtime_root)
     if check.returncode != 0:
         raise AcceptanceCaptureError(
             "public Session Hub --check failed: " + (check.stderr.strip() or check.stdout.strip())
@@ -273,16 +323,13 @@ def capture_preflight(
         "offline_gate": {"method": "no alive default route on an Up Windows adapter", "passed": True, "routes": routes},
         "profile": profile,
         "device_candidates": devices,
-        "runtime": runtime,
+        "runtime": installed["runtime"],
         "model_manifest_summary": {
             "source_model": config.model,
             "weights": "downloaded",
         },
-        "qualification_summary": {"ok": qual.get("ok"), "model": qual.get("model")},
-        "artifacts": {
-            "runtime_profile": _artifact(runtime_profile),
-            "qualification": _artifact(qualification),
-        },
+        "qualification_summary": installed["qualification_summary"],
+        "artifacts": installed["artifacts"],
         "public_check": {"exit_code": check.returncode, "stdout": check.stdout[-4000:]},
         "claim": "preflight-only; physical Session Hub journeys have not been accepted",
     }
@@ -444,6 +491,7 @@ def run_qualification(
             "--profile", profile, "--allow-model",
         ],
         cwd=repo.resolve(),
+        runtime_root=runtime_root,
     )
     (output / "journeys.stdout.log").write_text(acceptance.stdout, encoding="utf-8")
     (output / "journeys.stderr.log").write_text(acceptance.stderr, encoding="utf-8")
@@ -518,8 +566,7 @@ def render_summary(acceptance_path: Path) -> str:
         row = outcomes.get(journey_id)
         return row.get("status") if isinstance(row, dict) else None
 
-    # Runtime profile schemas may evolve; only project fields that are actually
-    # present. A configured/requested device is not physical execution proof.
+    # Retained launch configuration is distinct from physical execution proof.
     runtime_name = runtime.get("runtime") or runtime.get("name")
     configured_device = runtime.get("device") or runtime.get("requested_device")
     source_model = model.get("source_model")

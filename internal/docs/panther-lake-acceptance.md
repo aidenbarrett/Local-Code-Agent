@@ -16,7 +16,8 @@ Run one root command with the selected existing profile and a new output folder:
 .\local-code-agent.ps1 qualify --profile ptl-gpu-30b --output C:\lca-qualification\gpu30b-1
 ```
 
-The command checks assets while networking is available. Resolve every reported
+The command checks assets, the serving owner's recorded launch plan and the
+selected profile's installation protocol report while networking is available. Resolve every reported
 `NEXT:` action and start again with a different new folder. When ready, it asks you
 to disconnect external networking and type `DISCONNECTED`; it then performs the
 fail-closed offline/device preflight, runs the existing public acceptance journeys,
@@ -48,7 +49,7 @@ For example, the disconnected preflight is:
   --output "C:\lca-qualification\gpu30b-1\offline-preflight.json"
 ```
 
-Preflight records or verifies the exact Git HEAD, clean checkout, offline gate, present device/driver facts, selected profile, complete local model weights, configured runtime profile, qualification report and public Session Hub self-check. It fails if the profile or checkout differs from the preparation retained in the same output folder.
+Preflight records or verifies the exact Git HEAD, clean checkout, offline gate, present device/driver facts, selected profile, complete local model weights, configured launch plan, installation protocol report and public Session Hub self-check. It revalidates the launch/report identities and hashes those artifacts into the bundle. It fails if the profile or checkout differs from the preparation retained in the same output folder.
 
 A preflight result is not hardware acceptance by itself.
 

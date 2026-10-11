@@ -1108,7 +1108,6 @@
    },
    "internal/scripts/panther-lake-acceptance.py": {
     "E501": 8,
-    "F401": 1,
     "S603": 1,
     "T201": 2,
     "UP017": 1,
@@ -1183,5 +1182,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1616
+ "total": 1615
 }
