@@ -2,7 +2,7 @@
 
 This is the evidence procedure for the first-release hardware gate. It exercises the current public product path on the physical Windows target machine with external networking unavailable. Passing CI, a hardware demo, a configured device profile or an older smoke run does not establish this gate.
 
-## 1. Prepare while networking is available
+## One retained qualification run
 
 Use the public setup path to provision the approved runtime, model and local toolchain:
 
@@ -10,28 +10,35 @@ Use the public setup path to provision the approved runtime, model and local too
 .\install.ps1
 ```
 
-Create a new output folder and check the selected profile's local assets before
-disconnecting. This command does not claim that networking is disabled or that the
-configured device executed anything:
+Run one root command with the selected existing profile and a new output folder:
 
 ```powershell
-.\local-code-agent.ps1 qualify prepare --profile ptl-gpu-30b --output C:\lca-qualification\gpu30b-1
+.\local-code-agent.ps1 qualify --profile ptl-gpu-30b --output C:\lca-qualification\gpu30b-1
 ```
 
-Resolve every reported `NEXT:` action, then rerun with a different new output folder.
-The retained `qualification-preflight.json` records source, runtime, model,
-quantization, configured device and the deliberately unknown offline evidence.
+The command checks assets while networking is available. Resolve every reported
+`NEXT:` action and start again with a different new folder. When ready, it asks you
+to disconnect external networking and type `DISCONNECTED`; it then performs the
+fail-closed offline/device preflight, runs the existing public acceptance journeys,
+finalizes their retained evidence and writes `summary.txt`. It does not download
+anything after the disconnect boundary.
+
+The folder contains `qualification-preflight.json`, `offline-preflight.json`, the
+complete `journeys` folder, `acceptance.json`, and the compact `summary.txt`.
 
 Update the checkout and dependencies before the successful preparation run. Do not
 collect the final acceptance bundle from a dirty or subsequently changed checkout.
 
-## 2. Disconnect external networking
+## Disconnect boundary
 
 Disable the interfaces/routes that provide WAN connectivity while retaining the local inference path required by the product. Record the exact isolation method used. Unknown network state is not offline evidence.
 
-## 3. Capture preflight
+## Individual diagnostic phases
 
-From the repository root:
+The explicit `qualify prepare`, `preflight`, `finalize`, and `summary` phases remain
+available for diagnosis. They are not required for the normal qualification run.
+
+For example, the disconnected preflight is:
 
 ```powershell
 .\local-code-agent.ps1 qualify preflight `
