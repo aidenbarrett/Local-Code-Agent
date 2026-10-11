@@ -57,7 +57,7 @@ in [TRICKS.md](TRICKS.md), and the active priority ladder is in
 
 ## Boundaries that remain open
 
-#403 remains the release decision. Its child defects #392â€“#402 are closed, and
+#403 remains the release decision. Its child defects #392–#402 are closed, and
 the capability ledger plus J24 now cover the repaired composed controller path.
 This is a development handoff, not an offline-qualified release: physical target
 evidence, configuration-specific model competence and enforced merge policy still
