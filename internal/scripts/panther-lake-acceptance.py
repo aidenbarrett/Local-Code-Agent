@@ -289,7 +289,9 @@ def capture_preflight(
 def finalize(preflight_path: Path, output: Path, evidence: list[Path], cold_ms: int, warm_ms: int) -> dict[str, Any]:
     preflight = _load_json(preflight_path, "acceptance preflight")
     if preflight.get("schema") != SCHEMA or preflight.get("phase") != "preflight":
-        raise AcceptanceCaptureError("preflight schema/phase is not the current acceptance contract")
+        raise AcceptanceCaptureError(
+            "preflight schema/phase is not the current acceptance contract"
+        )
     repo = Path(preflight["repository"]["root"])
     if platform.system() != "Windows":
         raise AcceptanceCaptureError("Panther Lake physical acceptance must finalize on Windows")
@@ -320,6 +322,148 @@ def finalize(preflight_path: Path, output: Path, evidence: list[Path], cold_ms: 
     return payload
 
 
+def finalize_qualification_run(
+    preflight_path: Path, journeys_path: Path, output: Path, command: str
+) -> dict[str, Any]:
+    """Bind the existing acceptance owner's output to the physical preflight.
+
+    The projection records outcomes; it never upgrades configured hardware into
+    observed execution or grades the physical evidence itself.
+    """
+    preflight = _load_json(preflight_path, "acceptance preflight")
+    journeys = _load_json(journeys_path, "acceptance journeys")
+    if preflight.get("schema") != SCHEMA or preflight.get("phase") != "preflight":
+        raise AcceptanceCaptureError("preflight schema/phase is not the current acceptance contract")
+    if journeys.get("profile") != preflight.get("profile"):
+        raise AcceptanceCaptureError("acceptance profile does not match disconnected preflight")
+    repository = preflight.get("repository")
+    if not isinstance(repository, dict):
+        raise AcceptanceCaptureError("preflight repository identity is missing")
+    repo = Path(repository["root"])
+    if platform.system() != "Windows":
+        raise AcceptanceCaptureError("Panther Lake physical acceptance must finalize on Windows")
+    if _git(repo, "rev-parse", "HEAD") != repository.get("head"):
+        raise AcceptanceCaptureError("checkout drifted during qualification run")
+    if _git(repo, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise AcceptanceCaptureError("checkout became dirty during qualification run")
+    rows = journeys.get("journeys")
+    if not isinstance(rows, list) or not rows:
+        raise AcceptanceCaptureError("acceptance report contains no journey outcomes")
+    by_id = {
+        row.get("id"): row for row in rows
+        if isinstance(row, dict) and isinstance(row.get("id"), str)
+    }
+    required = ("J05-stop-build", "J07-stop-model", "J24-continuous")
+    missing = [journey_id for journey_id in required if journey_id not in by_id]
+    if missing:
+        raise AcceptanceCaptureError(
+            "acceptance report is missing required journeys: " + ", ".join(missing)
+        )
+    preconditions = journeys.get("preconditions")
+    preconditions = preconditions if isinstance(preconditions, dict) else {}
+    product = preconditions.get("product")
+    if not isinstance(product, dict) or product.get("package_commit") != repository.get("head"):
+        raise AcceptanceCaptureError(
+            "acceptance source identity does not match disconnected preflight"
+        )
+    endpoint = preconditions.get("model_endpoint")
+    endpoint = endpoint if isinstance(endpoint, dict) else {}
+    model_call = preconditions.get("model_call")
+    model_call = model_call if isinstance(model_call, dict) else {}
+
+    def measured(journey_id: str) -> dict[str, Any]:
+        value = by_id[journey_id].get("measured")
+        return value if isinstance(value, dict) else {}
+
+    payload = {
+        **preflight,
+        "phase": "captured",
+        "finalized_at_utc": _now(),
+        "run_evidence": {
+            "journeys": {
+                journey_id: {"status": row.get("status"), "reason": row.get("reason")}
+                for journey_id, row in by_id.items()
+            },
+            "stop": {
+                "build": measured("J05-stop-build"),
+                "model": measured("J07-stop-model"),
+            },
+            "continuous_workflow": measured("J24-continuous"),
+            "runtime_lifecycle": {
+                "lifecycle": endpoint.get("lifecycle", UNKNOWN),
+                "launch_to_ready_ms": endpoint.get("launch_to_ready_ms", UNKNOWN),
+                "first_model_call_s": model_call.get("seconds", UNKNOWN),
+                "cold_model_ms": UNKNOWN,
+                "warm_model_ms": UNKNOWN,
+            },
+        },
+        "journey_evidence": [_artifact(journeys_path.resolve())],
+        "reproduction": command,
+        "claim": (
+            "scripted evidence captured; physical device execution and support "
+            "require human review"
+        ),
+        "self_certified": False,
+    }
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def run_qualification(
+    repo: Path, runtime_root: Path, output: Path, profile: str, *, confirm_disconnected: bool
+) -> dict[str, Any]:
+    preparation = prepare_qualification(repo, runtime_root, output, profile)
+    if not preparation["ready_to_disconnect"]:
+        blockers = "; ".join(str(value) for value in preparation["blockers"])
+        raise AcceptanceCaptureError("not ready to disconnect: " + blockers)
+    if not confirm_disconnected:
+        response = input(
+            "Disconnect external networking, then type DISCONNECTED to continue: "
+        ).strip()
+        if response != "DISCONNECTED":
+            raise AcceptanceCaptureError(
+                "disconnected run cancelled; exact confirmation was not supplied"
+            )
+
+    preflight_path = output / "offline-preflight.json"
+    capture_preflight(repo, runtime_root, preflight_path, profile)
+    journeys_dir = output / "journeys"
+    launcher = repo.resolve() / "local-code-agent.ps1"
+    acceptance = _run(
+        [
+            "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", str(launcher), "acceptance", "--output", str(journeys_dir),
+            "--profile", profile, "--allow-model",
+        ],
+        cwd=repo.resolve(),
+    )
+    post_run_routes = active_default_routes()
+    require_offline(post_run_routes)
+    journeys_path = journeys_dir / "journeys.json"
+    command = (
+        f".\\local-code-agent.ps1 qualify --profile {profile} "
+        "--output <new-output-folder>"
+    )
+    payload = finalize_qualification_run(
+        preflight_path, journeys_path, output / "acceptance.json", command
+    )
+    payload["post_run_offline_gate"] = {
+        "method": "no alive default route on an Up Windows adapter",
+        "passed": True,
+        "routes": post_run_routes,
+    }
+    (output / "acceptance.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    write_summary(output / "acceptance.json", output / "summary.txt")
+    if acceptance.returncode != 0:
+        raise AcceptanceCaptureError(
+            f"acceptance journeys reported failure (exit {acceptance.returncode}); "
+            "retained report is complete"
+        )
+    return payload
+
+
 
 def render_summary(acceptance_path: Path) -> str:
     """Render a compact, photographable projection of captured evidence.
@@ -334,9 +478,16 @@ def render_summary(acceptance_path: Path) -> str:
     repository = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
     offline = payload.get("offline_gate") if isinstance(payload.get("offline_gate"), dict) else {}
     runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
-    model = payload.get("model_manifest_summary") if isinstance(payload.get("model_manifest_summary"), dict) else {}
-    qualification = payload.get("qualification_summary") if isinstance(payload.get("qualification_summary"), dict) else {}
+    model_value = payload.get("model_manifest_summary")
+    model = model_value if isinstance(model_value, dict) else {}
+    qualification_value = payload.get("qualification_summary")
+    qualification = qualification_value if isinstance(qualification_value, dict) else {}
     latency = payload.get("latency_ms") if isinstance(payload.get("latency_ms"), dict) else {}
+    run_evidence = payload.get("run_evidence") if isinstance(payload.get("run_evidence"), dict) else {}
+    runtime_lifecycle = run_evidence.get("runtime_lifecycle")
+    runtime_lifecycle = runtime_lifecycle if isinstance(runtime_lifecycle, dict) else {}
+    outcomes = run_evidence.get("journeys")
+    outcomes = outcomes if isinstance(outcomes, dict) else {}
 
     def shown(value: Any) -> str:
         if value is None or value == "":
@@ -344,6 +495,10 @@ def render_summary(acceptance_path: Path) -> str:
         if isinstance(value, bool):
             return "VERIFIED" if value else "FAILED"
         return str(value)
+
+    def outcome_status(journey_id: str) -> Any:
+        row = outcomes.get(journey_id)
+        return row.get("status") if isinstance(row, dict) else None
 
     # Runtime profile schemas may evolve; only project fields that are actually
     # present. A configured/requested device is not physical execution proof.
@@ -369,17 +524,26 @@ def render_summary(acceptance_path: Path) -> str:
         f"Qualification   {shown(qualification.get('ok'))}",
         f"Cold latency ms {shown(latency.get('cold')) if captured else UNKNOWN}",
         f"Warm latency ms {shown(latency.get('warm')) if captured else UNKNOWN}",
+        f"Lifecycle       {shown(runtime_lifecycle.get('lifecycle'))}",
+        f"Launch-ready ms {shown(runtime_lifecycle.get('launch_to_ready_ms'))}",
+        f"First call s    {shown(runtime_lifecycle.get('first_model_call_s'))}",
+        f"Cold model ms   {shown(runtime_lifecycle.get('cold_model_ms'))}",
+        f"Warm model ms   {shown(runtime_lifecycle.get('warm_model_ms'))}",
         "",
-        "MANUAL JOURNEYS (review required)",
+        "SCRIPTED JOURNEYS (physical review required)",
         f"Build journey   {UNKNOWN}",
         f"Test journey    {UNKNOWN}",
         f"Candidate       {UNKNOWN}",
         f"Dirty checkout  {UNKNOWN}",
-        f"Stop            {UNKNOWN}",
-        f"Restart         {UNKNOWN}",
+        f"Stop            {UNKNOWN if not outcomes else 'SEE RETAINED OUTCOMES'}",
+        f"Stop build      {shown(outcome_status('J05-stop-build'))}",
+        f"Stop model      {shown(outcome_status('J07-stop-model'))}",
+        f"Continuous flow {shown(outcome_status('J24-continuous'))}",
         "",
         f"Evidence bundle {_sha256(acceptance_path)}",
-        f"Overall         {'INCOMPLETE - HUMAN REVIEW REQUIRED' if captured else 'INCOMPLETE - PREFLIGHT ONLY'}",
+        "Overall         "
+        + ("INCOMPLETE - HUMAN REVIEW REQUIRED" if captured
+           else "INCOMPLETE - PREFLIGHT ONLY"),
     ]
     return "\n".join(lines) + "\n"
 
@@ -399,6 +563,12 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--profile", required=True, choices=sorted(MODEL_PRESETS))
     prepare.add_argument("--runtime-root", type=Path, default=None)
     prepare.add_argument("--output", type=Path, required=True)
+    run = sub.add_parser("run")
+    run.add_argument("--repo", type=Path, required=True)
+    run.add_argument("--profile", required=True, choices=sorted(MODEL_PRESETS))
+    run.add_argument("--runtime-root", type=Path, default=None)
+    run.add_argument("--output", type=Path, required=True)
+    run.add_argument("--confirm-disconnected", action="store_true", help=argparse.SUPPRESS)
     pre = sub.add_parser("preflight")
     pre.add_argument("--repo", type=Path, required=True)
     pre.add_argument("--profile", required=True, choices=sorted(MODEL_PRESETS))
@@ -419,7 +589,12 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        if args.command == "prepare":
+        if args.command == "run":
+            run_qualification(
+                args.repo, args.runtime_root or default_runtime_root(), args.output,
+                args.profile, confirm_disconnected=args.confirm_disconnected,
+            )
+        elif args.command == "prepare":
             payload = prepare_qualification(
                 args.repo, args.runtime_root or default_runtime_root(), args.output, args.profile
             )
@@ -428,14 +603,15 @@ def main(argv: list[str] | None = None) -> int:
             for blocker in payload["blockers"]:
                 sys.stdout.write(f"NEXT: {blocker}\n")
             return 0 if payload["ready_to_disconnect"] else 3
-        if args.command == "preflight":
+        elif args.command == "preflight":
             capture_preflight(args.repo, args.runtime_root, args.output, args.profile)
         elif args.command == "finalize":
             finalize(args.preflight, args.output, args.evidence, args.cold_latency_ms, args.warm_latency_ms)
         else:
             summary = write_summary(args.acceptance, args.output) if args.output else render_summary(args.acceptance)
             print(summary, end="")
-    except (AcceptanceCaptureError, OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    except (AcceptanceCaptureError, EOFError, OSError, KeyError, TypeError, ValueError,
+            json.JSONDecodeError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2
     return 0
