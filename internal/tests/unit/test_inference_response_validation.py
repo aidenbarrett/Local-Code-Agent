@@ -1,18 +1,59 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from local_agent.agent import Orchestrator, SkillLibrary
 from local_agent.agent.state import AgentState
-from local_agent.config import Policy, RepoConfig
+from local_agent.config import ModelConfig, Policy, RepoConfig
 from local_agent.llm.protocol import ChatResponse, ToolCall
-from local_agent.llm.client import ScriptedClient
+from local_agent.llm.client import OpenAICompatibleClient, ScriptedClient
 from local_agent.tools.tool_primitives import Risk, Tool, ToolRegistry, ToolResult
 
 
 REPO = Path(__file__).resolve().parent.parent.parent
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("tools", [None, [], [{"type": "function", "function": {
+    "name": "build_target", "parameters": {"type": "object"},
+}}]])
+def test_http_client_requests_single_tool_calls_only_when_tools_are_offered(stream, tools):
+    captured = {}
+    choice = SimpleNamespace(
+        message=SimpleNamespace(content="ready", tool_calls=None),
+        delta=SimpleNamespace(content="ready", tool_calls=None),
+        finish_reason="stop",
+    )
+    response = SimpleNamespace(choices=[choice], usage=None)
+
+    class Stream:
+        def __iter__(self):
+            yield response
+
+        def close(self):
+            pass
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return Stream() if stream else response
+
+    client = OpenAICompatibleClient(ModelConfig(stream=stream))
+    client._client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=create),
+    ))
+    assert client.chat([{"role": "user", "content": "inspect"}], tools).content == "ready"
+    assert set(captured) <= client.SDK_KEYWORDS
+    if tools:
+        assert captured["parallel_tool_calls"] is False
+        assert captured["tools"] == tools
+        assert captured["tool_choice"] == "auto"
+    else:
+        assert "parallel_tool_calls" not in captured
+        assert "tools" not in captured
+        assert "tool_choice" not in captured
 
 
 def _harness(tmp_path: Path):
