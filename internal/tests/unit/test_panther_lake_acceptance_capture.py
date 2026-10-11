@@ -100,6 +100,48 @@ function Get-CimInstance { param($ClassName, $ErrorAction)
     assert devices[0]["driver_provider"] == "Intel"
 
 
+def test_npu_inventory_excludes_input_devices_and_preserves_named_accelerators(monkeypatch):
+    module = _load()
+    _powershell_probe(module, monkeypatch, r'''
+function Get-PnpDevice { param([switch]$PresentOnly, $ErrorAction)
+    foreach ($name in @('USB Input Device','Input Controller','QuantumNPU','Neural Network Adapter',
+                        'Intel(R) NPU Accelerator','Intel(R) AI Boost','Neural Processing Unit', $null)) {
+        [pscustomobject]@{FriendlyName=$name;Status='OK';InstanceId=$name}
+    }
+}
+function Get-CimInstance { param($ClassName, $ErrorAction) }
+''')
+    devices = module.configured_devices("NPU")
+    assert [device["name"] for device in devices] == [
+        "Intel(R) NPU Accelerator", "Intel(R) AI Boost", "Neural Processing Unit",
+    ]
+    assert all(device["driver_version"] is None for device in devices)
+
+
+def test_serving_driver_inventory_uses_the_same_npu_name_boundary(monkeypatch):
+    module = _load()
+    shell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if shell is None:
+        pytest.skip("PowerShell is unavailable")
+    run = subprocess.run
+
+    def probe(args, **kwargs):
+        prelude = r'''
+function Get-CimInstance { param($ClassName)
+    [pscustomobject]@{DeviceName='USB Input Device';DriverVersion='wrong'}
+    [pscustomobject]@{DeviceName='Intel(R) AI Boost';DriverVersion='observed'}
+}
+'''
+        return run([shell, "-NoProfile", "-Command", prelude + args[-1]], **kwargs)
+
+    monkeypatch.setattr(module.serve, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(module.serve.subprocess, "run", probe)
+    assert module.serve.driver_version() == {
+        "drivers": {"DeviceName": "Intel(R) AI Boost", "DriverVersion": "observed"},
+        "quality": "observed",
+    }
+
+
 def test_preflight_parser_requires_and_retains_selected_profile():
     module = _load()
     args = module.parser().parse_args(
