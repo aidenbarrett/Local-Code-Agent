@@ -1,0 +1,2731 @@
+{
+  "schema": "lca.rc-model-measurement/1",
+  "status": "real-model-candidate-build-and-tests-verified-byte-fidelity-defect-open",
+  "instruction_repair": {
+    "changed_source_sha256": "0dc19ebe28bdbff307d752ee46e4271c9c10fa9f6c838743c09cda8ed4c8a541",
+    "change": "Existing fix-build-failure instruction permits compiler/link repairs in test source while forbidding assertion weakening/removal/skipping or expectation changes to manufacture green.",
+    "reason": "Official real cxxopts Q07 compiler fault is in a test translation unit; the prior blanket test-edit ban conflicts with that supported repair. Independent review confirmed no second ban and existing effect authority remains unchanged.",
+    "causation": "Not established as sole cause of CPU8B failure; original failed/UNKNOWN measurements remain unrescored.",
+    "next_controlled_measurement": {
+      "profile": "nuc-cpu-8b",
+      "corpus_commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+      "journey": "Q07-fix-model",
+      "repeat": 1,
+      "journey_timeout_seconds": 300,
+      "stop_budget_seconds": 60,
+      "prompts_fixtures_or_budgets_changed": false,
+      "request_trace": "SDK debug was requested; actual logs contain HTTP method/status/timing only, not bodies or tool arguments. No isolated latency comparison is claimed.",
+      "operator_candidate_edits": 0,
+      "result": {
+        "report_sha256": "d7fa7a3f530326c2458f0cbede456b5d1a655fb075ed2fb2742854ef46d96399",
+        "report": {
+          "schema": "lca.acceptance-journeys/1",
+          "started_unix": 1791757624.9998055,
+          "finished_unix": 1791757884.12819,
+          "profile": "nuc-cpu-8b",
+          "model": "OpenVINO/Qwen3-8B-int4-cw-ov",
+          "base_url": "http://127.0.0.1:8001/v3",
+          "preconditions": {
+            "product": {
+              "package_commit": "2a9bb2d4833222ff7f6310e097cd3d398f22fa26",
+              "package_dirty": false,
+              "package_source": "git",
+              "source_sha256": "0dc19ebe28bdbff307d752ee46e4271c9c10fa9f6c838743c09cda8ed4c8a541"
+            },
+            "platform": "Windows-11-10.0.26200-SP0",
+            "python": "3.13.5",
+            "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+            "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+            "fixture_builds": null,
+            "model_endpoint": {
+              "ok": true,
+              "message": "managed model endpoint ready",
+              "lifecycle": "started",
+              "replaced_reason": null,
+              "refused_reason": null,
+              "changed_fields": [],
+              "launch_to_ready_ms": 7910
+            },
+            "model_call": {
+              "ok": true,
+              "seconds": 8.1
+            },
+            "runtime_header": "preset nuc-cpu-8b \u00b7 model OpenVINO/Qwen3-8B-int4-cw-ov (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8001/v3 \u00b7 execution enabled",
+            "corpus": {
+              "name": "cxxopts",
+              "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+              "licence": "MIT",
+              "cache": "C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\qualification-cache",
+              "ready": true,
+              "problem": null
+            }
+          },
+          "journeys": [
+            {
+              "id": "Q01-build-test",
+              "title": "build and test a real repository",
+              "kind": "product",
+              "status": "UNKNOWN",
+              "reason": "not selected",
+              "seconds": 0,
+              "notes": [],
+              "tasks": [],
+              "measured": {},
+              "tool_failures": [],
+              "attempted": false
+            },
+            {
+              "id": "Q02-compile-diagnosis",
+              "title": "diagnose a seeded compile error with file and line",
+              "kind": "product",
+              "status": "UNKNOWN",
+              "reason": "not selected",
+              "seconds": 0,
+              "notes": [],
+              "tasks": [],
+              "measured": {},
+              "tool_failures": [],
+              "attempted": false
+            },
+            {
+              "id": "Q03-test-truth",
+              "title": "name the seeded failing CTest tests",
+              "kind": "product",
+              "status": "UNKNOWN",
+              "reason": "not selected",
+              "seconds": 0,
+              "notes": [],
+              "tasks": [],
+              "measured": {},
+              "tool_failures": [],
+              "attempted": false
+            },
+            {
+              "id": "Q04-candidate-scripted",
+              "title": "scripted fix: apply, undo, re-apply, exact commit amid user work",
+              "kind": "product",
+              "status": "UNKNOWN",
+              "reason": "not selected",
+              "seconds": 0,
+              "notes": [],
+              "tasks": [],
+              "measured": {},
+              "tool_failures": [],
+              "attempted": false
+            },
+            {
+              "id": "Q05-stop-build",
+              "title": "Stop during the real build",
+              "kind": "product",
+              "status": "UNKNOWN",
+              "reason": "not selected",
+              "seconds": 0,
+              "notes": [],
+              "tasks": [],
+              "measured": {},
+              "tool_failures": [],
+              "attempted": false
+            },
+            {
+              "id": "Q06-repo-explain",
+              "title": "grounded explanation of a real repository",
+              "kind": "model",
+              "status": "UNKNOWN",
+              "reason": "not selected",
+              "seconds": 0,
+              "notes": [],
+              "tasks": [],
+              "measured": {},
+              "tool_failures": [],
+              "attempted": false
+            },
+            {
+              "id": "Q07-fix-model",
+              "title": "fix the seeded compile error with the model",
+              "kind": "model",
+              "status": "MEASURED:verified",
+              "reason": "candidate fix verified by a full build",
+              "seconds": 238.3,
+              "notes": [],
+              "tasks": [
+                {
+                  "said": "build it",
+                  "seconds": 6.6,
+                  "task_id": "21a66780-0539-5b71-bf3a-a1bc2cd22d60",
+                  "outcome": "fail",
+                  "reason_code": "verification_failed",
+                  "verified": false,
+                  "evidence_ids": [
+                    "build_target:0"
+                  ],
+                  "proof_scope": "observed_build_failure",
+                  "llm_calls": 0,
+                  "prompt_tokens": 0,
+                  "context_peak_tokens": 3312,
+                  "compactions": 0
+                },
+                {
+                  "said": "fix it",
+                  "seconds": 231,
+                  "task_id": "1f97d615-05e1-58b8-9199-a088f8478719",
+                  "outcome": "pass",
+                  "reason_code": "verification_passed",
+                  "verified": true,
+                  "evidence_ids": [
+                    "build_target:0",
+                    "read_file:1",
+                    "propose_patch:2",
+                    "build_target:3",
+                    "read_file:4",
+                    "apply_patch:5",
+                    "build_target:6"
+                  ],
+                  "proof_scope": "full_build",
+                  "llm_calls": 8,
+                  "prompt_tokens": 47565,
+                  "context_peak_tokens": 8031,
+                  "compactions": 0
+                }
+              ],
+              "measured": {
+                "unrelated_work_preserved": true
+              },
+              "tool_failures": [],
+              "attempted": true
+            }
+          ],
+          "corpus": {
+            "name": "cxxopts",
+            "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+            "licence": "MIT",
+            "metrics": {
+              "attempted": 1,
+              "completed_verified": 1,
+              "not_attempted": 0,
+              "unknown_outcomes": 0,
+              "refusal_correctness": null,
+              "user_interventions": null,
+              "cold_build_s": null,
+              "warm_test_s": null,
+              "unrelated_work_preserved": {
+                "Q07-fix-model": true
+              },
+              "failure_reasons": {},
+              "rate_claimed": false
+            }
+          }
+        },
+        "transcript": "[23:27:33] USER: build it   (6.6s)\n  RESULT: {\"task_id\": \"21a66780-0539-5b71-bf3a-a1bc2cd22d60\", \"outcome\": \"fail\", \"reason_code\": \"verification_failed\", \"verified\": false, \"evidence_ids\": [\"build_target:0\"], \"proof_scope\": \"observed_build_failure\", \"llm_calls\": 0, \"prompt_tokens\": 0, \"context_peak_tokens\": 3312, \"compactions\": 0}\n  ANSWER:\n    [Controller: fail; verification: ran, did not establish success; reason: verification_failed; evidence: 1 item(s); task: 21a66780-0539-5b71-bf3a-a1bc2cd22d60]\n    Proof scope: observed_build_failure\n    Request SHA-256: 779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428\n    Tree SHA-256: e13be8530686210109ff5e9c827a522c0f638424f4a55fb1c1a21b939402e0fd\n    Evidence IDs: build_target:0\n    \n    Unverified task detail (not proof of a completed change):\n    build_target: build (debug) FAILED (compile) with 2 compiler error(s) and 0 link error(s); first error at test/options.cpp:95: 'reslt': undeclared identifier [C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-model8b-compiler-guard-20261011\\repos\\Q07-fix-model\\build\\test\\options_test_noregex.vcxpro -- command: [\"cmake\", \"--build\", \"build\", \"--config\", \"Debug\", \"--parallel\", \"4\"]\n\n[23:31:24] USER: fix it   (231.0s)\n  RESULT: {\"task_id\": \"1f97d615-05e1-58b8-9199-a088f8478719\", \"outcome\": \"pass\", \"reason_code\": \"verification_passed\", \"verified\": true, \"evidence_ids\": [\"build_target:0\", \"read_file:1\", \"propose_patch:2\", \"build_target:3\", \"read_file:4\", \"apply_patch:5\", \"build_target:6\"], \"proof_scope\": \"full_build\", \"llm_calls\": 8, \"prompt_tokens\": 47565, \"context_peak_tokens\": 8031, \"compactions\": 0}\n  ANSWER:\n    [Controller: pass; verification: passed at task completion; reason: verification_passed; evidence: 7 item(s); task: 1f97d615-05e1-58b8-9199-a088f8478719]\n    Proof scope: full_build\n    Request SHA-256: ce3c8e9aad3bebb8e24325b0bc0bb5f16c870fc4b29d7942086cfbbb725a49ca\n    Tree SHA-256: db5c5aac0f5e474386e65d1d984e36c3eee6df4c8301bdfdec682d417582dcd4\n    Evidence IDs: build_target:0, read_file:1, propose_patch:2, build_target:3, read_file:4, apply_patch:5, build_target:6\n    \n    Task detail:\n    Candidate change prepared in an isolated copy. Your checkout has not been modified.\n    Changed: test/options.cpp\n    A full build of the candidate passed.\n    Diffstat:\n      test/options.cpp | +2116 -2116\n    Preview:\n    diff --git a/test/options.cpp b/test/options.cpp\n    index b5afe222c5e339387873ef6ddf3745f33cd4ef2c..7451992927abb68923de940aaa8e9c34350aed69 100644\n    --- a/test/options.cpp\n    +++ b/test/options.cpp\n    @@ -1,2116 +1,2116 @@\n    -#include \"catch.hpp\"\n    -#include <cmath>\n    -#include <iostream>\n    -\n    -#include <initializer_list>\n    -#include <limits>\n    -\n    -#include \"cxxopts.hpp\"\n    -\n    -class Argv {\n    -  public:\n    -\n    -  Argv(std::initializer_list<const char*> args)\n    -  : m_argv(new const char*[args.size()])\n    -  , m_argc(static_cast<int>(args.size()))\n    -  {\n    -    int i = 0;\n    -    auto iter = args.begin();\n    -    while (iter != args.end()) {\n    -      auto len = strlen(*iter) + 1;\n    -      auto ptr = std::unique_ptr<char[]>(new char[len]);\n    -\n    -      strcpy(ptr.get(), *iter);\n    -      m_args.push_back(std::move(ptr));\n    -      m_argv.get()[i] = m_args.back().get();\n    -\n    -      ++iter;\n    -      ++i;\n    -    }\n    -  }\n    -\n    -  const char** argv() const {\n    -    return m_argv.get();\n    -  }\n    -\n    (preview truncated; full diff: /diff 1f97d615-05e1-58b8-9199-a088f8478719)\n    Candidate patch sha256 e12e525f7a778c96ed7f56e08721cfd75eea2d1c4e20ff5c97e9be752575c9d0. Task 1f97d615-05e1-58b8-9199-a088f8478719.\n    Review: /diff 1f97d615-05e1-58b8-9199-a088f8478719   Apply: /apply 1f97d615-05e1-58b8-9199-a088f8478719\n    \n    The candidate passed its configured full build.\n\n",
+        "events": [
+          {
+            "event_id": "f1cb44e6-a2c7-44cf-88d4-70f855f24edb",
+            "kind": "session.opened",
+            "occurred_utc": "2026-10-11T22:27:26.386937Z",
+            "payload": {
+              "capabilities": [
+                "conversation",
+                "repository_read",
+                "durable_session_events",
+                "durable_task_execution",
+                "durable_task_history",
+                "durable_tool_activity",
+                "deterministic_routing",
+                "textual_session_hub",
+                "non_blocking_turn_dispatch",
+                "explicit_model_route_acceptance",
+                "task_execution_epoch_fencing",
+                "in_process_endpoint_arbitration",
+                "user_stop_request"
+              ],
+              "controller_commit": "2a9bb2d4833222ff7f6310e097cd3d398f22fa26",
+              "conversation_id": "2026-10-11T22-27-26-267995Z-c7a7",
+              "recovered": false,
+              "repository_id": "cxxopts:6d1fd13f70711b56"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 1,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": null
+          },
+          {
+            "event_id": "b744786b-ab1d-47fc-a9af-10dfff420aac",
+            "kind": "task.admitted",
+            "occurred_utc": "2026-10-11T22:27:26.565012Z",
+            "payload": {
+              "contract_sha256": "443e116a3876fe85101cb1311a7660cc151e325fd5ad5dbd188f1e9c7cc16f48",
+              "deadline_utc": "2026-10-12T04:27:26Z",
+              "execution_epoch": 0,
+              "origin": {
+                "kind": "user_rule",
+                "rule_id": "build-and-test/v1",
+                "turn_ref": {
+                  "conversation_id": "2026-10-11T22-27-26-267995Z-c7a7",
+                  "turn_index": 0,
+                  "turn_sha256": "18e8cf22d286ef7fefeac021ad1ee704d8d9ccc5000e9a78ab67080a95c11f0b"
+                }
+              },
+              "repository_id": "cxxopts:6d1fd13f70711b56",
+              "request_ref": {
+                "artifact_id": "263b1685-4a01-53a4-adf0-dcd611181db5",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-request+json",
+                "sha256": "352491380cfb8e2e48a7f89a145574b8ccdc1191488ad8bf04b53b706092f78b",
+                "size_bytes": 385
+              },
+              "skill": "run-build"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 2,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "21a66780-0539-5b71-bf3a-a1bc2cd22d60"
+          },
+          {
+            "event_id": "87c7610f-1fc9-4883-8a53-800ba9aa9ae8",
+            "kind": "task.state_changed",
+            "occurred_utc": "2026-10-11T22:27:26.581162Z",
+            "payload": {
+              "current": "running",
+              "execution_epoch": 0,
+              "previous": "admitted",
+              "reason_code": "requested"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 3,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "21a66780-0539-5b71-bf3a-a1bc2cd22d60"
+          },
+          {
+            "event_id": "8e3b5d27-d6b3-46bc-ac80-a9acd77241d0",
+            "kind": "tool.started",
+            "occurred_utc": "2026-10-11T22:27:26.678261Z",
+            "payload": {
+              "arguments_ref": null,
+              "call_id": "4717a5c9-077a-57e6-ac71-775702e48a41",
+              "deadline_utc": "2026-10-12T04:27:26Z",
+              "execution_epoch": 0,
+              "tool_name": "build_target"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 4,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "21a66780-0539-5b71-bf3a-a1bc2cd22d60"
+          },
+          {
+            "event_id": "ec27fb46-c499-449c-ae83-5054e818ae62",
+            "kind": "tool.finished",
+            "occurred_utc": "2026-10-11T22:27:33.007705Z",
+            "payload": {
+              "call_id": "4717a5c9-077a-57e6-ac71-775702e48a41",
+              "domain": "fail",
+              "duration_ms": 6317,
+              "evidence_ids": [],
+              "execution": "ok",
+              "execution_epoch": 0,
+              "exit_code": 1,
+              "reason_code": "completed",
+              "result_ref": null,
+              "tool_name": "build_target"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 5,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "21a66780-0539-5b71-bf3a-a1bc2cd22d60"
+          },
+          {
+            "event_id": "ee758ff3-85e9-461a-b69c-6a65f08579fe",
+            "kind": "task.verdict",
+            "occurred_utc": "2026-10-11T22:27:33.107646Z",
+            "payload": {
+              "completion": {
+                "result_ref": {
+                  "artifact_id": "c66a20b2-98dd-4321-81dd-3e3077d97473",
+                  "availability": "retained",
+                  "media_type": "application/vnd.lca.task-result+json",
+                  "sha256": "f42eb94eaf7e72bacfb8eb8c1eb8232f747ba0320a3c2db31db21f574a038d4b",
+                  "size_bytes": 653
+                },
+                "status": "failed",
+                "task_id": "21a66780-0539-5b71-bf3a-a1bc2cd22d60",
+                "verdict_block": {
+                  "evidence_ids": [
+                    "build_target:0"
+                  ],
+                  "reason_code": "verification_failed",
+                  "rendered_lines": [
+                    "FAILED: fail.",
+                    "Reason: verification_failed.",
+                    "Verification: ran but did not establish success.",
+                    "Tree SHA-256: e13be8530686210109ff5e9c827a522c0f638424f4a55fb1c1a21b939402e0fd.",
+                    "Proof scope: observed_build_failure; request: 779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428.",
+                    "Evidence: build_target:0"
+                  ],
+                  "scope": "observed_build_failure; request_sha256=779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428",
+                  "tree_sha256": "e13be8530686210109ff5e9c827a522c0f638424f4a55fb1c1a21b939402e0fd",
+                  "verdict": "FAILED"
+                },
+                "worker_artifact_ref": null
+              }
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 6,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "21a66780-0539-5b71-bf3a-a1bc2cd22d60"
+          },
+          {
+            "event_id": "7b4244da-a22f-44d7-8ac9-45ceba5106fe",
+            "kind": "task.closed",
+            "occurred_utc": "2026-10-11T22:27:33.109192Z",
+            "payload": {
+              "cleanup": "not_needed",
+              "result_ref": {
+                "artifact_id": "c66a20b2-98dd-4321-81dd-3e3077d97473",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-result+json",
+                "sha256": "f42eb94eaf7e72bacfb8eb8c1eb8232f747ba0320a3c2db31db21f574a038d4b",
+                "size_bytes": 653
+              },
+              "status": "failed"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 7,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "21a66780-0539-5b71-bf3a-a1bc2cd22d60"
+          },
+          {
+            "event_id": "103b37fb-eba7-436d-b7fb-ca845a2573a0",
+            "kind": "task.admitted",
+            "occurred_utc": "2026-10-11T22:27:33.197120Z",
+            "payload": {
+              "contract_sha256": "dcdc8a795e069f796ae6c343708f5aae8c89e207257d776fa9758de88792458e",
+              "deadline_utc": "2026-10-12T04:27:33Z",
+              "execution_epoch": 0,
+              "origin": {
+                "kind": "user_rule",
+                "rule_id": "fix-referent/v1",
+                "turn_ref": {
+                  "conversation_id": "2026-10-11T22-27-26-267995Z-c7a7",
+                  "turn_index": 1,
+                  "turn_sha256": "0d28b755a18ffe4dafe10ba60a21882b4f77f2c0fcf68f273f17cf934e9d07ed"
+                }
+              },
+              "repository_id": "cxxopts:6d1fd13f70711b56",
+              "request_ref": {
+                "artifact_id": "cda1c163-b996-5d29-991c-97d766f5dd77",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-request+json",
+                "sha256": "60360b63e0ed8476f2ca7ab546b5a4d67a60c63fb6f101c26e4fc6352eb80e31",
+                "size_bytes": 1007
+              },
+              "skill": "fix-build-failure"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 8,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "f5ec2cb7-708d-4139-84ba-625a3f8a982c",
+            "kind": "task.state_changed",
+            "occurred_utc": "2026-10-11T22:27:33.209177Z",
+            "payload": {
+              "current": "running",
+              "execution_epoch": 0,
+              "previous": "admitted",
+              "reason_code": "requested"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 9,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "4e37f750-f974-4a92-b23f-287756913046",
+            "kind": "tool.started",
+            "occurred_utc": "2026-10-11T22:28:10.235206Z",
+            "payload": {
+              "arguments_ref": null,
+              "call_id": "3a748ce2-cabc-592f-82b4-334a1fbcfec3",
+              "deadline_utc": "2026-10-12T04:27:33Z",
+              "execution_epoch": 0,
+              "tool_name": "build_target"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 10,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "35b90489-4585-459f-9b3b-9218bdd69842",
+            "kind": "tool.finished",
+            "occurred_utc": "2026-10-11T22:28:16.289693Z",
+            "payload": {
+              "call_id": "3a748ce2-cabc-592f-82b4-334a1fbcfec3",
+              "domain": "fail",
+              "duration_ms": 6039,
+              "evidence_ids": [],
+              "execution": "ok",
+              "execution_epoch": 0,
+              "exit_code": 1,
+              "reason_code": "completed",
+              "result_ref": null,
+              "tool_name": "build_target"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 11,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "2d9aa798-9327-4864-bbd2-54d692bd3a6f",
+            "kind": "tool.started",
+            "occurred_utc": "2026-10-11T22:28:57.700678Z",
+            "payload": {
+              "arguments_ref": null,
+              "call_id": "83812167-3f8e-5e9c-bf1f-dea445469c10",
+              "deadline_utc": "2026-10-12T04:27:33Z",
+              "execution_epoch": 0,
+              "tool_name": "read_file"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 12,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "9fa3c93b-f355-47b1-82aa-23b638df1a4f",
+            "kind": "tool.finished",
+            "occurred_utc": "2026-10-11T22:28:57.715779Z",
+            "payload": {
+              "call_id": "83812167-3f8e-5e9c-bf1f-dea445469c10",
+              "domain": "pass",
+              "duration_ms": 0,
+              "evidence_ids": [],
+              "execution": "ok",
+              "execution_epoch": 0,
+              "exit_code": null,
+              "reason_code": "completed",
+              "result_ref": null,
+              "tool_name": "read_file"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 13,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "9c26a50d-d42c-4a2a-bee3-01fd8a120bcc",
+            "kind": "tool.started",
+            "occurred_utc": "2026-10-11T22:29:31.053180Z",
+            "payload": {
+              "arguments_ref": null,
+              "call_id": "6bb62d03-f501-5ef9-ae37-a74ee877227c",
+              "deadline_utc": "2026-10-12T04:27:33Z",
+              "execution_epoch": 0,
+              "tool_name": "propose_patch"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 14,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "f1f62b69-fba8-481c-a906-6fa60625f4f6",
+            "kind": "tool.finished",
+            "occurred_utc": "2026-10-11T22:29:31.071089Z",
+            "payload": {
+              "call_id": "6bb62d03-f501-5ef9-ae37-a74ee877227c",
+              "domain": "pass",
+              "duration_ms": 4,
+              "evidence_ids": [],
+              "execution": "ok",
+              "execution_epoch": 0,
+              "exit_code": null,
+              "reason_code": "completed",
+              "result_ref": null,
+              "tool_name": "propose_patch"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 15,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "e0fb6679-0a47-4fdb-b9f9-4554ad44c556",
+            "kind": "tool.started",
+            "occurred_utc": "2026-10-11T22:29:41.791221Z",
+            "payload": {
+              "arguments_ref": null,
+              "call_id": "7d0259cb-660b-54db-8cd5-f5e547993314",
+              "deadline_utc": "2026-10-12T04:27:33Z",
+              "execution_epoch": 0,
+              "tool_name": "build_target"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 16,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "9663a718-082f-47af-b806-283e42381963",
+            "kind": "tool.finished",
+            "occurred_utc": "2026-10-11T22:29:47.317784Z",
+            "payload": {
+              "call_id": "7d0259cb-660b-54db-8cd5-f5e547993314",
+              "domain": "fail",
+              "duration_ms": 5508,
+              "evidence_ids": [],
+              "execution": "ok",
+              "execution_epoch": 0,
+              "exit_code": 1,
+              "reason_code": "completed",
+              "result_ref": null,
+              "tool_name": "build_target"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 17,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "7b1e052b-8cc1-4b7c-858f-24d139d39757",
+            "kind": "tool.started",
+            "occurred_utc": "2026-10-11T22:30:37.816928Z",
+            "payload": {
+              "arguments_ref": null,
+              "call_id": "bbb4806c-7559-55e6-a199-b927a81277f9",
+              "deadline_utc": "2026-10-12T04:27:33Z",
+              "execution_epoch": 0,
+              "tool_name": "read_file"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 18,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "6789449f-5cc9-44d9-b385-69f57eeed0c7",
+            "kind": "tool.finished",
+            "occurred_utc": "2026-10-11T22:30:37.832289Z",
+            "payload": {
+              "call_id": "bbb4806c-7559-55e6-a199-b927a81277f9",
+              "domain": "pass",
+              "duration_ms": 1,
+              "evidence_ids": [],
+              "execution": "ok",
+              "execution_epoch": 0,
+              "exit_code": null,
+              "reason_code": "completed",
+              "result_ref": null,
+              "tool_name": "read_file"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 19,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "6b0157da-d9eb-4232-9e18-51e2bdb5df20",
+            "kind": "tool.started",
+            "occurred_utc": "2026-10-11T22:31:07.974320Z",
+            "payload": {
+              "arguments_ref": null,
+              "call_id": "bb243f8b-7b88-5fee-9212-aed800e7fa7a",
+              "deadline_utc": "2026-10-12T04:27:33Z",
+              "execution_epoch": 0,
+              "tool_name": "apply_patch"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 20,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "09b25c9e-0002-47b3-89ea-c139a23f70fc",
+            "kind": "tool.finished",
+            "occurred_utc": "2026-10-11T22:31:07.990838Z",
+            "payload": {
+              "call_id": "bb243f8b-7b88-5fee-9212-aed800e7fa7a",
+              "domain": "pass",
+              "duration_ms": 2,
+              "evidence_ids": [],
+              "execution": "ok",
+              "execution_epoch": 0,
+              "exit_code": null,
+              "reason_code": "completed",
+              "result_ref": null,
+              "tool_name": "apply_patch"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 21,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "4792ab0e-319a-4220-900b-4fccb1aad512",
+            "kind": "tool.started",
+            "occurred_utc": "2026-10-11T22:31:17.044710Z",
+            "payload": {
+              "arguments_ref": null,
+              "call_id": "5edb05d8-c7bf-5ee3-b6b9-54a4917c7a7b",
+              "deadline_utc": "2026-10-12T04:27:33Z",
+              "execution_epoch": 0,
+              "tool_name": "build_target"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 22,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "4609ab69-0dc4-4bf2-9e05-a4c12e2437bf",
+            "kind": "tool.finished",
+            "occurred_utc": "2026-10-11T22:31:23.725963Z",
+            "payload": {
+              "call_id": "5edb05d8-c7bf-5ee3-b6b9-54a4917c7a7b",
+              "domain": "pass",
+              "duration_ms": 6666,
+              "evidence_ids": [],
+              "execution": "ok",
+              "execution_epoch": 0,
+              "exit_code": 0,
+              "reason_code": "completed",
+              "result_ref": null,
+              "tool_name": "build_target"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 23,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "229d42c1-b12a-497b-9c61-c3e48b366049",
+            "kind": "task.verdict",
+            "occurred_utc": "2026-10-11T22:31:24.080581Z",
+            "payload": {
+              "completion": {
+                "result_ref": {
+                  "artifact_id": "8d4fc131-5927-4602-8d41-1aaa45987fd1",
+                  "availability": "retained",
+                  "media_type": "application/vnd.lca.task-result+json",
+                  "sha256": "c639d83651261410085189cb4ca5886aaeee72855e01cdbc0a6d7c001737d5cc",
+                  "size_bytes": 2167
+                },
+                "status": "completed",
+                "task_id": "1f97d615-05e1-58b8-9199-a088f8478719",
+                "verdict_block": {
+                  "evidence_ids": [
+                    "build_target:0",
+                    "read_file:1",
+                    "propose_patch:2",
+                    "build_target:3",
+                    "read_file:4",
+                    "apply_patch:5",
+                    "build_target:6"
+                  ],
+                  "reason_code": "verification_passed",
+                  "rendered_lines": [
+                    "VERIFIED: pass.",
+                    "Reason: verification_passed.",
+                    "Verification: passed at task completion.",
+                    "Tree SHA-256: db5c5aac0f5e474386e65d1d984e36c3eee6df4c8301bdfdec682d417582dcd4.",
+                    "Proof scope: full_build; request: ce3c8e9aad3bebb8e24325b0bc0bb5f16c870fc4b29d7942086cfbbb725a49ca.",
+                    "Evidence: build_target:0, read_file:1, propose_patch:2, build_target:3, read_file:4, apply_patch:5, build_target:6"
+                  ],
+                  "scope": "full_build; request_sha256=ce3c8e9aad3bebb8e24325b0bc0bb5f16c870fc4b29d7942086cfbbb725a49ca",
+                  "tree_sha256": "db5c5aac0f5e474386e65d1d984e36c3eee6df4c8301bdfdec682d417582dcd4",
+                  "verdict": "VERIFIED"
+                },
+                "worker_artifact_ref": null
+              }
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 24,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          },
+          {
+            "event_id": "b782c30b-104f-4fda-8ca0-b51d61b27454",
+            "kind": "task.closed",
+            "occurred_utc": "2026-10-11T22:31:24.082046Z",
+            "payload": {
+              "cleanup": "not_needed",
+              "result_ref": {
+                "artifact_id": "8d4fc131-5927-4602-8d41-1aaa45987fd1",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-result+json",
+                "sha256": "c639d83651261410085189cb4ca5886aaeee72855e01cdbc0a6d7c001737d5cc",
+                "size_bytes": 2167
+              },
+              "status": "completed"
+            },
+            "producer_epoch": "ea620eb2-f876-4637-a868-2ee2d8bd1548",
+            "schema_id": "lca.session.events",
+            "schema_version": 1,
+            "sequence": 25,
+            "session_id": "96e3e33b-ada2-5170-9ee5-eb1f1c9b65ae",
+            "stream_id": "899f3997-37cc-544d-b9ff-e9329016922c",
+            "stream_kind": "durable",
+            "task_id": "1f97d615-05e1-58b8-9199-a088f8478719"
+          }
+        ],
+        "operator": {
+          "candidate_edits": 0,
+          "manual_stops_during_trial": 0,
+          "automatic_budget_stops": 0,
+          "retries_after_attempt_start": 0,
+          "memory_not_sampled": true,
+          "sdk_debug_log_sha256": "50216f9a12dc6cc95ffca8c587990ec5c09432a0b15acf16d17587237b4487dd",
+          "sdk_trace_limitation": "Installed SDK emits HTTPmethod/status/timing but omits bodies; exact tool arguments are not captured.",
+          "independent_configured_tests": "pending",
+          "causation": "one treatment attempt, no rate or sole-cause inference"
+        },
+        "candidate": {
+          "independent_verification": {
+            "report_sha256": "273008081ab7bb2ccb21b5f6af7f119853b1d4a135c8418980c65aaf834156e7",
+            "preconditions": {
+              "product": {
+                "package_commit": "4be9da0965637cf29a063339ca1ddb7982b4229a",
+                "package_dirty": false,
+                "package_source": "git",
+                "source_sha256": "0dc19ebe28bdbff307d752ee46e4271c9c10fa9f6c838743c09cda8ed4c8a541"
+              },
+              "platform": "Windows-11-10.0.26200-SP0",
+              "python": "3.13.5",
+              "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+              "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+              "fixture_builds": true,
+              "runtime_header": "preset nuc-cpu-8b \u00b7 model OpenVINO/Qwen3-8B-int4-cw-ov (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8001/v3 \u00b7 execution enabled"
+            },
+            "result": {
+              "id": "R03-tests",
+              "title": "run the tests in your repository",
+              "kind": "product",
+              "status": "MEASURED:pass",
+              "reason": "verification_passed; evidence build_target, run_test",
+              "seconds": 20.6,
+              "notes": [],
+              "tasks": [
+                {
+                  "said": "run the tests",
+                  "seconds": 20.3,
+                  "task_id": "7bdc140d-886f-55ca-bce9-6bcd25675a43",
+                  "outcome": "pass",
+                  "reason_code": "verification_passed",
+                  "verified": true,
+                  "evidence_ids": [
+                    "build_target:0",
+                    "run_test:1"
+                  ],
+                  "proof_scope": "full_test",
+                  "llm_calls": 0,
+                  "prompt_tokens": 0,
+                  "context_peak_tokens": 3580,
+                  "compactions": 0
+                }
+              ],
+              "measured": {},
+              "tool_failures": [],
+              "attempted": true
+            },
+            "candidate_post_blob": "7451992927abb68923de940aaa8e9c34350aed69",
+            "classification": "Controller-only independent full configured tests over a model-produced candidate; zero model calls; not another model repair attempt.",
+            "archived_report_path": "internal/docs/rc-model-independent-tests-2026-10-11.json",
+            "archive_encoding": "UTF-8 with LF; original Windows CRLF report bytes recover by LF to CRLF conversion",
+            "archived_report_sha256": "15b5cb12785d122f69154483bbc668a0cb7d2b90dc28c3c1187b6b3797884f7b",
+            "original_bytes_reconstruction_verified": true
+          },
+          "owned_server_after_trial": {
+            "stopped": true,
+            "forced": true
+          },
+          "candidate_sha256": "e12e525f7a778c96ed7f56e08721cfd75eea2d1c4e20ff5c97e9be752575c9d0",
+          "actual_patch_sha256": "e12e525f7a778c96ed7f56e08721cfd75eea2d1c4e20ff5c97e9be752575c9d0",
+          "workspace": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-model8b-compiler-guard-20261011\\hub\\Q07-fix-model\\ws\\0ed5e596-f97",
+          "before_bytes": 57548,
+          "after_bytes": 59665,
+          "before_crlf": 0,
+          "after_crlf": 2116,
+          "before_lf": 2116,
+          "after_lf": 2116,
+          "normalized_diff": "--- before\n+++ after\n@@ -92,7 +92,7 @@\n \n   CHECK(result.count(\"long\") == 1);\n   CHECK(result.contains(\"long\"));\n-  CHECK(reslt.count(\"s\") == 1);\n+  CHECK(result.count(\"s\") == 1);\n   CHECK(result.count(\"value\") == 1);\n   CHECK(result.count(\"a\") == 1);\n   CHECK(result[\"value\"].as<std::string>() == \"value\");\n",
+          "artifact": "internal/docs/rc-model-candidate-2026-10-11.json",
+          "raw_candidate_file_sha256": "3887b5164febcdb2e4f4b4242f808ce2ea6534eecfe82d1ea2686f341b570fbe",
+          "license": "internal/docs/rc-model-candidate-2026-10-11.LICENSE",
+          "assessment": "Normalized change repairs only the undefined identifier and preserves assertions/expectations. Exact candidate full build and independent configured full tests passed. LF-to-CRLF churn remains an observed product mutation defect."
+        }
+      }
+    },
+    "scope_limits": "No J10 fixture/test-fix prompt tuning, model artifact/profile change, new architecture, validation suppression or physical/offline claim."
+  },
+  "owner": "Codex current RC push",
+  "question": "Does merged CPU8B thinking-off and enforced single-call worker protocol complete a verified repair in pinned real cxxopts?",
+  "product": {
+    "base_commit": "80f73921fcebac45310b259db6a5de0ed166d56d",
+    "base_tree": "ebe36155cf889a0f506675311ce725e72786448c",
+    "source_sha256": "ebd75dea1293b882779b421f78bafc738fc7a8ab2d0f447b80900a54a26b771c"
+  },
+  "configuration": {
+    "profile": "nuc-cpu-8b",
+    "model": "OpenVINO/Qwen3-8B-int4-cw-ov",
+    "weights_revision": "27ae5b116eb7e6df79bac2ca7b7c0c9f63f79cb7",
+    "quant": "INT4_SYM",
+    "runtime": "OVMS2026.3.0",
+    "thinking_requested": false,
+    "parallel_tool_calls": false,
+    "hardware": "i9-12900/64GB/Windows11 reference; CPU declared, not physical PTL",
+    "runtime_root": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-fresh-8b-509-20261011\\Runtime",
+    "preexisting_owned_server": {
+      "pid": 26932,
+      "create_time": 1791742890.917938,
+      "note": "Record actual owner lifecycle from acceptance preconditions; do not presume warm."
+    }
+  },
+  "methodology": {
+    "corpus": "cxxopts",
+    "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+    "licence": "MIT",
+    "journey": "Q07-fix-model",
+    "repeat": 1,
+    "journey_timeout_seconds": 300,
+    "stop_budget_seconds": 60,
+    "operator_candidate_edits": 0,
+    "manual_stops_planned": 0,
+    "operator_retries_planned": 0,
+    "fixtures_or_prompts_changed": false,
+    "qualification_thresholds_changed": false,
+    "observations": [
+      "retain complete acceptance report/transcript/tool events and hashes",
+      "retain candidate diff and exact independent build proof if created",
+      "record unknown cancellation without inventing missing counters",
+      "stop model process through its existing owner after trial"
+    ],
+    "limits": [
+      "one controlled CPU configuration attempt, no pooled success rate",
+      "not the physical GPU30B repeat3 J10 measurement required by #293",
+      "scripted/controller, real-model, CI and physical/offline evidence stay distinct"
+    ]
+  },
+  "prior_first_use": {
+    "receipt": {
+      "product": {
+        "package_commit": "e1bcb679b8b8b49304c3d7e406321890db66bfab",
+        "package_dirty": false,
+        "package_source": "stamp",
+        "package_built_at": null,
+        "source_sha256": "10eda329effc9bdc0b7b648a336142e68cce5895c0c01a02cd3b5c66ba688ea6"
+      },
+      "qualification": {
+        "base_url": "http://127.0.0.1:8001/v3/",
+        "checks": [
+          {
+            "data": {
+              "served_models": [
+                "OpenVINO/Qwen3-8B-int4-cw-ov"
+              ]
+            },
+            "detail": "OpenVINO/Qwen3-8B-int4-cw-ov",
+            "name": "configured model present",
+            "status": "PASS"
+          },
+          {
+            "data": {
+              "decode_tokens_per_second": null,
+              "ttft_s": 6.219000000040978
+            },
+            "detail": "ttft=6.219000000040978, decode_tps=None",
+            "name": "plain chat",
+            "status": "PASS"
+          },
+          {
+            "data": {},
+            "detail": "observed 1 tool call(s)",
+            "name": "schema constrained tool call",
+            "status": "FAIL"
+          },
+          {
+            "data": {
+              "observed_prompt_tokens": 1013,
+              "requested_approx_tokens": 1000
+            },
+            "detail": "request accepted",
+            "name": "context probe ~1000",
+            "status": "PASS"
+          },
+          {
+            "data": {
+              "observed_prompt_tokens": 4013,
+              "requested_approx_tokens": 4000
+            },
+            "detail": "request accepted",
+            "name": "context probe ~4000",
+            "status": "PASS"
+          },
+          {
+            "data": {
+              "observed_prompt_tokens": 7013,
+              "requested_approx_tokens": 7000
+            },
+            "detail": "request accepted",
+            "name": "context probe ~7000",
+            "status": "PASS"
+          }
+        ],
+        "failed": true,
+        "model": "OpenVINO/Qwen3-8B-int4-cw-ov",
+        "profile": "nuc-cpu-8b",
+        "schema_version": 1
+      },
+      "phases": [
+        {
+          "finished_utc": "2026-10-11T18:23:51.7163756Z",
+          "phase": "install",
+          "started_utc": "2026-10-11T18:20:04.5225104Z",
+          "exit_code": 2
+        }
+      ]
+    },
+    "result": "FAIL: plain chat/context pass, schema call fails; doctor phases not executed; no readiness claim"
+  },
+  "integration": {
+    "ci_only_pr": 512,
+    "merged_order": [
+      507,
+      508,
+      510,
+      511
+    ],
+    "final_main": "80f73921fcebac45310b259db6a5de0ed166d56d",
+    "tree_match": true,
+    "full_linux_windows_ci": true
+  },
+  "result": {
+    "report_sha256": "39a4581e82a67cf908f580d76f6a10d4d6b98f51effc91d024939da96f191073",
+    "report": {
+      "schema": "lca.acceptance-journeys/1",
+      "started_unix": 1791755850.780796,
+      "finished_unix": 1791756020.0039449,
+      "profile": "nuc-cpu-8b",
+      "model": "OpenVINO/Qwen3-8B-int4-cw-ov",
+      "base_url": "http://127.0.0.1:8001/v3",
+      "preconditions": {
+        "product": {
+          "package_commit": "c8fb48d6d032926ab51a8f2458eec17dd219c7a1",
+          "package_dirty": false,
+          "package_source": "git",
+          "source_sha256": "ebd75dea1293b882779b421f78bafc738fc7a8ab2d0f447b80900a54a26b771c"
+        },
+        "platform": "Windows-11-10.0.26200-SP0",
+        "python": "3.13.5",
+        "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+        "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+        "fixture_builds": null,
+        "model_endpoint": {
+          "ok": true,
+          "message": "managed model endpoint ready",
+          "lifecycle": "replaced",
+          "replaced_reason": "config_changed",
+          "refused_reason": null,
+          "changed_fields": [
+            "env"
+          ],
+          "launch_to_ready_ms": 7171
+        },
+        "model_call": {
+          "ok": true,
+          "seconds": 6.5
+        },
+        "runtime_header": "preset nuc-cpu-8b \u00b7 model OpenVINO/Qwen3-8B-int4-cw-ov (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8001/v3 \u00b7 execution enabled",
+        "corpus": {
+          "name": "cxxopts",
+          "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+          "licence": "MIT",
+          "cache": "C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\qualification-cache",
+          "ready": true,
+          "problem": null
+        }
+      },
+      "journeys": [
+        {
+          "id": "Q01-build-test",
+          "title": "build and test a real repository",
+          "kind": "product",
+          "status": "UNKNOWN",
+          "reason": "not selected",
+          "seconds": 0,
+          "notes": [],
+          "tasks": [],
+          "measured": {},
+          "tool_failures": [],
+          "attempted": false
+        },
+        {
+          "id": "Q02-compile-diagnosis",
+          "title": "diagnose a seeded compile error with file and line",
+          "kind": "product",
+          "status": "UNKNOWN",
+          "reason": "not selected",
+          "seconds": 0,
+          "notes": [],
+          "tasks": [],
+          "measured": {},
+          "tool_failures": [],
+          "attempted": false
+        },
+        {
+          "id": "Q03-test-truth",
+          "title": "name the seeded failing CTest tests",
+          "kind": "product",
+          "status": "UNKNOWN",
+          "reason": "not selected",
+          "seconds": 0,
+          "notes": [],
+          "tasks": [],
+          "measured": {},
+          "tool_failures": [],
+          "attempted": false
+        },
+        {
+          "id": "Q04-candidate-scripted",
+          "title": "scripted fix: apply, undo, re-apply, exact commit amid user work",
+          "kind": "product",
+          "status": "UNKNOWN",
+          "reason": "not selected",
+          "seconds": 0,
+          "notes": [],
+          "tasks": [],
+          "measured": {},
+          "tool_failures": [],
+          "attempted": false
+        },
+        {
+          "id": "Q05-stop-build",
+          "title": "Stop during the real build",
+          "kind": "product",
+          "status": "UNKNOWN",
+          "reason": "not selected",
+          "seconds": 0,
+          "notes": [],
+          "tasks": [],
+          "measured": {},
+          "tool_failures": [],
+          "attempted": false
+        },
+        {
+          "id": "Q06-repo-explain",
+          "title": "grounded explanation of a real repository",
+          "kind": "model",
+          "status": "UNKNOWN",
+          "reason": "not selected",
+          "seconds": 0,
+          "notes": [],
+          "tasks": [],
+          "measured": {},
+          "tool_failures": [],
+          "attempted": false
+        },
+        {
+          "id": "Q07-fix-model",
+          "title": "fix the seeded compile error with the model",
+          "kind": "model",
+          "status": "MEASURED:failed",
+          "reason": "fail/verification_failed",
+          "seconds": 139.6,
+          "notes": [],
+          "tasks": [
+            {
+              "said": "build it",
+              "seconds": 7,
+              "task_id": "213cee17-fcd9-50b5-bd25-53ce459627a5",
+              "outcome": "fail",
+              "reason_code": "verification_failed",
+              "verified": false,
+              "evidence_ids": [
+                "build_target:0"
+              ],
+              "proof_scope": "observed_build_failure",
+              "llm_calls": 0,
+              "prompt_tokens": 0,
+              "context_peak_tokens": 3325,
+              "compactions": 0
+            },
+            {
+              "said": "fix it",
+              "seconds": 131.9,
+              "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c",
+              "outcome": "fail",
+              "reason_code": "verification_failed",
+              "verified": false,
+              "evidence_ids": [
+                "build_target:0",
+                "read_file:1",
+                "find_definition:2"
+              ],
+              "proof_scope": "observed_build_failure",
+              "llm_calls": 6,
+              "prompt_tokens": 26698,
+              "context_peak_tokens": 5287,
+              "compactions": 0
+            }
+          ],
+          "measured": {
+            "unrelated_work_preserved": true
+          },
+          "tool_failures": [],
+          "attempted": true
+        }
+      ],
+      "corpus": {
+        "name": "cxxopts",
+        "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+        "licence": "MIT",
+        "metrics": {
+          "attempted": 1,
+          "completed_verified": 0,
+          "not_attempted": 0,
+          "unknown_outcomes": 0,
+          "refusal_correctness": null,
+          "user_interventions": null,
+          "cold_build_s": null,
+          "warm_test_s": null,
+          "unrelated_work_preserved": {
+            "Q07-fix-model": true
+          },
+          "failure_reasons": {
+            "Q07-fix-model": "fail/verification_failed"
+          },
+          "rate_claimed": false
+        }
+      }
+    },
+    "transcript": "[22:58:08] USER: build it   (7.0s)\n  RESULT: {\"task_id\": \"213cee17-fcd9-50b5-bd25-53ce459627a5\", \"outcome\": \"fail\", \"reason_code\": \"verification_failed\", \"verified\": false, \"evidence_ids\": [\"build_target:0\"], \"proof_scope\": \"observed_build_failure\", \"llm_calls\": 0, \"prompt_tokens\": 0, \"context_peak_tokens\": 3325, \"compactions\": 0}\n  ANSWER:\n    [Controller: fail; verification: ran, did not establish success; reason: verification_failed; evidence: 1 item(s); task: 213cee17-fcd9-50b5-bd25-53ce459627a5]\n    Proof scope: observed_build_failure\n    Request SHA-256: 779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428\n    Tree SHA-256: 4039767bbf40322bb870a1bc880eb5e3918add6ceba267cc34c9b807a8e04ca9\n    Evidence IDs: build_target:0\n    \n    Unverified task detail (not proof of a completed change):\n    build_target: build (debug) FAILED (compile) with 2 compiler error(s) and 0 link error(s); first error at test/options.cpp:95: 'reslt': undeclared identifier [C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-model8b-merged-thinkingoff-20261011\\repos\\Q07-fix-model\\build\\test\\options_test_noregex.vc -- command: [\"cmake\", \"--build\", \"build\", \"--config\", \"Debug\", \"--parallel\", \"4\"]\n\n[23:00:19] USER: fix it   (131.9s)\n  RESULT: {\"task_id\": \"e415b12c-5e7d-5c10-be9c-2a646dbfa63c\", \"outcome\": \"fail\", \"reason_code\": \"verification_failed\", \"verified\": false, \"evidence_ids\": [\"build_target:0\", \"read_file:1\", \"find_definition:2\"], \"proof_scope\": \"observed_build_failure\", \"llm_calls\": 6, \"prompt_tokens\": 26698, \"context_peak_tokens\": 5287, \"compactions\": 0}\n  ANSWER:\n    [Controller: fail; verification: ran, did not establish success; reason: verification_failed; evidence: 3 item(s); task: e415b12c-5e7d-5c10-be9c-2a646dbfa63c]\n    Proof scope: observed_build_failure\n    Request SHA-256: c9efb6b5051723390b6503b800b9258f4b59a9887445cdcdf50749d3be110fea\n    Tree SHA-256: 4039767bbf40322bb870a1bc880eb5e3918add6ceba267cc34c9b807a8e04ca9\n    Evidence IDs: build_target:0, read_file:1, find_definition:2\n    \n    Unverified task detail (not proof of a completed change):\n    No source change was produced; nothing to apply.\n    \n    {\n      \"claim\": \"failure\",\n      \"evidence_ids\": [\"build_target:0\", \"read_file:1\", \"find_definition:2\"],\n      \"summary\": \"The symbol 'reslt' is not defined in the codebase, and no relevant files were found. A patch must be proposed to resolve this issue, but no further context is available to determine the correct course of action.\"\n    }\n\n",
+    "events": [
+      {
+        "event_id": "8d02b220-1ecc-47bb-b496-d806676fe4b9",
+        "kind": "session.opened",
+        "occurred_utc": "2026-10-11T21:58:00.954566Z",
+        "payload": {
+          "capabilities": [
+            "conversation",
+            "repository_read",
+            "durable_session_events",
+            "durable_task_execution",
+            "durable_task_history",
+            "durable_tool_activity",
+            "deterministic_routing",
+            "textual_session_hub",
+            "non_blocking_turn_dispatch",
+            "explicit_model_route_acceptance",
+            "task_execution_epoch_fencing",
+            "in_process_endpoint_arbitration",
+            "user_stop_request"
+          ],
+          "controller_commit": "c8fb48d6d032926ab51a8f2458eec17dd219c7a1",
+          "conversation_id": "2026-10-11T21-58-00-841791Z-2c31",
+          "recovered": false,
+          "repository_id": "cxxopts:e61287e32a06b28e"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 1,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": null
+      },
+      {
+        "event_id": "c2b41e5e-1690-4876-be59-76ec80ec76c4",
+        "kind": "task.admitted",
+        "occurred_utc": "2026-10-11T21:58:01.128403Z",
+        "payload": {
+          "contract_sha256": "e72d8c46bf58279d6bb8986d735ddb26369cdb42c75b5c979cbcb6db333491ae",
+          "deadline_utc": "2026-10-12T03:58:01Z",
+          "execution_epoch": 0,
+          "origin": {
+            "kind": "user_rule",
+            "rule_id": "build-and-test/v1",
+            "turn_ref": {
+              "conversation_id": "2026-10-11T21-58-00-841791Z-2c31",
+              "turn_index": 0,
+              "turn_sha256": "2fe0faae3abc0eb3d4acebaab13d54bf0114c1491080d424dde53587ddc242bd"
+            }
+          },
+          "repository_id": "cxxopts:e61287e32a06b28e",
+          "request_ref": {
+            "artifact_id": "dc5e553e-018f-56d4-bda8-9c6d85d5a66a",
+            "availability": "retained",
+            "media_type": "application/vnd.lca.task-request+json",
+            "sha256": "230312a2cadf1a8c8a7339d85020734ff95509262f79b1c1cb88270ff228ec5c",
+            "size_bytes": 385
+          },
+          "skill": "run-build"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 2,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "213cee17-fcd9-50b5-bd25-53ce459627a5"
+      },
+      {
+        "event_id": "31d3fb5d-bb9c-4b10-b025-54ef564e1bdf",
+        "kind": "task.state_changed",
+        "occurred_utc": "2026-10-11T21:58:01.141665Z",
+        "payload": {
+          "current": "running",
+          "execution_epoch": 0,
+          "previous": "admitted",
+          "reason_code": "requested"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 3,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "213cee17-fcd9-50b5-bd25-53ce459627a5"
+      },
+      {
+        "event_id": "b9cab03b-6f5b-45c6-8065-89ff5cf98c58",
+        "kind": "tool.started",
+        "occurred_utc": "2026-10-11T21:58:01.233992Z",
+        "payload": {
+          "arguments_ref": null,
+          "call_id": "6be96b14-1a44-5353-97ba-907edfc7bec9",
+          "deadline_utc": "2026-10-12T03:58:01Z",
+          "execution_epoch": 0,
+          "tool_name": "build_target"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 4,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "213cee17-fcd9-50b5-bd25-53ce459627a5"
+      },
+      {
+        "event_id": "71cfb48f-529f-40de-8932-909a5db4023f",
+        "kind": "tool.finished",
+        "occurred_utc": "2026-10-11T21:58:07.968310Z",
+        "payload": {
+          "call_id": "6be96b14-1a44-5353-97ba-907edfc7bec9",
+          "domain": "fail",
+          "duration_ms": 6722,
+          "evidence_ids": [],
+          "execution": "ok",
+          "execution_epoch": 0,
+          "exit_code": 1,
+          "reason_code": "completed",
+          "result_ref": null,
+          "tool_name": "build_target"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 5,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "213cee17-fcd9-50b5-bd25-53ce459627a5"
+      },
+      {
+        "event_id": "24ce3c7e-2d0b-4678-a897-a70ea5e39568",
+        "kind": "task.verdict",
+        "occurred_utc": "2026-10-11T21:58:08.074605Z",
+        "payload": {
+          "completion": {
+            "result_ref": {
+              "artifact_id": "7fdac632-f3b4-4528-b70d-72cc79bac6c8",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-result+json",
+              "sha256": "f63491a3ec5eb2456446ff2296bda1012e0821f3a3302489cd0ee0adb06924ed",
+              "size_bytes": 653
+            },
+            "status": "failed",
+            "task_id": "213cee17-fcd9-50b5-bd25-53ce459627a5",
+            "verdict_block": {
+              "evidence_ids": [
+                "build_target:0"
+              ],
+              "reason_code": "verification_failed",
+              "rendered_lines": [
+                "FAILED: fail.",
+                "Reason: verification_failed.",
+                "Verification: ran but did not establish success.",
+                "Tree SHA-256: 4039767bbf40322bb870a1bc880eb5e3918add6ceba267cc34c9b807a8e04ca9.",
+                "Proof scope: observed_build_failure; request: 779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428.",
+                "Evidence: build_target:0"
+              ],
+              "scope": "observed_build_failure; request_sha256=779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428",
+              "tree_sha256": "4039767bbf40322bb870a1bc880eb5e3918add6ceba267cc34c9b807a8e04ca9",
+              "verdict": "FAILED"
+            },
+            "worker_artifact_ref": null
+          }
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 6,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "213cee17-fcd9-50b5-bd25-53ce459627a5"
+      },
+      {
+        "event_id": "84d5d2c2-2ecc-480e-8d82-c563aa7d81a8",
+        "kind": "task.closed",
+        "occurred_utc": "2026-10-11T21:58:08.076325Z",
+        "payload": {
+          "cleanup": "not_needed",
+          "result_ref": {
+            "artifact_id": "7fdac632-f3b4-4528-b70d-72cc79bac6c8",
+            "availability": "retained",
+            "media_type": "application/vnd.lca.task-result+json",
+            "sha256": "f63491a3ec5eb2456446ff2296bda1012e0821f3a3302489cd0ee0adb06924ed",
+            "size_bytes": 653
+          },
+          "status": "failed"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 7,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "213cee17-fcd9-50b5-bd25-53ce459627a5"
+      },
+      {
+        "event_id": "c6cd828c-b912-463b-867d-a16208fc482f",
+        "kind": "task.admitted",
+        "occurred_utc": "2026-10-11T21:58:08.167777Z",
+        "payload": {
+          "contract_sha256": "f6a13babdf9f95e38ddab4aabd6efc6cb22f55c45f5fb32bc39a6755d500db0d",
+          "deadline_utc": "2026-10-12T03:58:08Z",
+          "execution_epoch": 0,
+          "origin": {
+            "kind": "user_rule",
+            "rule_id": "fix-referent/v1",
+            "turn_ref": {
+              "conversation_id": "2026-10-11T21-58-00-841791Z-2c31",
+              "turn_index": 1,
+              "turn_sha256": "fb729ddf267847a8714c6089128330c3bd7d63b323f7d6ae566bf175febd94ec"
+            }
+          },
+          "repository_id": "cxxopts:e61287e32a06b28e",
+          "request_ref": {
+            "artifact_id": "a55b5ef5-4281-5a46-a62e-d47835f56aa1",
+            "availability": "retained",
+            "media_type": "application/vnd.lca.task-request+json",
+            "sha256": "12e15d036e8ffd697fb3977647c91700f6d6abea4a7cca17cec87ebfca830897",
+            "size_bytes": 1007
+          },
+          "skill": "fix-build-failure"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 8,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      },
+      {
+        "event_id": "b9f96648-6132-4f38-bb64-30443578ee23",
+        "kind": "task.state_changed",
+        "occurred_utc": "2026-10-11T21:58:08.182358Z",
+        "payload": {
+          "current": "running",
+          "execution_epoch": 0,
+          "previous": "admitted",
+          "reason_code": "requested"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 9,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      },
+      {
+        "event_id": "3b92c165-bddb-4e9c-be2d-3960343d5dec",
+        "kind": "tool.started",
+        "occurred_utc": "2026-10-11T21:58:39.762135Z",
+        "payload": {
+          "arguments_ref": null,
+          "call_id": "368b7625-6502-5341-9bf6-b63d69f095f5",
+          "deadline_utc": "2026-10-12T03:58:08Z",
+          "execution_epoch": 0,
+          "tool_name": "build_target"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 10,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      },
+      {
+        "event_id": "65fd3c5e-63a2-44c4-848e-e77d179019d2",
+        "kind": "tool.finished",
+        "occurred_utc": "2026-10-11T21:58:45.922844Z",
+        "payload": {
+          "call_id": "368b7625-6502-5341-9bf6-b63d69f095f5",
+          "domain": "fail",
+          "duration_ms": 6145,
+          "evidence_ids": [],
+          "execution": "ok",
+          "execution_epoch": 0,
+          "exit_code": 1,
+          "reason_code": "completed",
+          "result_ref": null,
+          "tool_name": "build_target"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 11,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      },
+      {
+        "event_id": "e1547ae5-d723-4523-b5f6-b587dcc14399",
+        "kind": "tool.started",
+        "occurred_utc": "2026-10-11T21:59:27.084221Z",
+        "payload": {
+          "arguments_ref": null,
+          "call_id": "3b778474-50ff-5dbe-b53e-b62ea52e5374",
+          "deadline_utc": "2026-10-12T03:58:08Z",
+          "execution_epoch": 0,
+          "tool_name": "read_file"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 12,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      },
+      {
+        "event_id": "a6f2ecf0-8c12-4a4e-b73e-b61ead123909",
+        "kind": "tool.finished",
+        "occurred_utc": "2026-10-11T21:59:27.097968Z",
+        "payload": {
+          "call_id": "3b778474-50ff-5dbe-b53e-b62ea52e5374",
+          "domain": "pass",
+          "duration_ms": 0,
+          "evidence_ids": [],
+          "execution": "ok",
+          "execution_epoch": 0,
+          "exit_code": null,
+          "reason_code": "completed",
+          "result_ref": null,
+          "tool_name": "read_file"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 13,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      },
+      {
+        "event_id": "c490530c-5280-478a-995d-0cf5a9504edc",
+        "kind": "tool.started",
+        "occurred_utc": "2026-10-11T21:59:39.383840Z",
+        "payload": {
+          "arguments_ref": null,
+          "call_id": "f145ebcb-52d9-5010-8f68-d9f6aff947a1",
+          "deadline_utc": "2026-10-12T03:58:08Z",
+          "execution_epoch": 0,
+          "tool_name": "find_definition"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 14,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      },
+      {
+        "event_id": "bb64eb3f-4511-43ab-802c-d45432f9a364",
+        "kind": "tool.finished",
+        "occurred_utc": "2026-10-11T21:59:39.427045Z",
+        "payload": {
+          "call_id": "f145ebcb-52d9-5010-8f68-d9f6aff947a1",
+          "domain": "pass",
+          "duration_ms": 30,
+          "evidence_ids": [],
+          "execution": "ok",
+          "execution_epoch": 0,
+          "exit_code": null,
+          "reason_code": "completed",
+          "result_ref": null,
+          "tool_name": "find_definition"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 15,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      },
+      {
+        "event_id": "a817a586-51c8-463c-b93d-0cd36d893c40",
+        "kind": "task.verdict",
+        "occurred_utc": "2026-10-11T22:00:19.964510Z",
+        "payload": {
+          "completion": {
+            "result_ref": {
+              "artifact_id": "d79b1045-7b03-461f-a05d-e2c95099ac2d",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-result+json",
+              "sha256": "d28b873117a9abd00f41bd8c2b967beefcbeba020c6dccb9215ee7da039378ba",
+              "size_bytes": 884
+            },
+            "status": "failed",
+            "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c",
+            "verdict_block": {
+              "evidence_ids": [
+                "build_target:0",
+                "read_file:1",
+                "find_definition:2"
+              ],
+              "reason_code": "verification_failed",
+              "rendered_lines": [
+                "FAILED: fail.",
+                "Reason: verification_failed.",
+                "Verification: ran but did not establish success.",
+                "Tree SHA-256: 4039767bbf40322bb870a1bc880eb5e3918add6ceba267cc34c9b807a8e04ca9.",
+                "Proof scope: observed_build_failure; request: c9efb6b5051723390b6503b800b9258f4b59a9887445cdcdf50749d3be110fea.",
+                "Evidence: build_target:0, read_file:1, find_definition:2"
+              ],
+              "scope": "observed_build_failure; request_sha256=c9efb6b5051723390b6503b800b9258f4b59a9887445cdcdf50749d3be110fea",
+              "tree_sha256": "4039767bbf40322bb870a1bc880eb5e3918add6ceba267cc34c9b807a8e04ca9",
+              "verdict": "FAILED"
+            },
+            "worker_artifact_ref": null
+          }
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 16,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      },
+      {
+        "event_id": "b159a05c-bb97-4ca5-9677-719e0d729c2e",
+        "kind": "task.closed",
+        "occurred_utc": "2026-10-11T22:00:19.966133Z",
+        "payload": {
+          "cleanup": "not_needed",
+          "result_ref": {
+            "artifact_id": "d79b1045-7b03-461f-a05d-e2c95099ac2d",
+            "availability": "retained",
+            "media_type": "application/vnd.lca.task-result+json",
+            "sha256": "d28b873117a9abd00f41bd8c2b967beefcbeba020c6dccb9215ee7da039378ba",
+            "size_bytes": 884
+          },
+          "status": "failed"
+        },
+        "producer_epoch": "0e7ed1ac-c04a-4e6c-a93d-0a0cc3f40b39",
+        "schema_id": "lca.session.events",
+        "schema_version": 1,
+        "sequence": 17,
+        "session_id": "2473a0a8-5aa9-5835-bbd8-d6137cd52e6b",
+        "stream_id": "070ee442-fe6c-52bf-81af-378c9bc4a2b7",
+        "stream_kind": "durable",
+        "task_id": "e415b12c-5e7d-5c10-be9c-2a646dbfa63c"
+      }
+    ],
+    "operator": {
+      "candidate_edits": 0,
+      "manual_stops": 0,
+      "automatic_budget_stops": 0,
+      "retries_after_start": 0,
+      "memory_not_sampled": true,
+      "note": "Tool argument/result refs are null in events; no payload or model internal explanation is invented."
+    }
+  },
+  "next_trial": {
+    "status": "measured-unknown",
+    "profile": "nuc-cpu-30b",
+    "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+    "weights_revision": "21140c68a63012da511fe50656319e00be2f6542",
+    "quant": "INT4_ASYM",
+    "runtime": "OVMS2026.3.0",
+    "tool_parser": "qwen3coder",
+    "thinking_requested": null,
+    "hardware": "same i9 CPU reference; not physical PTL GPU",
+    "product_source_sha256": "ebd75dea1293b882779b421f78bafc738fc7a8ab2d0f447b80900a54a26b771c",
+    "journey": "Q07-fix-model",
+    "repeat": 1,
+    "journey_timeout_seconds": 300,
+    "stop_budget_seconds": 60,
+    "operator_candidate_edits": 0,
+    "qualification_thresholds_or_prompt_changes": false,
+    "unattempted_startup": {
+      "report_sha256": "6363a3f6458c315e786eee2e24ce11e5a5e4d7faad82e9740dec7661cd66dc14",
+      "report": {
+        "schema": "lca.acceptance-journeys/1",
+        "started_unix": 1791756216.537376,
+        "finished_unix": 1791756237.043135,
+        "profile": "nuc-cpu-30b",
+        "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+        "base_url": "http://127.0.0.1:8000/v3",
+        "preconditions": {
+          "product": {
+            "package_commit": "508f8fecf15f4b2db8ced04e0021c6aac0101ff1",
+            "package_dirty": false,
+            "package_source": "git",
+            "source_sha256": "ebd75dea1293b882779b421f78bafc738fc7a8ab2d0f447b80900a54a26b771c"
+          },
+          "platform": "Windows-11-10.0.26200-SP0",
+          "python": "3.13.5",
+          "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+          "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+          "fixture_builds": null,
+          "model_endpoint": {
+            "ok": false,
+            "message": "managed model endpoint could not be started: server not ready; inspect C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\runtime\\nuc-cpu-30b\\stdout.log and C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\runtime\\nuc-cpu-30b\\stderr.log; live process retained",
+            "lifecycle": "refused",
+            "replaced_reason": null,
+            "refused_reason": "start_failed",
+            "changed_fields": [],
+            "launch_to_ready_ms": null
+          },
+          "runtime_header": "preset nuc-cpu-30b \u00b7 model unobserved (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8000/v3 \u00b7 execution enabled",
+          "corpus": {
+            "name": "cxxopts",
+            "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+            "licence": "MIT",
+            "cache": "C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\qualification-cache",
+            "ready": true,
+            "problem": null
+          }
+        },
+        "journeys": [
+          {
+            "id": "Q01-build-test",
+            "title": "build and test a real repository",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q02-compile-diagnosis",
+            "title": "diagnose a seeded compile error with file and line",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q03-test-truth",
+            "title": "name the seeded failing CTest tests",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q04-candidate-scripted",
+            "title": "scripted fix: apply, undo, re-apply, exact commit amid user work",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q05-stop-build",
+            "title": "Stop during the real build",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q06-repo-explain",
+            "title": "grounded explanation of a real repository",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q07-fix-model",
+            "title": "fix the seeded compile error with the model",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "the model endpoint is not ready: {'ok': False, 'message': 'managed model endpoint could not be started: server not ready; inspect C:\\\\Users\\\\aiden\\\\AppData\\\\Local\\\\LocalCodeAgent\\\\runtime\\\\nuc-cpu-30b\\\\stdout.log and C:\\\\Users\\\\aiden\\\\AppData\\\\Local\\\\LocalCodeAgent\\\\runtime\\\\nuc-cpu-30b\\\\stderr.log; live process retained', 'lifecycle': 'refused', 'replaced_reason': None, 'refused_reason': 'start_failed', 'changed_fields': [], 'launch_to_ready_ms': None}",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          }
+        ],
+        "corpus": {
+          "name": "cxxopts",
+          "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+          "licence": "MIT",
+          "metrics": {
+            "attempted": 0,
+            "completed_verified": 0,
+            "not_attempted": 1,
+            "unknown_outcomes": 0,
+            "refusal_correctness": null,
+            "user_interventions": null,
+            "cold_build_s": null,
+            "warm_test_s": null,
+            "unrelated_work_preserved": {},
+            "failure_reasons": {},
+            "rate_claimed": false
+          }
+        }
+      },
+      "operator": {
+        "model_attempted": false,
+        "reason": "OVMS native create_directories failed for global cache/nuc-cpu-30b. Cache parent and its junction target DO exist; child absent. Later owner status observed process dead. Exact native I/O cause not established; global junction unchanged.",
+        "preparation": "New isolated runtime with real cache directory; models junction to existing global pinned weights, tools junction to freshly downloaded OVMS2026.3.0. No candidate/source edits.",
+        "pre_attempt_startup_retries_planned": 1,
+        "qualification_or_trial_deadlines_changed": false
+      }
+    },
+    "preparation": {
+      "isolated_runtime": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-30b-merged-runtime-20261011",
+      "models_link": "C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\models",
+      "tools_link": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-fresh-8b-509-20261011\\Runtime\\tools",
+      "cache": "real directory in isolated runtime",
+      "weights_revision_observed": "21140c68a63012da511fe50656319e00be2f6542",
+      "weights_bytes": 16314043317,
+      "weights_copied_or_downloaded": false,
+      "global_runtime_modified": false,
+      "pre_attempt_startup_retries": 1
+    },
+    "result": {
+      "report_sha256": "9fb30263f7b6a56bbf12ef2e63687bc954815242b7e19104089e287afd29212f",
+      "report": {
+        "schema": "lca.acceptance-journeys/1",
+        "started_unix": 1791756454.403577,
+        "finished_unix": 1791756804.2527306,
+        "profile": "nuc-cpu-30b",
+        "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+        "base_url": "http://127.0.0.1:8000/v3",
+        "preconditions": {
+          "product": {
+            "package_commit": "4b916e7d750f908bc02bdd9b58e804466dd8204d",
+            "package_dirty": false,
+            "package_source": "git",
+            "source_sha256": "ebd75dea1293b882779b421f78bafc738fc7a8ab2d0f447b80900a54a26b771c"
+          },
+          "platform": "Windows-11-10.0.26200-SP0",
+          "python": "3.13.5",
+          "git": "C:\\Program Files\\Git\\cmd\\git.EXE",
+          "cmake": "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+          "fixture_builds": null,
+          "model_endpoint": {
+            "ok": true,
+            "message": "managed model endpoint ready",
+            "lifecycle": "started",
+            "replaced_reason": null,
+            "refused_reason": null,
+            "changed_fields": [],
+            "launch_to_ready_ms": 32839
+          },
+          "model_call": {
+            "ok": true,
+            "seconds": 1.8
+          },
+          "runtime_header": "preset nuc-cpu-30b \u00b7 model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov (observed) \u00b7 device CPU (declared) \u00b7 endpoint http://127.0.0.1:8000/v3 \u00b7 execution enabled",
+          "corpus": {
+            "name": "cxxopts",
+            "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+            "licence": "MIT",
+            "cache": "C:\\Users\\aiden\\AppData\\Local\\LocalCodeAgent\\qualification-cache",
+            "ready": true,
+            "problem": null
+          }
+        },
+        "journeys": [
+          {
+            "id": "Q01-build-test",
+            "title": "build and test a real repository",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q02-compile-diagnosis",
+            "title": "diagnose a seeded compile error with file and line",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q03-test-truth",
+            "title": "name the seeded failing CTest tests",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q04-candidate-scripted",
+            "title": "scripted fix: apply, undo, re-apply, exact commit amid user work",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q05-stop-build",
+            "title": "Stop during the real build",
+            "kind": "product",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q06-repo-explain",
+            "title": "grounded explanation of a real repository",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "not selected",
+            "seconds": 0,
+            "notes": [],
+            "tasks": [],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": false
+          },
+          {
+            "id": "Q07-fix-model",
+            "title": "fix the seeded compile error with the model",
+            "kind": "model",
+            "status": "UNKNOWN",
+            "reason": "timed out: 'fix it' did not finish within 300s",
+            "seconds": 310.2,
+            "notes": [],
+            "tasks": [
+              {
+                "said": "build it",
+                "seconds": 6.6,
+                "task_id": "53427a5e-c487-5905-9042-8647dd399998",
+                "outcome": "fail",
+                "reason_code": "verification_failed",
+                "verified": false,
+                "evidence_ids": [
+                  "build_target:0"
+                ],
+                "proof_scope": "observed_build_failure",
+                "llm_calls": 0,
+                "prompt_tokens": 0,
+                "context_peak_tokens": 3317,
+                "compactions": 0
+              }
+            ],
+            "measured": {},
+            "tool_failures": [],
+            "attempted": true
+          }
+        ],
+        "corpus": {
+          "name": "cxxopts",
+          "commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+          "licence": "MIT",
+          "metrics": {
+            "attempted": 1,
+            "completed_verified": 0,
+            "not_attempted": 0,
+            "unknown_outcomes": 1,
+            "refusal_correctness": null,
+            "user_interventions": null,
+            "cold_build_s": null,
+            "warm_test_s": null,
+            "unrelated_work_preserved": {
+              "Q07-fix-model": null
+            },
+            "failure_reasons": {
+              "Q07-fix-model": "timed out: 'fix it' did not finish within 300s"
+            },
+            "rate_claimed": false
+          }
+        }
+      },
+      "events": [
+        {
+          "event_id": "1041be35-b039-4f80-8195-a7bede5ddad1",
+          "kind": "session.opened",
+          "occurred_utc": "2026-10-11T22:08:14.583522Z",
+          "payload": {
+            "capabilities": [
+              "conversation",
+              "repository_read",
+              "durable_session_events",
+              "durable_task_execution",
+              "durable_task_history",
+              "durable_tool_activity",
+              "deterministic_routing",
+              "textual_session_hub",
+              "non_blocking_turn_dispatch",
+              "explicit_model_route_acceptance",
+              "task_execution_epoch_fencing",
+              "in_process_endpoint_arbitration",
+              "user_stop_request"
+            ],
+            "controller_commit": "4b916e7d750f908bc02bdd9b58e804466dd8204d",
+            "conversation_id": "2026-10-11T22-08-14-465552Z-e994",
+            "recovered": false,
+            "repository_id": "cxxopts:57388292a9991fba"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 1,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": null
+        },
+        {
+          "event_id": "b12b6282-5580-4e52-b6ad-a32766524dfe",
+          "kind": "task.admitted",
+          "occurred_utc": "2026-10-11T22:08:14.764338Z",
+          "payload": {
+            "contract_sha256": "ec58a9d5a8c752cf882fe6509da2d8ad90fb120f1e131d44bba9d37a1884db1b",
+            "deadline_utc": "2026-10-12T04:08:14Z",
+            "execution_epoch": 0,
+            "origin": {
+              "kind": "user_rule",
+              "rule_id": "build-and-test/v1",
+              "turn_ref": {
+                "conversation_id": "2026-10-11T22-08-14-465552Z-e994",
+                "turn_index": 0,
+                "turn_sha256": "bb294d2a0fb100b9fe0d6f810158220571bf50d668ad479373710ff1b8942cf0"
+              }
+            },
+            "repository_id": "cxxopts:57388292a9991fba",
+            "request_ref": {
+              "artifact_id": "0f2c8cfd-71ca-598a-b1b0-a7e82bdc2814",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-request+json",
+              "sha256": "48220594b38ca6f417ec452cd96acd216fb1f4374ab9a399fd892bdf97443f4f",
+              "size_bytes": 385
+            },
+            "skill": "run-build"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 2,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "944ab246-d906-4cdb-b87a-b49a01b7429b",
+          "kind": "task.state_changed",
+          "occurred_utc": "2026-10-11T22:08:14.775923Z",
+          "payload": {
+            "current": "running",
+            "execution_epoch": 0,
+            "previous": "admitted",
+            "reason_code": "requested"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 3,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "578a113e-aaea-4eac-b908-c9b1e96604fb",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:08:14.869886Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "a93adf8a-9b6d-52cc-a774-c846b23fb535",
+            "deadline_utc": "2026-10-12T04:08:14Z",
+            "execution_epoch": 0,
+            "tool_name": "build_target"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 4,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "d1d76c42-feff-40e3-a693-27aa07cf1a94",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:08:21.201050Z",
+          "payload": {
+            "call_id": "a93adf8a-9b6d-52cc-a774-c846b23fb535",
+            "domain": "fail",
+            "duration_ms": 6317,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": 1,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "build_target"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 5,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "81684719-2e35-46c7-966f-42aa4e1f4cf6",
+          "kind": "task.verdict",
+          "occurred_utc": "2026-10-11T22:08:21.302987Z",
+          "payload": {
+            "completion": {
+              "result_ref": {
+                "artifact_id": "176ae3bc-10aa-4f86-86b3-7c954c7d47c3",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-result+json",
+                "sha256": "5eb8ea8da2d56d0aa85f5a65319ef20f246a6b9c0daf9f6fff7cac94d2217855",
+                "size_bytes": 649
+              },
+              "status": "failed",
+              "task_id": "53427a5e-c487-5905-9042-8647dd399998",
+              "verdict_block": {
+                "evidence_ids": [
+                  "build_target:0"
+                ],
+                "reason_code": "verification_failed",
+                "rendered_lines": [
+                  "FAILED: fail.",
+                  "Reason: verification_failed.",
+                  "Verification: ran but did not establish success.",
+                  "Tree SHA-256: e17f8f8062a3983d51c45e708e194d6736ff2c658ad564f35c148575ab98c469.",
+                  "Proof scope: observed_build_failure; request: 779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428.",
+                  "Evidence: build_target:0"
+                ],
+                "scope": "observed_build_failure; request_sha256=779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428",
+                "tree_sha256": "e17f8f8062a3983d51c45e708e194d6736ff2c658ad564f35c148575ab98c469",
+                "verdict": "FAILED"
+              },
+              "worker_artifact_ref": null
+            }
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 6,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "4606072b-c762-413e-913a-4bf25308db07",
+          "kind": "task.closed",
+          "occurred_utc": "2026-10-11T22:08:21.304468Z",
+          "payload": {
+            "cleanup": "not_needed",
+            "result_ref": {
+              "artifact_id": "176ae3bc-10aa-4f86-86b3-7c954c7d47c3",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-result+json",
+              "sha256": "5eb8ea8da2d56d0aa85f5a65319ef20f246a6b9c0daf9f6fff7cac94d2217855",
+              "size_bytes": 649
+            },
+            "status": "failed"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 7,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "53427a5e-c487-5905-9042-8647dd399998"
+        },
+        {
+          "event_id": "bf07ba42-23dd-4474-a3e0-3ecc9784f776",
+          "kind": "task.admitted",
+          "occurred_utc": "2026-10-11T22:08:21.392642Z",
+          "payload": {
+            "contract_sha256": "0f1dd21be9d9ab4369a9b2d1495511512d25b293b6192afc8e3d81b71d82a85c",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "origin": {
+              "kind": "user_rule",
+              "rule_id": "fix-referent/v1",
+              "turn_ref": {
+                "conversation_id": "2026-10-11T22-08-14-465552Z-e994",
+                "turn_index": 1,
+                "turn_sha256": "266f3c0cdb7abdec4484733156b1408993427869a967d88af8f065174c36c40a"
+              }
+            },
+            "repository_id": "cxxopts:57388292a9991fba",
+            "request_ref": {
+              "artifact_id": "e18911fb-bfc4-52b3-ab73-ae272896606f",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-request+json",
+              "sha256": "8820734b3c15dbb56c354c30c7d70becac1678a2b3b3cd30071d656bea7555c4",
+              "size_bytes": 1003
+            },
+            "skill": "fix-build-failure"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 8,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "526c6a42-b45c-4e66-b4b4-1081c98bc6ff",
+          "kind": "task.state_changed",
+          "occurred_utc": "2026-10-11T22:08:21.404498Z",
+          "payload": {
+            "current": "running",
+            "execution_epoch": 0,
+            "previous": "admitted",
+            "reason_code": "requested"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 9,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "28b04148-4dca-429a-93a8-025e6236ea9a",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:09:56.085712Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "b823b321-a1c8-57b7-8fae-de23e3357fcc",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "build_target"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 10,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "32b87c53-5083-4969-8ba0-ea8e93481363",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:10:02.086237Z",
+          "payload": {
+            "call_id": "b823b321-a1c8-57b7-8fae-de23e3357fcc",
+            "domain": "fail",
+            "duration_ms": 5985,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": 1,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "build_target"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 11,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "d267ed10-70b2-4217-a8c3-b195a272f900",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:12:05.270824Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "92af6ffa-d73e-57e8-ab71-c814c72f2e96",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "read_file"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 12,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "094f6c92-dbb2-452e-ab74-99693160edee",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:12:05.284472Z",
+          "payload": {
+            "call_id": "92af6ffa-d73e-57e8-ab71-c814c72f2e96",
+            "domain": "pass",
+            "duration_ms": 0,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": null,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "read_file"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 13,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "3dd5cc85-224c-4f42-ba89-afce6d95e547",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:12:35.883572Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "dbbab5f0-f15d-5300-aa21-615ab76ff57d",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "read_file"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 14,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "be37f764-b67e-440d-b06e-67022e5138af",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:12:35.898745Z",
+          "payload": {
+            "call_id": "dbbab5f0-f15d-5300-aa21-615ab76ff57d",
+            "domain": "pass",
+            "duration_ms": 1,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": null,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "read_file"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 15,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "b5fc0f43-8fe4-4002-852a-dcf028e97f54",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:13:08.897215Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "138395ff-9cea-5987-a361-8b5339e3ffff",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "propose_patch"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 16,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "acc3b216-73a2-4303-9b97-5de0eeb9bb37",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:13:08.915579Z",
+          "payload": {
+            "call_id": "138395ff-9cea-5987-a361-8b5339e3ffff",
+            "domain": "pass",
+            "duration_ms": 4,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": null,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "propose_patch"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 17,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "cb7d22d5-9f8d-4634-b46d-6cdfa9d9c196",
+          "kind": "task.cancel_requested",
+          "occurred_utc": "2026-10-11T22:13:21.421516Z",
+          "payload": {
+            "execution_epoch": 0,
+            "reason_code": "requested",
+            "request_id": "44d955cd-adc2-4448-a15d-d8ceba029aac",
+            "source": "user"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 18,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "9d572e00-e011-44bd-b7cb-2295b590890e",
+          "kind": "tool.started",
+          "occurred_utc": "2026-10-11T22:13:24.030906Z",
+          "payload": {
+            "arguments_ref": null,
+            "call_id": "b0803ed6-8e81-51dd-929e-cb1b8ae8b0f5",
+            "deadline_utc": "2026-10-12T04:08:21Z",
+            "execution_epoch": 0,
+            "tool_name": "apply_patch"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 19,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "f93f7ab3-dedb-4854-8448-97f573bd34b8",
+          "kind": "tool.finished",
+          "occurred_utc": "2026-10-11T22:13:24.047761Z",
+          "payload": {
+            "call_id": "b0803ed6-8e81-51dd-929e-cb1b8ae8b0f5",
+            "domain": "pass",
+            "duration_ms": 2,
+            "evidence_ids": [],
+            "execution": "ok",
+            "execution_epoch": 0,
+            "exit_code": null,
+            "reason_code": "completed",
+            "result_ref": null,
+            "tool_name": "apply_patch"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 20,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "bed2888d-6e40-4662-83bd-c38412296d44",
+          "kind": "task.verdict",
+          "occurred_utc": "2026-10-11T22:13:24.196419Z",
+          "payload": {
+            "completion": {
+              "result_ref": {
+                "artifact_id": "64d0ac17-c7b9-47e2-99c1-19df56a28903",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-result+json",
+                "sha256": "8a529216b285f8574a2cfe619a8bfca39d519ba9251426ad912fc76051947ba7",
+                "size_bytes": 378
+              },
+              "status": "unknown",
+              "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16",
+              "verdict_block": {
+                "evidence_ids": [],
+                "reason_code": "cancel_unreconciled",
+                "rendered_lines": [
+                  "NO_VERDICT: no_verdict.",
+                  "Reason: cancel_unreconciled.",
+                  "Verification: not established.",
+                  "Tree SHA-256: none.",
+                  "Evidence: none."
+                ],
+                "scope": "controller task result at durable completion",
+                "tree_sha256": null,
+                "verdict": "NO_VERDICT"
+              },
+              "worker_artifact_ref": {
+                "artifact_id": "64d0ac17-c7b9-47e2-99c1-19df56a28903",
+                "availability": "retained",
+                "media_type": "application/vnd.lca.task-result+json",
+                "sha256": "8a529216b285f8574a2cfe619a8bfca39d519ba9251426ad912fc76051947ba7",
+                "size_bytes": 378
+              }
+            }
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 21,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        },
+        {
+          "event_id": "b7c81748-d076-4e3b-b2d8-be7faecc0733",
+          "kind": "task.closed",
+          "occurred_utc": "2026-10-11T22:13:24.198048Z",
+          "payload": {
+            "cleanup": "not_needed",
+            "result_ref": {
+              "artifact_id": "64d0ac17-c7b9-47e2-99c1-19df56a28903",
+              "availability": "retained",
+              "media_type": "application/vnd.lca.task-result+json",
+              "sha256": "8a529216b285f8574a2cfe619a8bfca39d519ba9251426ad912fc76051947ba7",
+              "size_bytes": 378
+            },
+            "status": "unknown"
+          },
+          "producer_epoch": "0475a638-b334-4bf5-9a25-c60e0b5b67d8",
+          "schema_id": "lca.session.events",
+          "schema_version": 1,
+          "sequence": 22,
+          "session_id": "4aefc116-bd6c-561c-a9b6-f048939cf430",
+          "stream_id": "3182b6c0-c68e-5eb2-b87c-7bb4bb4fd56c",
+          "stream_kind": "durable",
+          "task_id": "a559d0dd-dc10-5665-8fc1-67b0c60dad16"
+        }
+      ],
+      "transcript": "[23:08:21] USER: build it   (6.6s)\n  RESULT: {\"task_id\": \"53427a5e-c487-5905-9042-8647dd399998\", \"outcome\": \"fail\", \"reason_code\": \"verification_failed\", \"verified\": false, \"evidence_ids\": [\"build_target:0\"], \"proof_scope\": \"observed_build_failure\", \"llm_calls\": 0, \"prompt_tokens\": 0, \"context_peak_tokens\": 3317, \"compactions\": 0}\n  ANSWER:\n    [Controller: fail; verification: ran, did not establish success; reason: verification_failed; evidence: 1 item(s); task: 53427a5e-c487-5905-9042-8647dd399998]\n    Proof scope: observed_build_failure\n    Request SHA-256: 779c007e1fb806a13d4998dd2f5d4a40ec17e9c31e9c876775f41c2cb0a3d428\n    Tree SHA-256: e17f8f8062a3983d51c45e708e194d6736ff2c658ad564f35c148575ab98c469\n    Evidence IDs: build_target:0\n    \n    Unverified task detail (not proof of a completed change):\n    build_target: build (debug) FAILED (compile) with 2 compiler error(s) and 0 link error(s); first error at test/options.cpp:95: 'reslt': undeclared identifier [C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-model30b-merged-isolated-20261011\\repos\\Q07-fix-model\\build\\test\\options_test.vcxproj] -- command: [\"cmake\", \"--build\", \"build\", \"--config\", \"Debug\", \"--parallel\", \"4\"]\n\n[23:13:21] USER: fix it\n  ANSWER:\n    (no answer after 300s; timed out)\n\n",
+      "operator": {
+        "candidate_edits": 0,
+        "manual_stops_during_trial": 0,
+        "automatic_budget_stops": 1,
+        "model_attempt_retries": 0,
+        "pre_attempt_startup_retries": 1,
+        "memory_not_sampled": true,
+        "note": "No rates or physicalhardwareclaim. Tool payload refsnull; unknown verdict doesnotinvent omittedcallcounts or preservationproof.",
+        "owned_server_after_trial": {
+          "stopped": true,
+          "forced": true
+        },
+        "candidate_payload": {
+          "availability": "unavailable",
+          "reason": "Stop cleanup removed isolated workspace; tool argument/result refs were null, no patch payload retained",
+          "claims": "propose_patch/apply_patch events observed, no patch contents or correctness invented; no full candidate build proof"
+        }
+      }
+    },
+    "note": "Existing stronger profile on same merged product, no broad timeout increase; cold/reuse identity recorded from real lifecycle. No pooled model-size effect or physical J10 claim."
+  }
+}
