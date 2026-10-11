@@ -23,9 +23,10 @@ def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
             and task.verdict == "VERIFIED"
             and task.result_verified_at_completion is True
         ):
+            candidate_id = candidate.candidate_task_id
             items.append(
-                f"Verified candidate ready · {task.task_id}\n"
-                f"Review: /diff {task.task_id} · Apply: /apply {task.task_id}"
+                f"Verified candidate ready · {candidate_id}\n"
+                f"Review: /diff {candidate_id} · Apply: /apply {candidate_id}"
             )
             continue
         if task.faults:

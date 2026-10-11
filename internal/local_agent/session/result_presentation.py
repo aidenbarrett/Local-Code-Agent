@@ -124,7 +124,7 @@ def render_result_next_action(task: TaskSnapshot) -> str:
         and task.verdict == "VERIFIED"
         and task.result_verified_at_completion is True
     ):
-        action = f"review the retained candidate with /diff {task.task_id}."
+        action = f"review the retained candidate with /diff {candidate.candidate_task_id}."
     elif not task.terminal:
         action = "monitor this task until it reaches a durable terminal state."
     elif task.verdict_reason == "endpoint_unavailable":
