@@ -660,7 +660,7 @@ def test_conflict_explanation_fails_when_it_invents_the_wrong_way_out(tmp_path, 
 
     def wrong_command(session, text, **kwargs):
         answer, result = original_turn(session, text, **kwargs)
-        if text == "explain this conflict":
+        if text == "what's wrong with my repo?":
             answer = answer.replace("git rebase --continue", "git merge --continue")
         return answer, result
 
@@ -668,7 +668,7 @@ def test_conflict_explanation_fails_when_it_invents_the_wrong_way_out(tmp_path, 
     _skip_redundant_fixture_probe(monkeypatch)
     out = tmp_path / "acc"
     assert journeys.main(["--output", str(out), "--only", "J20-conflict-explain"]) == 1
-    assert ("rebase: conflict explanation omitted 'continue: git rebase --continue'"
+    assert ("rebase: conflict explanation omitted '`git rebase --continue`'"
             in _report(out)["J20-conflict-explain"]["reason"])
 
 
@@ -677,7 +677,7 @@ def test_conflict_explanation_fails_when_it_aborts_the_merge(tmp_path, monkeypat
 
     def abort(session, text, **kwargs):
         answer, result = original_turn(session, text, **kwargs)
-        if text == "explain this conflict":
+        if text == "what's wrong with my repo?":
             journeys._git(session.repo, "merge", "--abort", check=False)
         return answer, result
 

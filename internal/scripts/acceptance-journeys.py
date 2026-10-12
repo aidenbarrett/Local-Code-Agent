@@ -1305,7 +1305,7 @@ def conflict_snapshot(repo: Path, path: str) -> dict[str, str]:
 
 
 def j_conflict_explain(s: Session) -> None:
-    """G01: a stopped merge and a stopped rebase are named with git's own ways out, read-only."""
+    """G01: the public repository-state question explains stopped operations read-only."""
     who = ("-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid")
     path = "notes.txt"
 
@@ -1329,16 +1329,18 @@ def j_conflict_explain(s: Session) -> None:
         _git(s.repo, *who, *command, check=False)
         before = conflict_snapshot(s.repo, path)
         expect(before["markers"], f"{operation}: the fixture did not stop on a conflict")
-        answer, explained = s.turn("explain this conflict")
+        answer, explained = s.turn("what's wrong with my repo?")
         expect(explained is not None, f"{operation}: conflict explanation admitted no task")
-        for fact in (f"operation: {operation}", f"conflict: {path} (both modified)",
-                     f"continue: git {operation} --continue", f"abort: git {operation} --abort",
-                     "upstream: unknown"):
+        for fact in (f"A {operation} has stopped part-way",
+                     f"Conflicted: {path} (both modified).",
+                     f"`git {operation} --continue`", f"`git {operation} --abort`",
+                     "Local Code Agent will not run them"):
             expect(fact in answer, f"{operation}: conflict explanation omitted {fact!r}")
         expect(conflict_snapshot(s.repo, path) == before,
                f"{operation}: explaining the conflict resolved, staged, continued or aborted it")
-    s.journey.passed("stopped merge and rebase named with the conflicted path, its state and git's "
-                     "continue/abort commands; HEAD, index, markers and conflicted bytes unchanged")
+    s.journey.passed("the natural public repository-state question named stopped merge and rebase, "
+                     "the conflicted path, continue/abort choices and the no-execution boundary; "
+                     "HEAD, index, markers and conflicted bytes unchanged")
 
 
 def j_branch_review(s: Session) -> None:

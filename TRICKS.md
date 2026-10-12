@@ -46,7 +46,7 @@ physical execution occurred there.
 | J1 | Help / What can you do? | Deterministic capabilities available here, including unavailable actions and why. No model required. |
 | J2 | What are you running on? | Active repo, configured model/runtime/endpoint and observed device only where evidence exists. Unknown stays unknown. |
 | J3 | Inspect this repo / Where is X? | Read-only work starts directly and returns real paths/references plus scope limitations. |
-| J4 | What changed on my branch? | Establish base explicitly or by documented policy, then distinguish committed/staged/unstaged changes. |
+| J4 | What changed on my branch? / What's wrong with my repo? | Establish base explicitly or by documented policy, distinguish committed/staged/unstaged changes, and explain observed interrupted Git state without executing recovery commands. |
 | J5 | Build it / Run the tests | Use only configured commands when execution is enabled and report build/test proof separately. |
 | J6 | Why did that fail? | Select an eligible retained failed task and explain its actual evidence. Ambiguity gets explicit task choices. |
 | J7 | Stop | Fence new dispatch immediately; claim stopped only when owned work is reconciled. Unknown cleanup remains unknown. |
