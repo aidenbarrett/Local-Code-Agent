@@ -1,6 +1,6 @@
 # Development candidate handoff
 
-Candidate: 9950b276fd806e90db2d3d022a1621226ccf35bd (tree 2689c69f58fe25dc4ca8b55741128a19a9cbbb55).
+Candidate: f86ee50664951dba2afd22886ad3dd5cd718adf6 (tree fd8f09b16a003fdac3e0ae4637b2c71e3ff25235).
 This is a development candidate. Physical disconnected Panther Lake acceptance,
 configuration-specific model competence and enforced merge policy remain open.
 #403 remains the release decision; this handoff does not close it.
@@ -10,7 +10,7 @@ configuration-specific model competence and enforced merge policy remain open.
 ```powershell
 git clone https://github.com/aidenbarrett/Local-Code-Agent.git
 cd Local-Code-Agent
-git checkout --detach 9950b276fd806e90db2d3d022a1621226ccf35bd
+git checkout --detach f86ee50664951dba2afd22886ad3dd5cd718adf6
 .\install.ps1 -CheckOnly
 .\install.ps1 -InstallMissing -SkipModelDownload
 .\local-code-agent.ps1 models
@@ -56,6 +56,36 @@ See [QUICKSTART.md](../../QUICKSTART.md) for setup details and
 
 ## Evidence and limits
 
+The candidate above passed full Linux pytest and all five Windows shards in
+[tests run 38255552082](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38255552082),
+plus native, serving, product, import and integration checks. Independent review
+covered the exact #526 head; the resulting main tree equals the tested tree.
+This is CI/controller evidence, not exact-candidate model or physical qualification.
+
+| Later retained evidence | What it supports | Limit |
+|---|---|---|
+| CPU8B cxxopts compile repair, #514 | One model-generated identifier repair, full build and independent seven-test suite | The original candidate also changed line endings; retained without rescore. Byte preservation was repaired in #517. No rate or PTL proof |
+| CPU30B cxxopts compile repair, retained in #516/#517 | One model-generated identifier repair, independent seven-test suite and subsequent controller diff/apply/exact commit preserving unrelated work | Model repair source `44cec210bbb32107789427559ec2c545e62a935b86387bff2be9dadc2907dca7`; controller follow-through is a separate proof class |
+| Fresh Windows archive CPU30B setup, #522 | New managed Python environment, public setup READY TO USE, protocol/tool/context checks and fixture 4/4 tests | Product archive `142a6e041e73e902503598d308915816d3eb7b64`; existing prerequisites/weights/tools/cache reused. R01 second launch was MEASURED:no-evidence; semantic correctness unknown |
+| Production count-defect CPU30B attempts, #526 and #528 | Unchanged upstream tests passed 7/7 before the fault and failed 2/7 afterward; one 300s and one separate 900s repair attempt remained UNKNOWN | Different measured product sources; no isolated budget causation, success rate or model-ceiling claim. The 900s trace has two proposals, no application; discarded proposal contents are unavailable |
+
+Original records are in [the compile-repair archive](../../internal/docs/rc-model-competence-2026-10-11.json),
+[the first-use archive](../../internal/docs/rc-first-use-cpu30b-2026-10-12.json),
+[the 300s production-test archive](../../internal/docs/rc-model-production-test-2026-10-12.json),
+and [the separate 900s evidence PR](https://github.com/aidenbarrett/Local-Code-Agent/pull/528).
+The CPU30B original candidate and independent/controller receipts remain retained in
+[#516](https://github.com/aidenbarrett/Local-Code-Agent/pull/516) and
+[#517](https://github.com/aidenbarrett/Local-Code-Agent/pull/517).
+Raw timed-out repair call/context totals are incomplete; #526 repairs future reporting
+without rescoring the original reports. None of this replaces #293's physical GPU30B
+J10 `--repeat 3` comparison, disconnected PTL qualification or observed execution-device proof.
+
+### Earlier pinned measurements
+
+The following records describe the earlier candidate
+`9950b276fd806e90db2d3d022a1621226ccf35bd` and their own exact sources, rather than
+the current candidate above. Their original outcomes and limitations are preserved.
+
 | Evidence | What it supports | What remains unknown |
 |---|---|---|
 | Reviewed exact-tree Linux/Windows CI for #499, #500, #501 and #502 | Deterministic controller, preservation, public surfaces, compact recovery and first-use repair regressions | Physical offline execution and general model competence |
@@ -75,7 +105,7 @@ Corpus: cxxopts 639cdbad93d45e74fd781e4cf6b0ac798eeec2aa, MIT.
 | 30B completion-fix source | Not selected | UNKNOWN, 308.0s; final build cancelled | 34.58 GB |
 | 30B merged-main repeat | Not selected | Inference timeout, 130.6s | 34.26 GB |
 
-No verified real-model repair was produced. Human edits to model candidates and
+No verified real-model repair was produced in those five earlier trials. Human edits to model candidates and
 manual Stops during these trials were zero by operator observation. Budget Stops
 were automatic. The last row is one deliberate retry after the preceding failed
 trial; startup retries and preparation are separately recorded. RSS uses ten-second
@@ -101,9 +131,9 @@ intervention rate is inferred from these small, differently prepared runs.
   Preparation and reports are automated; the actual target machine and disconnect
   confirmation are required. CPU reference runs cannot substitute for #293/#418.
 - Repository owner: configure reviewed-green main protection and re-observe it
-  with the existing checker. The last successful 11 October read found main unprotected, no active
-  required-status-check ruleset and no required checks; the latest recheck is unknown
-  because GitHub returned HTTP 403 (rate limit). Administration was not changed.
+  with the existing checker. The 12 October observation found main unprotected,
+  no active required-status-check ruleset and no required checks. Administration
+  was not changed; manually reviewed green merges do not establish enforcement.
 - Retain model/hardware-specific failures and observe the next task after Stop.
   With OVMS an in-flight generation may finish after the client is stopped;
   endpoint-side cancellation remains unproved for these profiles.
