@@ -70,6 +70,7 @@ from local_agent.session.conversation_store import (  # noqa: E402
     conversation, create_session, ensure_runtime, new_session,
 )
 from local_agent.session.runtime_facts import RuntimeFacts  # noqa: E402
+from local_agent.session.durable_activity import TOOL_PROPOSAL_SCHEMA  # noqa: E402
 from scripts import acceptance_corpus as corpus  # noqa: E402
 from scripts.acceptance_compare import ComparisonError, comparison_text  # noqa: E402
 from serving.managed_runtime import endpoint_reachable  # noqa: E402
@@ -438,18 +439,20 @@ class Session:
         self.transcript.write("  ANSWER:\n" + "\n".join("    " + line for line in answer.splitlines()) + "\n\n")
         self.transcript.flush()
 
-    def _with_tool_failure(self, event: dict[str, Any]) -> dict[str, Any]:
-        """Inline a failed tool call's retained reason and message for the log reader."""
+    def _with_tool_result(self, event: dict[str, Any]) -> dict[str, Any]:
+        """Inline retained proposal or failure evidence without upgrading its claim."""
         ref = (event.get("payload") or {}).get("result_ref") if event.get("kind") == "tool.finished" else None
         if not ref:
             return event
-        return {**event, "tool_failure": json.loads(self.service.store.artifact_bytes(ref))}
+        result = json.loads(self.service.store.artifact_bytes(ref))
+        key = "tool_proposal" if result.get("schema") == TOOL_PROPOSAL_SCHEMA else "tool_failure"
+        return {**event, key: result}
 
     def _dump_events(self) -> None:
         try:
             with (self.log_dir / "events.jsonl").open("w", encoding="utf-8") as out:
                 for event in self.events():
-                    retained = self._with_tool_failure(event)
+                    retained = self._with_tool_result(event)
                     out.write(json.dumps(retained, sort_keys=True) + "\n")
                     if failure := retained.get("tool_failure"):
                         self.journey.tool_failures.append(failure)

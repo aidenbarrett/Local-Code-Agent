@@ -56,8 +56,8 @@ def wrap_registry_with_durable_activity(
 ) -> ToolRegistry:
     """Return an equivalent registry whose handler effects are durably bracketed.
 
-    Schema validation on the returned ``Tool`` still runs before this wrapper, so
-    malformed arguments cannot create a durable start event or reach the handler.
+    Schema validation on the returned ``Tool`` still runs before this wrapper.
+    A rejected call is recorded without entering the effectful handler.
     If durable start itself fails, the underlying handler is never called. Handler
     exceptions are durably classified and then re-raised unchanged so the existing
     orchestrator retains its normal error semantics.
@@ -72,6 +72,13 @@ def wrap_registry_with_durable_activity(
     wrapped = ToolRegistry()
     for name in registry.names():
         original = registry.get(name)
+
+        def rejected(exc: ToolError, *, _tool: Tool = original) -> None:
+            opened = activity.start_tool(_tool.name)
+            _finish_exception(partial(
+                activity.finish_tool, call_id=opened.call_id, tool_name=_tool.name,
+                process_started=False if _tool.risk is Risk.EXECUTE else None,
+            ), exc, monotonic())
 
         def handler(*, _tool=original, **kwargs):
             opened = activity.start_tool(_tool.name)
@@ -118,6 +125,8 @@ def wrap_registry_with_durable_activity(
                     duration_ms=max(0, int((monotonic() - started) * 1000)),
                     failure_detail=None if result.ran else result.summary,
                     process_started=None if result.ran else process_started(),
+                    proposal_data=dict(result.data)
+                    if result.ok and _tool.name in {"propose_patch", "propose_file"} else None,
                 )
             except Exception as exc:
                 # The result could not be recorded as typed (a contract rejection, or
@@ -136,6 +145,7 @@ def wrap_registry_with_durable_activity(
                 parameters=original.parameters,
                 handler=handler,
                 risk=original.risk,
+                on_validation_error=rejected,
             )
         )
     return wrapped

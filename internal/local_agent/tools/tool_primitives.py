@@ -307,6 +307,7 @@ class Tool:
     parameters: dict[str, Any]
     handler: Callable[..., ToolResult]
     risk: Risk
+    on_validation_error: Callable[[ToolError], None] | None = None
 
     def __post_init__(self) -> None:
         """Put schema validation in front of the effectful handler itself.
@@ -325,10 +326,13 @@ class Tool:
             except ValidationError as exc:
                 path = ".".join(str(part) for part in exc.absolute_path)
                 where = f" at {path}" if path else ""
-                raise ToolError(
+                error = ToolError(
                     f"arguments for {self.name!r} violate its schema{where}: {exc.message}",
                     Reason.BAD_ARGUMENTS,
-                ) from exc
+                )
+                if self.on_validation_error is not None:
+                    self.on_validation_error(error)
+                raise error from exc
             return original(**kwargs)
 
         object.__setattr__(self, "handler", validated_handler)

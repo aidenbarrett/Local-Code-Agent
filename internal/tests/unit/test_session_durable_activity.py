@@ -2,9 +2,23 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
+
+from local_agent.agent.orchestrator import Orchestrator
+from local_agent.agent.skills import SkillLibrary
+from local_agent.config import load_repo_config
+from local_agent.llm.client import ScriptedClient, tool_call
+from local_agent.llm.protocol import ChatResponse
+from local_agent.session.cancellation import CancellationToken
+from local_agent.session.event_buffer import EventBuffer
+from local_agent.session.task_controller import TaskController
+from local_agent.session.workspaces import GitWorkspaceManager
+from local_agent.tools import build_registry
+from local_agent.session.durable_tool_registry import wrap_registry_with_durable_activity
 
 from local_agent.session.durable_activity import (
     DurableActivityError,
@@ -239,5 +253,96 @@ def test_a_result_reference_never_commits_without_its_exact_bytes(tmp_path):
         )
         with pytest.raises(ArtifactIntegrityError, match="need a tool.finished result_ref"):
             orphan.wait(5)
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("followthrough", ["apply", "schema_then_apply", "stop"])
+def test_proposal_survives_candidate_cleanup_and_explains_followthrough(sandbox, tmp_path, followthrough):
+    sandbox.scenario("compile_error")
+    before = (sandbox.root / "src/ring_buffer.cpp").read_bytes()
+    service, task_id = _admitted_service(tmp_path)
+    activity = DurableToolActivity.from_task(service, task_id)
+    token = CancellationToken(task_id, 0)
+    turns = [ChatResponse(tool_calls=[tool_call("propose_patch", {
+        "path": "src/ring_buffer.cpp", "find": "++count;", "replace": "++count_;",
+        "rationale": "repair undefined identifier",
+    }, "p1")])]
+
+    def latest_id(messages):
+        results = [json.loads(m["content"]) for m in messages if m.get("role") == "tool"]
+        return next(r["data"]["patch_id"] for r in reversed(results) if "patch_id" in r.get("data", {}))
+
+    if followthrough == "stop":
+        def stop(messages):
+            token.request()
+            return ChatResponse(content="Cannot complete before Stop.")
+        turns += [stop, ChatResponse(content="Stopped.")]
+    else:
+        if followthrough == "schema_then_apply":
+            turns.append(ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": 17}, "bad")]))
+        turns.append(lambda m: ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": latest_id(m)}, "a1")]))
+        turns.append(ChatResponse(tool_calls=[tool_call("submit_answer", {
+            "claim": "failure", "summary": "not independently verified", "evidence_ids": [],
+        }, "s")]))
+    manager = GitWorkspaceManager(tmp_path / "workspaces", controller_commit="c" * 40)
+    controller = TaskController(load_repo_config(sandbox.root), lambda: ScriptedClient(turns),
+                                EventBuffer(service.stream_id), allow_execution=True, workspaces=manager)
+    try:
+        result = controller.run("fix the build", skill_name="fix-build-failure", task_id=task_id,
+                                durable_activity=activity, cancellation_probe=token)
+        finishes = [e["payload"] for e in service.replay() if e["kind"] == "tool.finished"]
+        proposal = finishes[0]
+        assert proposal["tool_name"] == "propose_patch" and proposal["domain"] == "pass"
+        ref = proposal["result_ref"]
+        retained = json.loads(service.store.artifact_bytes(ref))
+        assert retained["schema"] == "lca.patch-proposal/1"
+        assert retained["data"]["path"] == str(Path("src/ring_buffer.cpp"))
+        assert retained["data"]["rationale"] == "repair undefined identifier"
+        assert "++count_;" in retained["data"]["diff"]
+        assert retained["claim"] == "proposal only; not applied or verified"
+        applies = [f for f in finishes if f["tool_name"] == "apply_patch"]
+        if followthrough == "stop":
+            assert applies == []
+            assert result.metrics["candidate"]["workspace_removed"] is True
+        else:
+            assert applies[-1]["execution"] == "ok"
+            if followthrough == "schema_then_apply":
+                assert applies[0]["execution"] == "error"
+                failure = json.loads(service.store.artifact_bytes(applies[0]["result_ref"]))
+                assert failure["tool_reason"] == "bad_arguments"
+                assert "patch_id" in failure["detail"]
+        assert result.verified_at_completion is False
+        assert (sandbox.root / "src/ring_buffer.cpp").read_bytes() == before
+        database = tmp_path / "session.db"
+    finally:
+        service.close()
+    reopened = SQLiteSessionStore(database)
+    assert json.loads(reopened.artifact_bytes(ref)) == retained
+    assert (sandbox.root / "src/ring_buffer.cpp").read_bytes() == before
+
+
+@pytest.mark.parametrize("refusal", ["policy_denied", "approval_declined"])
+def test_pre_handler_apply_refusal_is_retained_without_editing(sandbox, tmp_path, refusal):
+    service, task_id = _admitted_service(tmp_path)
+    activity = DurableToolActivity.from_task(service, task_id)
+    repo = load_repo_config(sandbox.root)
+    repo = replace(repo, policy=replace(repo.policy, allow_patch=refusal != "policy_denied"))
+    registry, _, _ = build_registry(repo)
+    registry = wrap_registry_with_durable_activity(registry, activity)
+    before = (sandbox.root / "src/ring_buffer.cpp").read_bytes()
+    client = ScriptedClient([ChatResponse(tool_calls=[tool_call("apply_patch", {"patch_id": "never-proposed"}, "a")]),
+                             ChatResponse(content="refused")])
+    try:
+        worker = Orchestrator(repo=repo, registry=registry, client=client, skills=SkillLibrary([]),
+                              approval=lambda *args: False,
+                              observer=lambda k, p: TaskController._retain_rejected_tool(activity, p)
+                              if k == "tool_rejected" else None)
+        worker.run("apply", condition="control")
+        finished = service.replay()[-1]["payload"]
+        assert finished["tool_name"] == "apply_patch" and finished["execution"] == "blocked"
+        failure = json.loads(service.store.artifact_bytes(finished["result_ref"]))
+        assert failure["tool_reason"] == refusal
+        assert (sandbox.root / "src/ring_buffer.cpp").read_bytes() == before
     finally:
         service.close()
