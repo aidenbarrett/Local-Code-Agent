@@ -502,8 +502,9 @@ def test_context_use_names_peak_against_budget_for_model_journeys_only():
                      " · 1 compactions"]
 
 
+@pytest.mark.parametrize("completed_turn", [True, False])
 def test_timeout_does_not_report_the_first_turn_metrics_as_the_whole_journey(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, completed_turn: bool,
 ) -> None:
     import threading
     from types import SimpleNamespace
@@ -519,8 +520,10 @@ def test_timeout_does_not_report_the_first_turn_metrics_as_the_whole_journey(
             finished.set()
 
     journey = journeys.Journey("X01-production-test-model", "repair", "model")
-    journey.tasks = [{"llm_calls": 0, "context_peak_tokens": 3602, "compactions": 0}]
-    runner = SimpleNamespace(output=tmp_path, timeout=0.01)
+    if completed_turn:
+        journey.tasks = [{"llm_calls": 0, "context_peak_tokens": 3602, "compactions": 0}]
+    runner = SimpleNamespace(output=tmp_path, timeout=0.01, preconditions={},
+                             worker_config=SimpleNamespace(context_budget_tokens=12000))
     session = journeys.Session(runner, journey, tmp_path)
     session.graph = SimpleNamespace(gateway=SimpleNamespace(last_result=None, turn=blocked_turn))
     monkeypatch.setattr(session, "stop_latest", released.set)
@@ -532,7 +535,9 @@ def test_timeout_does_not_report_the_first_turn_metrics_as_the_whole_journey(
         assert journeys.context_use_lines([journey], 12000) == [
             "X01-production-test-model model calls UNKNOWN · peak context UNKNOWN"
             " · compactions UNKNOWN (incomplete turn metrics)"]
-        assert len(journey.tasks) == 1  # No fabricated TaskResult for the timed-out turn.
+        assert len(journey.tasks) == int(completed_turn)  # No fabricated timed-out result.
+        assert "Context use (model journeys)" in journeys.summary_text(runner, [journey], "0" * 64)
+        assert "model calls UNKNOWN" in journeys.summary_text(runner, [journey], "0" * 64)
     finally:
         released.set()
         session.transcript.close()

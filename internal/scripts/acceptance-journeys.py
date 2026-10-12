@@ -2503,7 +2503,14 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
     rates = model_rates(journeys)
     if rates:
         lines += ["", "Model rates (repeated model journeys)", *rates]
-    context = context_use_lines(journeys, runner.worker_config.context_budget_tokens)
+    measured = any(
+        journey.kind == "model" and (
+            journey.measured.get("worker_metrics_complete") is False
+            or any(isinstance(task.get("context_peak_tokens"), int) for task in journey.tasks)
+        ) for journey in journeys
+    )
+    context = (context_use_lines(journeys, runner.worker_config.context_budget_tokens)
+               if measured else [])
     if context:
         lines += ["", "Context use (model journeys)", *context]
     failures = [line for journey in journeys for line in failed_tool_lines(journey)]
