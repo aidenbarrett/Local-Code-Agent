@@ -1,6 +1,6 @@
 # Development candidate handoff
 
-Candidate: 9950b276fd806e90db2d3d022a1621226ccf35bd (tree 2689c69f58fe25dc4ca8b55741128a19a9cbbb55).
+Candidate: f86ee50664951dba2afd22886ad3dd5cd718adf6 (tree fd8f09b16a003fdac3e0ae4637b2c71e3ff25235).
 This is a development candidate. Physical disconnected Panther Lake acceptance,
 configuration-specific model competence and enforced merge policy remain open.
 #403 remains the release decision; this handoff does not close it.
@@ -62,6 +62,8 @@ See [QUICKSTART.md](../../QUICKSTART.md) for setup details and
 | Public pinned-main J24 continuous run after #502 | One composed scripted engineering workflow | Real-model performance |
 | Public pinned-main cxxopts Q01–Q05, all five PASS | Real build/test, seeded failure truth, scripted repair/apply/undo/commit and Stop with unrelated-work preservation | General repository support |
 | Same-source CPU 8B/30B reference measurements | Retained configuration-specific answers, repair outcomes, client timing and sampled RSS | Answer correctness, isolated model-size effect, PTL device behaviour |
+| One pinned cxxopts CPU-8B production repair | The model proposed the exact identifier fix; configured full build and independent full tests passed; apply and exact commit preserved unrelated work after the byte-fidelity repair | Repeatability, a success rate, general model competence, PTL behaviour and offline qualification |
+| One pinned cxxopts CPU-30B production repair attempt | The 300-second repair deadline expired with no proposal, application or verified candidate; incomplete call/context totals remain UNKNOWN | Whether a longer run or different physical profile would complete the repair |
 | Fresh exported bootstrap and repeated public launch | New Python environment, staged OVMS, C++ validation 4/4; bootstrap exit3 for missing weights; models/use exit0; repeated doctor exit3 naming model download | Full readiness pending; separate prepared-weight CPU30B setup timed out at 7k |
 
 Measured CPU reference source: 3b3fe9cb87f78cd041a5c6dc1c62a39e84f602c5,
@@ -75,18 +77,27 @@ Corpus: cxxopts 639cdbad93d45e74fd781e4cf6b0ac798eeec2aa, MIT.
 | 30B completion-fix source | Not selected | UNKNOWN, 308.0s; final build cancelled | 34.58 GB |
 | 30B merged-main repeat | Not selected | Inference timeout, 130.6s | 34.26 GB |
 
-No verified real-model repair was produced. Human edits to model candidates and
-manual Stops during these trials were zero by operator observation. Budget Stops
-were automatic. The last row is one deliberate retry after the preceding failed
-trial; startup retries and preparation are separately recorded. RSS uses ten-second
+The table above is the earlier same-source reference matrix. A later pinned CPU-8B
+production attempt produced one verified cxxopts identifier repair. That candidate
+passed its configured full build and independent full tests, then completed apply and
+exact commit with unrelated work preserved after PR#517 repaired byte fidelity. A
+separate CPU-30B production attempt reached its fixed 300-second repair deadline with
+no proposal, application or verified candidate. Its incomplete model-call and context
+totals remain UNKNOWN rather than being inherited from an earlier turn (PR#526).
+
+Human edits to model candidates and manual Stops during these trials were zero by
+operator observation. Budget Stops were automatic. One successful CPU-reference
+repair and one CPU30B timeout do not establish a rate, causation, general competence,
+model-size ordering, PTL execution or offline qualification. RSS uses ten-second
 samples of the owned process and excludes pre-sampler startup; it is not a peak guarantee.
-The last two trials started/replaced the server (34.2s/34.3s); intended warm reuse
-in the final trial was not observed because the owner detected environment drift.
+The final earlier reference trials started/replaced the server (34.2s/34.3s); intended
+warm reuse was not observed because the owner detected environment drift.
 The full report fields, source identity, artifact revisions and operator receipts
 are retained in [the measurement record](../../internal/docs/rc-evidence-2026-10-11.json).
-Authoritative CI: [#501](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38149211547)
-and [#502](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38151450475).
-Their merged trees match the reviewed/tested trees. On pinned main, J24 passed
+Authoritative CI includes [#501](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38149211547),
+[#502](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38151450475), and
+the exact-head Linux/all-five-Windows run retained by PR#526. Their merged trees
+match the reviewed/tested trees. On the earlier pinned main, J24 passed
 in 23.3s (report SHA-256 2e3e05646bb0360a0a29e4a9ddeaf9f3988ca6219721ec50668d42280f2b0f3f),
 and cxxopts Q01–Q05 all passed (report SHA-256
 8454a4599c3edd96c58bd96cb2f6c41962c8e9ffc42b19275029ca68788f3aad). Explanation correctness remains unknown.
@@ -101,9 +112,9 @@ intervention rate is inferred from these small, differently prepared runs.
   Preparation and reports are automated; the actual target machine and disconnect
   confirmation are required. CPU reference runs cannot substitute for #293/#418.
 - Repository owner: configure reviewed-green main protection and re-observe it
-  with the existing checker. The last successful 11 October read found main unprotected, no active
-  required-status-check ruleset and no required checks; the latest recheck is unknown
-  because GitHub returned HTTP 403 (rate limit). Administration was not changed.
+  with the existing checker. The 12 October observation found main unprotected,
+  no active required-status-check ruleset and no required checks. Administration
+  was not changed.
 - Retain model/hardware-specific failures and observe the next task after Stop.
   With OVMS an in-flight generation may finish after the client is stopped;
   endpoint-side cancellation remains unproved for these profiles.
