@@ -131,7 +131,8 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
             return
         if normalized in {"/quit", "/exit"}:
             if self._turn_future is not None and not self._turn_future.done():
-                self._restore_draft(message.text)
+                if message.from_composer:
+                    self._restore_draft(message.text)
                 self._status("Quit refused · conversation turn is still running")
                 return
             self._turn_status = None
@@ -139,22 +140,26 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
             return
 
         if self._feed_failed:
-            self._restore_draft(message.text)
+            if message.from_composer:
+                self._restore_draft(message.text)
             self._status("Turn refused · durable feed is unavailable; restart to resnapshot")
             return
 
         if self._turn_future is not None and not self._turn_future.done():
-            self._restore_draft(message.text)
+            if message.from_composer:
+                self._restore_draft(message.text)
             self._status("Busy · one conversation turn is already running")
             return
         try:
             future = self.turn_dispatcher.submit(message.text)
         except HubTurnBusy:
-            self._restore_draft(message.text)
+            if message.from_composer:
+                self._restore_draft(message.text)
             self._status("Busy · one conversation turn is already running")
             return
         except HubTurnDispatcherClosed:
-            self._restore_draft(message.text)
+            if message.from_composer:
+                self._restore_draft(message.text)
             self._status("Turn refused · conversation dispatcher is closed")
             return
         self._turn_future = future
