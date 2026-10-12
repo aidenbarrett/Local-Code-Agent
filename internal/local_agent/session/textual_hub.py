@@ -10,7 +10,7 @@ boundary against stable product-owned view state.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -533,7 +533,7 @@ class SessionHubApp(App):
         self.query_one("#conversation", Static).update(render_conversation(state.conversation))
         self.query_one("#attention", Static).update(render_attention(state.tasks))
         self._apply_attention_visibility()
-        self.query_one("#activity", Static).update(render_activity(state))
+        self._refresh_activity()
         self.query_one("#watch", Static).update(render_watches(state.watches))
         self._apply_watch_visibility()
         self.query_one("#status", Static).update(state.status)
@@ -544,6 +544,14 @@ class SessionHubApp(App):
             if task.candidate is not None:
                 latest[task.candidate.candidate_task_id] = task
         return latest
+
+    def _activity_state(self) -> HubViewState:
+        selected = self.query_one("#candidate-select", Select).value
+        task = self._candidate_tasks().get(str(selected))
+        return self.view_state if task is None else replace(self.view_state, tasks=(task,))
+
+    def _refresh_activity(self) -> None:
+        self.query_one("#activity", Static).update(render_activity(self._activity_state()))
 
     def _sync_candidate_actions(self) -> None:
         tasks = self._candidate_tasks()
@@ -573,6 +581,7 @@ class SessionHubApp(App):
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "candidate-select":
             self._sync_candidate_actions()
+            self._refresh_activity()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         commands = {

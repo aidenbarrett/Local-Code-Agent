@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
-from textual.widgets import Button, Input, Select
+from textual.widgets import Button, Input, Select, Static
 
 from local_agent.session.candidate_facts import CandidateFacts
 from local_agent.session.task_read_model import TaskSnapshot
@@ -37,6 +37,8 @@ def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_dura
             assert app.query_one("#apply-candidate", Button).disabled
             selector.value = first
             await pilot.pause()
+            assert first in str(app.query_one("#activity", Static).render())
+            assert second not in str(app.query_one("#activity", Static).render())
             await pilot.click("#review-candidate")
             await pilot.click("#apply-candidate")
             await pilot.pause()

@@ -81,13 +81,15 @@ class LiveSessionHubApp(SessionHubApp):
 
     def on_mount(self) -> None:
         super().on_mount()
-        self.query_one("#activity", Static).update(render_live_activity(self.view_state))
+        self._refresh_activity()
         self.set_interval(self.poll_interval, self._poll_live_feed)
 
     def replace_state(self, state: HubViewState) -> None:
         """Refresh base widgets, then add the live durable result summary."""
         super().replace_state(state)
-        self.query_one("#activity", Static).update(render_live_activity(state))
+
+    def _refresh_activity(self) -> None:
+        self.query_one("#activity", Static).update(render_live_activity(self._activity_state()))
 
     def _poll_live_feed(self) -> None:
         if self._feed_failed:
