@@ -326,16 +326,20 @@ class TaskController:
     ) -> None:
         """Retain a refusal that happened before a registered handler was entered."""
         name = str(payload["name"])
+        process_started = payload.get("process_started")
+        if process_started is not None and not isinstance(process_started, bool):
+            raise ValueError("rejected tool process_started must be boolean or None")
         opened = activity.start_tool(name)
         activity.finish_tool(
             call_id=opened.call_id,
             tool_name=name,
-            execution="error",
+            execution=str(payload.get("execution", "error")),
             domain="unknown",
             reason=str(payload["reason"]),
             exit_code=None,
             duration_ms=0,
             failure_detail=str(payload["detail"]),
+            process_started=process_started,
         )
 
     def _skill_library(self) -> SkillLibrary:

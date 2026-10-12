@@ -123,8 +123,10 @@ def test_schema_rejection_happens_before_durable_start_and_effect():
     with pytest.raises(ToolError, match="violate its schema"):
         wrapped.get("demo").handler(value="wrong-type")
 
-    assert activity.started == []
-    assert activity.finished == []
+    assert activity.started == ["demo"]
+    assert activity.finished[0]["reason"] == "bad_arguments"
+    assert activity.finished[0]["execution"] == "error"
+    assert activity.finished[0]["process_started"] is False
     assert effects == []
 
 

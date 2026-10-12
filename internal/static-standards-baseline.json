@@ -764,9 +764,6 @@
     "PLR0915": 1,
     "W292": 1
    },
-   "internal/local_agent/session/durable_tool_registry.py": {
-    "W292": 1
-   },
    "internal/local_agent/session/durable_watch.py": {
     "PLR0912": 1,
     "PLR0913": 1
@@ -1182,5 +1179,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1610
+ "total": 1609
 }

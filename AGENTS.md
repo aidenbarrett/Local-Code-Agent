@@ -109,6 +109,9 @@ One writer per branch, one coherent commit series, exact SHAs in the PR body. St
 
 ## PR integration discipline
 
+- Every proposed change names the user task it improves, the observed failure or
+  friction, and the behavioral evidence that will show whether it helped. CI and
+  merged PRs are engineering checks, not measures of product usefulness.
 - Start each feature branch from observed current `main`. Do not merge `main` into an older feature branch merely to clear a stale check. If it diverges, rebuild on current `main` and inspect the net diff for unrelated additions and deletions.
 - Before publication, run the focused behavioural tests, `check_static_standards.py`, the applicable drift gate, and `git diff --check`. Record failures honestly. A checker that cannot run locally is still pending, not passed.
 - Green feature CI applies to that exact head only. If any head changes, an integration batch containing its older head is stale even when its own checks are green.

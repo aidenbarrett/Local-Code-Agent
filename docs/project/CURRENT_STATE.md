@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `fed31e48a8ce1aa5f4862ce7695abb69ed68bea9`
+Reconciled against GitHub `main` at `157898ae8153d5a4975e657f6dcb7762515e43d2`
 on 2026-10-12. One CPU-reference model repair on pinned cxxopts produced the exact
 identifier fix, passed its configured full build and independent full tests, and
 completed diff/apply/exact commit with unrelated work preserved after PR#517 repaired
