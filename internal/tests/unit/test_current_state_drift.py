@@ -40,11 +40,12 @@ def repo(tmp_path: Path) -> Path:
         "JOURNEYS = [('J01-build-pass',)]\nREPO_JOURNEYS = [('R01-questions',)]\n",
         encoding="utf-8",
     )
-    (tmp_path / "CURRENT_STATE.md").write_text(
+    (tmp_path / "docs/project").mkdir(parents=True)
+    (tmp_path / "docs/project/CURRENT_STATE.md").write_text(
         f"# Current state\n\nReconciled against GitHub `main` at `{first}`\n\n{LEDGER}",
         encoding="utf-8",
     )
-    subprocess.check_call(["git", "add", "CURRENT_STATE.md"], cwd=tmp_path)
+    subprocess.check_call(["git", "add", "docs/project/CURRENT_STATE.md"], cwd=tmp_path)
     subprocess.check_call(["git", "commit", "-m", "state"], cwd=tmp_path)
     return tmp_path
 
@@ -63,12 +64,13 @@ def test_rejects_drift_beyond_budget(repo: Path):
 
 def test_rejects_non_ancestor_reconciliation(repo: Path):
     target = _git(repo, "rev-parse", "HEAD")
-    text = (repo / "CURRENT_STATE.md").read_text(encoding="utf-8")
+    text = (repo / "docs/project/CURRENT_STATE.md").read_text(encoding="utf-8")
     old = recorded_sha(text)
     subprocess.check_call(["git", "checkout", "--orphan", "other"], cwd=repo)
     subprocess.check_call(["git", "rm", "-rf", "."], cwd=repo)
     foreign = _commit(repo, "foreign")
-    (repo / "CURRENT_STATE.md").write_text(text.replace(old, foreign), encoding="utf-8")
+    (repo / "docs/project").mkdir(parents=True, exist_ok=True)
+    (repo / "docs/project/CURRENT_STATE.md").write_text(text.replace(old, foreign), encoding="utf-8")
     with pytest.raises(RuntimeError, match="not an ancestor"):
         check(repo, target=target, max_behind=3)
 
@@ -79,7 +81,7 @@ def test_requires_full_reconciliation_sha():
 
 
 def test_valid_ledger_passes(repo: Path):
-    validate_ledger(repo, (repo / "CURRENT_STATE.md").read_text(encoding="utf-8"))
+    validate_ledger(repo, (repo / "docs/project/CURRENT_STATE.md").read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize(
@@ -93,7 +95,7 @@ def test_valid_ledger_passes(repo: Path):
     ],
 )
 def test_ledger_rules_fail_closed(repo: Path, replacement: str, message: str):
-    text = (repo / "CURRENT_STATE.md").read_text(encoding="utf-8")
+    text = (repo / "docs/project/CURRENT_STATE.md").read_text(encoding="utf-8")
     original = "| CAP-build | Build it | Configured build | J01-build-pass, PR#233 | deterministic-ci | Repository-specific | Keep qualified | controller |"
     with pytest.raises(ValueError, match=message):
         validate_ledger(repo, text.replace(original, replacement))
@@ -103,7 +105,7 @@ def test_rejects_missing_test_function(repo: Path):
     test_file = repo / "internal/tests/unit/test_example.py"
     test_file.parent.mkdir(parents=True, exist_ok=True)
     test_file.write_text("def test_present():\n    pass\n", encoding="utf-8")
-    text = (repo / "CURRENT_STATE.md").read_text(encoding="utf-8").replace(
+    text = (repo / "docs/project/CURRENT_STATE.md").read_text(encoding="utf-8").replace(
         "J01-build-pass, PR#233", "internal/tests/unit/test_example.py::test_absent"
     )
     with pytest.raises(ValueError, match="test function does not exist"):

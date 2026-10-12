@@ -6,12 +6,12 @@ This document is the standing reference for **what product work should happen ne
 what lessons from other agent projects we have chosen to adopt, and what attractive
 ideas are deliberately not allowed to derail the current build**.
 
-It does not replace live source, `CURRENT_STATE.md`, `TRICKS.md`, the standards repair
+It does not replace live source, `docs/project/CURRENT_STATE.md`, `docs/development/TRICKS.md`, the standards repair
 backlog, or the long-term `product-roadmap.md`:
 
 - live GitHub `main` owns current implementation truth;
-- `CURRENT_STATE.md` owns the immediate ordered work for the current checkout;
-- `TRICKS.md` owns first-release public journeys and acceptance evidence;
+- `docs/project/CURRENT_STATE.md` owns the immediate ordered work for the current checkout;
+- `docs/development/TRICKS.md` owns first-release public journeys and acceptance evidence;
 - `standards-repair-backlog-2026-09-22.md` owns the current correctness repairs;
 - `product-roadmap.md` owns the long-term product destination and milestone gates;
 - this file owns the **adopted product learnings, anti-tangent rules and the priority
@@ -359,7 +359,7 @@ Do not collapse those into `other projects do this, therefore LCA should`.
 
 ## Current ordering rule
 
-At any moment, start with `CURRENT_STATE.md` and the live open PRs. Complete that
+At any moment, start with `docs/project/CURRENT_STATE.md` and the live open PRs. Complete that
 ordered work before pulling the next item from this document. Security defects and
 truthfulness bugs may interrupt the sequence; novelty does not.
 

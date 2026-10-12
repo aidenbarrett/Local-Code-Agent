@@ -25,7 +25,7 @@ execute the real PowerShell path in CI.
 
 ### R14, contributor/current-status authority
 
-Reconcile `AGENTS.md`, `CURRENT_STATE.md`, `PROJECT_OVERVIEW.md` and this docs index with
+Reconcile `AGENTS.md`, `docs/project/CURRENT_STATE.md`, `docs/project/PROJECT_OVERVIEW.md` and this docs index with
 current provenance rules and public product reachability. Historical experiments/scores
 remain historical. Contributors must be able to identify one component owner before
 adding another scheduler/controller/store/app.

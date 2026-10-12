@@ -51,8 +51,8 @@ the mutation sequence: `/diff <task-id>`, `/apply <task-id>`, then either
 `/undo <task-id>` or `/commit <task-id>`. Commit does not push. Stale proof and
 conflicting later edits refuse. Close and reopen to read retained results.
 
-See [QUICKSTART.md](QUICKSTART.md) for setup details and
-[CURRENT_STATE.md](CURRENT_STATE.md) for the authoritative capability ledger.
+See [QUICKSTART.md](../../QUICKSTART.md) for setup details and
+[CURRENT_STATE.md](../project/CURRENT_STATE.md) for the authoritative capability ledger.
 
 ## Evidence and limits
 
@@ -83,7 +83,7 @@ samples of the owned process and excludes pre-sampler startup; it is not a peak 
 The last two trials started/replaced the server (34.2s/34.3s); intended warm reuse
 in the final trial was not observed because the owner detected environment drift.
 The full report fields, source identity, artifact revisions and operator receipts
-are retained in [the measurement record](internal/docs/rc-evidence-2026-10-11.json).
+are retained in [the measurement record](../../internal/docs/rc-evidence-2026-10-11.json).
 Authoritative CI: [#501](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38149211547)
 and [#502](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38151450475).
 Their merged trees match the reviewed/tested trees. On pinned main, J24 passed

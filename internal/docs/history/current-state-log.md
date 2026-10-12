@@ -181,8 +181,8 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-offline-physical | Work fully offline on target hardware | Capture path exists; qualification is not complete | PR#232 | unknown | No current disconnected exact-head hardware run | Execute and retain physical run | Aiden |
 | CAP-merge-policy | Require reviewed green integration | Offline checker can observe branch/ruleset enforcement | PR#276 | unknown | Live required-check setting is not established here | Configure and observe repository policy | Aiden |
 
-Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rationale,
-[TRICKS.md](TRICKS.md) for first-release public journeys and acceptance evidence, and
+Use [PROJECT_OVERVIEW.md](../../../docs/project/PROJECT_OVERVIEW.md) for durable architecture/rationale,
+[TRICKS.md](../../../docs/development/TRICKS.md) for first-release public journeys and acceptance evidence, and
 [product-execution-priorities.md](internal/docs/product-execution-priorities.md) for the
 priority ladder after the immediate first-release gate.
 
@@ -401,7 +401,7 @@ supports:
 
 ## Immediate work, in order
 
-1. Complete the physical offline Panther Lake acceptance described in `TRICKS.md` using
+1. Complete the physical offline Panther Lake acceptance described in `docs/development/TRICKS.md` using
    the current public Session Hub and the capture procedure in
    `internal/docs/panther-lake-acceptance.md`.
 2. Configure GitHub required-check enforcement for `main` through repository settings,
