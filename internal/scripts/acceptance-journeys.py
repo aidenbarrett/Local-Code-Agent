@@ -344,14 +344,19 @@ class Session:
         thread.join(timeout or self.runner.timeout)
         seconds = time.monotonic() - started
         if thread.is_alive():
+            self.journey.measured["worker_metrics_complete"] = False
             self._write(text, f"(no answer after {seconds:.0f}s; timed out)")
             self.stop_latest()
             raise TimeoutError(f"{text!r} did not finish within {seconds:.0f}s")
         if "error" in box:
+            self.journey.measured["worker_metrics_complete"] = False
             self._write(text, "ERROR: " + "".join(traceback.format_exception(box["error"])))
             raise box["error"]
         result = self.graph.gateway.last_result
         result = None if result is before else result
+        if result is None or any(_metric_int(result.metrics, key) is None
+                                 for key in _CONTEXT_METRICS):
+            self.journey.measured["worker_metrics_complete"] = False
         self._write(text, str(box.get("answer", "")), seconds, result)
         if result is not None:
             self.journey.tasks.append({"said": text, "seconds": round(seconds, 1), **_task_facts(result)})
@@ -2350,12 +2355,21 @@ def context_use_lines(journeys: list[Journey], budget_tokens: int) -> list[str]:
     for journey in journeys:
         if journey.kind != "model":
             continue
+        if journey.measured.get("worker_metrics_complete") is False:
+            lines.append(f"{journey.id:<22} model calls UNKNOWN · peak context UNKNOWN"
+                         " · compactions UNKNOWN (incomplete turn metrics)")
+            continue
         peaks = [t["context_peak_tokens"] for t in journey.tasks
                  if isinstance(t.get("context_peak_tokens"), int)]
         if not peaks:
             continue
-        calls = sum(t.get("llm_calls") or 0 for t in journey.tasks)
-        compactions = sum(t.get("compactions") or 0 for t in journey.tasks)
+        keys = ("llm_calls", "context_peak_tokens", "compactions")
+        if any(_metric_int(task, key) is None for task in journey.tasks for key in keys):
+            lines.append(f"{journey.id:<22} model calls UNKNOWN · peak context UNKNOWN"
+                         " · compactions UNKNOWN (incomplete task metrics)")
+            continue
+        calls = sum(t["llm_calls"] for t in journey.tasks)
+        compactions = sum(t["compactions"] for t in journey.tasks)
         peak = max(peaks)
         share = f"{round(100 * peak / budget_tokens)}%" if budget_tokens > 0 else "?"
         lines.append(
@@ -2489,10 +2503,7 @@ def summary_text(runner: Runner, journeys: list[Journey], report_sha: str) -> st
     rates = model_rates(journeys)
     if rates:
         lines += ["", "Model rates (repeated model journeys)", *rates]
-    measured = any(isinstance(task.get("context_peak_tokens"), int)
-                   for journey in journeys if journey.kind == "model" for task in journey.tasks)
-    context = (context_use_lines(journeys, runner.worker_config.context_budget_tokens)
-               if measured else [])
+    context = context_use_lines(journeys, runner.worker_config.context_budget_tokens)
     if context:
         lines += ["", "Context use (model journeys)", *context]
     failures = [line for journey in journeys for line in failed_tool_lines(journey)]

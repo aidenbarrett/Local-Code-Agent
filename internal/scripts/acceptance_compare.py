@@ -27,6 +27,15 @@ class Report:
     attempts: tuple[Attempt, ...]
 
 
+def _metrics_complete(measured: object, path: Path, identity: str) -> bool:
+    if not isinstance(measured, dict):
+        raise ComparisonError(f"{path}: {identity} measurements must be an object")
+    complete = measured.get("worker_metrics_complete", True)
+    if type(complete) is not bool:
+        raise ComparisonError(f"{path}: {identity} has invalid metric completeness")
+    return complete
+
+
 def read_report(directory: Path, schema: str) -> Report:
     path = directory / "journeys.json"
     try:
@@ -64,7 +73,9 @@ def read_report(directory: Path, schema: str) -> Report:
                 if type(value) is not int or value < 0:
                     raise ComparisonError(f"{path}: {identity} has invalid context peak")
                 peaks.append(value)
-        attempts.append(Attempt(base, kind, status, max(peaks) if peaks else None))
+        complete = _metrics_complete(row.get("measured", {}), path, identity)
+        peak = max(peaks) if peaks and complete else None
+        attempts.append(Attempt(base, kind, status, peak))
     model = data.get("model")
     return Report(directory, model if isinstance(model, str) else "unknown model", tuple(attempts))
 

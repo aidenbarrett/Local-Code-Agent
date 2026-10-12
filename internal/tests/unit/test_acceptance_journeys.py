@@ -502,6 +502,51 @@ def test_context_use_names_peak_against_budget_for_model_journeys_only():
                      " · 1 compactions"]
 
 
+def test_timeout_does_not_report_the_first_turn_metrics_as_the_whole_journey(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+    from types import SimpleNamespace
+
+    released = threading.Event()
+    finished = threading.Event()
+
+    def blocked_turn(_text: str) -> str:
+        try:
+            assert released.wait(5)
+            return "stopped"
+        finally:
+            finished.set()
+
+    journey = journeys.Journey("X01-production-test-model", "repair", "model")
+    journey.tasks = [{"llm_calls": 0, "context_peak_tokens": 3602, "compactions": 0}]
+    runner = SimpleNamespace(output=tmp_path, timeout=0.01)
+    session = journeys.Session(runner, journey, tmp_path)
+    session.graph = SimpleNamespace(gateway=SimpleNamespace(last_result=None, turn=blocked_turn))
+    monkeypatch.setattr(session, "stop_latest", released.set)
+    try:
+        with pytest.raises(TimeoutError, match="did not finish"):
+            session.turn("fix it")
+        assert finished.wait(5)
+        assert journey.measured["worker_metrics_complete"] is False
+        assert journeys.context_use_lines([journey], 12000) == [
+            "X01-production-test-model model calls UNKNOWN · peak context UNKNOWN"
+            " · compactions UNKNOWN (incomplete turn metrics)"]
+        assert len(journey.tasks) == 1  # No fabricated TaskResult for the timed-out turn.
+    finally:
+        released.set()
+        session.transcript.close()
+
+
+def test_partial_task_metrics_do_not_become_zero_calls() -> None:
+    journey = journeys.Journey("partial", "repair", "model")
+    journey.tasks = [{"llm_calls": 0, "context_peak_tokens": 3602, "compactions": 0},
+                     {"llm_calls": None, "context_peak_tokens": 4000, "compactions": None}]
+    assert journeys.context_use_lines([journey], 12000) == [
+        "partial                model calls UNKNOWN · peak context UNKNOWN"
+        " · compactions UNKNOWN (incomplete task metrics)"]
+
+
 def test_compare_cli_never_starts_a_runner(tmp_path, monkeypatch, capsys):
     old, new = tmp_path / "old", tmp_path / "new"
     for directory in (old, new):
