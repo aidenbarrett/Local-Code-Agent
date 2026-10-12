@@ -40,6 +40,7 @@ def test_product_root_is_small_and_implementation_is_hidden():
         "QUICKSTART.md",
         "demo",
         "internal",
+        "docs",
     ):
         assert (REPO / name).exists(), name
     assert not (REPO / "chat.ps1").exists()
@@ -52,10 +53,18 @@ def test_product_root_is_small_and_implementation_is_hidden():
         "tests",
         "experiments",
         "benchmark_fixture",
-        "docs",
         "skills",
     ):
         assert not (REPO / old_root).exists(), old_root
+
+    for old, current in (
+        ("CURRENT_STATE.md", "docs/project/CURRENT_STATE.md"),
+        ("PROJECT_OVERVIEW.md", "docs/project/PROJECT_OVERVIEW.md"),
+        ("RC_HANDOFF.md", "docs/releases/RC_HANDOFF.md"),
+        ("TRICKS.md", "docs/development/TRICKS.md"),
+    ):
+        assert not (REPO / old).exists(), old
+        assert (REPO / current).is_file(), current
 
 
 def test_raw_chat_is_subordinate_to_the_canonical_launcher():

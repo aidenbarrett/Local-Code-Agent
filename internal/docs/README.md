@@ -23,7 +23,7 @@ Current source and CI own implementation truth. These documents describe contrac
 - `textual-client-design.md`: Textual client design
 - `vscode-client-design.md`: later VS Code client design
 
-Read design documents as intent. Current source and `CURRENT_STATE.md` decide what is actually composed.
+Read design documents as intent. Current source and `docs/project/CURRENT_STATE.md` decide what is actually composed.
 
 ## Operations
 
@@ -38,8 +38,8 @@ Historical experiment methodology, collected evidence and research-era operating
 For current implementation claims use:
 
 1. current GitHub `main` source, tests and CI
-2. root `CURRENT_STATE.md`
-3. root `PROJECT_OVERVIEW.md`
+2. `docs/project/CURRENT_STATE.md`
+3. `docs/project/PROJECT_OVERVIEW.md`
 4. `product-execution-priorities.md`
 5. other design documents
 

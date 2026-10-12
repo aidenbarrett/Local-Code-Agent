@@ -61,7 +61,7 @@ Run the public Session Hub:
 .\local-code-agent.ps1 session --repo . --profile ptl-npu-8b
 ```
 
-Exercise the current journeys in `TRICKS.md`, including repository inspection/source navigation, branch review, build/test proof, failure follow-up, Stop, exit/restart and retained-result recovery. Capture logs/screenshots or terminal recordings that preserve task identity, verdict/evidence detail and runtime facts.
+Exercise the current journeys in `docs/development/TRICKS.md`, including repository inspection/source navigation, branch review, build/test proof, failure follow-up, Stop, exit/restart and retained-result recovery. Capture logs/screenshots or terminal recordings that preserve task identity, verdict/evidence detail and runtime facts.
 
 Physical runtime/device evidence must come from an observation that can actually identify the executing device. A configured profile name is not enough.
 
@@ -94,7 +94,7 @@ Pass the actual journey evidence plus measured cold/warm latency values required
   --evidence "$env:LOCALAPPDATA\LocalCodeAgent\reports\endpoint-performance.json"
 ```
 
-Finalization ties the supplied evidence to the checkout and offline preflight. It must not self-certify whether screenshots/logs prove physical device utilisation or whether every user journey met its contract. That judgement remains an explicit acceptance review against `TRICKS.md`.
+Finalization ties the supplied evidence to the checkout and offline preflight. It must not self-certify whether screenshots/logs prove physical device utilisation or whether every user journey met its contract. That judgement remains an explicit acceptance review against `docs/development/TRICKS.md`.
 
 
 ## 7. Render the photographable summary

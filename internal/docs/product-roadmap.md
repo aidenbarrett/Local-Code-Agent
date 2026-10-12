@@ -1,6 +1,6 @@
 # Product roadmap: dependable local engineering worker
 
-This is the product destination, not an implementation claim. Live source owns implementation truth; `CURRENT_STATE.md` owns the immediate state and `TRICKS.md` owns first-release user journeys.
+This is the product destination, not an implementation claim. Live source owns implementation truth; `docs/project/CURRENT_STATE.md` owns the immediate state and `docs/development/TRICKS.md` owns first-release user journeys.
 
 ## Final ambition
 
@@ -20,7 +20,7 @@ not permission to defer offline acceptance until after P4/P5.
 
 Make normal repository inspection, symbol lookup, branch review, build/test and failure follow-up work through ordinary conversation. Runtime/model/device facts shown in the UI must come from owning records, not profile-name inference.
 
-Exit gate: the public installed product completes the first-release journeys in `TRICKS.md`, including restart and failure cases, with truthful durable results.
+Exit gate: the public installed product completes the first-release journeys in `docs/development/TRICKS.md`, including restart and failure cases, with truthful durable results.
 
 ### P2: close lifecycle and cancellation
 

@@ -38,7 +38,7 @@ Current implemented foundations include:
 - exact product source identity for retained run provenance
 - Windows and Linux CI
 
-This is not a production-readiness claim. Open correctness and acceptance work is tracked in `CURRENT_STATE.md` and the internal product backlog.
+This is not a production-readiness claim. Open correctness and acceptance work is tracked in `docs/project/CURRENT_STATE.md` and the internal product backlog.
 
 ## Endpoint performance harness
 
@@ -85,9 +85,9 @@ not the model's description of what happened.
 ## Useful docs
 
 - [`QUICKSTART.md`](QUICKSTART.md) for setup and first run
-- [`TRICKS.md`](TRICKS.md) for first-release user journeys
-- [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) for durable architecture and product direction
-- [`CURRENT_STATE.md`](CURRENT_STATE.md) for implemented state, known gaps and next work
+- [`TRICKS.md`](docs/development/TRICKS.md) for first-release user journeys
+- [`PROJECT_OVERVIEW.md`](docs/project/PROJECT_OVERVIEW.md) for durable architecture and product direction
+- [`CURRENT_STATE.md`](docs/project/CURRENT_STATE.md) for implemented state, known gaps and next work
 - [`internal/docs/verification.md`](internal/docs/verification.md) for verification semantics
 - [`internal/docs/product-roadmap.md`](internal/docs/product-roadmap.md) for the product roadmap
 - [`AGENTS.md`](AGENTS.md) for repository engineering rules

@@ -1,6 +1,6 @@
 # Local Code Agent
 
-Current implementation source of truth is live GitHub `main`. This document records durable architecture and product direction; `CURRENT_STATE.md` records the immediate implemented state and open gaps.
+Current implementation source of truth is live GitHub `main`. This document records durable architecture and product direction; `docs/project/CURRENT_STATE.md` records the immediate implemented state and open gaps.
 
 ## Product goal
 
@@ -88,4 +88,4 @@ The current priorities are:
 5. Extend Git, build/test and repository intelligence while keeping the controller deterministic and model-agnostic.
 6. Treat endpoint/runtime performance as measured deployment data using the neutral harness, not as architecture folklore.
 
-See `CURRENT_STATE.md`, `TRICKS.md` and `internal/docs/product-execution-priorities.md` for the current execution queue.
+See `docs/project/CURRENT_STATE.md`, `docs/development/TRICKS.md` and `internal/docs/product-execution-priorities.md` for the current execution queue.

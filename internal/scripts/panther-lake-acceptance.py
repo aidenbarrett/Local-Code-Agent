@@ -369,7 +369,8 @@ def finalize(preflight_path: Path, output: Path, evidence: list[Path], cold_ms: 
         "finalized_at_utc": _now(),
         "latency_ms": {"cold": cold_ms, "warm": warm_ms},
         "journey_evidence": [_artifact(path.resolve()) for path in evidence],
-        "claim": "evidence captured; support claim requires human review against TRICKS.md",
+        "claim": ("evidence captured; support claim requires human review against "
+                  "docs/development/TRICKS.md"),
         "self_certified": False,
     }
     output.parent.mkdir(parents=True, exist_ok=True)

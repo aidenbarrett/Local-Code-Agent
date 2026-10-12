@@ -70,7 +70,7 @@ for a generation decision instead of silently updating that identity.
 ## Reviewable PRs against the product branch
 
 The historical A-G slice labels below describe the original implementation design, not
-the current refactor PR lettering. `CURRENT_STATE.md` is authoritative for what is live.
+the current refactor PR lettering. `docs/project/CURRENT_STATE.md` is authoritative for what is live.
 
 | PR | Scope | Required gate | Depends on |
 |---|---|---|---|

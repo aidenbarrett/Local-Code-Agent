@@ -2,7 +2,7 @@
 
 Design rationale and semantic notes for `lca.session.events/1`. The normative wire
 shape is [v1/events.schema.json](v1/events.schema.json). Parts of the contract are
-implemented and parts remain planned; root `CURRENT_STATE.md` is authoritative for
+implemented and parts remain planned; `docs/project/CURRENT_STATE.md` is authoritative for
 product reachability and remaining gaps.
 
 ## Design guard and migration gate

@@ -562,7 +562,7 @@
     "T201": 2
    },
    "internal/devtools/check_current_state_drift.py": {
-    "E501": 5,
+    "E501": 4,
     "S603": 2,
     "S607": 2,
     "T201": 1
@@ -1182,5 +1182,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1614
+ "total": 1613
 }

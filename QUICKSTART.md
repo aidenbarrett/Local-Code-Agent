@@ -169,8 +169,8 @@ See `internal/perf/README.md`. Backend-specific commands and observation hooks b
 ## What to read next
 
 - `README.md`: product purpose and architecture
-- `CURRENT_STATE.md`: current implemented state and open gaps
-- `TRICKS.md`: first-release public journeys
+- `docs/project/CURRENT_STATE.md`: current implemented state and open gaps
+- `docs/development/TRICKS.md`: first-release public journeys
 - `internal/docs/verification.md`: independent proof semantics
 - `internal/docs/serving.md`: product-owned serving lifecycle
 - `internal/docs/product-roadmap.md`: longer product direction
