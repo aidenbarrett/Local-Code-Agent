@@ -60,6 +60,7 @@ _ALLOWED_DOMAIN = frozenset({"pass", "fail", "unknown"})
 # ``invalid_input``). The message is tool-authored evidence, never authority.
 TOOL_FAILURE_SCHEMA = "lca.tool-failure/2"
 TOOL_FAILURE_MEDIA_TYPE = "application/json"
+TOOL_PROPOSAL_SCHEMA = "lca.patch-proposal/1"
 MAX_FAILURE_DETAIL_CHARS = 300
 
 
@@ -132,7 +133,7 @@ def _proposal_artifact(
     if any(not isinstance(data.get(key), str) for key in ("patch_id", "path", "diff")):
         raise DurableActivityError("proposal evidence requires patch_id, path and exact diff")
     payload = json.dumps({
-        "schema": "lca.patch-proposal/1", "tool_name": tool_name, "data": data,
+        "schema": TOOL_PROPOSAL_SCHEMA, "tool_name": tool_name, "data": data,
         "claim": "proposal only; not applied or verified",
     }, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return {

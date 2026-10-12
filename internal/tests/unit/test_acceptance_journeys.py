@@ -389,9 +389,9 @@ def test_event_dump_inlines_a_failed_tool_calls_retained_reason():
     clean = {"kind": "tool.finished", "payload": {"result_ref": None}}
     other = {"kind": "task.admitted", "payload": {}}
 
-    assert session._with_tool_failure(failed)["tool_failure"] == retained
-    assert session._with_tool_failure(clean) is clean
-    assert session._with_tool_failure(other) is other
+    assert session._with_tool_result(failed)["tool_failure"] == retained
+    assert session._with_tool_result(clean) is clean
+    assert session._with_tool_result(other) is other
 
 
 def test_failed_tool_summary_retains_evidence_and_prints_one_line(tmp_path):
@@ -401,7 +401,7 @@ def test_failed_tool_summary_retains_evidence_and_prints_one_line(tmp_path):
     session.journey = journeys.Journey("J10", "test fix", "model")
     session.log_dir = tmp_path
     session.events = lambda: [{"kind": "tool.finished"}]
-    session._with_tool_failure = lambda event: {**event, "tool_failure": failure}
+    session._with_tool_result = lambda event: {**event, "tool_failure": failure}
     session._dump_events()
     assert session.journey.tool_failures == [failure]
     assert json.loads(json.dumps(session.journey.__dict__))["tool_failures"] == [failure]
@@ -1116,3 +1116,23 @@ def test_grading_is_linear_on_pathological_whitespace(tmp_path):
     started = time.monotonic()
     journeys.observe_answer(padded, _grounding_repo(tmp_path))
     assert time.monotonic() - started < 2.0
+
+
+def test_event_dump_preserves_a_proposal_without_counting_it_as_a_failure(tmp_path):
+    proposal = {"schema": "lca.patch-proposal/1", "tool_name": "propose_patch",
+                "data": {"patch_id": "p1", "path": "include/x.hpp", "diff": "-return 1;\n+return count;\n"},
+                "claim": "proposal only; not applied or verified"}
+    class Store:
+        def artifact_bytes(self, ref):
+            return json.dumps(proposal).encode()
+    session = object.__new__(journeys.Session)
+    session.service = type("S", (), {"store": Store()})()
+    session.journey = journeys.Journey("J10", "test fix", "model")
+    session.log_dir = tmp_path
+    event = {"kind": "tool.finished", "payload": {"result_ref": {"artifact_id": "p"}}}
+    session.events = lambda: [event]
+    session._dump_events()
+    retained = json.loads((tmp_path / "events.jsonl").read_text())
+    assert retained["tool_proposal"] == proposal
+    assert "tool_failure" not in retained
+    assert session.journey.tool_failures == []
