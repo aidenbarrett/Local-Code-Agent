@@ -1,9 +1,11 @@
 # Current state
 
-Reconciled against GitHub `main` at `80f73921fcebac45310b259db6a5de0ed166d56d`
-on 2026-10-11; PR#507, PR#508, PR#510 and PR#511 are merged after exact combined
-Linux/Windows CI and review in PR#512. Real-model repair and physical/offline
-qualification remain unproven; the CPU reference measurements are retained in
+Reconciled against GitHub `main` at `142a6e041e73e902503598d308915816d3eb7b64`
+on 2026-10-12. One CPU-reference model repair on pinned cxxopts produced the exact
+identifier fix, passed its configured full build and independent full tests, and
+completed diff/apply/exact commit with unrelated work preserved after PR#517 repaired
+byte fidelity. This is one retained attempt, not a success rate, general competence,
+or physical/offline qualification; see
 `internal/docs/rc-model-competence-2026-10-11.json`.
 
 ## Capability ledger
@@ -21,7 +23,7 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-build-verify | Build it | Configured build with proof bound to stable inputs | PR#433, J01-build-pass | deterministic-ci | Repository must declare a build profile; `init` proposes one for a single-CMake root only (PR#469) | Qualify more repositories | controller |
 | CAP-test-truth | Run the tests | Full or filtered test truth with zero/stale non-PASS | PR#383, J19-test-truth | deterministic-ci | Repository must declare a test profile; `init` proposes one for a single-CMake root only (PR#469) | Qualify more repositories | controller |
 | CAP-failure-diagnosis | Why did that fail? | Uses retained build/test evidence and explicit task identity; failed builds and tests name their kind (compile, link, configure; assertion, crash, timeout, failed), first evidence and exact argv | PR#250, PR#474, J02-build-fail, internal/tests/unit/test_failure_kind.py::test_a_failed_build_names_kind_evidence_and_command | deterministic-ci | The kind is in the tool result and answer, not yet a durable typed fact the diagnosis route consumes; unrecognised logs stay unclassified | Feed typed failure facts to 'Why did that fail?' (#462) | controller |
-| CAP-candidate-fix | Fix the build or tests | Isolated candidate with build/test proof; narrow repairs finish from current configured proof without another model reporting turn, while Stop still discards the candidate | PR#197, J13-candidate-scripted, internal/tests/unit/test_candidate_change_journey.py::test_a_proven_repair_finishes_before_another_model_call, internal/tests/unit/test_candidate_change_journey.py::test_stop_between_passing_proof_and_completion_discards_the_candidate | deterministic-ci | Real-model success is configuration-specific; a general change still requires the worker to finish its semantic request | Finish real-repository qualification | controller |
+| CAP-candidate-fix | Fix the build or tests | Isolated candidate with build/test proof; narrow repairs finish from current configured proof without another model reporting turn, while Stop still discards the candidate | PR#197, PR#514, PR#517, J13-candidate-scripted, internal/tests/unit/test_candidate_change_journey.py::test_a_proven_repair_finishes_before_another_model_call, internal/tests/unit/test_candidate_change_journey.py::test_stop_between_passing_proof_and_completion_discards_the_candidate | measured-cpu-reference | One pinned cxxopts CPU-8B attempt produced a verified repair; this does not establish a rate, general model competence, physical PTL behaviour or offline qualification; a general change still requires the worker to finish its semantic request | Run the controlled physical-profile matrix in #293 | controller |
 | CAP-change | Change this source | Intent-scoped isolated candidate | PR#215, J11-change | deterministic-ci | General arbitrary checkout mutation is refused | Keep candidate boundary | controller |
 | CAP-apply | Apply this candidate | All-or-nothing import with stale-content refusal | PR#378, J13-candidate-scripted | deterministic-ci | Interrupted receipt stays UNKNOWN | Keep restart regressions | controller |
 | CAP-undo | Undo this candidate | Restores owned pre-import bytes and modes | PR#407, J13-candidate-scripted | deterministic-ci | Refuses after later user edits | Keep preservation regressions | controller |
@@ -62,8 +64,9 @@ in [TRICKS.md](TRICKS.md), and the active priority ladder is in
 #403 remains the release decision. Its child defects #392–#402 are closed, and
 the capability ledger plus J24 now cover the repaired composed controller path.
 This is a development handoff, not an offline-qualified release: physical target
-evidence, configuration-specific model competence and enforced merge policy still
-need evidence. Qualification reports count dispatched attempts; skipped model work
+evidence, repeatable configuration-specific model competence and enforced merge policy
+still need evidence. One CPU-reference cxxopts repair is retained, but is not a rate or
+a physical-profile qualification. Qualification reports count dispatched attempts; skipped model work
 is not an attempt, unknown outcomes do not prove correct refusal, and unrecorded
 human edits/retries/manual Stops remain unknown.
 
