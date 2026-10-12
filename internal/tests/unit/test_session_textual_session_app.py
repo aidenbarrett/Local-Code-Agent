@@ -312,3 +312,31 @@ def test_stop_without_active_task_is_visible_and_does_not_dispatch(tmp_path):
             service.close()
 
     asyncio.run(scenario())
+
+
+def test_refused_candidate_button_action_preserves_the_composer_draft(tmp_path):
+    from concurrent.futures import Future
+    async def scenario():
+        service = _service(tmp_path)
+        class Gateway:
+            def turn(self, text, **kwargs):
+                raise AssertionError("a refused action must not reach the gateway")
+        dispatcher = HubTurnDispatcher(Gateway())
+        app = LiveDispatchingSessionHubApp(DurableHubFeed(service), dispatcher)
+        try:
+            async with app.run_test() as pilot:
+                composer = app.query_one("#composer", Input)
+                composer.value = "keep my unfinished message"
+                app._turn_future = Future()
+                app.on_hub_input_submitted(HubInputSubmitted("/apply " + str(uuid4()), from_composer=False))
+                assert composer.value == "keep my unfinished message"
+                assert "Busy" in app.view_state.status
+                app._turn_future = None
+                app._feed_failed = True
+                app.on_hub_input_submitted(HubInputSubmitted("/undo " + str(uuid4()), from_composer=False))
+                assert composer.value == "keep my unfinished message"
+                assert "durable feed is unavailable" in app.view_state.status
+        finally:
+            dispatcher.close(wait=True)
+            service.close()
+    asyncio.run(scenario())

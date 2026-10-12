@@ -10,7 +10,7 @@ boundary against stable product-owned view state.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -19,7 +19,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
-from textual.widgets import Input, Static
+from textual.widgets import Button, Input, Select, Static
 
 from .attention import render_attention
 from .task_read_model import TaskSnapshot, project_tasks
@@ -83,9 +83,10 @@ class HubViewState:
 class HubInputSubmitted(Message):
     """UI-only input message; receiving it grants no execution authority."""
 
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, *, from_composer: bool = True) -> None:
         super().__init__()
         self.text = text
+        self.from_composer = from_composer
 
 
 def load_palette(name: str = "neon", *, path: Path = _THEME_FILE) -> dict[str, str]:
@@ -438,6 +439,9 @@ def _css(palette: Mapping[str, str]) -> str:
         min-height: 3;
         padding: 0 1;
     }}
+    #candidate-actions {{ height: 3; }}
+    #candidate-actions Button {{ width: 1fr; min-width: 8; }}
+    #candidate-select {{ height: 3; }}
     #status {{
         height: 1;
         padding: 0 1;
@@ -456,6 +460,7 @@ class SessionHubApp(App):
 
     def __init__(self, state: HubViewState | None = None, *, palette_name: str = "neon") -> None:
         self.view_state = state or HubViewState()
+        self._candidate_choices: list[tuple[str, str]] = []
         palette = load_palette(palette_name)
         # Textual reads CSS from the instance as well as the class; keep one source
         # of named colour roles while allowing the high-contrast fixture path.
@@ -478,6 +483,11 @@ class SessionHubApp(App):
                     )
                 yield Input(placeholder="Message Local Code Agent…", id="composer")
             with Vertical(id="side-column"):
+                yield Select([], prompt="Select candidate", id="candidate-select")
+                with Horizontal(id="candidate-actions"):
+                    yield Button("Review", id="review-candidate", disabled=True)
+                    yield Button("Apply", id="apply-candidate", disabled=True)
+                    yield Button("Undo", id="undo-candidate", disabled=True)
                 with VerticalScroll(id="attention-pane"):
                     yield Static(
                         render_attention(self.view_state.tasks), id="attention", markup=False,
@@ -489,6 +499,7 @@ class SessionHubApp(App):
         yield Static(self.view_state.status, id="status", markup=False)
 
     def on_mount(self) -> None:
+        self._sync_candidate_actions()
         self._apply_layout(self.size.width)
         self._apply_watch_visibility()
         self._apply_attention_visibility()
@@ -518,13 +529,72 @@ class SessionHubApp(App):
         if not isinstance(state, HubViewState):
             raise TypeError("Session Hub state must be HubViewState")
         self.view_state = state
+        self._sync_candidate_actions()
         self.query_one("#conversation", Static).update(render_conversation(state.conversation))
         self.query_one("#attention", Static).update(render_attention(state.tasks))
         self._apply_attention_visibility()
-        self.query_one("#activity", Static).update(render_activity(state))
+        self._refresh_activity()
         self.query_one("#watch", Static).update(render_watches(state.watches))
         self._apply_watch_visibility()
         self.query_one("#status", Static).update(state.status)
+
+    def _candidate_tasks(self) -> dict[str, TaskSnapshot]:
+        latest: dict[str, TaskSnapshot] = {}
+        for task in sorted(self.view_state.tasks, key=lambda item: item.last_sequence):
+            if task.candidate is not None:
+                latest[task.candidate.candidate_task_id] = task
+        return latest
+
+    def _activity_state(self) -> HubViewState:
+        selected = self.query_one("#candidate-select", Select).value
+        task = self._candidate_tasks().get(str(selected))
+        return self.view_state if task is None else replace(self.view_state, tasks=(task,))
+
+    def _refresh_activity(self) -> None:
+        self.query_one("#activity", Static).update(render_activity(self._activity_state()))
+
+    def _sync_candidate_actions(self) -> None:
+        tasks = self._candidate_tasks()
+        choices = [(f"Candidate {key[:8]} · {task.candidate.role.replace('_', ' ')}", key)
+                   for key, task in tasks.items() if task.candidate is not None]
+        selector = self.query_one("#candidate-select", Select)
+        selected = selector.value
+        if choices != self._candidate_choices:
+            self._candidate_choices = choices
+            selector.set_options(choices)
+            if selected in tasks:
+                selector.value = selected
+            else:
+                selector.clear()
+        selector.display = bool(choices)
+        self.query_one("#candidate-actions").display = bool(choices)
+        task = tasks.get(str(selector.value))
+        candidate = task.candidate if task is not None else None
+        verified = task is not None and _retained_result_verified(task)
+        prepared = next((item for item in self.view_state.tasks
+                         if item.candidate_not_applied and item.candidate is not None
+                         and item.candidate.candidate_task_id == str(selector.value)), None)
+        ready = (candidate is not None and candidate.role in {"prepared", "apply_refused"}
+                 and prepared is not None and _retained_result_verified(prepared))
+        applied = candidate is not None and candidate.role == "applied" and verified
+        self.query_one("#review-candidate", Button).disabled = not ready
+        self.query_one("#apply-candidate", Button).disabled = not ready
+        self.query_one("#undo-candidate", Button).disabled = not applied
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "candidate-select":
+            self._sync_candidate_actions()
+            self._refresh_activity()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        commands = {
+            "review-candidate": "diff", "apply-candidate": "apply", "undo-candidate": "undo",
+        }
+        command = commands.get(event.button.id or "")
+        selected = self.query_one("#candidate-select", Select).value
+        if (command is not None and not event.button.disabled
+                and str(selected) in self._candidate_tasks()):
+            self.post_message(HubInputSubmitted(f"/{command} {selected}", from_composer=False))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value
