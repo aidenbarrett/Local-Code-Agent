@@ -19,7 +19,8 @@ Run one root command with the selected existing profile and a new output folder:
 The command checks assets, the serving owner's recorded launch plan and the
 selected profile's installation protocol report while networking is available. Resolve every reported
 `NEXT:` action and start again with a different new folder. When ready, it asks you
-to disconnect external networking and type `DISCONNECTED`; it then performs the
+to disconnect external networking, type `DISCONNECTED`, and briefly describe the
+isolation method. That method is retained in the evidence bundle and summary. It then performs the
 fail-closed offline/device preflight, runs the existing public acceptance journeys,
 finalizes their retained evidence and writes `summary.txt`. It does not download
 anything after the disconnect boundary.
@@ -46,6 +47,7 @@ For example, the disconnected preflight is:
   --repo . `
   --profile ptl-gpu-30b `
   --runtime-root "$env:LOCALAPPDATA\LocalCodeAgent" `
+  --isolation-method "Wi-Fi disabled; Ethernet unplugged" `
   --output "C:\lca-qualification\gpu30b-1\offline-preflight.json"
 ```
 

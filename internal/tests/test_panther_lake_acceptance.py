@@ -29,7 +29,10 @@ def test_summary_projects_only_observed_bundle_facts(tmp_path: Path) -> None:
             "schema": acceptance.SCHEMA,
             "phase": "captured",
             "repository": {"head": "1234567890abcdef", "clean": True},
-            "offline_gate": {"passed": True},
+            "offline_gate": {
+                "passed": True,
+                "operator_isolation_method": "Wi-Fi disabled; Ethernet unplugged",
+            },
             "profile": "ptl-npu-8b",
             "runtime": {"name": "OpenVINO", "device": "NPU"},
             "model_manifest_summary": {"source_model": "Qwen"},
@@ -42,6 +45,7 @@ def test_summary_projects_only_observed_bundle_facts(tmp_path: Path) -> None:
 
     assert "Checkout        1234567890ab" in summary
     assert "Offline gate    VERIFIED" in summary
+    assert "Isolation       Wi-Fi disabled; Ethernet unplugged" in summary
     assert "Runtime         OpenVINO" in summary
     assert "Device config   NPU" in summary
     assert "Device observed UNKNOWN" in summary
@@ -50,6 +54,19 @@ def test_summary_projects_only_observed_bundle_facts(tmp_path: Path) -> None:
     assert "Stop            UNKNOWN" in summary
     assert "Overall         INCOMPLETE - HUMAN REVIEW REQUIRED" in summary
     assert hashlib.sha256(path.read_bytes()).hexdigest() in summary
+
+
+def test_summary_keeps_missing_isolation_method_unknown(tmp_path: Path) -> None:
+    path = _write_bundle(
+        tmp_path,
+        {
+            "schema": acceptance.SCHEMA,
+            "phase": "captured",
+            "offline_gate": {"passed": True},
+        },
+    )
+
+    assert "Isolation       UNKNOWN" in acceptance.render_summary(path)
 
 
 def test_summary_does_not_promote_preflight_to_acceptance(tmp_path: Path) -> None:
