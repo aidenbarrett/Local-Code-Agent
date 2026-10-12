@@ -1,12 +1,20 @@
 # Current state
 
-Reconciled against GitHub `main` at `142a6e041e73e902503598d308915816d3eb7b64`
+Reconciled against GitHub `main` at `55fb8cc1217944ef33999856340566900b509d02`
 on 2026-10-12. One CPU-reference model repair on pinned cxxopts produced the exact
 identifier fix, passed its configured full build and independent full tests, and
 completed diff/apply/exact commit with unrelated work preserved after PR#517 repaired
 byte fidelity. This is one retained attempt, not a success rate, general competence,
 or physical/offline qualification; see
 `internal/docs/rc-model-competence-2026-10-11.json`.
+
+The fresh Windows CPU30B archive setup reached READY TO USE, but its enabled
+second-launch repository answers were MEASURED:no-evidence; semantic correctness
+remains unknown (PR#522). A separate CPU30B production count-defect repair timed out
+after its 300-second repair budget and remains UNKNOWN; its original raw report,
+unchanged upstream tests, baseline logs and preparation errors are retained in
+`internal/docs/rc-model-production-test-2026-10-12.json`. Neither observation
+replaces #293's physical GPU30B J10 comparison or certifies offline operation.
 
 ## Capability ledger
 
@@ -41,7 +49,7 @@ is deliberate where the required physical or repository-setting observation is a
 | CAP-install | Install and first run | Checks Python, CMake and Windows C++ toolchain; read-only `doctor` reports readiness with one next action per gap; `init` declares a repository without guessing | PR#374, PR#467, PR#468, PR#469, internal/tests/unit/test_doctor.py::test_main_exits_3_when_not_ready_and_repeats_identically, internal/tests/unit/test_repo_setup.py::test_a_nested_git_repository_never_inherits_an_ancestor_declaration | deterministic-ci | Physical offline first run is unqualified | Run disconnected PTL acceptance | Aiden |
 | CAP-runtime-lifecycle | Keep the local model server warm between sessions | One owner (`ensure_managed_runtime`) reuses an owned server only when it was launched exactly as the current profile would launch it (resolved executable, args, child env, model directory); a changed server argument replaces it, client-only settings never do. The outcome is typed (reused, started, replaced with dead/unhealthy/config_changed, refused with foreign_endpoint/start_failed/not_healthy), and a launch made by that call records client-observed launch-to-ready in `process.json`. Hub, `run-task` and `chat` share it | PR#484, internal/tests/unit/test_runtime_lifecycle.py::test_a_healthy_server_with_stale_arguments_is_replaced_not_reused, internal/tests/unit/test_runtime_lifecycle.py::test_start_records_launch_to_ready_for_the_process_it_launched | deterministic-ci | The lifecycle outcome is not yet in the durable session stream; `endpoint.state_changed` has a consumer but no producer; launch-to-ready is not model-load or compile time. Cold/warm endpoint measurement lives in the perf harness (PR#483), not in product telemetry | Agree and add a durable session-scoped runtime fact (#481 slice B) | Claude |
 | CAP-offline-physical | Work fully offline on target hardware | `qualify --profile <p> --output <new-dir>` owns preparation, exact disconnect confirmation, offline preflight, public acceptance execution, finalization and printed/retained summary; failed route/adapter observation refuses, configured devices remain distinct from physical execution | PR#232, PR#479, PR#499, internal/tests/test_panther_lake_acceptance.py::test_prepare_reports_missing_weights_without_certifying_offline | unknown | No disconnected exact-head Panther Lake run; scripted results never certify physical execution; cold/warm model timings and human interventions remain unknown without independent records | Run the public flow on the target machine and review retained device/offline evidence | Aiden |
-| CAP-merge-policy | Require reviewed green integration | Existing checker observes branch/ruleset enforcement | PR#276 | unknown | Last successful observation 2026-10-11: main unprotected, no active required-status-check ruleset, no required checks; latest recheck unknown (GitHub HTTP 403 rate limit) | Configure reviewed-green PR/check enforcement, then re-observe | Aiden |
+| CAP-merge-policy | Require reviewed green integration | Existing checker observes branch/ruleset enforcement | PR#276 | unknown | Observed 2026-10-12 with the existing checker: main unprotected, no active required-status-check ruleset and no required checks | Configure reviewed-green PR/check enforcement, then re-observe | Aiden |
 
 Use [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for durable architecture/rationale,
 [TRICKS.md](../development/TRICKS.md) for first-release public journeys and acceptance evidence, and
@@ -79,9 +87,8 @@ human edits/retries/manual Stops remain unknown.
   and `CAP-stop-generation`.
 - Native-endpoint deployment and cross-process endpoint ownership are not qualified serving
   capabilities: see #403.
-- The last successful merge-policy observation on 2026-10-11 found main unprotected,
-  no active ruleset and no required checks; the latest recheck is unknown (HTTP 403
-  rate limit): see `CAP-merge-policy` and #403.
+- The merge-policy observation on 2026-10-12 found main unprotected,
+  no active required-status-check ruleset and no required checks: see `CAP-merge-policy` and #403.
 - Real-model coding evidence remains configuration- and repository-specific: see
   `CAP-candidate-fix` and #418.
 

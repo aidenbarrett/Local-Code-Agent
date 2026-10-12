@@ -23,6 +23,24 @@ def _write(root: Path, name: str, outcomes: list[str], *, peak: int | None = 100
     return directory
 
 
+@pytest.mark.parametrize("complete", [False, "false", None])
+def test_incomplete_turn_metrics_are_consumed_by_comparison(
+    tmp_path: Path, complete: object,
+) -> None:
+    old = _write(tmp_path, "old", ["MEASURED:fixed"], peak=8000)
+    new = _write(tmp_path, "new", ["UNKNOWN"], peak=3602)
+    path = new / "journeys.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["journeys"][0]["measured"] = {"worker_metrics_complete": complete}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    if complete is False:
+        assert "J10-fix-tests | fixed 1/1 | UNKNOWN 1/1 | 8,000 | unknown" in comparison_text(
+            old, new, SCHEMA)
+    else:
+        with pytest.raises(ComparisonError, match="invalid metric completeness"):
+            comparison_text(old, new, SCHEMA)
+
+
 def test_improvement_preserves_denominators_and_context(tmp_path: Path) -> None:
     old = _write(tmp_path, "old", ["MEASURED:fail"] * 3, peak=200)
     new = _write(tmp_path, "new", ["MEASURED:fixed"] * 2, peak=150)
