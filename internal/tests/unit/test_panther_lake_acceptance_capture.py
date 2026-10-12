@@ -151,10 +151,12 @@ def test_preflight_parser_requires_and_retains_selected_profile():
             "--profile", "ptl-gpu-30b",
             "--runtime-root", "runtime",
             "--output", "preflight.json",
+            "--isolation-method", "Wi-Fi disabled; Ethernet unplugged",
         ]
     )
 
     assert args.profile == "ptl-gpu-30b"
+    assert args.isolation_method == "Wi-Fi disabled; Ethernet unplugged"
 
 
 def _installed_artifacts(module, runtime_root):
@@ -198,6 +200,7 @@ def test_preflight_uses_current_install_and_serving_artifacts(tmp_path, monkeypa
         encoding="utf-8",
     )
     monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr("builtins.input", lambda *_args: "Wi-Fi disabled")
     monkeypatch.setattr(module, "_git", lambda _repo, *args: "head" if "rev-parse" in args else "")
     monkeypatch.setattr(module, "active_default_routes", lambda: [])
     observed = {}
@@ -217,10 +220,14 @@ def test_preflight_uses_current_install_and_serving_artifacts(tmp_path, monkeypa
     monkeypatch.setattr(module, "_run", run)
 
     payload = module.capture_preflight(
-        repo, runtime_root, output, "ptl-gpu-30b"
+        repo, runtime_root, output, "ptl-gpu-30b",
+        "Wi-Fi disabled; Ethernet unplugged",
     )
 
     assert payload["profile"] == "ptl-gpu-30b"
+    assert payload["offline_gate"]["operator_isolation_method"] == (
+        "Wi-Fi disabled; Ethernet unplugged"
+    )
     assert payload["runtime"]["device"] == "GPU"
     assert payload["qualification_summary"]["ok"] is True
     assert payload["artifacts"]["launch_plan"]["path"] == str(launch)
@@ -341,13 +348,16 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(
         observed["prepared"] = profile
         return {"ready_to_disconnect": True, "blockers": []}
 
-    def preflight(_repo, _runtime, destination, profile):
+    def preflight(_repo, _runtime, destination, profile, isolation_method):
         payload = {
             "schema": module.SCHEMA,
             "phase": "preflight",
             "profile": profile,
             "repository": {"root": str(repo), "head": "abc", "clean": True},
-            "offline_gate": {"passed": True},
+            "offline_gate": {
+                "passed": True,
+                "operator_isolation_method": isolation_method,
+            },
         }
         destination.write_text(json.dumps(payload), encoding="utf-8")
         observed["preflight"] = profile
@@ -379,6 +389,7 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(
     monkeypatch.setattr(module, "_run", run)
     monkeypatch.setattr(module, "active_default_routes", lambda: [])
     monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr("builtins.input", lambda *_args: "Wi-Fi disabled")
     monkeypatch.setattr(
         module, "_git", lambda _repo, *args: "abc" if "rev-parse" in args else ""
     )
@@ -386,18 +397,21 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(
     if exit_code:
         with pytest.raises(module.AcceptanceCaptureError, match="reported failure"):
             module.run_qualification(
-                repo, tmp_path / "runtime", output, "ptl-gpu-30b", confirm_disconnected=True
+                repo, tmp_path / "runtime", output, "ptl-gpu-30b",
+                confirm_disconnected=True,
             )
         payload = json.loads((output / "acceptance.json").read_text(encoding="utf-8"))
     else:
         payload = module.run_qualification(
-            repo, tmp_path / "runtime", output, "ptl-gpu-30b", confirm_disconnected=True
+            repo, tmp_path / "runtime", output, "ptl-gpu-30b",
+            confirm_disconnected=True,
         )
 
     assert observed["prepared"] == observed["preflight"] == "ptl-gpu-30b"
     assert observed["command"][-3:] == ["--profile", "ptl-gpu-30b", "--allow-model"]
     assert observed["runtime_root"] == tmp_path / "runtime"
     assert payload["self_certified"] is False
+    assert payload["offline_gate"]["operator_isolation_method"] == "Wi-Fi disabled"
     assert payload["run_evidence"]["journeys"]["J24-continuous"]["status"] == "PASS"
     assert (output / "acceptance.json").is_file()
     assert "Cold model ms   UNKNOWN" in (output / "summary.txt").read_text(encoding="utf-8")
@@ -425,7 +439,8 @@ def test_unready_run_prints_next_actions_and_never_crosses_disconnect_boundary(
     monkeypatch.setattr(module, "capture_preflight", forbidden)
     with pytest.raises(module.AcceptanceCaptureError, match="not ready to disconnect"):
         module.run_qualification(
-            tmp_path, tmp_path, tmp_path / "output", "ptl-gpu-30b", confirm_disconnected=False
+            tmp_path, tmp_path, tmp_path / "output", "ptl-gpu-30b",
+            confirm_disconnected=False,
         )
     assert capsys.readouterr().out == "NOT READY\nNEXT: install weights\n"
 
@@ -445,7 +460,32 @@ def test_run_requires_exact_disconnect_confirmation(tmp_path, monkeypatch, respo
     monkeypatch.setattr(module, "capture_preflight", forbidden)
     with pytest.raises(module.AcceptanceCaptureError, match="exact confirmation"):
         module.run_qualification(
-            tmp_path, tmp_path, tmp_path / "output", "ptl-gpu-30b", confirm_disconnected=False
+            tmp_path, tmp_path, tmp_path / "output", "ptl-gpu-30b",
+            confirm_disconnected=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "method", ["", "   ", "Wi-Fi disabled\nEthernet unplugged", "Wi-Fi disabled\n"]
+)
+def test_run_refuses_missing_or_multiline_isolation_method(
+    tmp_path, monkeypatch, method
+):
+    module = _load()
+    monkeypatch.setattr(
+        module, "prepare_qualification",
+        lambda *_args: {"ready_to_disconnect": True, "blockers": []},
+    )
+    monkeypatch.setattr("builtins.input", lambda *_args: method)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("preflight cannot run without a retained isolation method")
+
+    monkeypatch.setattr(module, "capture_preflight", forbidden)
+    with pytest.raises(module.AcceptanceCaptureError, match="isolation method"):
+        module.run_qualification(
+            tmp_path, tmp_path, tmp_path / "output", "ptl-gpu-30b",
+            confirm_disconnected=True,
         )
 
 
@@ -556,13 +596,17 @@ def test_composed_run_retains_logs_but_refuses_finalization_after_network_return
     monkeypatch.setattr(module, "_run", lambda *_args, **_kwargs:
                         SimpleNamespace(returncode=0, stdout="retained", stderr=""))
     monkeypatch.setattr(module, "active_default_routes", lambda: [{"InterfaceAlias": "Wi-Fi"}])
+    monkeypatch.setattr("builtins.input", lambda *_args: "Wi-Fi disabled")
 
     def forbidden(*_args):
         pytest.fail("reconnected qualification cannot be finalized")
 
     monkeypatch.setattr(module, "finalize_qualification_run", forbidden)
     with pytest.raises(module.AcceptanceCaptureError, match="active default route"):
-        module.run_qualification(tmp_path, tmp_path, output, "ptl-gpu-30b", confirm_disconnected=True)
+        module.run_qualification(
+            tmp_path, tmp_path, output, "ptl-gpu-30b",
+            confirm_disconnected=True,
+        )
     assert (output / "journeys.stdout.log").read_text(encoding="utf-8") == "retained"
     assert not (output / "acceptance.json").exists()
 

@@ -110,6 +110,17 @@ def require_offline(routes: Iterable[dict[str, Any]]) -> None:
         )
 
 
+def validated_isolation_method(value: str) -> str:
+    if any(ord(character) < 32 for character in value):
+        raise AcceptanceCaptureError("external-network isolation method must be one line")
+    method = value.strip()
+    if not method:
+        raise AcceptanceCaptureError("external-network isolation method is required")
+    if len(method) > 200:
+        raise AcceptanceCaptureError("external-network isolation method exceeds 200 characters")
+    return method
+
+
 def configured_devices(device: str) -> list[dict[str, Any]]:
     if device == "NPU":
         predicate = "Test-LcaNpuDeviceName $_.FriendlyName"
@@ -266,7 +277,7 @@ def prepare_qualification(
 
 
 def capture_preflight(
-    repo: Path, runtime_root: Path, output: Path, profile: str
+    repo: Path, runtime_root: Path, output: Path, profile: str, isolation_method: str
 ) -> dict[str, Any]:
     if platform.system() != "Windows":
         raise AcceptanceCaptureError("Panther Lake physical acceptance must run on Windows")
@@ -288,6 +299,7 @@ def capture_preflight(
     if prepared_head != head:
         raise AcceptanceCaptureError("checkout drifted after qualification preparation")
 
+    operator_isolation_method = validated_isolation_method(isolation_method)
     routes = active_default_routes()
     require_offline(routes)
     if profile not in MODEL_PRESETS:
@@ -323,7 +335,12 @@ def capture_preflight(
         "phase": "preflight",
         "captured_at_utc": _now(),
         "repository": {"root": str(repo), "head": head, "clean": True},
-        "offline_gate": {"method": "no alive default route on an Up Windows adapter", "passed": True, "routes": routes},
+        "offline_gate": {
+            "method": "no alive default route on an Up Windows adapter",
+            "operator_isolation_method": operator_isolation_method,
+            "passed": True,
+            "routes": routes,
+        },
         "profile": profile,
         "device_candidates": devices,
         "runtime": installed["runtime"],
@@ -466,7 +483,8 @@ def finalize_qualification_run(
 
 
 def run_qualification(
-    repo: Path, runtime_root: Path, output: Path, profile: str, *, confirm_disconnected: bool
+    repo: Path, runtime_root: Path, output: Path, profile: str, *,
+    confirm_disconnected: bool,
 ) -> dict[str, Any]:
     preparation = prepare_qualification(repo, runtime_root, output, profile)
     _print_preparation(preparation)
@@ -482,8 +500,13 @@ def run_qualification(
                 "disconnected run cancelled; exact confirmation was not supplied"
             )
 
+    isolation_method = input("Describe how external networking was disconnected: ")
+    operator_isolation_method = validated_isolation_method(isolation_method)
+
     preflight_path = output / "offline-preflight.json"
-    capture_preflight(repo, runtime_root, preflight_path, profile)
+    capture_preflight(
+        repo, runtime_root, preflight_path, profile, operator_isolation_method
+    )
     journeys_dir = output / "journeys"
     launcher = repo.resolve() / "local-code-agent.ps1"
     sys.stdout.write(f"Running public acceptance journeys; evidence: {journeys_dir}\n")
@@ -546,7 +569,8 @@ def render_summary(acceptance_path: Path) -> str:
         raise AcceptanceCaptureError("acceptance evidence schema is not the current contract")
 
     repository = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
-    offline = payload.get("offline_gate") if isinstance(payload.get("offline_gate"), dict) else {}
+    offline_value = payload.get("offline_gate")
+    offline = offline_value if isinstance(offline_value, dict) else {}
     runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
     model_value = payload.get("model_manifest_summary")
     model = model_value if isinstance(model_value, dict) else {}
@@ -585,6 +609,7 @@ def render_summary(acceptance_path: Path) -> str:
         f"Checkout        {short_head}",
         f"Clean checkout  {shown(repository.get('clean'))}",
         f"Offline gate    {shown(offline.get('passed'))}",
+        f"Isolation       {shown(offline.get('operator_isolation_method'))}",
         f"Profile         {shown(payload.get('profile'))}",
         f"Model           {shown(source_model)}",
         f"Runtime         {shown(runtime_name)}",
@@ -643,6 +668,7 @@ def parser() -> argparse.ArgumentParser:
     pre.add_argument("--profile", required=True, choices=sorted(MODEL_PRESETS))
     pre.add_argument("--runtime-root", type=Path, required=True)
     pre.add_argument("--output", type=Path, required=True)
+    pre.add_argument("--isolation-method", required=True)
     fin = sub.add_parser("finalize")
     fin.add_argument("--preflight", type=Path, required=True)
     fin.add_argument("--output", type=Path, required=True)
@@ -670,7 +696,10 @@ def main(argv: list[str] | None = None) -> int:
             _print_preparation(payload)
             return 0 if payload["ready_to_disconnect"] else 3
         elif args.command == "preflight":
-            capture_preflight(args.repo, args.runtime_root, args.output, args.profile)
+            capture_preflight(
+                args.repo, args.runtime_root, args.output, args.profile,
+                vars(args)["isolation_method"],
+            )
         elif args.command == "finalize":
             finalize(args.preflight, args.output, args.evidence, args.cold_latency_ms, args.warm_latency_ms)
         else:
