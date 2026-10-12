@@ -1714,11 +1714,47 @@ def r_tests(s: Session) -> None:
                           f"{result.reason_code}; evidence {', '.join(tools)}")
 
 
+def _recorded_failure_diagnosis(s: Session, request: str, expected_kind: str) -> None:
+    """Prove a real configured failure is diagnosed from its record, without a model task."""
+    before = _git(s.repo, "status", "--porcelain=v1")
+    _, failed = s.turn(request)
+    expect(failed is not None and failed.outcome is TaskOutcome.FAIL,
+           f"{request!r} did not retain a failed configured check")
+    task_count = len(s.journey.tasks)
+    answer, diagnosis = s.turn("why did that fail?")
+    expect(diagnosis is None, "the deterministic diagnosis admitted a new task")
+    expect(len(s.journey.tasks) == task_count, "the deterministic diagnosis recorded a new task")
+    expect(f"FAILED ({expected_kind})" in answer,
+           f"diagnosis omitted the recorded {expected_kind} failure kind")
+    expect(" -- command: [" in answer, "diagnosis omitted the exact configured argv")
+    expect('say "fix it"' in answer, "diagnosis omitted the bounded repair next action")
+    expect(_git(s.repo, "status", "--porcelain=v1") == before,
+           "diagnosing the failure changed tracked or unignored work")
+    s.journey.passed(
+        f"retained {expected_kind} failure diagnosed with evidence and exact argv; "
+        "no model task; repository unchanged"
+    )
+
+
+def r_build_diagnosis(s: Session) -> None:
+    """R04: diagnose a compile failure from a declared external repository."""
+    _recorded_failure_diagnosis(s, "build it", "compile")
+
+
+def r_test_diagnosis(s: Session) -> None:
+    """R05: diagnose an assertion failure from a declared external repository."""
+    _recorded_failure_diagnosis(s, "run the tests", "assertion")
+
+
 # (id, title, kind, needs_model, needs_build, function) for --repo: never mutates it.
 REPO_JOURNEYS: list[tuple[str, str, bool, bool, Callable[[Session], None]]] = [
     ("R01-questions", "questions about your repository", True, False, r_questions),
     ("R02-build", "build it in your repository", False, True, r_build),
     ("R03-tests", "run the tests in your repository", False, True, r_tests),
+    ("R04-build-diagnosis", "diagnose a failed build in your repository", False, True,
+     r_build_diagnosis),
+    ("R05-test-diagnosis", "diagnose a failed test in your repository", False, True,
+     r_test_diagnosis),
 ]
 
 
