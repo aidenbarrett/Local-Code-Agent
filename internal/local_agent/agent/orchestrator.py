@@ -1015,6 +1015,11 @@ class Orchestrator:
         )
 
         if decision.verdict is Verdict.DENY:
+            self.observer("tool_rejected", {
+                "name": str(call.name), "reason": Reason.POLICY_DENIED.value,
+                "detail": decision.reason, "execution": "blocked",
+                "process_started": False if tool.risk is Risk.EXECUTE else None,
+            })
             record.verdict = "denied"
             record.ok = False
             record.blocked = True
@@ -1035,6 +1040,11 @@ class Orchestrator:
         if decision.requires_approval:
             granted = self.approval(tool, call.arguments, decision)
             if not granted:
+                self.observer("tool_rejected", {
+                    "name": str(call.name), "reason": Reason.APPROVAL_DECLINED.value,
+                    "detail": "operator declined", "execution": "blocked",
+                    "process_started": False if tool.risk is Risk.EXECUTE else None,
+                })
                 record.verdict = "not-approved"
                 record.ok = False
                 record.blocked = True
