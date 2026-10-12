@@ -571,8 +571,11 @@ class SessionHubApp(App):
         task = tasks.get(str(selector.value))
         candidate = task.candidate if task is not None else None
         verified = task is not None and _retained_result_verified(task)
-        ready = (candidate is not None and candidate.role == "prepared"
-                 and candidate.retained and verified)
+        prepared = next((item for item in self.view_state.tasks
+                         if item.candidate_not_applied and item.candidate is not None
+                         and item.candidate.candidate_task_id == str(selector.value)), None)
+        ready = (candidate is not None and candidate.role in {"prepared", "apply_refused"}
+                 and prepared is not None and _retained_result_verified(prepared))
         applied = candidate is not None and candidate.role == "applied" and verified
         self.query_one("#review-candidate", Button).disabled = not ready
         self.query_one("#apply-candidate", Button).disabled = not ready

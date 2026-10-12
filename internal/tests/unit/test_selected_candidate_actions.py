@@ -44,7 +44,18 @@ def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_dura
             await pilot.pause()
             assert commands == [(f"/diff {first}", False),(f"/apply {first}",False)]
             assert composer.value == "unfinished user message"
-            applied = task(first, sequence=3, role="applied")
+            refused = task(first, sequence=3, role="apply_refused", verified=False)
+            app.replace_state(HubViewState(tasks=(a,b,refused)))
+            await pilot.pause()
+            assert selector.value == first
+            assert not app.query_one("#review-candidate", Button).disabled
+            assert not app.query_one("#apply-candidate", Button).disabled
+            await pilot.click("#review-candidate")
+            await pilot.click("#apply-candidate")
+            await pilot.pause()
+            assert commands[-2:] == [(f"/diff {first}",False),(f"/apply {first}",False)]
+            assert composer.value == "unfinished user message"
+            applied = task(first, sequence=4, role="applied")
             app.replace_state(HubViewState(tasks=(a,b,applied)))
             await pilot.pause()
             assert selector.value == first
