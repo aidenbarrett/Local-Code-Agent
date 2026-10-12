@@ -33,15 +33,23 @@ def _git(root: Path, *args: str) -> str:
     ).stdout
 
 
-def _fresh_cmake_repo(root: Path, *, test_passes: bool) -> Path:
+def _fresh_cmake_repo(root: Path, *, test_passes: bool, compiles: bool = True) -> Path:
     (root / "src").mkdir(parents=True)
     (root / "CMakeLists.txt").write_text(
         "cmake_minimum_required(VERSION 3.20)\nproject(fresh CXX)\nenable_testing()\n"
         "add_executable(fresh_test src/fresh_test.cpp)\nadd_test(NAME fresh COMMAND fresh_test)\n",
         encoding="utf-8",
     )
-    (root / "src" / "fresh_test.cpp").write_text(
-        f"int main() {{ return {0 if test_passes else 1}; }}\n", encoding="utf-8")
+    if not compiles:
+        source = "int main() { return missing_identifier; }\n"
+    elif test_passes:
+        source = "int main() { return 0; }\n"
+    else:
+        source = (
+            "#include <cstdio>\n"
+            "int main() { std::fputs(\"Assertion `value == 0' failed.\\n\", stderr); return 1; }\n"
+        )
+    (root / "src" / "fresh_test.cpp").write_text(source, encoding="utf-8")
     (root / ".gitignore").write_text("build/\n.local-agent/\n", encoding="utf-8")
     _git(root, "init", "-q")
     _git(root, "add", "-A")
@@ -105,3 +113,36 @@ def test_a_failing_test_is_measured_as_a_failure_not_proof(tmp_path):
     (test_task,) = tests["tasks"]
     assert test_task["verified"] is False
     assert test_task["proof_scope"] != "full_test"
+
+
+@pytest.mark.parametrize(("compiles", "test_passes", "journey_id", "kind"), [
+    (False, True, "R04-build-diagnosis", "compile"),
+    (True, False, "R05-test-diagnosis", "assertion"),
+])
+def test_fresh_nonfixture_failures_get_recorded_diagnosis_without_model_work(
+        tmp_path, compiles, test_passes, journey_id, kind):
+    repo = _fresh_cmake_repo(
+        tmp_path / f"fresh {kind} diagnosis", test_passes=test_passes, compiles=compiles,
+    )
+    env = {**os.environ, "LCA_RUNTIME_ROOT": str(tmp_path / "runtime"),
+           "PYTHONPATH": os.pathsep.join([str(REPO / "internal"), *sys.path])}
+    declared = _run("init-repo.py", "--repo", str(repo / "src"), "--write", env=env)
+    assert declared.returncode == 0, declared.stdout + declared.stderr
+    _git(repo, "add", ".local-agent.toml")
+    _git(repo, "commit", "-qm", "declare")
+    before = _git(repo, "status", "--porcelain=v1")
+    output = tmp_path / f"evidence-{kind}"
+
+    ran = _run(
+        "acceptance-journeys.py", "--output", str(output), "--repo", str(repo),
+        "--allow-build", "--only", journey_id, env=env,
+    )
+
+    assert ran.returncode == 0, ran.stdout[-3000:] + ran.stderr[-3000:]
+    assert _git(repo, "status", "--porcelain=v1") == before
+    report = json.loads((output / "journeys.json").read_text(encoding="utf-8"))
+    (journey,) = [row for row in report["journeys"] if row["id"] == journey_id]
+    assert journey["status"] == "PASS", journey
+    assert len(journey["tasks"]) == 1, "diagnosis admitted a second task"
+    assert journey["tasks"][0]["outcome"] == "fail"
+    assert kind in journey["reason"]
