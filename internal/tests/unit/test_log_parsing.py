@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import json
+
+import pytest
+
+from local_agent.agent.context import _collapse, tool_result_message
 from local_agent.tools.logs import parse_build_log, parse_test_log
+from local_agent.tools.testing_tools import _failed_tests_summary
 
 GCC = """
 [ 20%] Building CXX object CMakeFiles/sandbox.dir/src/ring_buffer.cpp.o
@@ -115,3 +121,39 @@ def test_ctest_segfault():
 def test_empty_log_is_not_a_crash():
     assert parse_build_log("").errors == []
     assert parse_test_log("").failed == []
+
+
+@pytest.mark.parametrize("location,file", [
+    (r"C:\repo\test\options.cpp(1558)", r"C:\repo\test\options.cpp"),
+    ("/repo/test/options.cpp:1558", "/repo/test/options.cpp"),
+])
+def test_catch2_assertion_reaches_worker_summary_after_context_collapse(location, file):
+    log = (f"{location}: FAILED:\r\n"
+           '  REQUIRE( result.count("job") == 4 )\r\n'
+           "with expansion:\r\n  1 == 4\r\n"
+           "0% tests passed, 1 tests failed out of 1\r\n"
+           "  1 - options (Failed)\r\n")
+    report = parse_test_log(log)
+    assert report.failure_kind == "assertion"
+    evidence = report.as_dict()["assertions"][0]
+    assert evidence["file"] == file and evidence["line"] == 1558
+    assert evidence["log_line"] == 1
+    assert 'result.count("job") == 4' in evidence["text"]
+    assert "1 == 4" in evidence["text"]
+    summary = _failed_tests_summary(report, ["ctest", "--output-on-failure"])
+    message = tool_result_message("test-call", "run_test", json.dumps({"ok": False, "summary": summary}))
+    collapsed = json.loads(_collapse(message)["content"])
+    assert 'result.count("job") == 4' in collapsed["summary"]
+    assert "1 == 4" in collapsed["summary"]
+
+
+@pytest.mark.parametrize("body", [
+    "test.cpp(12): FAILED:\n  due to unexpected exception with message:\n",
+    "test.cpp:12: FAILED:\n",
+    "FAILED:\n  REQUIRE( x == 4 )\n",
+    "test.cpp:12: PASSED:\n  REQUIRE( x == 4 )\n",
+])
+def test_catch2_non_assertion_output_is_not_promoted(body):
+    report = parse_test_log(body + "  1 - options (Failed)\n")
+    assert report.assertions == []
+    assert report.failure_kind == "failed"
