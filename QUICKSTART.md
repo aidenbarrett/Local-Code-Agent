@@ -69,13 +69,27 @@ $lca = 'C:\src\Local-Code-Agent\local-code-agent.ps1' # your installed checkout
 ```
 
 Review the proposal, then write it with `init --write` (it never replaces an
-existing declaration) and confirm with `doctor`. Build and test still run only in a
-session you open with `session --allow-execution`.
+existing declaration) and confirm with `doctor`. To let LCA prepare isolated
+repairs and explicitly commit applied candidates, opt in with `--allow-patch`
+and `--allow-commit`. Preview those same flags before writing; they do not apply
+or commit anything. Without them, repairs and commits stay disabled. Build and
+test still run only in a session you open with `session --allow-execution`.
 
 ```powershell
 & $lca init --write
 & $lca doctor --repo .
 ```
+
+For candidate repairs and exact commits, use this **instead of** the plain write:
+
+```powershell
+& $lca init --allow-patch --allow-commit
+& $lca init --write --allow-patch --allow-commit
+```
+
+An existing declaration is preserved. To change its permissions, review and edit
+its `[policy]` table explicitly. Applying, undoing and committing remain separate
+user actions; LCA never pushes.
 
 To prove the declaration works before involving a model, build and test the
 repository in place. No model is used and each step gets its own verified result.

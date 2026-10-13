@@ -72,6 +72,7 @@ class RepoInspection:
     build_systems: tuple[str, ...] = ()
     proposal: str | None = None
     refusal: str | None = None
+    proposal_options: tuple[str, ...] = ()
 
     @property
     def config_path(self) -> Path:
@@ -115,7 +116,7 @@ def toml_basic_string(value: str) -> str:
     return "".join(out)
 
 
-def propose_cmake(name: str) -> str:
+def propose_cmake(name: str, *, allow_patch: bool = False, allow_commit: bool = False) -> str:
     """A reviewed CMake/CTest declaration in the existing schema; nothing is executed."""
     return (
         f"# Proposed by `.\\local-code-agent.ps1 init` because the root has CMakeLists.txt.\n"
@@ -131,8 +132,8 @@ def propose_cmake(name: str) -> str:
         "[policy]\n"
         "allow_build = true\n"
         "allow_test = true\n"
-        "allow_patch = false\n"
-        "allow_commit = false\n"
+        f"allow_patch = {str(allow_patch).lower()}\n"
+        f"allow_commit = {str(allow_commit).lower()}\n"
     )
 
 
@@ -146,22 +147,35 @@ def validate_declaration(text: str) -> RepoConfig:
             raise RepoSetupError(f"the proposed declaration is invalid: {exc}") from exc
 
 
-def inspect_repository(start: Path) -> RepoInspection:
+def inspect_repository(
+    start: Path, *, allow_patch: bool = False, allow_commit: bool = False,
+) -> RepoInspection:
+    if allow_commit and not allow_patch:
+        raise RepoSetupError("--allow-commit requires --allow-patch for candidate changes")
     opened = Path(start)
     if not opened.is_dir():
         raise RepoSetupError(f"{opened} is not a directory")
     root = find_repo_root(opened)
     path = root / DEFAULT_CONFIG_NAME
     if path.is_file():
+        if allow_patch or allow_commit:
+            raise RepoSetupError(
+                f"{path} already exists; init never changes its permissions. "
+                "Review and edit that declaration explicitly."
+            )
         try:
             return RepoInspection(root, opened.resolve(), declared=load_repo_config(root))
         except (ConfigError, tomllib.TOMLDecodeError, OSError) as exc:
             return RepoInspection(root, opened.resolve(), invalid=str(exc))
     systems = build_systems(root)
     if systems == (PROPOSABLE,):
-        proposal = propose_cmake(root.name)
+        proposal = propose_cmake(root.name, allow_patch=allow_patch, allow_commit=allow_commit)
         validate_declaration(proposal)
-        return RepoInspection(root, opened.resolve(), build_systems=systems, proposal=proposal)
+        options = tuple(flag for flag, allowed in (
+            ("--allow-patch", allow_patch), ("--allow-commit", allow_commit),
+        ) if allowed)
+        return RepoInspection(root, opened.resolve(), build_systems=systems,
+                              proposal=proposal, proposal_options=options)
     if not systems:
         refusal = f"no recognised build system at {root}"
     elif PROPOSABLE in systems:

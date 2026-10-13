@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `1822c5c578e8c8fc054c72709389ebe58d54b706`
+Reconciled against GitHub `main` at `229856d2b54d2c1286d14710f2eabf8bddf34157`
 on 2026-10-13. One CPU-reference model repair on pinned cxxopts produced the exact
 identifier fix, passed its configured full build and independent full tests, and
 completed diff/apply/exact commit with unrelated work preserved after PR#517 repaired
@@ -25,6 +25,12 @@ records remain in `internal/docs/rc-model-count-lookup-diagnostic-2026-10-13.jso
 and `internal/docs/rc-model-catch2-evidence-diagnostic-2026-10-13.json`. The bounded
 lookup, no-op refusal and assertion-evidence fixes have independent review and
 full Linux/Windows CI; they do not establish successful real-model repair.
+
+One later context-assisted CPU30B proposal restored the production count behavior
+and passed all seven unchanged upstream tests after 107.955s (PR#563). The operator
+supplied two source excerpts and the failure log, narrowed the tool set and applied
+the proposal in a disposable clone. This is not autonomous repair or a success rate;
+the exact records are in `internal/docs/rc-model-supplied-context-diagnostic-2026-10-13.json`.
 
 ## Capability ledger
 
