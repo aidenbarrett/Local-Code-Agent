@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 from ..cpp_symbols import parse_cpp_symbol
+from .files import _read_text_window
 from .tool_primitives import Risk, ToolError, ToolRegistry, ToolResult, relpath, resolve_in_repo
 from .tool_context import ToolContext
 
@@ -34,7 +35,7 @@ _FUNCTION_SITE = (
     r"(noexcept(\s*\([^)]*\))?\s*)?"
     r"((override|final)\b\s*)*"
     r"(->\s*[^;{{=]+)?\s*"
-    r"(;|\{{|=\s*(0|default|delete)\s*;)"
+    r"(;|\{{|=\s*(0|default|delete)\s*;|$)"
 )
 _QUALIFIED_DEF_TEMPLATES = (
     _FUNCTION_SITE,
@@ -110,6 +111,35 @@ def _declaration_shaped(text: str, form: str) -> bool:
         return False  # ``if (ok) f(x);``: a statement under a condition
     last = re.split(r"[\s*&]+", prefix)[-1] or prefix.split()[-1]
     return last not in _STATEMENT_WORDS
+
+
+def _split_declaration(ctx: ToolContext, match: dict[str, object], form: str) -> bool:
+    """Corroborate a bare signature with its adjacent return type and body opener.
+
+    Both search backends match one line. Allman-style definitions may put the
+    return type, signature and opening brace on three separate lines. Reuse the
+    bounded file reader and repository boundary; never widen a qualified name.
+    """
+    text = str(match["text"])
+    pattern = _FUNCTION_SITE.format(sym=re.escape(form))
+    if not re.fullmatch(pattern, text) or any(char in text for char in ";{}"):
+        return False
+    line = int(str(match["line"]))
+    if line < 2:
+        return False
+    target = resolve_in_repo(ctx.root, str(match["file"]))
+    window, _, _ = _read_text_window(
+        target, start_line=line - 1, end_line=line + 1,
+        max_read_bytes=ctx.repo.policy.max_read_bytes,
+    )
+    if len(window) != 3 or window[1].strip() != text or window[2].strip() != "{":
+        return False
+    prefix = window[0].strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_:<>,*& \t]*", prefix):
+        return False
+    if any(word in _STATEMENT_WORDS for word in re.findall(r"[A-Za-z_]+", prefix)):
+        return False
+    return _declaration_shaped(f"{prefix} {text} {{", form)
 
 
 def _rg_available() -> bool:
@@ -294,7 +324,8 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
         forms = {parsed.text, "::".join(parsed.components[-2:])}
         kept = [
             match for match in result.data["matches"]
-            if any(_declaration_shaped(str(match["text"]), form) for form in forms
+            if any(_declaration_shaped(str(match["text"]), form)
+                   or _split_declaration(ctx, match, form) for form in forms
                    if form in str(match["text"]))
         ]
         cap = max(1, min(limit, 200))

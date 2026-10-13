@@ -84,6 +84,49 @@ def test_qualified_definition_excludes_duplicate_short_names(loaded):
     }
 
 
+@pytest.mark.parametrize("ripgrep", [True, False])
+def test_split_line_definition_is_found_without_promoting_calls(loaded, monkeypatch, ripgrep):
+    """The real cxxopts count method separates type, signature and body opener."""
+    import shutil
+    from local_agent.tools import search
+
+    if ripgrep and shutil.which("rg") is None:
+        pytest.skip("ripgrep is not installed")
+    sandbox, _, registry, _, _ = loaded
+    monkeypatch.setattr(search, "_rg_available", lambda: ripgrep)
+    source = sandbox.root / "src" / "split.cpp"
+    source.write_text(
+        "std::size_t\ncount(const std::string& option) const\n{\nreturn 1;\n}\n"
+        "void use() {\nreturn\ncount(option)\n;\n}\n"
+        "// not a return type\ncount(option)\n{\n}\n"
+        "bool Other::count() const { return true; }\n",
+        encoding="utf-8",
+    )
+    found = registry.get("find_definition").handler(symbol="count", limit=200)
+    sites = {m["line"] for m in found.data["matches"] if m["file"].endswith("split.cpp")}
+    assert sites == {2, 15}
+    assert found.data["truncated"] is False
+    qualified = registry.get("find_definition").handler(symbol="Missing::count", limit=200)
+    assert qualified.data["matches"] == []
+
+
+def test_split_definition_context_keeps_read_budget_and_repository_boundary(tmp_path):
+    from types import SimpleNamespace
+    from local_agent.tools.search import _split_declaration
+    from local_agent.tools.tool_context import ToolContext
+
+    source = tmp_path / "split.cpp"
+    source.write_text("std::size_t\ncount() const\n{\n}\n", encoding="utf-8")
+    context = ToolContext(repo=SimpleNamespace(
+        root=tmp_path, policy=SimpleNamespace(max_read_bytes=4),
+    ))
+    match = {"file": "split.cpp", "line": 2, "text": "count() const"}
+    with pytest.raises(ToolError, match="byte read limit"):
+        _split_declaration(context, match, "count")
+    with pytest.raises(ToolError, match="outside"):
+        _split_declaration(context, {**match, "file": "../outside.cpp"}, "count")
+
+
 def test_symbol_lookup_covers_declarations_destructors_and_common_suffixes(loaded):
     sandbox, _, registry, _, _ = loaded
     source = sandbox.root / "src" / "symbol_forms.cpp"
