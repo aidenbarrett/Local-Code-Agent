@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `157898ae8153d5a4975e657f6dcb7762515e43d2`
-on 2026-10-12. One CPU-reference model repair on pinned cxxopts produced the exact
+Reconciled against GitHub `main` at `dea016e9294599fd86fcf69606f75f39098a8b10`
+on 2026-10-13. One CPU-reference model repair on pinned cxxopts produced the exact
 identifier fix, passed its configured full build and independent full tests, and
 completed diff/apply/exact commit with unrelated work preserved after PR#517 repaired
 byte fidelity. This is one retained attempt, not a success rate, general competence,
