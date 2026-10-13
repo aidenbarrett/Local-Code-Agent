@@ -594,6 +594,14 @@ def render_summary(acceptance_path: Path) -> str:
         row = outcomes.get(journey_id)
         return row.get("status") if isinstance(row, dict) else None
 
+    continuous_value: Any = None
+    if isinstance(run_evidence, dict):
+        continuous_value = run_evidence.get("continuous_workflow")
+    continuous: dict[str, Any] = continuous_value if isinstance(continuous_value, dict) else {}
+    continuous_status = outcome_status("J24-continuous")
+    preserved = continuous.get("unrelated_work_preserved")
+    preserved_status = preserved if continuous_status == "PASS" else None
+
     # Retained launch configuration is distinct from physical execution proof.
     runtime_name = runtime.get("runtime") or runtime.get("name")
     configured_device = runtime.get("device") or runtime.get("requested_device")
@@ -628,13 +636,13 @@ def render_summary(acceptance_path: Path) -> str:
         f"Warm model ms   {shown(runtime_lifecycle.get('warm_model_ms'))}",
         "",
         "SCRIPTED JOURNEYS (physical review required)",
-        f"Build journey   {UNKNOWN}",
-        f"Test journey    {UNKNOWN}",
-        f"Candidate       {UNKNOWN}",
-        f"Dirty checkout  {UNKNOWN}",
+        f"Build/diagnose  {shown(continuous_status)}",
+        f"Candidate flow  {shown(continuous_status)}",
+        f"User work kept  {shown(preserved_status)}",
         f"Stop            {UNKNOWN if not outcomes else 'SEE RETAINED OUTCOMES'}",
         f"Stop build      {shown(outcome_status('J05-stop-build'))}",
         f"Stop model      {shown(outcome_status('J07-stop-model'))}",
+        f"Next after Stop {shown(outcome_status('J07-stop-model'))}",
         f"Continuous flow {shown(outcome_status('J24-continuous'))}",
         "",
         f"Evidence bundle {_sha256(acceptance_path)}",
