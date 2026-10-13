@@ -1117,7 +1117,7 @@
     "PIE810": 1,
     "PLR0911": 1,
     "PLR0915": 1,
-    "S101": 2,
+    "S101": 1,
     "S603": 1
    },
    "internal/scripts/runtime-preflight.py": {
@@ -1179,5 +1179,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1609
+ "total": 1608
 }

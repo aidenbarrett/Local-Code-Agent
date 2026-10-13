@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 INTERNAL = ROOT / "internal"
@@ -200,23 +201,27 @@ def _prepare_server(term, profile: str, config: ModelConfig) -> int:
 
 
 def _run_agent(term, args: argparse.Namespace) -> tuple[int, str]:
-    process = subprocess.Popen(
-        _agent_command(args),
-        cwd=ROOT,
-        env=_child_env(),
-        stdin=None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        errors="replace",
-        bufsize=1,
-    )
-    assert process.stderr is not None
-    for line in process.stderr:
-        _show_observer_line(term, line)
-    assert process.stdout is not None
-    stdout = process.stdout.read()
-    return process.wait(), stdout
+    # The final answer can be larger than an OS pipe buffer. Spool stdout while
+    # streaming observer events from stderr; reading stderr to EOF before stdout
+    # would otherwise deadlock when the child blocks writing a large answer.
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as stdout:
+        process = subprocess.Popen(
+            _agent_command(args),
+            cwd=ROOT,
+            env=_child_env(),
+            stdin=None,
+            stdout=stdout,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+            bufsize=1,
+        )
+        assert process.stderr is not None
+        for line in process.stderr:
+            _show_observer_line(term, line)
+        rc = process.wait()
+        stdout.seek(0)
+        return rc, stdout.read()
 
 
 def main(argv: list[str] | None = None) -> int:

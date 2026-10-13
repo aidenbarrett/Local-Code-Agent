@@ -115,6 +115,31 @@ def test_root_run_task_uses_the_product_presenter_not_raw_cli_output():
     assert "local_agent.cli" not in run_task_block
 
 
+def test_large_final_answer_is_spooled_instead_of_using_a_blocking_pipe(monkeypatch):
+    presenter = _presenter()
+    expected = "answer " * 50_000
+
+    class Process:
+        stderr = StringIO("")
+
+        @staticmethod
+        def wait():
+            return 0
+
+    def popen(_command, **kwargs):
+        output = kwargs["stdout"]
+        assert output is not presenter.subprocess.PIPE
+        output.write(expected)
+        output.flush()
+        return Process()
+
+    monkeypatch.setattr(presenter.subprocess, "Popen", popen)
+    term = presenter_ui(StringIO())
+    args = presenter.build_parser().parse_args(["Inspect", "--profile", "ptl-gpu-30b"])
+
+    assert presenter._run_agent(term, args) == (0, expected)
+
+
 def test_default_stored_and_explicit_choice_drive_server_agent_and_labels(tmp_path, monkeypatch):
     from serving.model_choice import store_preset
     from serving.managed_runtime import RuntimeEnsureResult, RuntimeLifecycle
