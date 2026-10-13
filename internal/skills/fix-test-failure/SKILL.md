@@ -25,21 +25,21 @@ unfiltered `run_test` that exits clean after the last edit.
 2. `read_file` the test around the reported line. Write down, in one line each:
    the exact expression the failing assertion checks, and the value the test
    expects it to have at that point.
-3. List every function of the code under test that the test calls before or
-   inside that assertion, in call order. Use `find_definition` for each one and
-   `read_file` its body. Read those functions, not the whole repository: the
-   fault is almost always in one of them.
-4. Trace the test by hand. For each call, in order, write the state the object
-   is in and the value the function returns, using the code exactly as written,
-   not as it was probably meant. Keep going until you reach the first call
-   whose actual value differs from what the test expects. That line is the
-   fault. Say which line, what it returns, and what it should return.
+3. Start with the function that produces the value in the failing assertion.
+   Use `find_definition` with its required `symbol` argument, then `read_file`
+   the matching implementation. If there are several definitions, use the
+   object's type and surrounding declaration to select the relevant one.
+   Inspect that return value before reading setup functions or their callers.
+4. Trace that implementation using the code exactly as written, not as it was
+   probably meant. Compare its return value with the assertion's observed and
+   expected values. Follow the inputs or state-changing calls only when needed
+   to explain that difference. Do not trace every earlier call in the test.
+   Identify the faulty line, its actual behavior and the expected behavior.
 5. Decide, explicitly: is the test wrong, or is the code wrong? Almost always the
    code. Say which and why in one sentence.
-6. Propose a minimal fix to the line you found with `propose_patch`, then
-   `apply_patch` it. If after step 4 you still cannot see the fault, propose your
-   best minimal fix to the most suspicious line anyway rather than reading more
-   files: the rebuild and rerun will tell you whether you were right.
+6. Propose a minimal fix to the identified fault with `propose_patch`, inspect
+   the returned diff, then `apply_patch` it. If the cause is still unresolved,
+   state which observation is missing; do not invent an edit to unrelated code.
 7. Rebuild with `build_target` and no target argument. A source edit is not in
    the binary until you build; rerunning the old binary tells you nothing.
 8. Run `run_test` with no filter. The contract is the whole suite, not one test.
