@@ -30,7 +30,17 @@
     "no_rate_or_general_competence_claim": true,
     "comparison": "one planned CPU reference attempt on the reviewed no-op refusal and Catch2 failure-evidence fixes; historical trials used different sources; no isolated source-change, device, timing or success-rate claim",
     "runtime_root": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-30b-merged-runtime-20261011",
-    "ovms_executable": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-30b-merged-runtime-20261011\\tools\\ovms-2026.3.0\\ovms\\ovms.exe"
+    "ovms_executable": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-30b-merged-runtime-20261011\\tools\\ovms-2026.3.0\\ovms\\ovms.exe",
+    "operator_runtime_environment": {
+      "LCA_RUNTIME_ROOT": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-30b-merged-runtime-20261011",
+      "LCA_OVMS_EXECUTABLE": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-fresh-8b-509-20261011\\Runtime\\tools\\ovms-2026.3.0\\ovms\\ovms.exe",
+      "LCA_OVMS_PYTHONHOME": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-fresh-8b-509-20261011\\Runtime\\tools\\ovms-2026.3.0\\ovms\\python",
+      "PATH_prepend": [
+        "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-fresh-8b-509-20261011\\Runtime\\tools\\ovms-2026.3.0\\ovms",
+        "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-fresh-8b-509-20261011\\Runtime\\tools\\ovms-2026.3.0\\ovms\\python"
+      ],
+      "version_probe": "2026.3.0.6f3df706b; exit0"
+    }
   },
   "baseline": {
     "clean_head": "a51251e0eec61c9dd40e1204d91424d96134317e",
@@ -124,6 +134,20 @@
           "bytes": 2012,
           "sha256": "1ae75ded476dd0d51d28604918f633f889981e024b822158b0b2cb42e303de1c",
           "raw_utf8": "{\r\n \"schema\": \"lca.acceptance-journeys/1\",\r\n \"started_unix\": 1791911231.4031672,\r\n \"finished_unix\": 1791911238.0064962,\r\n \"profile\": \"nuc-cpu-30b\",\r\n \"model\": \"OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov\",\r\n \"base_url\": \"http://127.0.0.1:8000/v3\",\r\n \"preconditions\": {\r\n  \"product\": {\r\n   \"package_commit\": \"4e1b398b7057cfb3070ec1ee7e9450a300850d25\",\r\n   \"package_dirty\": true,\r\n   \"package_source\": \"git\",\r\n   \"source_sha256\": \"9677fa15739ae770a541d4a2bc52029949f85d70d01c944349a4e568e36592a7\"\r\n  },\r\n  \"platform\": \"Windows-11-10.0.26200-SP0\",\r\n  \"python\": \"3.13.5\",\r\n  \"git\": \"C:\\\\Program Files\\\\Git\\\\cmd\\\\git.EXE\",\r\n  \"cmake\": \"C:\\\\Program Files\\\\CMake\\\\bin\\\\cmake.EXE\",\r\n  \"fixture_builds\": null,\r\n  \"model_endpoint\": {\r\n   \"ok\": false,\r\n   \"message\": \"managed model endpoint could not be started: server executable not found: ovms.exe; import setupvars or use --executable\",\r\n   \"lifecycle\": \"refused\",\r\n   \"replaced_reason\": null,\r\n   \"refused_reason\": \"start_failed\",\r\n   \"changed_fields\": [],\r\n   \"launch_to_ready_ms\": null\r\n  },\r\n  \"runtime_header\": \"preset nuc-cpu-30b \\u00b7 model unobserved (observed) \\u00b7 device CPU (declared) \\u00b7 endpoint http://127.0.0.1:8000/v3 \\u00b7 execution enabled\"\r\n },\r\n \"journeys\": [\r\n  {\r\n   \"id\": \"X05-catch2-count-repair\",\r\n   \"title\": \"repair production count defect with upstream tests unchanged\",\r\n   \"kind\": \"model\",\r\n   \"status\": \"UNKNOWN\",\r\n   \"reason\": \"endpoint not ready\",\r\n   \"seconds\": 0.0,\r\n   \"notes\": [],\r\n   \"tasks\": [],\r\n   \"measured\": {},\r\n   \"tool_failures\": [],\r\n   \"attempted\": false\r\n  }\r\n ],\r\n \"corpus\": {\r\n  \"name\": \"cxxopts\",\r\n  \"commit\": \"639cdbad93d45e74fd781e4cf6b0ac798eeec2aa\",\r\n  \"licence\": \"MIT\",\r\n  \"metrics\": {\r\n   \"attempted\": 0,\r\n   \"completed_verified\": 0,\r\n   \"not_attempted\": 1,\r\n   \"unknown_outcomes\": 0,\r\n   \"refusal_correctness\": null,\r\n   \"user_interventions\": null,\r\n   \"cold_build_s\": null,\r\n   \"warm_test_s\": null,\r\n   \"unrelated_work_preserved\": {},\r\n   \"failure_reasons\": {},\r\n   \"rate_claimed\": false\r\n  }\r\n }\r\n}"
+        }
+      }
+    },
+    {
+      "stage": "managed runtime setup before model dispatch",
+      "reason": "bundled Python DLL directory missing from PATH; server not ready; owned process subsequently stopped normally",
+      "model_requests": 0,
+      "model_attempts": 0,
+      "records": {
+        "trial_report": {
+          "local_path": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\trial\\journeys.json",
+          "bytes": 2201,
+          "sha256": "4b9408f34cb1606d9c291a7aa9add5d359ea0703999c8632e19e187ad420b7c4",
+          "raw_utf8": "{\r\n \"schema\": \"lca.acceptance-journeys/1\",\r\n \"started_unix\": 1791911300.6094587,\r\n \"finished_unix\": 1791911311.2898698,\r\n \"profile\": \"nuc-cpu-30b\",\r\n \"model\": \"OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov\",\r\n \"base_url\": \"http://127.0.0.1:8000/v3\",\r\n \"preconditions\": {\r\n  \"product\": {\r\n   \"package_commit\": \"4e1b398b7057cfb3070ec1ee7e9450a300850d25\",\r\n   \"package_dirty\": true,\r\n   \"package_source\": \"git\",\r\n   \"source_sha256\": \"9677fa15739ae770a541d4a2bc52029949f85d70d01c944349a4e568e36592a7\"\r\n  },\r\n  \"platform\": \"Windows-11-10.0.26200-SP0\",\r\n  \"python\": \"3.13.5\",\r\n  \"git\": \"C:\\\\Program Files\\\\Git\\\\cmd\\\\git.EXE\",\r\n  \"cmake\": \"C:\\\\Program Files\\\\CMake\\\\bin\\\\cmake.EXE\",\r\n  \"fixture_builds\": null,\r\n  \"model_endpoint\": {\r\n   \"ok\": false,\r\n   \"message\": \"managed model endpoint could not be started: server not ready; inspect C:\\\\Users\\\\aiden\\\\AppData\\\\Local\\\\Temp\\\\lca-30b-merged-runtime-20261011\\\\runtime\\\\nuc-cpu-30b\\\\stdout.log and C:\\\\Users\\\\aiden\\\\AppData\\\\Local\\\\Temp\\\\lca-30b-merged-runtime-20261011\\\\runtime\\\\nuc-cpu-30b\\\\stderr.log; live process retained\",\r\n   \"lifecycle\": \"refused\",\r\n   \"replaced_reason\": null,\r\n   \"refused_reason\": \"start_failed\",\r\n   \"changed_fields\": [],\r\n   \"launch_to_ready_ms\": null\r\n  },\r\n  \"runtime_header\": \"preset nuc-cpu-30b \\u00b7 model unobserved (observed) \\u00b7 device CPU (declared) \\u00b7 endpoint http://127.0.0.1:8000/v3 \\u00b7 execution enabled\"\r\n },\r\n \"journeys\": [\r\n  {\r\n   \"id\": \"X05-catch2-count-repair\",\r\n   \"title\": \"repair production count defect with upstream tests unchanged\",\r\n   \"kind\": \"model\",\r\n   \"status\": \"UNKNOWN\",\r\n   \"reason\": \"endpoint not ready\",\r\n   \"seconds\": 0.0,\r\n   \"notes\": [],\r\n   \"tasks\": [],\r\n   \"measured\": {},\r\n   \"tool_failures\": [],\r\n   \"attempted\": false\r\n  }\r\n ],\r\n \"corpus\": {\r\n  \"name\": \"cxxopts\",\r\n  \"commit\": \"639cdbad93d45e74fd781e4cf6b0ac798eeec2aa\",\r\n  \"licence\": \"MIT\",\r\n  \"metrics\": {\r\n   \"attempted\": 0,\r\n   \"completed_verified\": 0,\r\n   \"not_attempted\": 1,\r\n   \"unknown_outcomes\": 0,\r\n   \"refusal_correctness\": null,\r\n   \"user_interventions\": null,\r\n   \"cold_build_s\": null,\r\n   \"warm_test_s\": null,\r\n   \"unrelated_work_preserved\": {},\r\n   \"failure_reasons\": {},\r\n   \"rate_claimed\": false\r\n  }\r\n }\r\n}"
         }
       }
     }
