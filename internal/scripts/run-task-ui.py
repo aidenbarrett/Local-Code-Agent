@@ -29,6 +29,7 @@ from serving.model_store import default_runtime_root  # noqa: E402
 from serving.serve import Refusal  # noqa: E402
 
 _REPORT_MARKER = "--- run summary ---"
+_INTERRUPT_WAIT_S = 5.0
 _MODEL_RE = re.compile(
     r"^~~ model (?P<total>[0-9.]+)s"
     r"(?: ttft (?P<ttft>[0-9.]+)s)?"
@@ -217,8 +218,17 @@ def _run_agent(term, args: argparse.Namespace) -> tuple[int, str]:
             bufsize=1,
         )
         assert process.stderr is not None
-        for line in process.stderr:
-            _show_observer_line(term, line)
+        try:
+            for line in process.stderr:
+                _show_observer_line(term, line)
+        except KeyboardInterrupt:
+            process.terminate()
+            try:
+                process.wait(timeout=_INTERRUPT_WAIT_S)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise
         rc = process.wait()
         stdout.seek(0)
         return rc, stdout.read()
@@ -256,7 +266,13 @@ def main(argv: list[str] | None = None) -> int:
 
     term.line()
     term.section("AGENT WORK")
-    rc, raw_report = _run_agent(term, args)
+    try:
+        rc, raw_report = _run_agent(term, args)
+    except KeyboardInterrupt:
+        term.line()
+        term.section("RESULT")
+        term.status("warn", "Task interrupted; the headless agent process has ended")
+        return 130
     answer, summary_lines = _split_report(raw_report)
     fields, warnings, evidence = _parse_summary(summary_lines)
 
