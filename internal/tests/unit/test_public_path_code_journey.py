@@ -12,6 +12,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from local_agent.config import load_repo_config
+from local_agent.repo_setup import inspect_repository, write_proposal
 from local_agent.llm.client import ScriptedClient, tool_call
 from local_agent.llm.protocol import ChatResponse
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor
@@ -69,8 +70,9 @@ def _git(root: Path, *args: str) -> str:
 def test_build_fails_then_fix_it_apply_and_commit_through_the_public_path(sandbox, tmp_path):
     sandbox.scenario("compile_error")
     config = sandbox.root / ".local-agent.toml"
-    config.write_text(config.read_text(encoding="utf-8").replace("allow_commit = false", "allow_commit = true"),
-                      encoding="utf-8")
+    # Start undeclared, then use init's reviewed opt-ins instead of hand-editing policy.
+    config.unlink()
+    write_proposal(inspect_repository(sandbox.root, allow_patch=True, allow_commit=True))
     _git(sandbox.root, "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-qam", "broken, commits allowed")
     _git(sandbox.root, "config", "user.email", "dev@example.invalid")
     _git(sandbox.root, "config", "user.name", "Dev")
