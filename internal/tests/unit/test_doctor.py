@@ -271,16 +271,24 @@ def test_main_exits_3_when_not_ready_and_repeats_identically(tmp_path, monkeypat
     assert sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*")) == before
     assert "Weights        MISSING" in first
     assert serve.pull_command(DEFAULT_MODEL_PRESET) in first
+    assert f"then rerun {public_entrypoint()} doctor --repo {powershell_literal(repo)}\n" in first
 
 
-def test_main_exits_0_when_everything_is_ready(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("profile", [None, "nuc-cpu-8b"])
+def test_main_exits_0_when_everything_is_ready(tmp_path, monkeypatch, capsys, profile):
     repo = _repo(tmp_path / "repo")
     runtime_root = tmp_path / "runtime"
-    _complete_weights(runtime_root, DEFAULT_MODEL_PRESET)
+    _complete_weights(runtime_root, profile or DEFAULT_MODEL_PRESET)
     monkeypatch.setattr(doctor.shutil, "which", _ALL_TOOLS)
     monkeypatch.setattr(doctor.serve, "status", _not_running)
-    assert doctor.main(["--repo", str(repo), "--runtime-root", str(runtime_root)]) == 0
-    assert "Ready. Open the Session Hub" in capsys.readouterr().out
+    profile_args = [] if profile is None else ["--profile", profile]
+    assert doctor.main(["--repo", str(repo), "--runtime-root", str(runtime_root), *profile_args]) == 0
+    output = capsys.readouterr().out
+    command = f"{public_entrypoint()} session --repo {powershell_literal(repo)}"
+    if profile is not None:
+        command += f" --profile {powershell_literal(profile)}"
+    assert f"Ready. Open the Session Hub: {command}\n" in output
+    assert f"--repo {powershell_literal(repo)}" in output.split("Execution", 1)[1]
 
 
 def test_help_names_doctor():
