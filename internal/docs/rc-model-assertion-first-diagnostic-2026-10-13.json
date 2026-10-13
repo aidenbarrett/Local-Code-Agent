@@ -145,7 +145,7 @@
     "worker_metrics_complete": false,
     "procedure_consumed": true,
     "package_tests": "all five passed in actual candidate; only two intended count failures remained",
-    "diagnosis": "worker consumed revised procedure but read tests and parsing code; read OptionValue count, not faulty ParseResult count; no verified repair",
+    "diagnosis": "worker consumed revised procedure and requested OptionValue count lines1700-1750; next model request had that result already collapsed with source payload dropped. Faulty ParseResult count was not requested. No verified repair",
     "limits": "does not demonstrate procedural improvement; no causal timing/device comparison or success rate"
   },
   "dispatch_runtime_git": "06bd200eaf63790c3f48fa4dbfb70c865cf0e0e0",
