@@ -14,6 +14,7 @@ import sys
 import pytest
 
 from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS
+from local_agent.public_commands import powershell_literal, public_entrypoint
 from serving import serve
 
 REPO = Path(__file__).resolve().parents[3]
@@ -117,7 +118,7 @@ def test_a_missing_compiler_names_setup(tmp_path, windows):
                      env={"LCA_OVMS_EXECUTABLE": "C:/ovms/ovms.exe"})
     compiler = checks["C++ compiler"]
     assert compiler.state == doctor.MISSING
-    assert compiler.next_action == r".\install.ps1"
+    assert compiler.next_action == public_entrypoint("install.ps1")
 
 
 def test_the_launchers_msvc_fact_is_reported_as_observed(tmp_path):
@@ -140,13 +141,13 @@ def test_missing_git_and_cmake_name_setup(tmp_path):
     checks = _assess(tmp_path, which=_tools("c++", "ovms"))
     for name in ("Git", "CMake"):
         assert checks[name].state == doctor.MISSING
-        assert checks[name].next_action == r".\install.ps1"
+        assert checks[name].next_action == public_entrypoint("install.ps1")
 
 
 def test_missing_managed_ovms_names_setup_before_the_weights(tmp_path):
     checks = _assess(tmp_path, windows=True, launcher=doctor.LauncherFacts(probed=True))
     server = checks["Model server"]
-    assert server.state == doctor.MISSING and server.next_action == r".\install.ps1"
+    assert server.state == doctor.MISSING and server.next_action == public_entrypoint("install.ps1")
     names = list(checks)
     assert names.index("Model server") < names.index("Weights")
 
@@ -224,7 +225,9 @@ def test_repository_states(tmp_path):
     (tmp_path / "plain").mkdir()
     missing = _assess(tmp_path, repo=tmp_path / "plain")["Repository"]
     assert missing.state == doctor.MISSING
-    assert missing.next_action == rf'.\local-code-agent.ps1 init --repo "{(tmp_path / "plain").resolve()}"'
+    assert missing.next_action == (
+        f"{public_entrypoint()} init --repo {powershell_literal((tmp_path / 'plain').resolve())}"
+    )
 
     broken = _repo(tmp_path / "broken", "[profiles\n")
     blocked = _assess(tmp_path, repo=broken)["Repository"]
@@ -243,7 +246,7 @@ def test_python_row_reports_the_runtime_contract(tmp_path, monkeypatch):
                         encoding="utf-8")
     python = doctor.check_python(contract)
     assert python.state == doctor.BLOCKED
-    assert python.next_action == r".\install.ps1"
+    assert python.next_action == public_entrypoint("install.ps1")
     assert "no-such-distribution-lca" in (python.observed or "")
 
 

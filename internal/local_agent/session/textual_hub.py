@@ -488,6 +488,7 @@ class SessionHubApp(App):
                     yield Button("Review", id="review-candidate", disabled=True)
                     yield Button("Apply", id="apply-candidate", disabled=True)
                     yield Button("Undo", id="undo-candidate", disabled=True)
+                    yield Button("Commit", id="commit-candidate", disabled=True)
                 with VerticalScroll(id="attention-pane"):
                     yield Static(
                         render_attention(self.view_state.tasks), id="attention", markup=False,
@@ -580,6 +581,7 @@ class SessionHubApp(App):
         self.query_one("#review-candidate", Button).disabled = not ready
         self.query_one("#apply-candidate", Button).disabled = not ready
         self.query_one("#undo-candidate", Button).disabled = not applied
+        self.query_one("#commit-candidate", Button).disabled = not applied
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "candidate-select":
@@ -589,6 +591,7 @@ class SessionHubApp(App):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         commands = {
             "review-candidate": "diff", "apply-candidate": "apply", "undo-candidate": "undo",
+            "commit-candidate": "commit",
         }
         command = commands.get(event.button.id or "")
         selected = self.query_one("#candidate-select", Select).value

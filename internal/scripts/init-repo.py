@@ -68,7 +68,7 @@ def render(inspection: RepoInspection) -> list[str]:
         "",
         *proposal.rstrip("\n").splitlines(),
         "",
-        f"To write it: {_command(inspection.root, '--write')}",
+        f"To write it: {_command(inspection.root, '--write', *inspection.proposal_options)}",
     ]
     return lines
 
@@ -80,9 +80,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="repository root or a path inside it")
     parser.add_argument("--write", action="store_true",
                         help="write the proposed declaration; never replaces an existing one")
+    parser.add_argument("--allow-patch", action="store_true",
+                        help="opt into isolated candidate repairs; "
+                             "Apply remains an explicit action")
+    parser.add_argument("--allow-commit", action="store_true",
+                        help="opt into explicit exact candidate commits; "
+                             "requires --allow-patch; never pushes")
     args = parser.parse_args(argv)
     try:
-        inspection = inspect_repository(args.repo)
+        inspection = inspect_repository(args.repo, allow_patch=args.allow_patch,
+                                        allow_commit=args.allow_commit)
         lines = render(inspection)
         if args.write:
             if inspection.proposal is None:

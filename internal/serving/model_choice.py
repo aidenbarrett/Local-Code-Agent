@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS
+from local_agent.public_commands import public_entrypoint
 
 CHOICE_FILE = "model-preset.json"
 LOCAL_RUNTIMES = ("ovms", "llamacpp")
@@ -45,12 +46,12 @@ def stored_preset(runtime_root: Path) -> str | None:
         name = json.loads(path.read_text(encoding="utf-8")).get("preset")
     except (OSError, ValueError, AttributeError) as exc:
         raise ModelChoiceError(
-            f"{path} is not a valid model choice; run: .\\local-code-agent.ps1 models use <preset>"
+            f"{path} is not a valid model choice; run: {public_entrypoint()} models use <preset>"
         ) from exc
     if name not in local_presets():
         raise ModelChoiceError(
             f"the stored model preset {name!r} is not available; "
-            "run: .\\local-code-agent.ps1 models use <preset>"
+            f"run: {public_entrypoint()} models use <preset>"
         )
     return str(name)
 
