@@ -263,6 +263,10 @@ class ContextManager:
         first_touched = len(self.messages)
         collapsed = 0
         for idx in [*old, *recent]:
+            # The hysteresis target buys headroom from old evidence. Recent
+            # evidence is sacrificed only to meet the hard request budget.
+            if idx in recent and self.estimated_request_tokens <= self.budget_tokens:
+                break
             try:
                 already = json.loads(self.messages[idx].get("content") or "{}")
             except (ValueError, TypeError):
