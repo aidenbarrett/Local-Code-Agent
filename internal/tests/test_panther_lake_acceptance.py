@@ -47,6 +47,8 @@ def test_summary_projects_only_observed_bundle_facts(tmp_path: Path) -> None:
     assert "Offline gate    VERIFIED" in summary
     assert "Isolation       Wi-Fi disabled; Ethernet unplugged" in summary
     assert "Runtime         OpenVINO" in summary
+    assert "Runtime checks  VERIFIED" in summary
+    assert "Qualification   VERIFIED" not in summary
     assert "Device config   NPU" in summary
     assert "Device observed UNKNOWN" in summary
     assert "Cold latency ms 1200" in summary
