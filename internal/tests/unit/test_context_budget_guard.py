@@ -33,6 +33,27 @@ def test_compaction_can_collapse_recent_large_tool_result_to_avoid_overflow():
     assert event.collapsed_results == 1
     assert json.loads(ctx.messages[-1]["content"])["collapsed"] is True
     assert ctx.estimated_request_tokens < event.tokens_before
+    assert ctx.estimated_request_tokens <= ctx.budget_tokens
+
+
+def test_recent_source_survives_when_old_payload_frees_hard_budget_but_not_target():
+    ctx = ContextManager(budget_tokens=1000, keep_recent_tool_results=1,
+                         request_overhead_tokens=600)
+    ctx.append({"role": "system", "content": "rules" * 80})
+    ctx.append(tool_result_message("old", "search_text", json.dumps({
+        "ok": True, "summary": "old search", "data": {"matches": "x" * 2000},
+    })))
+    source = "return 1;\n" * 50
+    recent = tool_result_message("current", "read_file", json.dumps({
+        "ok": True, "summary": "requested function", "data": {"content": source},
+    }))
+    ctx.append(recent)
+    assert ctx.needs_compaction()
+    event = ctx.compact()
+    assert event is not None and event.collapsed_results == 1
+    assert int(ctx.budget_tokens * ctx.hysteresis) < ctx.estimated_request_tokens <= ctx.budget_tokens
+    assert ctx.messages[-1] == recent
+    assert json.loads(ctx.for_request()[-1]["content"])["data"]["content"] == source
 
 
 def test_model_tool_result_token_budget_can_drop_oversized_payload_without_artifact():
