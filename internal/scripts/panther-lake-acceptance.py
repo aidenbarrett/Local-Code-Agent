@@ -615,7 +615,10 @@ def render_summary(acceptance_path: Path) -> str:
         f"Runtime         {shown(runtime_name)}",
         f"Device config   {shown(configured_device)}",
         f"Device observed {UNKNOWN}",
-        f"Qualification   {shown(qualification.get('ok'))}",
+        # This fact is the retained installation protocol check. Calling it only
+        # "Qualification" made a green runtime check look like physical/offline
+        # certification in the photographable summary.
+        f"Runtime checks  {shown(qualification.get('ok'))}",
         f"Cold latency ms {shown(latency.get('cold')) if captured else UNKNOWN}",
         f"Warm latency ms {shown(latency.get('warm')) if captured else UNKNOWN}",
         f"Lifecycle       {shown(runtime_lifecycle.get('lifecycle'))}",
