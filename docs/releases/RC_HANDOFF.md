@@ -1,6 +1,6 @@
 # Development candidate handoff
 
-Candidate: f86ee50664951dba2afd22886ad3dd5cd718adf6 (tree fd8f09b16a003fdac3e0ae4637b2c71e3ff25235).
+Candidate: d04929c9954ccb8055d9ce6b77e84e39f0c4c808 (tree fe09f6fa006467004635dc1506590995052170ce).
 This is a development candidate. Physical disconnected Panther Lake acceptance,
 configuration-specific model competence and enforced merge policy remain open.
 #403 remains the release decision; this handoff does not close it.
@@ -10,7 +10,7 @@ configuration-specific model competence and enforced merge policy remain open.
 ```powershell
 git clone https://github.com/aidenbarrett/Local-Code-Agent.git
 cd Local-Code-Agent
-git checkout --detach f86ee50664951dba2afd22886ad3dd5cd718adf6
+git checkout --detach d04929c9954ccb8055d9ce6b77e84e39f0c4c808
 .\install.ps1 -CheckOnly
 .\install.ps1 -InstallMissing -SkipModelDownload
 .\local-code-agent.ps1 models
@@ -56,10 +56,12 @@ See [QUICKSTART.md](../../QUICKSTART.md) for setup details and
 
 ## Evidence and limits
 
-The candidate above passed full Linux pytest and all five Windows shards in
-[tests run 38255552082](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38255552082),
-plus native, serving, product, import and integration checks. Independent review
-covered the exact #526 head; the resulting main tree equals the tested tree.
+The candidate above has tree-identical exact-head evidence from #536: full Linux pytest
+and all five Windows shards passed in
+[tests run 38305042339](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38305042339),
+and native, serving, product, import and integration workflows also passed. Independent
+review covered exact head `4ad135e11c8a33042e4accfc96388f3ed3b44994`; merged main has the same
+tree `fe09f6fa006467004635dc1506590995052170ce` as that tested head.
 This is CI/controller evidence, not exact-candidate model or physical qualification.
 
 | Later retained evidence | What it supports | Limit |
