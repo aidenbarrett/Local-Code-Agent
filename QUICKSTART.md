@@ -132,10 +132,12 @@ Fix the failing tests.
 
 The controller decides the permitted route/tools and owns verification. The model never receives arbitrary shell authority and cannot certify its own success.
 
-A verified fix is an isolated candidate. Copy its task ID from the result, inspect
-`/diff <task-id>`, then explicitly `/apply <task-id>` to change your checkout.
-After applying, `/undo <task-id>` restores that candidate's owned changes or
-`/commit <task-id>` commits exactly those changes. Commit does not push. Stale
+A verified fix is an isolated candidate. Select it in the Hub, click **Review**,
+then **Apply** to change your checkout. After applying, **Undo** restores that
+candidate's owned changes or **Commit** commits exactly those changes. Each button
+uses the selected candidate's exact task ID; you do not need to copy it. The
+`/diff`, `/apply`, `/undo` and `/commit` commands with a task ID remain available.
+Commit does not push. Stale
 candidates and later conflicting edits refuse; read the result before retrying.
 
 Stop fences further work and reconciles owned commands. With OVMS, an in-flight
