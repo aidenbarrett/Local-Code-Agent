@@ -3,6 +3,8 @@ from io import StringIO
 from pathlib import Path
 import sys
 
+import pytest
+
 
 REPO = Path(__file__).resolve().parents[3]
 INTERNAL = REPO / "internal"
@@ -138,6 +140,51 @@ def test_large_final_answer_is_spooled_instead_of_using_a_blocking_pipe(monkeypa
     args = presenter.build_parser().parse_args(["Inspect", "--profile", "ptl-gpu-30b"])
 
     assert presenter._run_agent(term, args) == (0, expected)
+
+
+def test_interrupt_terminates_and_reaps_the_headless_agent(monkeypatch):
+    presenter = _presenter()
+    calls = []
+
+    class InterruptedStderr:
+        def __iter__(self):
+            raise KeyboardInterrupt
+
+    class Process:
+        stderr = InterruptedStderr()
+
+        @staticmethod
+        def terminate():
+            calls.append("terminate")
+
+        @staticmethod
+        def wait(*, timeout=None):
+            calls.append(("wait", timeout))
+            return 130
+
+    monkeypatch.setattr(presenter.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    term = presenter_ui(StringIO())
+    args = presenter.build_parser().parse_args(["Inspect", "--profile", "ptl-gpu-30b"])
+
+    with pytest.raises(KeyboardInterrupt):
+        presenter._run_agent(term, args)
+    assert calls == ["terminate", ("wait", presenter._INTERRUPT_WAIT_S)]
+
+
+def test_interrupt_returns_a_clean_public_result(tmp_path, monkeypatch):
+    presenter = _presenter()
+    stream = StringIO()
+    monkeypatch.setattr(presenter, "default_runtime_root", lambda: tmp_path)
+    monkeypatch.setattr(presenter, "ui", lambda: presenter_ui(stream))
+    monkeypatch.setattr(presenter, "_prepare_server", lambda *_args: 0)
+    monkeypatch.setattr(
+        presenter,
+        "_run_agent",
+        lambda *_args: (_ for _ in ()).throw(KeyboardInterrupt),
+    )
+
+    assert presenter.main(["Inspect", "--profile", "ptl-gpu-30b"]) == 130
+    assert "Task interrupted; the headless agent process has ended" in stream.getvalue()
 
 
 def test_default_stored_and_explicit_choice_drive_server_agent_and_labels(tmp_path, monkeypatch):
