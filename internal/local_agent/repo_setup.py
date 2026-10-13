@@ -20,6 +20,7 @@ import tempfile
 import tomllib
 
 from .config import DEFAULT_CONFIG_NAME, ConfigError, RepoConfig, find_repo_root, load_repo_config
+from .public_commands import powershell_literal, public_entrypoint
 
 # Root-level markers of a build system, by file name.
 _MARKERS: dict[str, str] = {
@@ -53,7 +54,7 @@ _CMAKE_PROFILE = (
 
 def init_command(root: Path) -> str:
     """The one supported next action for a repository with no declaration."""
-    return f'.\\local-code-agent.ps1 init --repo "{root}"'
+    return f"{public_entrypoint()} init --repo {powershell_literal(root)}"
 
 
 class RepoSetupError(Exception):
