@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `d6606ca0f8354cebaf9748c71260e041170ee615`
+Reconciled against GitHub `main` at `1822c5c578e8c8fc054c72709389ebe58d54b706`
 on 2026-10-13. One CPU-reference model repair on pinned cxxopts produced the exact
 identifier fix, passed its configured full build and independent full tests, and
 completed diff/apply/exact commit with unrelated work preserved after PR#517 repaired
@@ -15,6 +15,16 @@ after its 300-second repair budget and remains UNKNOWN; its original raw report,
 unchanged upstream tests, baseline logs and preparation errors are retained in
 `internal/docs/rc-model-production-test-2026-10-12.json`. Neither observation
 replaces #293's physical GPU30B J10 comparison or certifies offline operation.
+
+Two later 900s CPU30B repairs also stayed UNKNOWN (927.5s and 982.6s).
+The first accepted a post-cancellation empty proposal; the second received the
+repaired Catch2 assertion evidence but produced no proposal or Apply. Five
+packaging tests also exposed MSVC file-tracker path errors in its deeply nested
+candidate, so its full-suite outcome is environmentally confounded. Exact
+records remain in `internal/docs/rc-model-count-lookup-diagnostic-2026-10-13.json`
+and `internal/docs/rc-model-catch2-evidence-diagnostic-2026-10-13.json`. The bounded
+lookup, no-op refusal and assertion-evidence fixes have independent review and
+full Linux/Windows CI; they do not establish successful real-model repair.
 
 ## Capability ledger
 

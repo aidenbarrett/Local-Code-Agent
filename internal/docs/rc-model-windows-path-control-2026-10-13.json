@@ -1,0 +1,129 @@
+{
+  "kind": "unchanged-source-windows-path-control",
+  "proof": "controller/build-system control; no model",
+  "upstream_commit": "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa",
+  "licence": "MIT",
+  "runs": [
+    {
+      "label": "short",
+      "root": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cxxopts-short-20261013",
+      "root_characters": 60,
+      "head": "7fa6feef8da9e92833a3e1782e7a933563b58ffa",
+      "source_test_diff": "",
+      "commands": [
+        {
+          "argv": [
+            "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+            "-S",
+            ".",
+            "-B",
+            "build-i",
+            "-DCMAKE_BUILD_TYPE=Debug",
+            "-DCXXOPTS_BUILD_TESTS=ON",
+            "-DCXXOPTS_BUILD_EXAMPLES=OFF"
+          ],
+          "exit_code": 0,
+          "bytes": 640,
+          "sha256": "e4de8999a1c20aaed0e06a5762fbe7167b84becfbd117cc1d9439cc7cc2cd04b",
+          "gzip_base64": "H4sIAAAAAAAC/41STU/DMAy98yt8ZIc0bRkDdhud+BAgIW0Mrlnqbta6uEpc1p9PMya+JASHyJHfs+X3bKXgsqW6JLeCiv0YFhRaU8NM2pIYsjPI0zw/UgpmWKOVyHsmV/IuwGx6B6/oA7GDLE3SJB9laR9BGMT4FcoH9QDnPRx7zdcIxcsLWN42VKMHKtEJVWSNxG4U4GG2KCC7SIbD5OQ0zy+SNBZOUQ5DfCufXN4CuYr/QQEFJTuMzGKNdhNVw4795mfFGIqxfvS88mYLV30mwHF3PhroB7KeA1fy3SsdjdJ7M+fMddCLQr9/ohSdDQ9S0jO9JKdvOEg3Gur4bJ1gh/1kYUNNg+WvMqBCI63H8Dfjq052Fa1aH6kxB8dZMgqDCF2jQ2/kE0mT7B3ZC4Fqr3ttXhGWiA52nkT6KLy35yn069cmbk9PmmZqxOh7tqbWc9w2urZG2a7jRoIKa/aieo/6G8lO9DK2V3T0BkErCdGAAgAA"
+        },
+        {
+          "argv": [
+            "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+            "--build",
+            "build-i",
+            "--config",
+            "Debug",
+            "--parallel",
+            "4"
+          ],
+          "exit_code": 0,
+          "bytes": 5288,
+          "sha256": "d65fbbec467e685fea5c0938cb523fb96c5cc41f072ab2c832f7e8777b55f5de",
+          "gzip_base64": "H4sIAAAAAAAC/+2YXW/aMBSG7yv1P5xLqo588D00VWrTbqsG61RoLzZPyCQH8HDsyHZo+u/nBDqg6qZWK2iachdZJ+e13/P4OE5/cJYyHsEClWZSgN92/IbT8o4b9XGr3mz7HZhIBc7niyG8VzTGO6nmhweHB0GXfFFyaofgPeOooZJ1Wkekz0IltZwYuGU6pRwGJo2YJDWvViOF1FBKrkl/qbuOJ7cBWfhtbz3iBElSBDmGqikaXWk2Om+aR124o0owMQWbpOPV3nZhOEO4FAZVjBGjBiFiCkMj1T3YyV+lJknNxlhIhZAGFGoWIaQiQgXGphhinEhFbcQ6lmpgBkKZWpM40giMBKZ1ald8x8wMmAgVxiiMXeu4mC18s97caGsooTa/IKdJck4NJT0ZUk5yEcJDWg2zTCZGV/VMKlO1BrV8z6+TIkmVka8X11ej4ONF8MlZhFmi5I/vhwcA/kkww3CeL39ZucG9NhiXBdl5QQxqQzgT81H+tFWUwpXcgCDVRsZwnXKEoOsWom4h6q5E3ULUzUXd34u6uYQb9Okce0wb7ZjMlCXeT4ltgO2E+nGVS/P3bf5ISIVTzLa2WrEBqRMmyR433h6FYsrEcnV/CZzF64E8+2gP9UbDqTdrXpvYCvI0wpXXlFd8f4OxwbDX8OqdJWOhtJAJo0FO4N1D/AlQhUAXlHE6tjZIwe+XbATHx347J5BbJtXOG+/OHZrkWYvzteLXnuXR+o1/xqVNplb7Z1wSVhL2moR9QIGKmqJByggdx/nF2mYsVE/g9aZyjuN0ujEhzDBXXR0hJeIvPl1L2l/8OVLCtufv6P8csmd01adH/0TqLtruk3rbHXjnrX9Lp9AuL2k7vqSd9nqjs5vL3vmO/388vhj9BOQJTNCoFAAA"
+        },
+        {
+          "argv": [
+            "C:\\Program Files\\CMake\\bin\\ctest.EXE",
+            "--test-dir",
+            "build-i",
+            "-C",
+            "Debug",
+            "--output-on-failure",
+            "--timeout",
+            "120"
+          ],
+          "exit_code": 0,
+          "bytes": 860,
+          "sha256": "1ab5cc4e86fa1f7477e48736f317123eb70240e43e55ac5f55cd707c302eab67",
+          "gzip_base64": "H4sIAAAAAAAC/4XRT0+DMBgG8Duf4k2MiR5Ky5+BkngwevRgIp6Xd7RgXUebtpj57WVjQUcG9tj3yfNL35bCeTBWf4rKw1NB352wjqLkoqWPxjyjR/qiK1S0FDtDVYWk2u+18Y64D209iVmcRSxK6KaTihMZQH/ePFoPUQF9UOrWBRHNoTxQV7+XEM6evuIVnRP8UMZCloMT1Z/meCxZt3ptRSP2QTwSF6bwL7GaEEkBtWw5MVhtsRHE99VBMhqXxrBopGF8NzHSApBz4roNl7b/AG2/BycdnbkILDnJxFkVYLYNqXRby4ZwUWOn/CCtRmk+BDNSFN5PX5SdlVih0Muv0/KykVpIwWUqDlk0ofKzEtw4rTp/ovKRWkjNU+xIBRFj13BIOjDDWHcedA15EJTaoxoML3cCbqxAdQsP/VbSMMuOBT+KDUdLXAMAAA=="
+        }
+      ]
+    },
+    {
+      "label": "long",
+      "root": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\control\\hub\\X05-catch2-count-repair\\ws\\clean-source",
+      "root_characters": 132,
+      "head": "1c1e6fac15a39428f61697d38512ab97f492c73b",
+      "source_test_diff": "",
+      "commands": [
+        {
+          "argv": [
+            "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+            "-S",
+            ".",
+            "-B",
+            "build-i",
+            "-DCMAKE_BUILD_TYPE=Debug",
+            "-DCXXOPTS_BUILD_TESTS=ON",
+            "-DCXXOPTS_BUILD_EXAMPLES=OFF"
+          ],
+          "exit_code": 0,
+          "bytes": 712,
+          "sha256": "c7298735c1c3ada9ab04a487ae305080ec617deb5f5793abf35d72c1ddb3a774",
+          "gzip_base64": "H4sIAAAAAAAC/41Sy27bMBC85yv2mByoleRHGt8SGX2gDVDArusrRa3khWWuQFK2P7+k47RNgaI9ECR2ZhY7s1QKnkbuG7YdtOIWsGE/6h5WYWxYoLiHMi/LG6VgRT2ZkHjf2TZy8rBafoYjOc9iocizPCvnRR5vCAJBu47CT+oVLiOceq13BNV2C0YOA/fkgBuygVs2OqRu7OF5tamgeMim02wyK8uHLE/CJYXrEG/kj0+fgG0r/0EBBY1YSsxqR2afXMNJ3P5PxQKqBX510jl9gPex4uH2/G5+h89snHhpw9usMAWFlzDXIr3HTYUvj2QFi+nVSn6PNVv8KD6c51NMx/QZnSlO5vc8DNT81Qa0pMPoyP+b8btPsS13o0vUVIPbIpv5uwR9IEtOh19InhUvyMUItBffO30kqIksnByHEO8gl3i++bh+1Gl7+DgMSx00fhGje1zTYcDeaGWGcZLXKi7W7EpFx8Q1pBrWnY0RsFExt/hvigkascFJj7uxxm0+e9UYGW1QjgbNDk8+pkXaKi+jM4R1GlPxzQ9XD3NDyAIAAA=="
+        },
+        {
+          "argv": [
+            "C:\\Program Files\\CMake\\bin\\cmake.EXE",
+            "--build",
+            "build-i",
+            "--config",
+            "Debug",
+            "--parallel",
+            "4"
+          ],
+          "exit_code": 0,
+          "bytes": 6728,
+          "sha256": "1e40ffe93f5cac6ccc71d0b01cbcdfd01183cb311486745200579af1ea3ff849",
+          "gzip_base64": "H4sIAAAAAAAC/+1Ya0/bMBT9jsR/uB+LWF59r5qQIMCG1o6JFjRtnirXuW09Ujuynbb8+zlpoe0E0h4aIijfIuvaPvfcc3wd9/onKY8jmKPSXAoIWm5Qd5v+Yb02atYaraANY6nA/XQ2gHNFZ7iQ6nZ/b38v7JDPSk7sEJzzGDVUlu3mAelxpqSWYwM3XKc0hr5JIy5J1a9WSb7VQMpYk95q3008uQnJPGj5mxE3TJI8yDVUTdDoSqPeftM46MCCKsHFBOwibb/6tgODKcKFMKhmGHFqECKukBmp7sCCv0xNkpqtMUaFkAYUah4hpCJCBcYuMcBZIhW1EZtYqoEbYDK1JMVIIzASuNapzXjBzRS4YApnKIzNdZSjhW+Wm2ttCSXUri/IcZKcUkNJVzIak2wTEjPqsCSt+SOHUcOmVQfnWSxDxyYwEVIbzhxLWjPwgxphUhglYzJNR+SL37ifY1EJ4yhMKFdkoQmzAIWjZaoYkhyMw8nXs6vLYfjhLPzoztkyUfLH9/09gOAonCK7zWhcKaB/pw3OysIWprAGtSExF7fD7GunuDm7GZFhqo2cwVUaI4QdLwfv5eC9NXgvB+9l4L0/A++twXsWvPcEeG+hvW3wXgbVC3v0FrtcG+2apSklVyzJycTYTqFz1Q2FVDjB5Zb6ymIWtZg7R0h+sFCXJUkBD5QCAp5RLlZs/6OBrF3unWQ/7WWuXndrjarfIlaRcRrhuuY0rgTBlmf6g27dr7VXnskSs9LVIMfw7j7+CKhCoHPKYzqydEoR3620Hh4eBq3MUbH1mCpMo/zvTI+zVfN7VSWo/hbXmxmvju1tja/Pl1Gp+FLxr1nx71GgoiZvRDJC13UftL8dC84RvLyUTnGUTrYSwyVm6NdXhtK6z34rK9377NfgUuwF/58sRf+3xD/VvR4ffcxBL7mt7eDd7WyPElKUXB5w5zmVjzEFeYw57naHJ9cX3dOCvOP++oDxE9txZ4VIGgAA"
+        },
+        {
+          "argv": [
+            "C:\\Program Files\\CMake\\bin\\ctest.EXE",
+            "--test-dir",
+            "build-i",
+            "-C",
+            "Debug",
+            "--output-on-failure",
+            "--timeout",
+            "120"
+          ],
+          "exit_code": 8,
+          "bytes": 95109,
+          "sha256": "18fce493e26a72481378625be75835014dfc7173448b3b5099df41d117bcdc54",
+          "gzip_base64": "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"
+        }
+      ]
+    }
+  ],
+  "operator_driver": {
+    "bytes": 2675,
+    "sha256": "a74c2825bf41ce1ae6e76fd277ff200f5502e319555fd71d332b5caadfaeaa16",
+    "raw_utf8": "from __future__ import annotations\nimport hashlib\nimport importlib.util\nimport json\nimport os\nfrom pathlib import Path\nimport shutil\nimport subprocess\nimport sys\n\nproduct = Path.cwd()\nout = Path(os.environ[\"TEMP\"]) / \"lca-cxxopts-path-control-20261013\"\nout.mkdir(exist_ok=False)\nspec = importlib.util.spec_from_file_location(\"path_control\", product / \"internal/scripts/acceptance-journeys.py\")\nassert spec and spec.loader\nh = importlib.util.module_from_spec(spec)\nsys.modules[spec.name] = h\nspec.loader.exec_module(h)\nentry = h.corpus.load_manifest()[\"cxxopts\"]\ncached = h.corpus.cached_copy(entry, Path(os.environ[\"LOCALAPPDATA\"]) / \"LocalCodeAgent/qualification-cache\")\nassert cached is not None\nlong = Path(os.environ[\"TEMP\"]) / \"lca-cpu30b-catch2-evidence-diagnostic-20261013/control/hub/X05-catch2-count-repair/ws/clean-source\"\nshort = Path(os.environ[\"TEMP\"]) / \"lca-cxxopts-short-20261013\"\ndata = {\"kind\": \"unchanged-source-windows-path-control\", \"proof\": \"controller/build-system control; no model\", \"upstream_commit\": entry.commit, \"licence\": \"MIT\", \"runs\": []}\nfor label, target in ((\"short\", short), (\"long\", long)):\n    assert not target.exists()\n    repo = h.corpus.disposable_copy(entry, cached, target)\n    commands = h._independent_commands(repo)\n    records = []\n    for index, argv in enumerate(commands):\n        exe = shutil.which(argv[0])\n        assert exe is not None\n        bound = [\"--timeout\", str(h.CTEST_PER_TEST_SECONDS)] if Path(argv[0]).name.lower().startswith(\"ctest\") else []\n        path = out / f\"{label}-{index}.log\"\n        with path.open(\"wb\") as capture:\n            run = subprocess.run([exe, *argv[1:], *bound], cwd=repo, env={**os.environ, **h._INDEPENDENT_ENV}, stdout=capture, stderr=subprocess.STDOUT, timeout=1800, check=False)\n        raw = path.read_bytes()\n        records.append({\"argv\": [exe, *argv[1:], *bound], \"exit_code\": run.returncode, \"bytes\": len(raw), \"sha256\": hashlib.sha256(raw).hexdigest(), \"raw_utf8\": raw.decode(\"utf-8\", errors=\"replace\")})\n        if run.returncode:\n            break\n    head = subprocess.check_output([\"git\", \"rev-parse\", \"HEAD\"], cwd=repo).decode().strip()\n    source_diff = subprocess.check_output([\"git\", \"diff\", entry.commit, \"--\", \"include\", \"test\"], cwd=repo).decode()\n    assert not source_diff\n    data[\"runs\"].append({\"label\": label, \"root\": str(repo), \"root_characters\": len(str(repo)), \"head\": head, \"source_test_diff\": source_diff, \"commands\": records})\n    (out / \"receipt.json\").write_text(json.dumps(data, indent=2) + \"\\n\", encoding=\"utf-8\")\n    print(json.dumps({\"label\": label, \"root_characters\": len(str(repo)), \"exits\": [r[\"exit_code\"] for r in records]}), flush=True)\n"
+  },
+  "outcome": "unchanged source: short configure/build/test exit0/0/0, all7testsPASS; long0/0/8, fivepackagefailures with MSVC FTK1011; twooptions testsPASS",
+  "limits": "same repository/profile/toolchain; path-length control, no model, timing, general filesystem threshold or default-user-workspace failure claim",
+  "identical_source_tree": "317923ab78b381fe350dfbbf2a6bde1702e52020",
+  "identical_profile_sha256": "c7306f546155c21b052f9bff9b863a6a5e8ad962bb9a4524efa8b79b28393357"
+}
