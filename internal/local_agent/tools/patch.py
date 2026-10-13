@@ -254,6 +254,11 @@ def _replace_once(text: str, find: str, replace: str) -> tuple[str, str]:
     if numbered is not None:
         match = ("line_numbers_stripped" if match == "exact"
                  else "line_numbers_stripped_whitespace_tolerant")
+    if updated == text:
+        raise ToolError(
+            "This replacement changes no bytes. Read the faulty code and propose "
+            "a replacement that changes it."
+        )
     return updated, match
 
 
@@ -347,6 +352,11 @@ def register(reg: ToolRegistry, ctx: ToolContext, store: PatchStore) -> None:
                     stacked_on = pending.patch_id
                 except ToolError:
                     stacked_on = None  # ambiguous on the combined text: replace instead
+        if updated == original:
+            raise ToolError(
+                "The combined proposal changes no bytes from the file on disk. "
+                "The previous pending proposal is retained."
+            )
         rel = relpath(ctx.root, target)
         diff = "".join(
             difflib.unified_diff(

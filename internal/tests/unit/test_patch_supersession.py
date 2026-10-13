@@ -80,6 +80,59 @@ def test_invalid_new_proposal_does_not_displace_valid_one(sandbox):
     assert "// valid" in (sandbox.root / RING).read_text()
 
 
+@pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize("find,replace", [
+    ("    --count_;\n", "    --count_;\n"),
+    ("--count_;", "--count_;"),
+    ("91:     --count_;\n", "91:     --count_;\n"),
+    ("91:     --count_;\n", "    --count_;\n"),
+    ("  --count_;\n", "  --count_;\n"),
+])
+def test_no_op_proposal_is_refused_without_displacing_pending(sandbox, pending, find, replace):
+    propose, _new, apply, store = _tools(sandbox)
+    target = sandbox.root / RING
+    original = target.read_bytes()
+    old = propose(path=RING, find="++count_;", replace="++count_; // valid") if pending else None
+    with pytest.raises(ToolError, match="changes no bytes"):
+        propose(path=RING, find=find, replace=replace)
+    assert target.read_bytes() == original
+    assert len(store) == int(pending)
+    if old is not None:
+        apply(patch_id=old.data["patch_id"])
+        assert "// valid" in target.read_text()
+
+
+def test_reverting_pending_to_original_is_refused_and_preserves_pending(sandbox):
+    propose, _new, apply, store = _tools(sandbox)
+    old = propose(path=RING, find="++count_;", replace="++count_; // valid")
+    with pytest.raises(ToolError, match="changes no bytes"):
+        propose(path=RING, find="++count_; // valid", replace="++count_;")
+    assert len(store) == 1
+    apply(patch_id=old.data["patch_id"])
+    assert "// valid" in (sandbox.root / RING).read_text()
+
+
+def test_no_op_on_pending_text_preserves_pending(sandbox):
+    propose, _new, apply, store = _tools(sandbox)
+    old = propose(path=RING, find="++count_;", replace="++count_; // valid")
+    with pytest.raises(ToolError, match="changes no bytes"):
+        propose(path=RING, find="// valid", replace="// valid")
+    assert len(store) == 1
+    apply(patch_id=old.data["patch_id"])
+    assert "// valid" in (sandbox.root / RING).read_text()
+
+
+def test_repeating_meaningful_proposal_remains_supported(sandbox):
+    propose, _new, apply, store = _tools(sandbox)
+    old = propose(path=RING, find="++count_;", replace="++count_; // valid")
+    repeated = propose(path=RING, find="++count_;", replace="++count_; // valid")
+    assert repeated.data["supersedes"] == old.data["patch_id"]
+    assert repeated.data["diff"]
+    assert len(store) == 1
+    apply(patch_id=repeated.data["patch_id"])
+    assert "// valid" in (sandbox.root / RING).read_text()
+
+
 def test_a_combined_proposal_still_refuses_an_external_file_change(sandbox):
     propose, _new, apply, _store = _tools(sandbox)
     propose(path=RING, find="    ++count_;\n", replace="    ++count_;  // pushed\n")
