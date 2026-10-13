@@ -1,7 +1,7 @@
 {
   "kind": "rc-real-model-production-test-measurement",
   "schema_version": 1,
-  "status": "prepared; model not dispatched",
+  "status": "attempt retained; independent candidate review pending",
   "product": {
     "package_commit": "4e1b398b7057cfb3070ec1ee7e9450a300850d25",
     "package_dirty": true,
@@ -62,11 +62,44 @@
       "bytes": 4000,
       "sha256": "0bdf5809f11248cc731075189d8522f6ebdf764ab0bff331954db585d99a9f6d",
       "raw_utf8": "gnostic-20261013\\broken\\test\\options.cpp(915)\n...............................................................................\n\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(929): FAILED:\n  REQUIRE( result.count(\"positional\") == 4 )\nwith expansion:\n  1 == 4\n\n-------------------------------------------------------------------------------\nInteger bounds\n  No overflow\n-------------------------------------------------------------------------------\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(960)\n...............................................................................\n\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(970): FAILED:\n  REQUIRE( result.count(\"positional\") == 5 )\nwith expansion:\n  1 == 5\n\n-------------------------------------------------------------------------------\nFloats\n-------------------------------------------------------------------------------\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(1037)\n...............................................................................\n\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(1053): FAILED:\n  REQUIRE( result.count(\"positional\") == 4 )\nwith expansion:\n  1 == 4\n\n-------------------------------------------------------------------------------\nBooleans\n-------------------------------------------------------------------------------\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(1124)\n...............................................................................\n\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(1152): FAILED:\n  REQUIRE( result.count(\"noExplicitDefault\") == 0 )\nwith expansion:\n  1 == 0\n\n-------------------------------------------------------------------------------\nInitializer list with group\n-------------------------------------------------------------------------------\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(1465)\n...............................................................................\n\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(1496): FAILED:\n  CHECK( result.count(\"help\") == 0 )\nwith expansion:\n  1 == 0\n\n-------------------------------------------------------------------------------\nParameter follow option\n-------------------------------------------------------------------------------\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(1542)\n...............................................................................\n\nC:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\broken\\test\\options.cpp(1558): FAILED:\n  REQUIRE( result.count(\"job\") == 4 )\nwith expansion:\n  1 == 4\n\n===============================================================================\ntest cases:  48 |  37 passed | 11 failed\nassertions: 311 | 294 passed | 17 failed\n\n\n    Start 3: find-package-test\n3/7 Test #3: find-package-test ................   Passed    4.21 sec\n    Start 4: add-subdirectory-test\n4/7 Test #4: add-subdirectory-test ............   Passed    3.93 sec\n    Start 5: pkg-config-default-test\n5/7 Test #5: pkg-config-default-test ..........   Passed    1.88 sec\n    Start 6: pkg-config-relative-test\n6/7 Test #6: pkg-config-relative-test .........   Passed    1.81 sec\n    Start 7: pkg-config-absolute-test\n7/7 Test #7: pkg-config-absolute-test .........   Passed    1.86 sec\n\n71% tests passed, 2 tests failed out of 7\n\nTotal Test time (real) =  13.84 sec\n\nThe following tests FAILED:\n\t  1 - options (Failed)\n\t  2 - options_no_regex (Failed)\nErrors while running CTest\n"
+    },
+    "trial_report": {
+      "local_path": "C:\\Users\\aiden\\AppData\\Local\\Temp\\lca-cpu30b-catch2-evidence-diagnostic-20261013\\trial\\journeys.json",
+      "bytes": 2012,
+      "sha256": "0ffc00b6719e3e5bd44e91f8126d3d300a6eac0df90262fd58dc3c40af40865a",
+      "raw_utf8": "{\r\n \"schema\": \"lca.acceptance-journeys/1\",\r\n \"started_unix\": 1791911026.3449416,\r\n \"finished_unix\": 1791911037.0899076,\r\n \"profile\": \"nuc-cpu-30b\",\r\n \"model\": \"OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov\",\r\n \"base_url\": \"http://127.0.0.1:8000/v3\",\r\n \"preconditions\": {\r\n  \"product\": {\r\n   \"package_commit\": \"4e1b398b7057cfb3070ec1ee7e9450a300850d25\",\r\n   \"package_dirty\": true,\r\n   \"package_source\": \"git\",\r\n   \"source_sha256\": \"9677fa15739ae770a541d4a2bc52029949f85d70d01c944349a4e568e36592a7\"\r\n  },\r\n  \"platform\": \"Windows-11-10.0.26200-SP0\",\r\n  \"python\": \"3.13.5\",\r\n  \"git\": \"C:\\\\Program Files\\\\Git\\\\cmd\\\\git.EXE\",\r\n  \"cmake\": \"C:\\\\Program Files\\\\CMake\\\\bin\\\\cmake.EXE\",\r\n  \"fixture_builds\": null,\r\n  \"model_endpoint\": {\r\n   \"ok\": false,\r\n   \"message\": \"managed model endpoint could not be started: server executable not found: ovms.exe; import setupvars or use --executable\",\r\n   \"lifecycle\": \"refused\",\r\n   \"replaced_reason\": null,\r\n   \"refused_reason\": \"start_failed\",\r\n   \"changed_fields\": [],\r\n   \"launch_to_ready_ms\": null\r\n  },\r\n  \"runtime_header\": \"preset nuc-cpu-30b \\u00b7 model unobserved (observed) \\u00b7 device CPU (declared) \\u00b7 endpoint http://127.0.0.1:8000/v3 \\u00b7 execution enabled\"\r\n },\r\n \"journeys\": [\r\n  {\r\n   \"id\": \"X05-catch2-count-repair\",\r\n   \"title\": \"repair production count defect with upstream tests unchanged\",\r\n   \"kind\": \"model\",\r\n   \"status\": \"UNKNOWN\",\r\n   \"reason\": \"endpoint not ready\",\r\n   \"seconds\": 0.0,\r\n   \"notes\": [],\r\n   \"tasks\": [],\r\n   \"measured\": {},\r\n   \"tool_failures\": [],\r\n   \"attempted\": false\r\n  }\r\n ],\r\n \"corpus\": {\r\n  \"name\": \"cxxopts\",\r\n  \"commit\": \"639cdbad93d45e74fd781e4cf6b0ac798eeec2aa\",\r\n  \"licence\": \"MIT\",\r\n  \"metrics\": {\r\n   \"attempted\": 0,\r\n   \"completed_verified\": 0,\r\n   \"not_attempted\": 1,\r\n   \"unknown_outcomes\": 0,\r\n   \"refusal_correctness\": null,\r\n   \"user_interventions\": null,\r\n   \"cold_build_s\": null,\r\n   \"warm_test_s\": null,\r\n   \"unrelated_work_preserved\": {},\r\n   \"failure_reasons\": {},\r\n   \"rate_claimed\": false\r\n  }\r\n }\r\n}"
     }
   },
   "remaining": [
     "one frozen real-model attempt",
     "retain raw report, transcript, events and candidate sidecar",
     "independent candidate full tests if produced"
-  ]
+  ],
+  "effective_model_settings": {
+    "model": "OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov",
+    "device": "CPU",
+    "device_note": "CPU",
+    "server_max_prompt_length": 16384,
+    "llama_backend": "native",
+    "tier": "strong",
+    "runtime": "ovms",
+    "runtime_version": "2026.3.0",
+    "quant": "INT4_ASYM",
+    "tool_parser": "qwen3coder",
+    "thinking": null,
+    "context_budget_tokens": 12000,
+    "max_tool_result_tokens": 1500,
+    "temperature": 0.2,
+    "top_k": 40,
+    "top_p": 0.95,
+    "min_p": 0.05,
+    "connect_timeout_s": 10.0,
+    "read_timeout_s": 120.0,
+    "request_deadline_s": 600.0,
+    "stall_tok_s": 1.0,
+    "stall_window_s": 60.0,
+    "stream": true,
+    "stop_proof": "none",
+    "max_tokens": 2048
+  }
 }
