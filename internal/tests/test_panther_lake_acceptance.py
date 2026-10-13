@@ -38,6 +38,14 @@ def test_summary_projects_only_observed_bundle_facts(tmp_path: Path) -> None:
             "model_manifest_summary": {"source_model": "Qwen"},
             "qualification_summary": {"ok": True},
             "latency_ms": {"cold": 1200, "warm": 450},
+            "run_evidence": {
+                "journeys": {
+                    "J05-stop-build": {"status": "PASS"},
+                    "J07-stop-model": {"status": "PASS"},
+                    "J24-continuous": {"status": "PASS"},
+                },
+                "continuous_workflow": {"unrelated_work_preserved": True},
+            },
         },
     )
 
@@ -52,8 +60,12 @@ def test_summary_projects_only_observed_bundle_facts(tmp_path: Path) -> None:
     assert "Device config   NPU" in summary
     assert "Device observed UNKNOWN" in summary
     assert "Cold latency ms 1200" in summary
-    assert "Build journey   UNKNOWN" in summary
-    assert "Stop            UNKNOWN" in summary
+    assert "Build/diagnose  PASS" in summary
+    assert "Candidate flow  PASS" in summary
+    assert "User work kept  VERIFIED" in summary
+    assert "Stop build      PASS" in summary
+    assert "Stop model      PASS" in summary
+    assert "Next after Stop PASS" in summary
     assert "Overall         INCOMPLETE - HUMAN REVIEW REQUIRED" in summary
     assert hashlib.sha256(path.read_bytes()).hexdigest() in summary
 
