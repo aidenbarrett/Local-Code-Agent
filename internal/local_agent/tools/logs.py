@@ -59,6 +59,10 @@ _CTEST_SUMMARY = re.compile(
     r"(?P<total>\d+)"
 )
 _CTEST_PASS_LINE = re.compile(r"^\s*\d+/\d+\s+Test\s+#\d+:\s+(?P<name>\S+)\s+\.+\s+Passed")
+_CATCH_FAILURE = re.compile(
+    r"^(?P<file>.+?)(?:\((?P<msvc_line>\d+)\)|:(?P<gnu_line>\d+)):\s+FAILED:\s*$"
+)
+_CATCH_EXPRESSION = re.compile(r"^(?:CHECK|REQUIRE)(?:_[A-Z_]+)?\s*\(")
 
 
 @dataclass
@@ -270,6 +274,22 @@ def parse_test_log(text: str) -> TestLogReport:
                 "total": int(sm.group("total")),
                 "passed": int(sm.group("total")) - int(sm.group("failed")),
             }
+            continue
+
+        cm = _CATCH_FAILURE.match(line.strip())
+        if cm and idx < len(lines) and _CATCH_EXPRESSION.match(lines[idx].strip()):
+            # Catch2 puts the expression on the next line, not in its location
+            # marker. Keep it first so long Windows paths cannot hide the cause
+            # when the worker's summary is bounded or older context collapses.
+            expression = lines[idx].strip()
+            if idx + 2 < len(lines) and lines[idx + 1].strip() == "with expansion:":
+                expression += " with expansion: " + lines[idx + 2].strip()
+            report.assertions.append({
+                "file": cm.group("file"),
+                "line": int(cm.group("msvc_line") or cm.group("gnu_line")),
+                "log_line": idx,
+                "text": expression[:300],
+            })
             continue
 
         for pat in _CRASH_PATTERNS:
