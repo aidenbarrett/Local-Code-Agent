@@ -110,5 +110,10 @@
     "prompt_tokens": 3374,
     "tool_calls": 1,
     "first_token_exceeded_original_120s": false
+  },
+  "cleanup": {
+    "stopped": true,
+    "forced": true,
+    "observation": "owned serve.py stop exited0; process cleanup only"
   }
 }
