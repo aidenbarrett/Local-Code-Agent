@@ -207,6 +207,16 @@ def test_local_code_agent_root_facade_is_the_default_product_surface():
     assert "(Join-Path $internal 'scripts\\capabilities.py')" in wrapper
 
 
+def test_doctor_remains_available_when_runtime_preflight_fails():
+    wrapper = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
+    gate = "if ($LASTEXITCODE -ne 0 -and $Command.ToLowerInvariant() -ne 'doctor') {"
+    assert gate in wrapper
+    assert wrapper.index("& $python $preflight --pyproject $pyproject") < wrapper.index(gate)
+    assert wrapper.index(gate) < wrapper.index("'doctor' {")
+    # Every command with product effects still stops at the same preflight refusal.
+    assert wrapper.count("$Command.ToLowerInvariant() -ne 'doctor'") == 1
+
+
 def test_public_help_teaches_model_listing_download_choice_and_one_run_override(monkeypatch):
     product_help = _load_product_help_module()
     stream = io.StringIO()

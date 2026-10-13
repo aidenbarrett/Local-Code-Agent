@@ -83,7 +83,7 @@ if (-not (Test-Path $preflight) -or -not (Test-Path $pyproject)) {
 Write-StartupTrace 'preflight-start' $preflight
 & $python $preflight --pyproject $pyproject
 Write-StartupTrace 'preflight-finished' ("exit={0}" -f $LASTEXITCODE)
-if ($LASTEXITCODE -ne 0) {
+if ($LASTEXITCODE -ne 0 -and $Command.ToLowerInvariant() -ne 'doctor') {
     Write-Host ''
     Write-Host 'Local Code Agent will not start with this Python environment.'
     Write-Host ("Selected interpreter: {0}" -f $python)
