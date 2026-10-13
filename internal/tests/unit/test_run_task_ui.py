@@ -171,6 +171,77 @@ def test_interrupt_terminates_and_reaps_the_headless_agent(monkeypatch):
     assert calls == ["terminate", ("wait", presenter._INTERRUPT_WAIT_S)]
 
 
+def test_interrupt_while_waiting_still_terminates_and_reaps_the_agent(monkeypatch):
+    presenter = _presenter()
+    calls = []
+
+    class Process:
+        stderr = StringIO("")
+
+        @staticmethod
+        def terminate():
+            calls.append("terminate")
+
+        @staticmethod
+        def wait(*, timeout=None):
+            calls.append(("wait", timeout))
+            if timeout is None and len(calls) == 1:
+                raise KeyboardInterrupt
+            return 130
+
+    monkeypatch.setattr(presenter.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    term = presenter_ui(StringIO())
+    args = presenter.build_parser().parse_args(["Inspect", "--profile", "ptl-gpu-30b"])
+
+    with pytest.raises(KeyboardInterrupt):
+        presenter._run_agent(term, args)
+    assert calls == [
+        ("wait", None),
+        "terminate",
+        ("wait", presenter._INTERRUPT_WAIT_S),
+    ]
+
+
+def test_interrupt_escalates_to_kill_when_terminate_does_not_finish(monkeypatch):
+    presenter = _presenter()
+    calls = []
+
+    class InterruptedStderr:
+        def __iter__(self):
+            raise KeyboardInterrupt
+
+    class Process:
+        stderr = InterruptedStderr()
+
+        @staticmethod
+        def terminate():
+            calls.append("terminate")
+
+        @staticmethod
+        def kill():
+            calls.append("kill")
+
+        @staticmethod
+        def wait(*, timeout=None):
+            calls.append(("wait", timeout))
+            if timeout is not None:
+                raise presenter.subprocess.TimeoutExpired("agent", timeout)
+            return 130
+
+    monkeypatch.setattr(presenter.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    term = presenter_ui(StringIO())
+    args = presenter.build_parser().parse_args(["Inspect", "--profile", "ptl-gpu-30b"])
+
+    with pytest.raises(KeyboardInterrupt):
+        presenter._run_agent(term, args)
+    assert calls == [
+        "terminate",
+        ("wait", presenter._INTERRUPT_WAIT_S),
+        "kill",
+        ("wait", None),
+    ]
+
+
 def test_interrupt_returns_a_clean_public_result(tmp_path, monkeypatch):
     presenter = _presenter()
     stream = StringIO()

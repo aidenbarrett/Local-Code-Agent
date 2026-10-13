@@ -221,6 +221,7 @@ def _run_agent(term, args: argparse.Namespace) -> tuple[int, str]:
         try:
             for line in process.stderr:
                 _show_observer_line(term, line)
+            rc = process.wait()
         except KeyboardInterrupt:
             process.terminate()
             try:
@@ -229,7 +230,6 @@ def _run_agent(term, args: argparse.Namespace) -> tuple[int, str]:
                 process.kill()
                 process.wait()
             raise
-        rc = process.wait()
         stdout.seek(0)
         return rc, stdout.read()
 
