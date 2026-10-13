@@ -11,6 +11,7 @@ import sys
 import pytest
 
 from local_agent.config import find_repo_root, load_repo_config
+from local_agent.public_commands import powershell_literal, public_entrypoint
 from local_agent.repo_setup import (
     RepoSetupError,
     build_systems,
@@ -136,6 +137,19 @@ def test_write_creates_a_declaration_the_authority_accepts(tmp_path, capsys):
     repo = load_repo_config(root)
     assert repo.default_profile == "debug"
     assert repo.name == "repo"
+
+
+@pytest.mark.parametrize("already_declared", [False, True])
+def test_init_next_doctor_command_binds_the_product_and_selected_repository(
+        tmp_path, capsys, already_declared):
+    root = _cmake_repo(tmp_path / "repo's $folder")
+    if already_declared:
+        assert init.main(["--repo", str(root), "--write"]) == init.EXIT_OK
+        capsys.readouterr()
+    args = [] if already_declared else ["--write"]
+    assert init.main(["--repo", str(root / "src"), *args]) == init.EXIT_OK
+    expected = f"{public_entrypoint()} doctor --repo {powershell_literal(root.resolve())}"
+    assert f"Next: {expected}\n" in capsys.readouterr().out
 
 
 def test_an_existing_declaration_is_never_replaced(tmp_path, capsys):
