@@ -22,7 +22,7 @@ from .tool_primitives import (
     ToolResult,
     relpath,
 )
-from .tool_context import ToolContext
+from .tool_context import ToolContext, ignore_owned_output
 from .testing_tools import (
     _source_hashes,
     changed_build_inputs,
@@ -112,10 +112,20 @@ def _claim_or_require_build_root(ctx: ToolContext) -> Path:
                 "Agent may own (for example .local-agent/build) as repo.build_dir and in "
                 "the profile commands, or remove this one yourself."
             )
+        # A tree claimed before its output was ignored gets the ignore now.
+        ignore_owned_output(ctx.root, resolved)
     else:
         resolved.mkdir(parents=True)
-        marker.write_text("Local Code Agent owned build directory\n", encoding="utf-8")
+        _mark_owned_build_root(ctx, resolved)
     return resolved
+
+
+def _mark_owned_build_root(ctx: ToolContext, build_root: Path) -> None:
+    """Record LCA's ownership of a build tree it just created, and ignore its output."""
+    ignore_owned_output(ctx.root, build_root)
+    (build_root / _BUILD_OWNER).write_text(
+        "Local Code Agent owned build directory\n", encoding="utf-8",
+    )
 
 
 def _profile_names(ctx: ToolContext) -> list[str]:
@@ -212,9 +222,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
             build_root = _claim_or_require_build_root(ctx)
             shutil.rmtree(build_root)
             build_root.mkdir()
-            (build_root / _BUILD_OWNER).write_text(
-                "Local Code Agent owned build directory\n", encoding="utf-8",
-            )
+            _mark_owned_build_root(ctx, build_root)
 
         # Configure on demand rather than making the model remember to, and
         # also when the tree is configured for a DIFFERENT profile. Both

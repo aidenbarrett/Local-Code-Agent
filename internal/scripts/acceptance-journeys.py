@@ -1691,12 +1691,32 @@ def r_questions(s: Session) -> None:
     _measure_observations(s, grades, "; repository unchanged")
 
 
+def _user_work_status(repo: Path) -> tuple[str, tuple[str, ...]]:
+    """Tracked status everywhere, plus untracked files outside LCA's own output trees.
+
+    Every tracked change counts, wherever it is, including under .local-agent: a
+    directory name is not proof of ownership. Untracked entries are normalised only
+    inside the configured run and build directories, which LCA owns, so its
+    self-ignore appearing over earlier unignored output is not read as a user change.
+    """
+    tracked = _git(repo, "status", "--porcelain=v1", "--untracked-files=no")
+    declared = load_repo_config(repo)
+    owned = tuple(f"{directory.strip('/')}/"
+                  for directory in (declared.run_dir, declared.build_dir))
+    listed = _git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    untracked = tuple(sorted(
+        entry[3:] for entry in listed.split("\0")
+        if entry.startswith("?? ") and not entry[3:].startswith(owned)
+    ))
+    return tracked, untracked
+
+
 def r_build(s: Session) -> None:
-    before = _git(s.repo, "status", "--porcelain=v1")
+    before = _user_work_status(s.repo)
     _, result = s.turn("build it")
     expect(result is not None, "build it admitted no task")
     assert result is not None
-    expect(_git(s.repo, "status", "--porcelain=v1") == before, "building changed tracked or unignored files")
+    expect(_user_work_status(s.repo) == before, "building changed tracked or unignored files")
     if result.outcome is TaskOutcome.PASS:
         expect(result.verified_at_completion, "PASS without verification")
         expect(_task_facts(result)["proof_scope"] == "full_build",
@@ -1706,11 +1726,11 @@ def r_build(s: Session) -> None:
 
 def r_tests(s: Session) -> None:
     """R03: the declared tests, with test proof separate from R02's build proof (#459)."""
-    before = _git(s.repo, "status", "--porcelain=v1")
+    before = _user_work_status(s.repo)
     _, result = s.turn("run the tests")
     if result is None:
         raise JourneyFailed("run the tests admitted no task")
-    expect(_git(s.repo, "status", "--porcelain=v1") == before,
+    expect(_user_work_status(s.repo) == before,
            "testing changed tracked or unignored files")
     tools = [evidence.split(":")[0] for evidence in result.evidence_ids]
     if result.outcome is TaskOutcome.PASS:
@@ -1724,7 +1744,7 @@ def r_tests(s: Session) -> None:
 
 def _recorded_failure_diagnosis(s: Session, request: str, expected_kind: str) -> None:
     """Prove a real configured failure is diagnosed from its record, without a model task."""
-    before = _git(s.repo, "status", "--porcelain=v1")
+    before = _user_work_status(s.repo)
     _, failed = s.turn(request)
     expect(failed is not None and failed.outcome is TaskOutcome.FAIL,
            f"{request!r} did not retain a failed configured check")
@@ -1736,7 +1756,7 @@ def _recorded_failure_diagnosis(s: Session, request: str, expected_kind: str) ->
            f"diagnosis omitted the recorded {expected_kind} failure kind")
     expect(" -- command: [" in answer, "diagnosis omitted the exact configured argv")
     expect('say "fix it"' in answer, "diagnosis omitted the bounded repair next action")
-    expect(_git(s.repo, "status", "--porcelain=v1") == before,
+    expect(_user_work_status(s.repo) == before,
            "diagnosing the failure changed tracked or unignored work")
     s.journey.passed(
         f"retained {expected_kind} failure diagnosed with evidence and exact argv; "

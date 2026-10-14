@@ -1136,3 +1136,53 @@ def test_event_dump_preserves_a_proposal_without_counting_it_as_a_failure(tmp_pa
     assert retained["tool_proposal"] == proposal
     assert "tool_failure" not in retained
     assert session.journey.tool_failures == []
+
+
+def _status_repo(root: Path) -> Path:
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    (root / ".local-agent.toml").write_text(
+        '[repo]\nbuild_dir = ".local-agent/build"\nrun_dir = ".local-agent/runs"\n'
+        '[profiles.debug]\nbuild = ["true"]\n', encoding="utf-8")
+    (root / ".local-agent").mkdir()
+    (root / ".local-agent" / "user-note.txt").write_text("mine\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t",
+                    "commit", "-qm", "base"], cwd=root, check=True)
+    return root
+
+
+def test_preservation_counts_a_tracked_change_under_the_instrument_directory(tmp_path):
+    """A directory name is not proof of ownership: tracked user files there still count."""
+    root = _status_repo(tmp_path / "repo")
+    before = journeys._user_work_status(root)
+    (root / ".local-agent" / "user-note.txt").write_text("changed\n", encoding="utf-8")
+    assert journeys._user_work_status(root) != before
+
+
+def test_preservation_normalises_only_lca_owned_output(tmp_path):
+    from local_agent.tools.tool_context import ignore_owned_output
+
+    root = _status_repo(tmp_path / "repo")
+    leftover = root / ".local-agent" / "runs" / "earlier"
+    leftover.mkdir(parents=True)
+    (leftover / "combined.log").write_text("old\n", encoding="utf-8")
+    (root / ".local-agent" / "build").mkdir()
+    (root / ".local-agent" / "build" / "CMakeCache.txt").write_text("x\n", encoding="utf-8")
+    before = journeys._user_work_status(root)
+    ignore_owned_output(root, root / ".local-agent" / "runs")
+    ignore_owned_output(root, root / ".local-agent" / "build")
+    assert journeys._user_work_status(root) == before, "owned output appearing ignored is not user change"
+    (root / "scratch.txt").write_text("new user file\n", encoding="utf-8")
+    assert journeys._user_work_status(root) != before, "a new untracked user file must count"
+
+
+def test_preservation_counts_unowned_file_after_runtime_self_ignore(tmp_path):
+    """LCA's ignore covers its own output trees only, never the rest of .local-agent."""
+    from local_agent.tools.tool_context import ignore_owned_output
+
+    root = _status_repo(tmp_path / "repo")
+    ignore_owned_output(root, root / ".local-agent" / "runs")
+    before = journeys._user_work_status(root)
+    (root / ".local-agent" / "unowned-note.txt").write_text("user work\n", encoding="utf-8")
+    assert journeys._user_work_status(root) != before
