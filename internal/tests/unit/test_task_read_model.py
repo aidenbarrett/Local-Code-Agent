@@ -58,6 +58,22 @@ def _admitted(sequence: int, task_id: str, *, epoch: int = 0):
     )
 
 
+@pytest.mark.parametrize(("kind", "rule", "skill", "expected"), [
+    ("user_rule", "build-and-test/v1", "run-build", "run-build"),
+    ("user_rule", "run-tests/v1", "run-tests", "run-tests"),
+    ("user_rule", "run-tests/v1", "run-build", None),
+    ("user_direct", "build-and-test/v1", "run-build", None),
+    ("model_proposal", "run-tests/v1", "run-tests", None),
+])
+def test_configured_check_projection_consumes_the_admission_owner(kind, rule, skill, expected):
+    task_id = str(uuid4())
+    event = _admitted(1, task_id)
+    event["payload"]["origin"] = {"kind": kind, "rule_id": rule}
+    event["payload"]["skill"] = skill
+    event["payload"]["configured_check"] = "run-build"  # an extra field grants no fact
+    assert project_task((event,), task_id).configured_check == expected
+
+
 def _verdict(sequence: int, task_id: str, *, verdict: str = "VERIFIED"):
     result_ref = _ref()
     return _event(

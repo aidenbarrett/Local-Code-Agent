@@ -167,9 +167,11 @@ def test_select_earlier_failure_explains_and_fixes_exact_task_without_copying_id
     async def scenario():
         first, second = str(uuid4()), str(uuid4())
         a = replace(task(first), task_id=first, candidate=None, skill="run-build",
-                    state="failed", verdict="FAILED", result_answer="Earlier compiler error")
+                    configured_check="run-build", state="failed", verdict="FAILED",
+                    result_answer="Earlier compiler error")
         b = replace(task(second, sequence=2), task_id=second, candidate=None, skill="run-tests",
-                    state="failed", verdict="FAILED", result_answer="Later assertion failure")
+                    configured_check="run-tests", state="failed", verdict="FAILED",
+                    result_answer="Later assertion failure")
         commands = []
         class App(SessionHubApp):
             def on_hub_input_submitted(self, message):
@@ -216,7 +218,7 @@ def test_unknown_running_and_unrelated_tasks_offer_no_failure_actions():
     async def scenario():
         task_id = str(uuid4())
         original = replace(task(task_id), task_id=task_id, candidate=None, skill="run-build",
-                           state="failed", verdict="FAILED")
+                           configured_check="run-build", state="failed", verdict="FAILED")
         app = SessionHubApp(HubViewState(tasks=(original,)))
         async with app.run_test() as pilot:
             selector = app.query_one("#task-select", Select)
@@ -225,7 +227,8 @@ def test_unknown_running_and_unrelated_tasks_offer_no_failure_actions():
             assert not app.query_one("#explain-task", Button).disabled
             for changed in (replace(original, verdict="NO_VERDICT"),
                             replace(original, closed_sequence=None),
-                            replace(original, skill="inspect"),
+                            replace(original, skill="inspect", configured_check=None),
+                            replace(original, configured_check=None),
                             replace(original, verdict="VERIFIED")):
                 app.replace_state(HubViewState(tasks=(changed,)))
                 await pilot.pause()

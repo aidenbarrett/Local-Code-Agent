@@ -562,7 +562,7 @@ class SessionHubApp(App):
     @staticmethod
     def _check_failure(task: TaskSnapshot | None) -> bool:
         return (task is not None and task.terminal and task.verdict == "FAILED"
-                and task.skill in {"run-build", "run-tests"} and task.candidate is None)
+                and task.configured_check is not None and task.candidate is None)
 
     def _refresh_activity(self) -> None:
         self.query_one("#activity", Static).update(render_activity(self._activity_state()))
@@ -574,7 +574,7 @@ class SessionHubApp(App):
             choice_candidate = choice_task.candidate
             if choice_candidate is None:
                 kind = {"run-build": "Build", "run-tests": "Tests"}.get(
-                    choice_task.skill or "", "Task",
+                    choice_task.configured_check or "", "Task",
                 )
                 label = f"{kind} · {choice_task.verdict or 'pending'} · {key[:8]}"
                 choices.append((Text(label), key))
