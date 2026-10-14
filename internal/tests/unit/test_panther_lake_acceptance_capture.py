@@ -458,11 +458,33 @@ def test_run_requires_exact_disconnect_confirmation(tmp_path, monkeypatch, respo
         pytest.fail("preflight cannot run without exact confirmation")
 
     monkeypatch.setattr(module, "capture_preflight", forbidden)
-    with pytest.raises(module.AcceptanceCaptureError, match="exact confirmation"):
+    with pytest.raises(module.AcceptanceCaptureError, match="exact confirmation") as raised:
         module.run_qualification(
             tmp_path, tmp_path, tmp_path / "output", "ptl-gpu-30b",
             confirm_disconnected=False,
         )
+    assert "preparation evidence remains" in str(raised.value)
+    assert "--output <new-output-folder>" in str(raised.value)
+
+
+def test_ctrl_c_exits_cleanly_with_preparation_recovery_command(tmp_path, monkeypatch, capsys):
+    module = _load()
+
+    def interrupted(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(module, "run_qualification", interrupted)
+    result = module.main([
+        "run", "--repo", str(tmp_path), "--profile", "ptl-gpu-30b",
+        "--output", str(tmp_path / "qualification"),
+    ])
+
+    assert result == 130
+    error = capsys.readouterr().err
+    assert "CANCELLED" in error
+    assert "preparation evidence was retained" in error
+    assert ".\\local-code-agent.ps1 qualify --profile ptl-gpu-30b" in error
+    assert "--output <new-output-folder>" in error
 
 
 @pytest.mark.parametrize(
