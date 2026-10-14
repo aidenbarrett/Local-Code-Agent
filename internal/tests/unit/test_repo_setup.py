@@ -70,9 +70,12 @@ def test_the_cmake_proposal_uses_the_existing_schema_and_argv(tmp_path):
     repo = validate_declaration(proposal)
     profile = repo.profile()
     assert repo.name == 'quote " and back\\slash'
-    assert profile.configure == ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"]
-    assert profile.build[:3] == ["cmake", "--build", "build"]
-    assert profile.test[0] == "ctest"
+    assert repo.build_dir == ".local-agent/build"
+    assert profile.configure == [
+        "cmake", "-S", ".", "-B", ".local-agent/build", "-DCMAKE_BUILD_TYPE=Debug",
+    ]
+    assert profile.build[:3] == ["cmake", "--build", ".local-agent/build"]
+    assert profile.test[:3] == ["ctest", "--test-dir", ".local-agent/build"]
     assert repo.policy.allow_patch is False and repo.policy.allow_commit is False
 
 

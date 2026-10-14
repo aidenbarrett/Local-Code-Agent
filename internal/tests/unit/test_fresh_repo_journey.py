@@ -4,7 +4,8 @@ The documented path, model-free: `init --write`, then `acceptance --repo <it>
 --allow-build --only R02-build --only R03-tests`. Build proof (R02, full_build) and
 test proof (R03, full_test with build_target then run_test evidence) are separate
 tasks. Tracked and unignored work is unchanged (Git status is identical); the build
-creates its normal ignored artifacts in the declared build directory.
+creates its normal ignored artifacts in the declared build directory, never in a
+build/ tree the developer already has.
 """
 from __future__ import annotations
 
@@ -76,7 +77,8 @@ def _journeys(tmp_path: Path, repo: Path) -> dict[str, dict]:
                "--allow-build", "--only", "R02-build", "--only", "R03-tests", env=env)
     assert _git(repo, "status", "--porcelain=v1") == before, \
         "the journeys changed tracked or unignored work"
-    assert (repo / "build").is_dir(), "the declared build directory holds the build's artifacts"
+    assert (repo / ".local-agent" / "build" / "CMakeCache.txt").is_file(), \
+        "the declared build directory holds the build's artifacts"
     assert (output / "journeys.json").is_file(), ran.stdout[-3000:] + ran.stderr[-3000:]
     report = json.loads((output / "journeys.json").read_text(encoding="utf-8"))
     journeys = {journey["id"]: journey for journey in report["journeys"]}
@@ -102,6 +104,26 @@ def test_a_fresh_cmake_repository_gets_separate_build_and_test_proof(tmp_path):
     assert test_task["proof_scope"] == "full_test"
     assert test_task["evidence_ids"] == ["build_target:0", "run_test:1"]
     assert test_task["task_id"] != build_task["task_id"]
+
+
+def _tree_bytes(root: Path) -> dict[str, bytes]:
+    return {path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*")) if path.is_file()}
+
+
+def test_the_developers_own_build_tree_is_neither_refused_nor_written(tmp_path):
+    """Most CMake checkouts already hold a configured build/; init must still work."""
+    repo = _fresh_cmake_repo(tmp_path / "configured cmake project", test_passes=True)
+    subprocess.run(["cmake", "-S", str(repo), "-B", str(repo / "build")],  # noqa: S607
+                   check=True, capture_output=True, timeout=300)
+    mine = _tree_bytes(repo / "build")
+    assert "CMakeCache.txt" in mine
+
+    journeys = _journeys(tmp_path, repo)
+
+    assert journeys["R02-build"]["status"] == "MEASURED:pass", journeys["R02-build"]
+    assert journeys["R03-tests"]["status"] == "MEASURED:pass", journeys["R03-tests"]
+    assert _tree_bytes(repo / "build") == mine, "the developer's build tree was written"
 
 
 def test_a_failing_test_is_measured_as_a_failure_not_proof(tmp_path):

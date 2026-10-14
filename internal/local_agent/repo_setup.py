@@ -43,12 +43,15 @@ _MARKERS: dict[str, str] = {
 _SOLUTION_SUFFIX = ".sln"
 PROPOSABLE = "CMake"
 
-# The same profile the product's own C++ fixture and cxxopts qualification declare.
+# Most CMake checkouts already hold the developer's own build/ tree, which Local Code
+# Agent must neither adopt nor write. Its own tree sits beside its run records under
+# .local-agent/, which one ignore entry covers.
+_BUILD_DIR = ".local-agent/build"
 _CMAKE_PROFILE = (
     '[profiles.debug]\n'
-    'configure = ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"]\n'
-    'build = ["cmake", "--build", "build", "--config", "Debug", "--parallel", "4"]\n'
-    'test = ["ctest", "--test-dir", "build", "-C", "Debug", "--output-on-failure"]\n'
+    f'configure = ["cmake", "-S", ".", "-B", "{_BUILD_DIR}", "-DCMAKE_BUILD_TYPE=Debug"]\n'
+    f'build = ["cmake", "--build", "{_BUILD_DIR}", "--config", "Debug", "--parallel", "4"]\n'
+    f'test = ["ctest", "--test-dir", "{_BUILD_DIR}", "-C", "Debug", "--output-on-failure"]\n'
 )
 
 
@@ -124,7 +127,7 @@ def propose_cmake(name: str, *, allow_patch: bool = False, allow_commit: bool = 
         "# Review it: these commands run only in a session opened with --allow-execution.\n"
         "[repo]\n"
         f"name = {toml_basic_string(name)}\n"
-        'build_dir = "build"\n'
+        f'build_dir = "{_BUILD_DIR}"\n'
         'run_dir = ".local-agent/runs"\n'
         'default_profile = "debug"\n'
         "\n"
