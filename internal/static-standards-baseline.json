@@ -1068,7 +1068,7 @@
    },
    "internal/scripts/chat.py": {
     "BLE001": 1,
-    "E501": 11,
+    "E501": 10,
     "PLR0912": 1,
     "PLR0915": 1,
     "RUF001": 1,
@@ -1100,7 +1100,7 @@
     "T201": 3
    },
    "internal/scripts/model_weights.py": {
-    "E501": 3,
+    "E501": 2,
     "T201": 13
    },
    "internal/scripts/panther-lake-acceptance.py": {
@@ -1179,5 +1179,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1607
+ "total": 1605
 }

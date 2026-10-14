@@ -123,7 +123,7 @@ def toml_basic_string(value: str) -> str:
 def propose_cmake(name: str, *, allow_patch: bool = False, allow_commit: bool = False) -> str:
     """A reviewed CMake/CTest declaration in the existing schema; nothing is executed."""
     return (
-        f"# Proposed by `.\\local-code-agent.ps1 init` because the root has CMakeLists.txt.\n"
+        "# Proposed by Local Code Agent `init` because the root has CMakeLists.txt.\n"
         "# Review it: these commands run only in a session opened with --allow-execution.\n"
         "[repo]\n"
         f"name = {toml_basic_string(name)}\n"

@@ -11,6 +11,9 @@ if str(INTERNAL) not in sys.path:
 
 from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS  # noqa: E402
 from terminal_ui import ui  # noqa: E402
+from local_agent.public_commands import public_entrypoint  # noqa: E402
+
+_LCA = public_entrypoint()
 
 
 def main() -> int:
@@ -21,7 +24,7 @@ def main() -> int:
     )
 
     term.section("START")
-    term.field(r".\local-code-agent.ps1", "Open the Session Hub (default human interface)")
+    term.field(_LCA, "Open the Session Hub (default human interface)")
     default = MODEL_PRESETS[DEFAULT_MODEL_PRESET]
     term.field("Default worker", f"{DEFAULT_MODEL_PRESET} · {default.model} on {default.device}")
     term.line()
@@ -48,24 +51,24 @@ def main() -> int:
 
     term.line()
     term.section("EXAMPLES")
-    term.line(r"  .\local-code-agent.ps1")
-    term.line(r"  .\local-code-agent.ps1 chat qwen3-8b-npu")
-    term.line(r"  .\local-code-agent.ps1 capabilities")
-    term.line(r"  .\local-code-agent.ps1 acceptance --output C:\lca-acc\run-1 --allow-model")
-    term.line(r"  .\local-code-agent.ps1 acceptance --compare C:\lca-acc\run-1 C:\lca-acc\run-2")
+    term.line(rf"  {_LCA}")
+    term.line(rf"  {_LCA} chat qwen3-8b-npu")
+    term.line(rf"  {_LCA} capabilities")
+    term.line(rf"  {_LCA} acceptance --output C:\lca-acc\run-1 --allow-model")
+    term.line(rf"  {_LCA} acceptance --compare C:\lca-acc\run-1 C:\lca-acc\run-2")
     term.line(
-        r"  .\local-code-agent.ps1 qualify --profile ptl-gpu-30b "
+        rf"  {_LCA} qualify --profile ptl-gpu-30b "
         r"--output C:\lca-qualification\gpu30b"
     )
     term.line(
-        r"  .\local-code-agent.ps1 benchmark --profile .local-agent\perf\my-endpoint.toml "
+        rf"  {_LCA} benchmark --profile .local-agent\perf\my-endpoint.toml "
         r"--cold-start --output C:\lca-benchmarks\run-1.json"
     )
-    term.line(r"  .\local-code-agent.ps1 models")
-    term.line(r"  .\local-code-agent.ps1 models pull ptl-gpu-30b")
-    term.line(r"  .\local-code-agent.ps1 models use ptl-gpu-30b")
-    term.line(r"  .\local-code-agent.ps1 session --profile ptl-npu-8b")
-    term.line(r'  .\local-code-agent.ps1 run-task "Inspect this repository and summarize how it builds" --skill repo-navigation')
+    term.line(rf"  {_LCA} models")
+    term.line(rf"  {_LCA} models pull ptl-gpu-30b")
+    term.line(rf"  {_LCA} models use ptl-gpu-30b")
+    term.line(rf"  {_LCA} session --profile ptl-npu-8b")
+    term.line(rf'  {_LCA} run-task "Inspect this repository and summarize how it builds" --skill repo-navigation')
     term.line()
     term.footer_note("The Session Hub is the product surface. Lower-level commands remain available for automation and diagnostics.")
     term.line()

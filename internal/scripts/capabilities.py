@@ -19,6 +19,10 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from terminal_ui import ui  # noqa: E402
+from local_agent.public_commands import public_entrypoint  # noqa: E402
+
+_LCA = public_entrypoint()
+_INSTALL = public_entrypoint("install.ps1")
 
 FIXTURE = REPO / "benchmark_fixture" / "cpp_project"
 
@@ -69,7 +73,7 @@ def main() -> int:
     if not FIXTURE.is_dir():
         term.status("fail", "The local validation project is not present yet")
         term.line("  Run the root setup command:")
-        term.line(r"    .\install.ps1")
+        term.line(rf"    {_INSTALL}")
         term.line()
         return 2
 
@@ -111,7 +115,7 @@ def main() -> int:
 
     term.section("See verification in action")
     term.line("  See independent verification reject stale test results:")
-    term.line(r"    .\local-code-agent.ps1 verification-demo")
+    term.line(rf"    {_LCA} verification-demo")
     term.line()
     return 0
 

@@ -98,7 +98,7 @@ def test_raw_chat_is_subordinate_to_the_canonical_launcher():
 
 def test_chat_is_one_product_subcommand_and_never_teaches_old_plumbing():
     source = (INTERNAL / "scripts" / "chat.py").read_text(encoding="utf-8")
-    assert ".\\local-code-agent.ps1 chat qwen3-8b-npu" in source
+    assert "{_LCA} chat ptl-gpu-30b" in source
     assert ".\\chat.ps1" not in source
     # The server is started through the one managed-runtime owner, never by chat itself.
     assert "ensure_managed_runtime(profile, config, _runtime_root()" in source
@@ -106,7 +106,7 @@ def test_chat_is_one_product_subcommand_and_never_teaches_old_plumbing():
     for decision in ("serve.start(", "serve.read_record(", "serve.status("):
         assert decision not in source, decision
     assert "Run the root setup command" in source
-    assert ".\\install.ps1" in source
+    assert "{_INSTALL}" in source
     assert ".\\scripts\\demo-accelerator.ps1" not in source
     assert "python measurement/serve.py" not in source
     assert "Available local model choices" in source
@@ -227,17 +227,21 @@ def test_public_help_teaches_model_listing_download_choice_and_one_run_override(
 
     assert product_help.main() == 0
     output = stream.getvalue()
+    from local_agent.public_commands import public_entrypoint
+    lca = public_entrypoint()
     for command in (
-        r".\local-code-agent.ps1 models",
-        r".\local-code-agent.ps1 models pull ptl-gpu-30b",
-        r".\local-code-agent.ps1 models use ptl-gpu-30b",
-        r".\local-code-agent.ps1 session --profile ptl-npu-8b",
-        r".\local-code-agent.ps1 acceptance --output C:\lca-acc\run-1 --allow-model",
-        r".\local-code-agent.ps1 acceptance --compare C:\lca-acc\run-1 C:\lca-acc\run-2",
-        r".\local-code-agent.ps1 qualify --profile ptl-gpu-30b --output C:\lca-qualification\gpu30b",
-        r".\local-code-agent.ps1 benchmark --profile .local-agent\perf\my-endpoint.toml --cold-start --output C:\lca-benchmarks\run-1.json",
+        f"{lca} models",
+        f"{lca} models pull ptl-gpu-30b",
+        f"{lca} models use ptl-gpu-30b",
+        f"{lca} session --profile ptl-npu-8b",
+        rf"{lca} acceptance --output C:\lca-acc\run-1 --allow-model",
+        rf"{lca} acceptance --compare C:\lca-acc\run-1 C:\lca-acc\run-2",
+        rf"{lca} qualify --profile ptl-gpu-30b --output C:\lca-qualification\gpu30b",
+        rf"{lca} benchmark --profile .local-agent\perf\my-endpoint.toml --cold-start --output C:\lca-benchmarks\run-1.json",
     ):
         assert command in output
+    # Every command works when copied from another repository's prompt.
+    assert ".\\local-code-agent.ps1" not in output
     assert "Default worker" in output
     # The help names whatever the one owner says the default is, never a copy of it.
     from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS
@@ -251,8 +255,8 @@ def test_capabilities_use_plain_user_facing_language():
     assert "independently check" in source
     assert "typed registry" not in source
     assert "judged by the harness" not in source
-    assert ".\\local-code-agent.ps1 verification-demo" in source
-    assert ".\\install.ps1" in source
+    assert "{_LCA} verification-demo" in source
+    assert "{_INSTALL}" in source
     assert "python benchmark_fixture/" not in source
 
 
