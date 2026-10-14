@@ -32,15 +32,11 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
         execution_enabled=False,
     )
 
-    class Ensured:
-        ok = True
-        message = "ready"
-
     def ensure_runtime(profile, config, runtime_root):
         observed["ensure_profile"] = profile
         observed["ensure_config"] = config
         observed["ensure_root"] = runtime_root
-        return Ensured()
+        return hub.RuntimeEnsureResult(hub.RuntimeLifecycle.REUSED, "ready")
 
     def observe_runtime(preset, config, *, execution_enabled, fetch=None):
         observed["facts_preset"] = preset
@@ -74,7 +70,8 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
     assert observed["facts_preset"] == "ptl-npu-8b"
     assert observed["facts_execution"] is False
     assert observed["runtime_summary"] == (
-        f"{facts.header()} · {hub._repository_summary(REPO, execution_enabled=False)}"
+        f"{facts.header()} · server reused · "
+        f"{hub._repository_summary(REPO, execution_enabled=False)}"
     )
     assert callable(observed["stop_task"])
 

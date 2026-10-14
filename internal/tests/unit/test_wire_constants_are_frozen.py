@@ -31,7 +31,7 @@ STREAM_KIND = "durable"
 
 EVENT_KINDS = frozenset({
     "artifact.recorded", "conversation.delta", "endpoint.state_changed",
-    "fault.reported", "route.proposed", "route.resolved", "session.opened",
+    "fault.reported", "route.proposed", "route.resolved", "runtime.ensured", "session.opened",
     "task.admitted", "task.cancel_requested", "task.closed", "task.state_changed",
     "task.verdict", "telemetry.policy", "telemetry.sample", "tool.finished",
     "tool.started", "turn.recorded", "watch.run_recorded", "watch.state_changed",

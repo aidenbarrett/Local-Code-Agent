@@ -22,6 +22,7 @@ SESSION = ROOT / "internal/local_agent/session"
 # fields are still required. A deliberate contract change updates both in review.
 PAYLOAD_FIELDS = {
     "session.opened": "conversation_id repository_id controller_commit capabilities recovered",
+    "runtime.ensured": "profile runtime lifecycle replaced_reason refused_reason changed_fields launch_to_ready_ms",
     "turn.recorded": "turn_ref role content_ref",
     "route.proposed": "route_id revision turn_ref source mode skill rule_id explanation requires_acceptance",
     "route.resolved": "route_id revision resolution mode source skill",
