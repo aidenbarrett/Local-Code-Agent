@@ -24,6 +24,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $internal = Join-Path $root 'internal'
+$installCommand = "& '" + (Join-Path $root 'install.ps1').Replace("'", "''") + "'"
 $startupClock = [System.Diagnostics.Stopwatch]::StartNew()
 
 function Write-StartupTrace([string]$Stage, [string]$Detail = '') {
@@ -53,7 +54,7 @@ if (-not $python) {
 if (-not $python) {
     Write-Host ''
     Write-Host 'No Python environment found.'
-    Write-Host 'Run .\install.ps1 first, or install Python 3.11+.'
+    Write-Host ("Run {0} first, or install Python 3.11+." -f $installCommand)
     Write-Host ''
     exit 2
 }
@@ -75,7 +76,7 @@ $pyproject = Join-Path $root 'pyproject.toml'
 if (-not (Test-Path $preflight) -or -not (Test-Path $pyproject)) {
     Write-Host ''
     Write-Host 'Local Code Agent checkout is incomplete.'
-    Write-Host 'Run git status, restore the missing product files, then run .\install.ps1.'
+    Write-Host ("Run git status, restore the missing product files, then run {0}." -f $installCommand)
     Write-Host ''
     exit 2
 }
@@ -87,7 +88,7 @@ if ($LASTEXITCODE -ne 0 -and $Command.ToLowerInvariant() -ne 'doctor') {
     Write-Host ''
     Write-Host 'Local Code Agent will not start with this Python environment.'
     Write-Host ("Selected interpreter: {0}" -f $python)
-    Write-Host 'Run .\install.ps1 to update the checkout environment, then retry.'
+    Write-Host ("Run {0} to update the checkout environment, then retry." -f $installCommand)
     Write-Host ''
     exit 2
 }

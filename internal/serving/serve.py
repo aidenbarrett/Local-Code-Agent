@@ -236,8 +236,10 @@ def missing_payload_files(payload):
 
 
 def pull_command(profile):
+    from local_agent.public_commands import public_entrypoint
+
     """The one supported way a user downloads a preset's weights."""
-    return rf".\local-code-agent.ps1 models pull {profile}"
+    return f"{public_entrypoint()} models pull {profile}"
 
 
 def preflight(plan, config, allow_experimental=False):

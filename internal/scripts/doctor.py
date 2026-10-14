@@ -33,6 +33,7 @@ if str(INTERNAL) not in sys.path:
 
 from local_agent.config import MODEL_PRESETS, ConfigError, find_repo_root, load_repo_config  # noqa: E402
 from local_agent.repo_setup import init_command  # noqa: E402
+from local_agent.public_commands import powershell_literal, public_entrypoint  # noqa: E402
 from serving import serve  # noqa: E402
 from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
 from serving.model_store import default_runtime_root  # noqa: E402
@@ -45,8 +46,8 @@ INFO = "INFO"
 _NOT_READY = frozenset({MISSING, BLOCKED})
 EXIT_READY = 0
 EXIT_NOT_READY = 3
-_INSTALL = r".\install.ps1"
-_VIA_LAUNCHER = r"run it through .\local-code-agent.ps1 doctor"
+_INSTALL = public_entrypoint("install.ps1")
+_VIA_LAUNCHER = f"run it through {public_entrypoint()} doctor"
 _POSIX_COMPILERS = ("c++", "g++", "clang++")
 
 
@@ -173,8 +174,8 @@ def check_profile(runtime_root: Path, explicit: str | None) -> tuple[Check, str 
         resolved = resolve_preset(explicit, runtime_root)
     except ModelChoiceError as exc:
         return Check("Model profile", BLOCKED, observed=str(exc),
-                     next_action=r".\local-code-agent.ps1 models use <profile>  "
-                                 r"(.\local-code-agent.ps1 models lists them)"), None
+                     next_action=f"{public_entrypoint()} models use <profile>  "
+                                 f"({public_entrypoint()} models lists them)"), None
     config = MODEL_PRESETS[resolved.name]
     how = {"explicit": "--profile", "stored": "your models use choice",
            "default": "the default"}[resolved.source]
@@ -248,13 +249,15 @@ def check_endpoint(profile: str, runtime_root: Path, env: Mapping[str, str],
                      next_action=f"stop the server listening on {plan['host']}:{plan['port']}, "
                                  "then rerun doctor")
     return Check("Endpoint", INFO, configured=configured,
-                 observed=r"not running; .\local-code-agent.ps1 starts it when a session opens")
+                 observed=f"not running; {public_entrypoint()} starts it when a session opens")
 
 
-def check_execution() -> Check:
+def check_execution(repo: Path, profile: str | None) -> Check:
+    profile_arg = "" if profile is None else f" --profile {powershell_literal(profile)}"
     return Check("Execution", INFO,
                  configured="build and test run only in a session opened with --allow-execution",
-                 observed=r"to allow them: .\local-code-agent.ps1 session --allow-execution")
+                 observed=f"to allow them: {public_entrypoint()} session "
+                          f"--repo {powershell_literal(repo)}{profile_arg} --allow-execution")
 
 
 def assess(
@@ -289,12 +292,13 @@ def assess(
             ]
         except serve.Refusal as exc:
             checks.append(Check("Model profile plan", BLOCKED, observed=str(exc),
-                                next_action=r".\local-code-agent.ps1 models use <profile>"))
-    checks.append(check_execution())
+                                next_action=f"{public_entrypoint()} models use <profile>"))
+    checks.append(check_execution(start.resolve(), profile))
     return checks
 
 
-def render(checks: list[Check]) -> str:
+def render(checks: list[Check], *, repo: Path, profile: str | None = None) -> str:
+    profile_arg = "" if profile is None else f" --profile {powershell_literal(profile)}"
     lines = ["LOCAL CODE AGENT READINESS",
              "Check only: nothing was installed, downloaded, written or started.", ""]
     for check in checks:
@@ -309,9 +313,11 @@ def render(checks: list[Check]) -> str:
     lines.append("")
     if blocking:
         lines.append(f"Not ready: {len(blocking)} item(s). Do the first next action, "
-                     r"then rerun .\local-code-agent.ps1 doctor.")
+                     f"then rerun {public_entrypoint()} doctor "
+                     f"--repo {powershell_literal(repo)}{profile_arg}")
     else:
-        lines.append(r"Ready. Open the Session Hub: .\local-code-agent.ps1")
+        lines.append(f"Ready. Open the Session Hub: {public_entrypoint()} "
+                     f"session --repo {powershell_literal(repo)}{profile_arg}")
     unknown = [check.name for check in checks if check.state == UNKNOWN]
     if unknown:
         lines.append(f"Not observed: {', '.join(unknown)}.")
@@ -337,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
         explicit_profile=args.profile,
         observers=Observers.of_this_process(launcher_facts),
     )
-    sys.stdout.write(render(checks) + "\n")
+    sys.stdout.write(render(checks, repo=args.repo.resolve(), profile=args.profile) + "\n")
     return EXIT_NOT_READY if any(check.state in _NOT_READY for check in checks) else EXIT_READY
 
 

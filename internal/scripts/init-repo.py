@@ -31,6 +31,12 @@ def _command(root: Path, *extra: str) -> str:
     return " ".join((init_command(root), *extra))
 
 
+def _doctor_command(root: Path) -> str:
+    from local_agent.public_commands import powershell_literal, public_entrypoint
+
+    return f"{public_entrypoint()} doctor --repo {powershell_literal(root)}"
+
+
 def render(inspection: RepoInspection) -> list[str]:
     lines = [f"Repository root: {inspection.root}"]
     if inspection.opened_from != inspection.root:
@@ -42,7 +48,7 @@ def render(inspection: RepoInspection) -> list[str]:
             f"                 profiles {', '.join(sorted(repo.profiles))} "
             f"(default {repo.default_profile})",
             "It is valid and init leaves it as it is.",
-            r"Next: .\local-code-agent.ps1 doctor",
+            f"Next: {_doctor_command(inspection.root)}",
         ]
         return lines
     if inspection.invalid is not None:
@@ -68,7 +74,7 @@ def render(inspection: RepoInspection) -> list[str]:
         "",
         *proposal.rstrip("\n").splitlines(),
         "",
-        f"To write it: {_command(inspection.root, '--write')}",
+        f"To write it: {_command(inspection.root, '--write', *inspection.proposal_options)}",
     ]
     return lines
 
@@ -80,9 +86,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="repository root or a path inside it")
     parser.add_argument("--write", action="store_true",
                         help="write the proposed declaration; never replaces an existing one")
+    parser.add_argument("--allow-patch", action="store_true",
+                        help="opt into isolated candidate repairs; "
+                             "Apply remains an explicit action")
+    parser.add_argument("--allow-commit", action="store_true",
+                        help="opt into explicit exact candidate commits; "
+                             "requires --allow-patch; never pushes")
     args = parser.parse_args(argv)
     try:
-        inspection = inspect_repository(args.repo)
+        inspection = inspect_repository(args.repo, allow_patch=args.allow_patch,
+                                        allow_commit=args.allow_commit)
         lines = render(inspection)
         if args.write:
             if inspection.proposal is None:
@@ -91,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
                 return EXIT_REFUSED if inspection.declared is None else EXIT_OK
             written = write_proposal(inspection)
             lines = [f"Repository root: {inspection.root}", f"Wrote {written}.",
-                     r"Next: .\local-code-agent.ps1 doctor"]
+                     f"Next: {_doctor_command(inspection.root)}"]
     except (RepoSetupError, OSError) as exc:
         sys.stderr.write(f"REFUSED: {exc}\n")
         return EXIT_REFUSED

@@ -48,7 +48,7 @@ def test_start_refusal_for_absent_weights_names_the_pull_command(tmp_path: Path)
         serve.preflight(plan, config)
     message = str(refused.value)
     assert "not downloaded" in message
-    assert r".\local-code-agent.ps1 models pull ptl-gpu-30b" in message
+    assert serve.pull_command("ptl-gpu-30b") in message
 
 
 def test_list_marks_each_local_preset_missing_or_downloaded(

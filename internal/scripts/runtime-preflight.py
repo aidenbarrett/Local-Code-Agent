@@ -190,7 +190,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Interpreter: {Path(sys.executable).resolve()}", file=sys.stderr)
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
-        print("Run .\\install.ps1 to update the managed checkout environment.", file=sys.stderr)
+        # This bootstrap diagnostic must still work when product imports are broken.
+        installer = str(args.pyproject.resolve().parent / "install.ps1").replace("'", "''")
+        print(f"Run & '{installer}' to update the managed checkout environment.", file=sys.stderr)
         return 2
     return 0
 

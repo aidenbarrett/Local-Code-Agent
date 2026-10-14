@@ -11,6 +11,7 @@ import sys
 import pytest
 
 from local_agent.config import find_repo_root, load_repo_config
+from local_agent.public_commands import powershell_literal, public_entrypoint
 from local_agent.repo_setup import (
     RepoSetupError,
     build_systems,
@@ -84,6 +85,47 @@ def test_looking_writes_and_runs_nothing(tmp_path, monkeypatch):
     assert _tree(root) == before
 
 
+@pytest.mark.parametrize("flags", [("--allow-patch",), ("--allow-patch", "--allow-commit")])
+def test_permission_preview_is_read_only_and_write_preserves_the_reviewed_flags(
+        tmp_path, capsys, monkeypatch, flags):
+    root = _cmake_repo(tmp_path / "repo")
+    before = _tree(root)
+    monkeypatch.setattr(subprocess, "run", _forbidden)
+    monkeypatch.setattr(subprocess, "Popen", _forbidden)
+    assert init.main(["--repo", str(root), *flags]) == init.EXIT_OK
+    assert _tree(root) == before
+    output = capsys.readouterr().out
+    assert "allow_patch = true" in output
+    expected_commit = "true" if "--allow-commit" in flags else "false"
+    assert f"allow_commit = {expected_commit}" in output
+    assert f"--write {' '.join(flags)}" in output
+    assert init.main(["--repo", str(root), "--write", *flags]) == init.EXIT_OK
+    repo = load_repo_config(root)
+    assert repo.policy.allow_patch
+    assert repo.policy.allow_commit is ("--allow-commit" in flags)
+    after = _tree(root)
+    assert set(after) - set(before) == {".local-agent.toml"}
+    assert all(after[path] == content for path, content in before.items())
+
+
+def test_commit_opt_in_without_candidate_opt_in_refuses_before_writing(tmp_path, capsys):
+    root = _cmake_repo(tmp_path / "repo")
+    before = _tree(root)
+    assert init.main(["--repo", str(root), "--write", "--allow-commit"]) == init.EXIT_REFUSED
+    assert "requires --allow-patch" in capsys.readouterr().err
+    assert _tree(root) == before
+
+
+@pytest.mark.parametrize("declaration", [propose_cmake("user repo"), "[profiles\n"])
+def test_permission_opt_in_never_replaces_an_existing_declaration(tmp_path, capsys, declaration):
+    root = _cmake_repo(tmp_path / "repo")
+    (root / ".local-agent.toml").write_text(declaration, encoding="utf-8")
+    before = _tree(root)
+    assert init.main(["--repo", str(root), "--write", "--allow-patch"]) == init.EXIT_REFUSED
+    assert "never changes its permissions" in capsys.readouterr().err
+    assert _tree(root) == before
+
+
 def _forbidden(*_args, **_kwargs):
     raise AssertionError("init ran a process")
 
@@ -95,6 +137,19 @@ def test_write_creates_a_declaration_the_authority_accepts(tmp_path, capsys):
     repo = load_repo_config(root)
     assert repo.default_profile == "debug"
     assert repo.name == "repo"
+
+
+@pytest.mark.parametrize("already_declared", [False, True])
+def test_init_next_doctor_command_binds_the_product_and_selected_repository(
+        tmp_path, capsys, already_declared):
+    root = _cmake_repo(tmp_path / "repo's $folder")
+    if already_declared:
+        assert init.main(["--repo", str(root), "--write"]) == init.EXIT_OK
+        capsys.readouterr()
+    args = [] if already_declared else ["--write"]
+    assert init.main(["--repo", str(root / "src"), *args]) == init.EXIT_OK
+    expected = f"{public_entrypoint()} doctor --repo {powershell_literal(root.resolve())}"
+    assert f"Next: {expected}\n" in capsys.readouterr().out
 
 
 def test_an_existing_declaration_is_never_replaced(tmp_path, capsys):
@@ -138,14 +193,15 @@ def test_a_race_never_overwrites_a_declaration_written_after_inspection(tmp_path
     (("demo.sln",), "MSBuild"),
     ((), "no recognised build system"),
 ])
+@pytest.mark.parametrize("flags", [(), ("--allow-patch", "--allow-commit")])
 def test_ambiguous_unsupported_or_absent_build_systems_are_refused_before_writing(
-        tmp_path, markers, message):
+        tmp_path, markers, message, flags):
     root = tmp_path / "repo"
     (root / ".git").mkdir(parents=True)
     for marker in markers:
         (root / marker).write_text("", encoding="utf-8")
     before = _tree(root)
-    assert init.main(["--repo", str(root), "--write"]) == init.EXIT_REFUSED
+    assert init.main(["--repo", str(root), "--write", *flags]) == init.EXIT_REFUSED
     inspection = inspect_repository(root)
     assert inspection.proposal is None and inspection.refusal is not None
     assert message in inspection.refusal
