@@ -50,6 +50,10 @@ from scripts.chat_context import (  # noqa: E402
     new_session,
 )
 from terminal_ui import device_label, ui  # noqa: E402
+from local_agent.public_commands import public_entrypoint  # noqa: E402
+
+_LCA = public_entrypoint()
+_INSTALL = public_entrypoint("install.ps1")
 
 FRIENDLY: dict[str, tuple[str, str]] = {
     "qwen3-8b-npu": ("ptl-npu-8b", "NPU"),
@@ -106,9 +110,9 @@ def list_profiles() -> int:
     term.field("Existing aliases", ", ".join(FRIENDLY))
     term.line()
     term.section("START CHAT")
-    term.line(r"  .\local-code-agent.ps1 chat ptl-gpu-30b")
-    term.line(r"  .\local-code-agent.ps1 chat ptl-npu-8b --persona neutral")
-    term.footer_note("Raw chat has no repository access. Run .\\local-code-agent.ps1 for the Session Hub.")
+    term.line(rf"  {_LCA} chat ptl-gpu-30b")
+    term.line(rf"  {_LCA} chat ptl-npu-8b --persona neutral")
+    term.footer_note(f"Raw chat has no repository access. Run {_LCA} for the Session Hub.")
     term.line()
     return 0
 
@@ -158,7 +162,7 @@ def _ensure_server(profile: str, config: ModelConfig, term=None) -> bool:
         term.line(f"  {result.message}")
         term.line()
         term.line("  Run the root setup command and try again:")
-        term.line(r"    .\install.ps1")
+        term.line(rf"    {_INSTALL}")
     term.line()
     return False
 

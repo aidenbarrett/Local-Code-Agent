@@ -57,6 +57,9 @@ from serving.managed_runtime import (  # noqa: E402
 )
 from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
 from serving.model_store import default_runtime_root as _runtime_root  # noqa: E402
+from local_agent.public_commands import public_entrypoint  # noqa: E402
+
+_LCA = public_entrypoint()
 
 
 def _safe_terminal(text: str) -> str:
@@ -320,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
         # Refuse before any effect, with the one supported next step, never a traceback.
         declaration = root / DEFAULT_CONFIG_NAME
         next_step = (
-            f"correct {declaration}, then check it with .\\local-code-agent.ps1 doctor"
+            f"correct {declaration}, then check it with {_LCA} doctor"
             if declaration.is_file() else init_command(root)
         )
         sys.stderr.write(f"Repository not ready: {_safe_terminal(str(exc))}\nNext: {next_step}\n")

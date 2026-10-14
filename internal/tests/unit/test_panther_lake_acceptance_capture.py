@@ -483,7 +483,8 @@ def test_ctrl_c_exits_cleanly_with_preparation_recovery_command(tmp_path, monkey
     error = capsys.readouterr().err
     assert "CANCELLED" in error
     assert "any completed preparation evidence was retained" in error
-    assert ".\\local-code-agent.ps1 qualify --profile ptl-gpu-30b" in error
+    from local_agent.public_commands import public_entrypoint
+    assert f"{public_entrypoint()} qualify --profile ptl-gpu-30b" in error
     assert "--output <new-output-folder>" in error
 
 

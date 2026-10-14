@@ -28,6 +28,10 @@ from serving.model_choice import (  # noqa: E402
     store_preset,
 )
 from serving.model_store import default_runtime_root  # noqa: E402
+from local_agent.public_commands import public_entrypoint  # noqa: E402
+
+_LCA = public_entrypoint()
+_INSTALL = public_entrypoint("install.ps1")
 
 
 def _plan(profile: str, runtime_root: Path) -> dict:
@@ -55,8 +59,8 @@ def list_weights(runtime_root: Path) -> int:
               f"{weight_state(name, runtime_root)}{flag}")
     how = "your choice" if selected.source == "stored" else "the default"
     print(f"\nMarked *: {selected.name} is used when no --profile is given ({how}).")
-    print("Choose the model you normally use:  .\\local-code-agent.ps1 models use <profile>")
-    print("Use another model for one session:  .\\local-code-agent.ps1 session --profile <profile>")
+    print(f"Choose the model you normally use:  {_LCA} models use <profile>")
+    print(f"Use another model for one session:  {_LCA} session --profile <profile>")
     print(f"Download a model's weights:        {serve.pull_command('<profile>')}")
     return 0
 
@@ -72,10 +76,10 @@ def use_preset(profile: str, runtime_root: Path) -> int:
 
 def pull_weights(profile: str, runtime_root: Path, *, allow_experimental: bool) -> int:
     if profile not in MODEL_PRESETS:
-        raise serve.Refusal(f"unknown profile {profile}; run .\\local-code-agent.ps1 models")
+        raise serve.Refusal(f"unknown profile {profile}; run {_LCA} models")
     config = MODEL_PRESETS[profile]
     if config.runtime == "ovms" and not os.environ.get("LCA_OVMS_EXECUTABLE"):
-        raise serve.Refusal("OVMS is not installed under the runtime root; run .\\install.ps1")
+        raise serve.Refusal(f"OVMS is not installed under the runtime root; run {_INSTALL}")
     result = serve.pull(_plan(profile, runtime_root), config,
                         allow_experimental=allow_experimental)
     state = weight_state(profile, runtime_root)
@@ -103,13 +107,13 @@ def main(argv: list[str] | None = None) -> int:
             return list_weights(runtime_root)
         if not args.profile:
             raise serve.Refusal(
-                f"{args.action} needs a profile; run .\\local-code-agent.ps1 models"
+                f"{args.action} needs a profile; run {_LCA} models"
             )
         if args.action == "use":
             return use_preset(args.profile, runtime_root)
         if args.action == "state":
             if args.profile not in MODEL_PRESETS:
-                raise serve.Refusal(f"unknown profile {args.profile}; run .\\local-code-agent.ps1 models")
+                raise serve.Refusal(f"unknown profile {args.profile}; run {_LCA} models")
             state = weight_state(args.profile, runtime_root)
             print(state)
             print(_plan(args.profile, runtime_root)["model_dir"])

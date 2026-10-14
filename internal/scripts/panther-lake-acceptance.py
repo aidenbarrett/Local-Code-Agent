@@ -26,6 +26,10 @@ from local_agent.config import MODEL_PRESETS  # noqa: E402
 from scripts.model_weights import weight_state  # noqa: E402
 from serving import serve  # noqa: E402
 from serving.model_store import default_runtime_root  # noqa: E402
+from local_agent.public_commands import public_entrypoint  # noqa: E402
+
+_LCA = public_entrypoint()
+_INSTALL = public_entrypoint("install.ps1")
 
 SCHEMA = "lca.panther-lake-acceptance/1"
 UNKNOWN = "UNKNOWN"
@@ -212,7 +216,7 @@ def prepare_qualification(
         raise AcceptanceCaptureError("physical qualification preparation must run on Windows")
     if profile not in MODEL_PRESETS:
         raise AcceptanceCaptureError(
-            f"unknown profile {profile}; run .\\local-code-agent.ps1 models"
+            f"unknown profile {profile}; run {_LCA} models"
         )
     if not profile.startswith("ptl-"):
         raise AcceptanceCaptureError("physical Panther Lake qualification requires a ptl-* profile")
@@ -245,8 +249,8 @@ def prepare_qualification(
             installed_runtime_evidence(profile, runtime_root)
         except (AcceptanceCaptureError, serve.Refusal) as exc:
             blockers.append(
-                f"{exc}; run .\\local-code-agent.ps1 models use {profile}, then "
-                ".\\install.ps1 before disconnecting"
+                f"{exc}; run {_LCA} models use {profile}, then "
+                f"{_INSTALL} before disconnecting"
             )
 
     payload = {
@@ -304,7 +308,7 @@ def capture_preflight(
     require_offline(routes)
     if profile not in MODEL_PRESETS:
         raise AcceptanceCaptureError(
-            f"unknown profile {profile}; run .\\local-code-agent.ps1 models"
+            f"unknown profile {profile}; run {_LCA} models"
         )
     if not profile.startswith("ptl-"):
         raise AcceptanceCaptureError("physical Panther Lake qualification requires a ptl-* profile")
@@ -499,7 +503,7 @@ def run_qualification(
             raise AcceptanceCaptureError(
                 "disconnected run cancelled; exact confirmation was not supplied; "
                 f"preparation evidence remains in {output}; retry with "
-                f".\\local-code-agent.ps1 qualify --profile {profile} "
+                f"{_LCA} qualify --profile {profile} "
                 "--output <new-output-folder>"
             )
 
@@ -529,7 +533,7 @@ def run_qualification(
     require_offline(post_run_routes)
     journeys_path = journeys_dir / "journeys.json"
     command = (
-        f".\\local-code-agent.ps1 qualify --profile {profile} "
+        f"{_LCA} qualify --profile {profile} "
         "--output <new-output-folder>"
     )
     payload = finalize_qualification_run(
@@ -723,7 +727,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             sys.stderr.write(
                 "\nCANCELLED: any completed preparation evidence was retained; retry with "
-                f".\\local-code-agent.ps1 qualify --profile {args.profile} "
+                f"{_LCA} qualify --profile {args.profile} "
                 "--output <new-output-folder>\n"
             )
         else:

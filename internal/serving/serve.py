@@ -236,9 +236,9 @@ def missing_payload_files(payload):
 
 
 def pull_command(profile):
+    """The one supported way a user downloads a preset's weights."""
     from local_agent.public_commands import public_entrypoint
 
-    """The one supported way a user downloads a preset's weights."""
     return f"{public_entrypoint()} models pull {profile}"
 
 
