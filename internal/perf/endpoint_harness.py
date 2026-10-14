@@ -587,9 +587,12 @@ def _backend_memory(client: Any, profile: Profile) -> dict[str, Any]:
     }
 
 
+_SEQUENCE_PREFIXES = "123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
 def _sequence_prompt(base: str, nonce: str, index: int) -> str:
     # Differs at the first character so prompt/prefix caching cannot pose as residency.
-    return f"{index}/{nonce} perf: {base}"
+    return f"{_SEQUENCE_PREFIXES[index - 1]}/{index}/{nonce} perf: {base}"
 
 
 @dataclass(frozen=True)
@@ -636,6 +639,58 @@ def measure_lifecycle_sequence(
     return lifecycle, first, warm
 
 
+def benchmark_persistent_session(
+    client: Any,
+    profile: Profile,
+    run: LifecycleRun,
+    turns: int,
+) -> dict[str, Any]:
+    """Measure additional requests without restarting the configured endpoint.
+
+    This is deliberately a runtime-only fact stream. Product acceptance remains the
+    owner of task completion and intervention outcomes.
+    """
+    if turns == 0:
+        return {"supported": False, "reason": "not requested"}
+
+    rows = []
+    anchor = snapshot_endpoint(client, profile)
+    for turn in range(1, turns + 1):
+        before = snapshot_endpoint(client, profile)
+        row = benchmark_generation(
+            client,
+            _sequence_prompt(run.prompt, run.nonce, turn + 2),
+            run.max_tokens,
+        )
+        after = snapshot_endpoint(client, profile)
+        continuity = judge_continuity((anchor, before, after), profile, run.process)
+        row.update(continuity)
+        row.update({
+            "turn": turn,
+            "sequence_label": continuity["classification"],
+            "backend_memory": _backend_memory(client, profile),
+            "task_outcome": {
+                "status": "unknown",
+                "reason": "runtime harness does not measure task completion",
+            },
+        })
+        rows.append(row)
+        anchor = after
+
+    reuse = [row["endpoint_process_reused"] for row in rows]
+    reused_across_all = (
+        False if False in reuse else (True if all(value is True for value in reuse) else None)
+    )
+    return {
+        "supported": True,
+        "requested_turns": turns,
+        "completed_turns": len(rows),
+        "endpoint_process_reused_across_all_turns": reused_across_all,
+        "task_outcome_source": "product_acceptance_not_runtime_harness",
+        "turns": rows,
+    }
+
+
 def capture_identity(client: EndpointClient, profile: Profile) -> dict[str, Any]:
     result = {
         "model": profile.model,
@@ -680,6 +735,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--context-sizes", default="2048,8192,32768")
     parser.add_argument("--generation-prompt", default="Explain deterministic verification in two short paragraphs.")
     parser.add_argument("--max-tokens", type=int, default=256)
+    parser.add_argument("--persistent-turns", type=int, default=0)
     parser.add_argument("--cancellation", action="store_true")
     parser.add_argument("--soak-hours", type=float, default=0.0)
     args = parser.parse_args(argv)
@@ -691,6 +747,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--context-sizes values must be positive")
     if args.max_tokens <= 0 or args.ready_timeout <= 0 or args.soak_hours < 0:
         parser.error("token/time values must be positive; soak may be zero")
+    if args.persistent_turns < 0 or args.persistent_turns > len(_SEQUENCE_PREFIXES) - 2:
+        parser.error(f"--persistent-turns must be between 0 and {len(_SEQUENCE_PREFIXES) - 2}")
 
     started_process = None
     cold = {"supported": False, "reason": "not requested"}
@@ -707,6 +765,13 @@ def main(argv: list[str] | None = None) -> int:
             established_cold=bool(cold.get("supported")),
             process=started_process,
         ))
+        persistent = benchmark_persistent_session(client, profile, LifecycleRun(
+            prompt=args.generation_prompt,
+            max_tokens=args.max_tokens,
+            nonce=secrets.token_hex(4),
+            established_cold=False,
+            process=started_process,
+        ), args.persistent_turns)
         report = {
             "schema_version": 2,
             "captured_at_unix": time.time(),
@@ -716,6 +781,7 @@ def main(argv: list[str] | None = None) -> int:
             "lifecycle": lifecycle,
             "generation": first,
             "warm_generation": warm,
+            "persistent_session": persistent,
             "context_ladder": benchmark_context_ladder(client, profile, targets),
             "cancellation": benchmark_cancellation(client, profile) if args.cancellation else {"supported": False, "reason": "not requested"},
             "soak": run_soak(client, profile, args.soak_hours, args.generation_prompt, args.max_tokens),

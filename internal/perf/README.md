@@ -11,6 +11,7 @@ It reports:
 - client-observed prompt-to-first-token latency for each context size, plus backend-reported prefill time only when explicitly exposed
 - endpoint-observed cancellation latency only when the endpoint can prove request lifetime
 - a configurable multi-hour fixed-task soak with client RSS, optional backend memory, errors and TTFT drift
+- an optional persistent-session series with per-turn latency and explicit endpoint-reuse evidence
 
 ## Measurement rules
 
@@ -43,6 +44,7 @@ Cold and warm comparisons must state whether the endpoint process was reused. A 
 - `warm_generation`: a second request to the same endpoint. It is labelled `same_endpoint_warm` only when readiness held, the served model set was unchanged before and after it, and reuse is proven by a still-alive harness-owned process or by an unchanged `identity.instance_path` value. Missing evidence gives `subsequent_request_endpoint_reuse_unproven`; an observed break gives `lifecycle_boundary_observed_new_sequence` with the observations listed. A launcher that exits 0 after handing off proves nothing.
 - The two prompts differ from their first character so prompt or prefix caching cannot pose as runtime residency.
 - `backend_memory` on both rows comes only from `telemetry.memory_path`; otherwise it is reported unsupported.
+- `persistent_session` is populated by `--persistent-turns N`. Each additional request retains its own latency, memory and lifecycle classification. Task outcome is explicitly `unknown`: acceptance/qualification, not this runtime harness, owns verified completion and intervention facts.
 
 ## Residency and product cost
 
@@ -69,7 +71,7 @@ Persistence is an optimisation, not an authority change. A resident endpoint mus
 Copy `internal/perf/profile.example.toml` to an ignored local path, fill in the exact endpoint identity and any optional hooks, then run for example:
 
 ```text
-python internal/perf/endpoint_harness.py --profile .local-agent/perf/my-endpoint.toml --cold-start --cancellation --soak-hours 4 --output run.json
+.\local-code-agent.ps1 benchmark --profile .local-agent\perf\my-endpoint.toml --cold-start --persistent-turns 20 --cancellation --soak-hours 4 --output run.json
 ```
 
 Keep backend-specific launch commands, telemetry URLs and request-observation hooks in the local profile, never in the harness source.
