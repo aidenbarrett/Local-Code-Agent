@@ -237,3 +237,47 @@ def test_unknown_running_and_unrelated_tasks_offer_no_failure_actions():
                 assert app.query_one("#fix-task", Button).disabled
                 assert not app.query_one("#task-actions").display
     asyncio.run(scenario())
+
+
+def test_first_failure_can_be_selected_by_keyboard_on_mount_and_after_completion():
+    async def scenario(initially_empty):
+        task_id = str(uuid4())
+        failed = replace(task(task_id), task_id=task_id, candidate=None,
+                         skill="run-build", configured_check="run-build",
+                         state="failed", verdict="FAILED")
+        commands = []
+
+        class App(SessionHubApp):
+            def on_hub_input_submitted(self, message):
+                commands.append((message.text, message.from_composer))
+
+        app = App(HubViewState(tasks=() if initially_empty else (failed,)))
+        async with app.run_test(size=(80, 30)) as pilot:
+            composer = app.query_one("#composer", Input)
+            composer.value = "unfinished user message"
+            if initially_empty:
+                app.replace_state(HubViewState(tasks=(replace(
+                    failed, state="running", verdict=None, closed_sequence=None,
+                ),)))
+                await pilot.pause()
+                assert app.query_one("#fix-task", Button).disabled
+                app.replace_state(HubViewState(tasks=(failed,)))
+                await pilot.pause()
+            selector = app.query_one("#task-select", Select)
+            assert selector.display
+            await pilot.pause()
+            await pilot.click("#task-select", offset=(2, 1))
+            assert selector.expanded
+            await pilot.press("end", "enter")
+            await pilot.pause()
+            assert selector.value == task_id
+            assert commands == []  # selection never submits work
+            assert await pilot.click("#explain-task")
+            assert await pilot.click("#fix-task")
+            await pilot.pause()
+            assert commands == [(f"Why did task {task_id} fail?", False),
+                                (f"Fix task {task_id}", False)]
+            assert composer.value == "unfinished user message"
+
+    asyncio.run(scenario(False))
+    asyncio.run(scenario(True))

@@ -595,7 +595,10 @@ class SessionHubApp(App):
                 selector.value = selected
             else:
                 selector.clear()
-        selector.display = bool(self._candidate_tasks()) or len(choices) > 1
+        selector.display = (
+            bool(self._candidate_tasks()) or len(choices) > 1
+            or any(self._check_failure(task) for task in tasks.values())
+        )
         task = tasks.get(str(selector.value))
         candidate = task.candidate if task is not None else None
         check_failure = self._check_failure(task)
