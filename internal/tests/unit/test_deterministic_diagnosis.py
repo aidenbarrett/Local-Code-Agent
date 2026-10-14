@@ -173,6 +173,7 @@ def test_the_first_and_only_failed_build_is_explained_through_the_visible_select
                 await pilot.pause()
                 selector = app.query_one("#task-select", Select)
                 assert selector.display, "the only failed build cannot be selected"
+                assert selector.is_blank(), "a task was selected for the user"
                 selector.focus()
                 await pilot.press("enter")
                 await pilot.pause()

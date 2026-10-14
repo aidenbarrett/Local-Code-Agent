@@ -252,6 +252,8 @@ def _check_task(task_id, *, check="run-build", state="failed", verdict="FAILED",
 async def _choose_only_task_by_keyboard(app, pilot):
     selector = app.query_one("#task-select", Select)
     assert selector.display, "the only failed task has no visible selector"
+    assert selector.is_blank(), "a task was selected for the user"
+    assert app.query_one("#explain-task", Button).disabled
     selector.focus()
     await pilot.press("enter")
     await pilot.pause()
