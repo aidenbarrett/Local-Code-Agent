@@ -38,6 +38,10 @@ def main() -> int:
         "qualify",
         "Run and retain one physical offline qualification without self-certifying it",
     )
+    term.field(
+        "benchmark",
+        "Measure one configured local endpoint; retain cold/warm facts without task claims",
+    )
     term.field("models", "List models; 'models use <profile>' picks yours, 'models pull <profile>' downloads one")
     term.field("advanced", "Pass arguments directly to the underlying developer CLI")
 
@@ -51,6 +55,10 @@ def main() -> int:
     term.line(
         r"  .\local-code-agent.ps1 qualify --profile ptl-gpu-30b "
         r"--output C:\lca-qualification\gpu30b"
+    )
+    term.line(
+        r"  .\local-code-agent.ps1 benchmark --profile .local-agent\perf\my-endpoint.toml "
+        r"--cold-start --output C:\lca-benchmarks\run-1.json"
     )
     term.line(r"  .\local-code-agent.ps1 models")
     term.line(r"  .\local-code-agent.ps1 models pull ptl-gpu-30b")
