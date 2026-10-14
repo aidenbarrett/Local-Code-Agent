@@ -487,6 +487,42 @@ def _repo_directory(root: Path, value: object, where: str) -> str:
     return candidate.as_posix()
 
 
+def _named_build_trees(argv: list[str]) -> list[str]:
+    """Build trees a CMake or CTest command names explicitly; other tools name none we can read."""
+    if not argv:
+        return []
+    tool = PureWindowsPath(argv[0]).name.lower().removesuffix(".exe")
+    flags = {"cmake": ("-B", "--build"), "ctest": ("--test-dir",)}.get(tool, ())
+    trees: list[str] = []
+    for index, argument in enumerate(argv[1:], start=1):
+        if argument == "--":
+            break  # what follows belongs to the native build tool
+        for flag in flags:
+            if argument == flag and index + 1 < len(argv):
+                trees.append(argv[index + 1])
+            elif flag == "-B" and argument.startswith("-B") and len(argument) > 2:
+                trees.append(argument[2:])
+            elif flag.startswith("--") and argument.startswith(f"{flag}="):
+                trees.append(argument[len(flag) + 1:])
+    return trees
+
+
+def _refuse_unowned_build_trees(
+    root: Path, build_dir: str, profiles: dict[str, BuildProfile],
+) -> None:
+    """A command must build where the ownership check looks, or that check protects nothing."""
+    owned = (root / build_dir).resolve()
+    for profile in profiles.values():
+        for step in ("configure", "build", "test"):
+            for tree in _named_build_trees(getattr(profile, step)):
+                if (root / tree.replace("\\", "/")).resolve() != owned:
+                    raise ConfigError(
+                        f"profiles.{profile.name}.{step} uses build directory {tree!r} but "
+                        f"repo.build_dir is {build_dir!r}. Local Code Agent owns and protects "
+                        "only repo.build_dir, so name the same directory in both."
+                    )
+
+
 def _as_cmd(value: object, where: str) -> list[str]:
     if value is None:
         return []
@@ -597,11 +633,13 @@ def load_repo_config(root: Path) -> RepoConfig:
         )
     pol = _as_mapping(raw.get("policy", {}), "policy")
     _refuse_unknown_keys(pol, "policy", "policy")
+    build_dir = _repo_directory(root, repo.get("build_dir", "build"), "repo.build_dir")
+    _refuse_unowned_build_trees(root, build_dir, profiles)
 
     return RepoConfig(
         root=root,
         name=_as_nonempty_string(repo.get("name", root.name), "repo.name"),
-        build_dir=_repo_directory(root, repo.get("build_dir", "build"), "repo.build_dir"),
+        build_dir=build_dir,
         run_dir=_repo_directory(root, repo.get("run_dir", ".local-agent/runs"), "repo.run_dir"),
         profiles=profiles,
         default_profile=default_profile,

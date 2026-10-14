@@ -185,3 +185,37 @@ def _public_doctor():
     sys.modules["doctor_for_config_tests"] = module
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.mark.parametrize("command", [
+    '["cmake", "-S", ".", "-B", "build"]',
+    '["cmake", "-S", ".", "-Bbuild"]',
+    '["cmake", "--build", "build"]',
+    '["cmake.exe", "--build", "build", "--config", "Debug"]',
+    '["C:\\\\Tools\\\\CMake\\\\bin\\\\cmake.exe", "--build", "build"]',
+    '["ctest", "--test-dir", "build"]',
+    '["ctest", "--test-dir=build"]',
+])
+def test_a_command_building_outside_the_owned_tree_is_refused(tmp_path: Path, command: str) -> None:
+    """Changing only repo.build_dir must not leave the commands writing the user's tree."""
+    root = tmp_path / "repo"
+    _write(root, f'[repo]\nbuild_dir = "build-lca"\n[profiles.debug]\nbuild = {command}\n')
+
+    with pytest.raises(ConfigError, match=r"profiles\.debug\.build uses build directory 'build' "
+                                          r"but repo\.build_dir is 'build-lca'"):
+        load_repo_config(root)
+
+
+@pytest.mark.parametrize("command", [
+    '["cmake", "-S", ".", "-B", "out/lca"]',
+    '["cmake", "-S", ".", "-B", "./out/lca"]',
+    '["cmake", "--build", "out\\\\lca", "--", "-B", "-j4"]',
+    '["ctest", "--test-dir", "out/lca/", "-C", "Debug"]',
+    '["make", "-B", "elsewhere"]',
+    '["cmake", "--preset", "dev"]',
+])
+def test_commands_naming_the_owned_tree_or_no_readable_tree_load(tmp_path: Path, command: str) -> None:
+    root = tmp_path / "repo"
+    _write(root, f'[repo]\nbuild_dir = "out/lca"\n[profiles.debug]\nbuild = {command}\n')
+
+    assert load_repo_config(root).build_dir == "out/lca"

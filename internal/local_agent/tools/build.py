@@ -108,8 +108,9 @@ def _claim_or_require_build_root(ctx: ToolContext) -> Path:
             raise ToolError(
                 f"the build directory {ctx.repo.build_dir!r} already exists and was not "
                 f"created by Local Code Agent (no {_BUILD_OWNER} marker), so it is neither "
-                "deleted nor written. Set repo.build_dir in .local-agent.toml to a "
-                "directory Local Code Agent may own, or remove this one yourself."
+                "deleted nor written. In .local-agent.toml, name a directory Local Code "
+                "Agent may own (for example .local-agent/build) as repo.build_dir and in "
+                "the profile commands, or remove this one yourself."
             )
     else:
         resolved.mkdir(parents=True)
