@@ -1,6 +1,6 @@
 # Development candidate handoff
 
-Candidate: 5b0012a20a789f960c8ddb7efa2e244740a16b64 (tree d82803fdc2219272ddea69c47a45b9b9a6e90b6e).
+Candidate: 4c4d6d33b7c262d7a60367759652c60569086dd9 (tree dc0b17a0d03b471b3158749b8d42469286e15ba6).
 This is a development candidate. Physical disconnected Panther Lake acceptance,
 configuration-specific model competence and enforced merge policy remain open.
 #403 remains the release decision; this handoff does not close it.
@@ -10,7 +10,7 @@ configuration-specific model competence and enforced merge policy remain open.
 ```powershell
 git clone https://github.com/aidenbarrett/Local-Code-Agent.git
 cd Local-Code-Agent
-git checkout --detach 5b0012a20a789f960c8ddb7efa2e244740a16b64
+git checkout --detach 4c4d6d33b7c262d7a60367759652c60569086dd9
 .\install.ps1 -CheckOnly
 .\install.ps1 -InstallMissing -SkipModelDownload
 .\local-code-agent.ps1 models
@@ -56,13 +56,15 @@ See [QUICKSTART.md](../../QUICKSTART.md) for setup details and
 
 ## Evidence and limits
 
-The candidate above has tree-identical exact-head evidence from #544: full Linux pytest
-and all five Windows shards passed in
-[tests run 38380301073](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38380301073),
-and native, serving, product, import and integration workflows also passed. Independent
-review covered exact head `304ed01c14d9502c02833dff53b6a3c104af3991`; merged main has the same
-tree `d82803fdc2219272ddea69c47a45b9b9a6e90b6e` as that tested head.
-This is CI/controller evidence, not exact-candidate model or physical qualification.
+The candidate above is tree-identical to independently reviewed PR #571 head
+`1522c53ce9b88c84dc8b7f5b5b26936ad4402d3a`. Full Linux pytest and all five
+Windows shards passed in
+[tests run 38475379773](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38475379773);
+native endpoint, serving, product acceptance, import-boundary and integration-eligibility
+workflows also passed on that exact head. The native-endpoint Windows archive download
+had one DNS failure and passed when rerun without changing the head. Merged main has tree `dc0b17a0d03b471b3158749b8d42469286e15ba6` as that tested head.
+This is deterministic CI/controller evidence, not exact-candidate model or physical
+qualification.
 
 | Later retained evidence | What it supports | Limit |
 |---|---|---|
@@ -70,11 +72,15 @@ This is CI/controller evidence, not exact-candidate model or physical qualificat
 | CPU30B cxxopts compile repair, retained in #516/#517 | One model-generated identifier repair, independent seven-test suite and subsequent controller diff/apply/exact commit preserving unrelated work | Model repair source `44cec210bbb32107789427559ec2c545e62a935b86387bff2be9dadc2907dca7`; controller follow-through is a separate proof class |
 | Fresh Windows archive CPU30B setup, #522 | New managed Python environment, public setup READY TO USE, protocol/tool/context checks and fixture 4/4 tests | Product archive `142a6e041e73e902503598d308915816d3eb7b64`; existing prerequisites/weights/tools/cache reused. R01 second launch was MEASURED:no-evidence; semantic correctness unknown |
 | Production count-defect CPU30B attempts, #526 and #528 | Unchanged upstream tests passed 7/7 before the fault and failed 2/7 afterward; one 300s and one separate 900s repair attempt remained UNKNOWN | Different measured product sources; no isolated budget causation, success rate or model-ceiling claim. The 900s trace has two proposals, no application; discarded proposal contents are unavailable |
+| Context-assisted CPU30B production repair, #563 | One retained model proposal applied through the product's matching primitive; all seven unchanged upstream tests passed | Operator supplied the relevant source and failure log and narrowed tools; one result is not autonomous repair or a success rate. CPU was declared, execution device unconfirmed |
+| Composed PTL qualification summary, #571 | One root command now projects retained J24/J07 execution, lifecycle and user-work-preservation evidence into a compact summary | The projection does not prove a Panther Lake run, observed device, or offline success; those fields remain UNKNOWN until the physical qualification produces matching evidence |
 
 Original records are in [the compile-repair archive](../../internal/docs/rc-model-competence-2026-10-11.json),
 [the first-use archive](../../internal/docs/rc-first-use-cpu30b-2026-10-12.json),
 [the 300s production-test archive](../../internal/docs/rc-model-production-test-2026-10-12.json),
-and [the separate 900s evidence PR](https://github.com/aidenbarrett/Local-Code-Agent/pull/528).
+[the separate 900s evidence PR](https://github.com/aidenbarrett/Local-Code-Agent/pull/528),
+[the context-assisted repair PR](https://github.com/aidenbarrett/Local-Code-Agent/pull/563),
+and [the composed PTL summary PR](https://github.com/aidenbarrett/Local-Code-Agent/pull/571).
 The CPU30B original candidate and independent/controller receipts remain retained in
 [#516](https://github.com/aidenbarrett/Local-Code-Agent/pull/516) and
 [#517](https://github.com/aidenbarrett/Local-Code-Agent/pull/517).
