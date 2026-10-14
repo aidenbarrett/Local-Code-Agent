@@ -721,14 +721,13 @@ def main(argv: list[str] | None = None) -> int:
             print(summary, end="")
     except KeyboardInterrupt:
         if args.command == "run":
-            print(
+            sys.stderr.write(
                 "\nCANCELLED: any completed preparation evidence was retained; retry with "
                 f".\\local-code-agent.ps1 qualify --profile {args.profile} "
-                "--output <new-output-folder>",
-                file=sys.stderr,
+                "--output <new-output-folder>\n"
             )
         else:
-            print("\nCANCELLED", file=sys.stderr)
+            sys.stderr.write("\nCANCELLED\n")
         return 130
     except (AcceptanceCaptureError, EOFError, OSError, KeyError, TypeError, ValueError,
             json.JSONDecodeError) as exc:
