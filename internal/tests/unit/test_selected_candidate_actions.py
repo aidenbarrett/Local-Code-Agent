@@ -35,6 +35,7 @@ def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_dura
             composer.value = "unfinished user message"
             selector = app.query_one("#candidate-select", Select)
             assert app.query_one("#apply-candidate", Button).disabled
+            assert app.query_one("#commit-candidate", Button).disabled
             selector.value = first
             await pilot.pause()
             assert first in str(app.query_one("#activity", Static).render())
@@ -43,6 +44,7 @@ def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_dura
             await pilot.click("#apply-candidate")
             await pilot.pause()
             assert commands == [(f"/diff {first}", False),(f"/apply {first}",False)]
+            assert app.query_one("#commit-candidate", Button).disabled
             assert composer.value == "unfinished user message"
             refused = task(first, sequence=3, role="apply_refused", verified=False)
             app.replace_state(HubViewState(tasks=(a,b,refused)))
@@ -61,11 +63,17 @@ def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_dura
             assert selector.value == first
             assert app.query_one("#apply-candidate", Button).disabled
             assert not app.query_one("#undo-candidate", Button).disabled
+            assert not app.query_one("#commit-candidate", Button).disabled
+            await pilot.click("#commit-candidate")
+            await pilot.pause()
+            assert commands[-1] == (f"/commit {first}", False)
+            assert composer.value == "unfinished user message"
             await pilot.click("#undo-candidate")
             await pilot.pause()
             assert commands[-1] == (f"/undo {first}",False)
             selector.value = second
             await pilot.pause()
+            assert app.query_one("#commit-candidate", Button).disabled
             await pilot.click("#apply-candidate")
             await pilot.pause()
             assert commands[-1] == (f"/apply {second}",False)
@@ -73,7 +81,7 @@ def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_dura
             await pilot.pause()
             assert selector.value not in {first, second}
             assert all(app.query_one('#'+name,Button).disabled for name in
-                       ('review-candidate','apply-candidate','undo-candidate'))
+                       ('review-candidate','apply-candidate','undo-candidate','commit-candidate'))
     asyncio.run(scenario())
 
 
@@ -87,4 +95,32 @@ def test_unverified_candidate_actions_remain_unavailable():
             assert app.query_one("#review-candidate",Button).disabled
             assert app.query_one("#apply-candidate",Button).disabled
             assert app.query_one("#undo-candidate",Button).disabled
+            assert app.query_one("#commit-candidate",Button).disabled
+    asyncio.run(scenario())
+
+
+def test_commit_requires_verified_applied_candidate_and_disables_after_terminal_state():
+    async def scenario():
+        candidate_id = str(uuid4())
+        commands = []
+        class App(SessionHubApp):
+            def on_hub_input_submitted(self, message):
+                commands.append(message.text)
+        app = App(HubViewState(tasks=(task(candidate_id, role="applied", verified=False),)))
+        async with app.run_test(size=(80, 30)) as pilot:
+            app.query_one("#candidate-select", Select).value = candidate_id
+            await pilot.pause()
+            assert app.query_one("#commit-candidate", Button).disabled
+            await pilot.click("#commit-candidate")
+            await pilot.pause()
+            assert commands == []
+            app.replace_state(HubViewState(tasks=(task(candidate_id, role="applied"),)))
+            await pilot.pause()
+            await pilot.click("#commit-candidate")
+            await pilot.pause()
+            assert commands == [f"/commit {candidate_id}"]
+            for role in ("committed", "undone", "apply_refused"):
+                app.replace_state(HubViewState(tasks=(task(candidate_id, role=role),)))
+                await pilot.pause()
+                assert app.query_one("#commit-candidate", Button).disabled
     asyncio.run(scenario())

@@ -14,6 +14,7 @@ import sys
 import pytest
 
 from local_agent.config import DEFAULT_MODEL_PRESET, MODEL_PRESETS
+from local_agent.public_commands import powershell_literal, public_entrypoint
 from serving import serve
 
 REPO = Path(__file__).resolve().parents[3]
@@ -117,7 +118,7 @@ def test_a_missing_compiler_names_setup(tmp_path, windows):
                      env={"LCA_OVMS_EXECUTABLE": "C:/ovms/ovms.exe"})
     compiler = checks["C++ compiler"]
     assert compiler.state == doctor.MISSING
-    assert compiler.next_action == r".\install.ps1"
+    assert compiler.next_action == public_entrypoint("install.ps1")
 
 
 def test_the_launchers_msvc_fact_is_reported_as_observed(tmp_path):
@@ -140,13 +141,13 @@ def test_missing_git_and_cmake_name_setup(tmp_path):
     checks = _assess(tmp_path, which=_tools("c++", "ovms"))
     for name in ("Git", "CMake"):
         assert checks[name].state == doctor.MISSING
-        assert checks[name].next_action == r".\install.ps1"
+        assert checks[name].next_action == public_entrypoint("install.ps1")
 
 
 def test_missing_managed_ovms_names_setup_before_the_weights(tmp_path):
     checks = _assess(tmp_path, windows=True, launcher=doctor.LauncherFacts(probed=True))
     server = checks["Model server"]
-    assert server.state == doctor.MISSING and server.next_action == r".\install.ps1"
+    assert server.state == doctor.MISSING and server.next_action == public_entrypoint("install.ps1")
     names = list(checks)
     assert names.index("Model server") < names.index("Weights")
 
@@ -224,7 +225,9 @@ def test_repository_states(tmp_path):
     (tmp_path / "plain").mkdir()
     missing = _assess(tmp_path, repo=tmp_path / "plain")["Repository"]
     assert missing.state == doctor.MISSING
-    assert missing.next_action == rf'.\local-code-agent.ps1 init --repo "{(tmp_path / "plain").resolve()}"'
+    assert missing.next_action == (
+        f"{public_entrypoint()} init --repo {powershell_literal((tmp_path / 'plain').resolve())}"
+    )
 
     broken = _repo(tmp_path / "broken", "[profiles\n")
     blocked = _assess(tmp_path, repo=broken)["Repository"]
@@ -243,7 +246,7 @@ def test_python_row_reports_the_runtime_contract(tmp_path, monkeypatch):
                         encoding="utf-8")
     python = doctor.check_python(contract)
     assert python.state == doctor.BLOCKED
-    assert python.next_action == r".\install.ps1"
+    assert python.next_action == public_entrypoint("install.ps1")
     assert "no-such-distribution-lca" in (python.observed or "")
 
 
@@ -268,16 +271,24 @@ def test_main_exits_3_when_not_ready_and_repeats_identically(tmp_path, monkeypat
     assert sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*")) == before
     assert "Weights        MISSING" in first
     assert serve.pull_command(DEFAULT_MODEL_PRESET) in first
+    assert f"then rerun {public_entrypoint()} doctor --repo {powershell_literal(repo)}\n" in first
 
 
-def test_main_exits_0_when_everything_is_ready(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("profile", [None, "nuc-cpu-8b"])
+def test_main_exits_0_when_everything_is_ready(tmp_path, monkeypatch, capsys, profile):
     repo = _repo(tmp_path / "repo")
     runtime_root = tmp_path / "runtime"
-    _complete_weights(runtime_root, DEFAULT_MODEL_PRESET)
+    _complete_weights(runtime_root, profile or DEFAULT_MODEL_PRESET)
     monkeypatch.setattr(doctor.shutil, "which", _ALL_TOOLS)
     monkeypatch.setattr(doctor.serve, "status", _not_running)
-    assert doctor.main(["--repo", str(repo), "--runtime-root", str(runtime_root)]) == 0
-    assert "Ready. Open the Session Hub" in capsys.readouterr().out
+    profile_args = [] if profile is None else ["--profile", profile]
+    assert doctor.main(["--repo", str(repo), "--runtime-root", str(runtime_root), *profile_args]) == 0
+    output = capsys.readouterr().out
+    command = f"{public_entrypoint()} session --repo {powershell_literal(repo)}"
+    if profile is not None:
+        command += f" --profile {powershell_literal(profile)}"
+    assert f"Ready. Open the Session Hub: {command}\n" in output
+    assert f"--repo {powershell_literal(repo)}" in output.split("Execution", 1)[1]
 
 
 def test_help_names_doctor():
