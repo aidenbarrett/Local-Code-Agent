@@ -136,11 +136,6 @@ how to configure targets, build firmware, run tests/simulators, locate useful lo
 recognise project-specific success/failure evidence. The controller exposes only the
 relevant slice for the current task.
 
-The NPU firmware repository is a proving ground for this design, not a special-case product
-dependency. Lessons that generalise become generic Git/build/run/debug capabilities.
-Intel-proprietary source, logs and artifacts remain on the authorized machine; product
-improvements are driven by non-sensitive behavioural findings rather than copied IP.
-
 Do not create one skill per command or failure signature. Prefer a small number of owning
 engines with typed observations, progressively disclosed knowledge and explicit
 capabilities.
