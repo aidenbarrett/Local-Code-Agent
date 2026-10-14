@@ -102,7 +102,9 @@ class ToolContext:
         """
         from .tool_primitives import BlockedError, Reason, ToolError
 
-        # A configured command leaves logs here; read-only tools must leave no files.
+        # A configured command leaves logs here; read-only tools must leave no files,
+        # and a Stop already requested fences this effect like every other.
+        self.refuse_if_cancelled()
         ignore_instrument_directory(self.root, self.run_root)
         try:
             outcome = run_command(

@@ -184,3 +184,17 @@ def test_directories_outside_the_instrument_get_no_ignore_file(tmp_path, created
     ignore_instrument_directory(root, root / created)
     assert not (root / '.local-agent').exists()
     assert not (root / created / '.gitignore').exists()
+
+
+def test_a_stop_before_a_configured_command_writes_no_ignore_file(tmp_path):
+    root = tmp_path / 'repo'
+    root.mkdir()
+    command = [sys.executable, '-c', 'raise SystemExit(0)']
+    (root / '.local-agent.toml').write_text(
+        f'[profiles.debug]\nbuild={json.dumps(command)}\n', encoding='utf-8',
+    )
+    _registry, ctx, _ = build_registry(load_repo_config(root), cancellation_probe=_Stopped())
+    with pytest.raises(BlockedError):
+        ctx.run_configured(command)
+    assert not (root / '.local-agent' / '.gitignore').exists()
+    assert ctx.processes_started == 0

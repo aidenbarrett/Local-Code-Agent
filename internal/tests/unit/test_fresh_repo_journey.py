@@ -65,7 +65,7 @@ def _run(script: str, *args: str, env: dict[str, str]) -> subprocess.CompletedPr
                           capture_output=True, text=True, timeout=600, env=env)
 
 
-def _journeys(tmp_path: Path, repo: Path) -> dict[str, dict]:
+def _journeys(tmp_path: Path, repo: Path, *, leftover: bool = False) -> dict[str, dict]:
     env = {**os.environ, "LCA_RUNTIME_ROOT": str(tmp_path / "runtime"),
            # The child sees exactly this interpreter's import path, as the launcher sets it.
            "PYTHONPATH": os.pathsep.join([str(REPO / "internal"), *sys.path])}
@@ -73,11 +73,17 @@ def _journeys(tmp_path: Path, repo: Path) -> dict[str, dict]:
     assert declared.returncode == 0, declared.stdout + declared.stderr
     _git(repo, "add", ".local-agent.toml")
     _git(repo, "commit", "-qm", "declare")
-    before = _git(repo, "status", "--porcelain=v1")
+    if leftover:
+        # An earlier run left unignored output behind: the upgrade path.
+        old = repo / ".local-agent" / "runs" / "earlier-run"
+        old.mkdir(parents=True)
+        (old / "combined.log").write_text("from an earlier release\n", encoding="utf-8")
+    user_work = ["status", "--porcelain=v1", "--", ".", ":(exclude).local-agent"]
+    before = _git(repo, *(user_work if leftover else ["status", "--porcelain=v1"]))
     output = tmp_path / "evidence"
     ran = _run("acceptance-journeys.py", "--output", str(output), "--repo", str(repo),
                "--allow-build", "--only", "R02-build", "--only", "R03-tests", env=env)
-    assert _git(repo, "status", "--porcelain=v1") == before, \
+    assert _git(repo, *(user_work if leftover else ["status", "--porcelain=v1"])) == before, \
         "the journeys changed tracked or unignored work"
     assert (repo / ".local-agent" / "build" / "CMakeCache.txt").is_file(), \
         "the declared build directory holds the build's artifacts"
@@ -121,6 +127,16 @@ def test_a_repository_that_never_ignored_local_agent_still_gets_build_and_test_p
     assert journeys["R03-tests"]["status"] == "MEASURED:pass", journeys["R03-tests"]
     assert not (repo / ".gitignore").exists(), "the developer's .gitignore was created or edited"
     assert _git(repo, "status", "--porcelain=v1", "--ignored", ".local-agent") == "!! .local-agent/\n"
+
+
+def test_unignored_output_from_an_earlier_run_does_not_fail_the_first_proof(tmp_path):
+    """Upgrading in a repo whose .local-agent/ was never ignored must not read as user change."""
+    repo = _fresh_cmake_repo(tmp_path / "upgraded cmake project", test_passes=True, ignore="")
+    journeys = _journeys(tmp_path, repo, leftover=True)
+    assert journeys["R02-build"]["status"] == "MEASURED:pass", journeys["R02-build"]
+    assert journeys["R03-tests"]["status"] == "MEASURED:pass", journeys["R03-tests"]
+    assert _git(repo, "status", "--porcelain=v1") == "", "LCA output still shows as user work"
+    assert not (repo / ".gitignore").exists()
 
 
 def test_the_developers_own_build_tree_is_neither_refused_nor_written(tmp_path):

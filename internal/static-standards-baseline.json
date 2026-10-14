@@ -1048,7 +1048,7 @@
    },
    "internal/scripts/acceptance-journeys.py": {
     "ARG002": 3,
-    "E501": 71,
+    "E501": 70,
     "FBT001": 2,
     "N818": 1,
     "PERF401": 1,
@@ -1179,5 +1179,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1605
+ "total": 1604
 }
