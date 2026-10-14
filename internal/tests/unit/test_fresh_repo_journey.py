@@ -140,6 +140,19 @@ def test_unignored_output_from_an_earlier_run_does_not_fail_the_first_proof(tmp_
     assert not (repo / ".gitignore").exists()
 
 
+def test_a_users_untracked_note_under_local_agent_stays_visible_through_the_first_proof(tmp_path):
+    """LCA ignores only its own output trees, so a user's file beside them is never hidden."""
+    repo = _fresh_cmake_repo(tmp_path / "noted cmake project", test_passes=True, ignore="")
+    note = repo / ".local-agent" / "notes.txt"
+    note.parent.mkdir()
+    note.write_text("mine\n", encoding="utf-8")
+    journeys = _journeys(tmp_path, repo)
+    assert journeys["R02-build"]["status"] == "MEASURED:pass", journeys["R02-build"]
+    assert journeys["R03-tests"]["status"] == "MEASURED:pass", journeys["R03-tests"]
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == "?? .local-agent/notes.txt\n"
+    assert note.read_text(encoding="utf-8") == "mine\n"
+
+
 def test_a_build_that_rewrites_a_tracked_file_under_local_agent_fails_preservation(tmp_path):
     """Negative: the instrument directory's name never hides a tracked user change."""
     repo = _fresh_cmake_repo(tmp_path / "tampering cmake project", test_passes=True)

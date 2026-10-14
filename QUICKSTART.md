@@ -96,8 +96,9 @@ repository in place. No model is used and each step gets its own verified result
 Tracked and unignored work stays exactly as it was; the build itself creates or
 updates normal artifacts in the declared build directory, and run logs go beside it.
 `init` declares `.local-agent/build`, so your own `build/` tree is never read or
-written. `.local-agent/` ignores itself, so you do not need to edit your `.gitignore`;
-a check that leaves tracked or unignored files changed fails instead of passing.
+written. The run logs and build tree under `.local-agent/` ignore themselves, so you
+do not need to edit your `.gitignore`; a check that leaves tracked or unignored files
+changed fails instead of passing.
 
 ```powershell
 & $lca acceptance --repo . --allow-build --output C:\lca-evidence\my-project-1 --only R02-build --only R03-tests

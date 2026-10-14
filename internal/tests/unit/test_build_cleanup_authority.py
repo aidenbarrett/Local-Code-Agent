@@ -163,25 +163,28 @@ def _public_doctor():
     return module
 
 
-def test_the_instrument_directory_ignores_itself_without_replacing_a_users_file(tmp_path):
-    from local_agent.tools.tool_context import ignore_instrument_directory
+def test_each_owned_output_tree_ignores_itself_without_replacing_a_users_file(tmp_path):
+    from local_agent.tools.tool_context import ignore_owned_output
 
     root = tmp_path / 'repo'
-    ignore_instrument_directory(root, root / '.local-agent' / 'runs')
-    marker = root / '.local-agent' / '.gitignore'
-    assert marker.read_text(encoding='utf-8').splitlines()[-1] == '*'
-    marker.write_text('mine\n', encoding='utf-8')
-    ignore_instrument_directory(root, root / '.local-agent' / 'build')
-    assert marker.read_text(encoding='utf-8') == 'mine\n'
+    ignore_owned_output(root, root / '.local-agent' / 'runs')
+    runs = root / '.local-agent' / 'runs' / '.gitignore'
+    assert runs.read_text(encoding='utf-8').splitlines()[-1] == '*'
+    assert not (root / '.local-agent' / '.gitignore').exists(), 'only the owned tree is ignored'
+    users = root / '.local-agent' / 'build' / '.gitignore'
+    users.parent.mkdir()
+    users.write_text('mine\n', encoding='utf-8')
+    ignore_owned_output(root, root / '.local-agent' / 'build')
+    assert users.read_text(encoding='utf-8') == 'mine\n'
 
 
 @pytest.mark.parametrize('created', ['build', 'out/lca', '.local-agent-elsewhere'])
 def test_directories_outside_the_instrument_get_no_ignore_file(tmp_path, created):
-    from local_agent.tools.tool_context import ignore_instrument_directory
+    from local_agent.tools.tool_context import ignore_owned_output
 
     root = tmp_path / 'repo'
     (root / created).mkdir(parents=True)
-    ignore_instrument_directory(root, root / created)
+    ignore_owned_output(root, root / created)
     assert not (root / '.local-agent').exists()
     assert not (root / created / '.gitignore').exists()
 
@@ -196,5 +199,5 @@ def test_a_stop_before_a_configured_command_writes_no_ignore_file(tmp_path):
     _registry, ctx, _ = build_registry(load_repo_config(root), cancellation_probe=_Stopped())
     with pytest.raises(BlockedError):
         ctx.run_configured(command)
-    assert not (root / '.local-agent' / '.gitignore').exists()
+    assert not (root / '.local-agent').exists()
     assert ctx.processes_started == 0

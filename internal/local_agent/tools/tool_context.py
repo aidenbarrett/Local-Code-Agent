@@ -18,21 +18,23 @@ from .process_runner import (
 INSTRUMENT_DIR = ".local-agent"
 
 
-def ignore_instrument_directory(root: Path, created: Path) -> None:
-    """Keep Local Code Agent's own directory out of the user's Git status.
+def ignore_owned_output(root: Path, tree: Path) -> None:
+    """Keep one of Local Code Agent's output trees out of the user's Git status.
 
-    When ``created`` lies under ``<root>/.local-agent``, that directory gets a
-    ``.gitignore`` of ``*`` (which also ignores itself), so runs and builds never show
-    as untracked work and the user's own ``.gitignore`` is never edited. An existing
-    file there is the user's and is left alone.
+    When ``tree`` (the run or build directory LCA writes) lies under
+    ``<root>/.local-agent``, it gets a ``.gitignore`` of ``*`` (which also ignores
+    itself), so its logs and build output never show as untracked work and the user's
+    own ``.gitignore`` is never edited. Only that tree is ignored: anything else under
+    ``.local-agent`` stays visible to Git. An existing file there is the user's and is
+    left alone.
     """
     instrument = (root / INSTRUMENT_DIR).resolve()
-    resolved = created.resolve()
+    resolved = tree.resolve()
     if resolved != instrument and instrument not in resolved.parents:
         return
-    instrument.mkdir(parents=True, exist_ok=True)
+    resolved.mkdir(parents=True, exist_ok=True)
     try:
-        with (instrument / ".gitignore").open("x", encoding="utf-8", newline="\n") as stream:
+        with (resolved / ".gitignore").open("x", encoding="utf-8", newline="\n") as stream:
             stream.write("# Created by Local Code Agent: nothing here is source.\n*\n")
     except FileExistsError:
         pass
@@ -105,7 +107,7 @@ class ToolContext:
         # A configured command leaves logs here; read-only tools must leave no files,
         # and a Stop already requested fences this effect like every other.
         self.refuse_if_cancelled()
-        ignore_instrument_directory(self.root, self.run_root)
+        ignore_owned_output(self.root, self.run_root)
         try:
             outcome = run_command(
                 command,

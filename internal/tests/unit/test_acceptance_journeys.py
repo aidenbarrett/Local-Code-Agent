@@ -1161,6 +1161,8 @@ def test_preservation_counts_a_tracked_change_under_the_instrument_directory(tmp
 
 
 def test_preservation_normalises_only_lca_owned_output(tmp_path):
+    from local_agent.tools.tool_context import ignore_owned_output
+
     root = _status_repo(tmp_path / "repo")
     leftover = root / ".local-agent" / "runs" / "earlier"
     leftover.mkdir(parents=True)
@@ -1168,7 +1170,19 @@ def test_preservation_normalises_only_lca_owned_output(tmp_path):
     (root / ".local-agent" / "build").mkdir()
     (root / ".local-agent" / "build" / "CMakeCache.txt").write_text("x\n", encoding="utf-8")
     before = journeys._user_work_status(root)
-    (root / ".local-agent" / ".gitignore").write_text("*\n", encoding="utf-8")
+    ignore_owned_output(root, root / ".local-agent" / "runs")
+    ignore_owned_output(root, root / ".local-agent" / "build")
     assert journeys._user_work_status(root) == before, "owned output appearing ignored is not user change"
     (root / "scratch.txt").write_text("new user file\n", encoding="utf-8")
     assert journeys._user_work_status(root) != before, "a new untracked user file must count"
+
+
+def test_preservation_counts_unowned_file_after_runtime_self_ignore(tmp_path):
+    """LCA's ignore covers its own output trees only, never the rest of .local-agent."""
+    from local_agent.tools.tool_context import ignore_owned_output
+
+    root = _status_repo(tmp_path / "repo")
+    ignore_owned_output(root, root / ".local-agent" / "runs")
+    before = journeys._user_work_status(root)
+    (root / ".local-agent" / "unowned-note.txt").write_text("user work\n", encoding="utf-8")
+    assert journeys._user_work_status(root) != before
