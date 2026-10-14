@@ -62,8 +62,7 @@ Windows shards passed in
 [tests run 38475379773](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38475379773);
 native endpoint, serving, product acceptance, import-boundary and integration-eligibility
 workflows also passed on that exact head. The native-endpoint Windows archive download
-had one DNS failure and passed when rerun without changing the head. Merged main has
-the same tree `dc0b17a0d03b471b3158749b8d42469286e15ba6` as the tested head.
+had one DNS failure and passed when rerun without changing the head. Merged main has tree `dc0b17a0d03b471b3158749b8d42469286e15ba6` as that tested head.
 This is deterministic CI/controller evidence, not exact-candidate model or physical
 qualification.
 
