@@ -8,8 +8,10 @@ your way into `push --force` because there is nothing to approve.
 from __future__ import annotations
 
 import io
+import os
 import subprocess
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -38,27 +40,73 @@ def _no_hooks_dir(ctx: ToolContext) -> Path:
     return path
 
 
-def _git_process(
-    ctx: ToolContext, args: Sequence[str], *, literal_paths: bool = False,
-    stdin: bytes | None = None,
-) -> subprocess.CompletedProcess[bytes]:
-    """The one git subprocess for these tools: hooks, fsmonitor and external diff off."""
-    return subprocess.run(
-        [
-            "git",
+def _git_arguments(
+    args: Sequence[str], hooks_path: Path, *, literal_paths: bool = False,
+) -> list[str]:
+    return [
             *(["--literal-pathspecs"] if literal_paths else []),
-            "-c", f"core.hooksPath={_no_hooks_dir(ctx)}",
+            "-c", f"core.hooksPath={hooks_path}",
             "-c", "core.fsmonitor=false",
             "-c", "diff.external=",
             "--no-pager",
             *args,
-        ],
-        cwd=str(ctx.root),
+        ]
+
+
+def _run_git_process(
+    argv: Sequence[str], root: Path, *, timeout: int, stdin: bytes | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", *argv], cwd=str(root),
         input=stdin,
         capture_output=True,
         check=False,
-        timeout=_GIT_TIMEOUT,
+        timeout=timeout,
     )
+
+
+def _git_process(
+    ctx: ToolContext, args: Sequence[str], *, literal_paths: bool = False,
+    stdin: bytes | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    """The one git subprocess: tool callers retain their existing hook directory."""
+    argv = _git_arguments(args, _no_hooks_dir(ctx), literal_paths=literal_paths)
+    return _run_git_process(argv, ctx.root, timeout=_GIT_TIMEOUT, stdin=stdin)
+
+
+@dataclass(frozen=True)
+class OutputDirectoryIgnores:
+    missing: tuple[str, ...]
+    tracked: tuple[str, ...]
+
+
+def observe_output_ignores(root: Path, paths: Sequence[str]) -> OutputDirectoryIgnores:
+    """Git facts for configured output directories, without creating a tool run tree."""
+    missing: list[str] = []
+    tracked: list[str] = []
+    try:
+        for path in paths:
+            prefix = path.rstrip("/") + "/"
+            files = _run_git_process(
+                _git_arguments(["ls-files", "--cached", "-z", "--", prefix],
+                          Path(os.devnull), literal_paths=True), root, timeout=5,
+            )
+            if files.returncode != 0:
+                raise ToolError("Git could not observe the output directories")
+            if files.stdout:
+                tracked.append(path)
+            # check-ignore takes literal filenames; it refuses pathspec magic.
+            ignored = _run_git_process(
+                _git_arguments(["check-ignore", "-q", "--", prefix], Path(os.devnull)),
+                root, timeout=5,
+            )
+            if ignored.returncode == 1:
+                missing.append(path)
+            elif ignored.returncode != 0:
+                raise ToolError("Git could not observe the ignore rules")
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ToolError("Git ignore observation was unavailable or timed out") from exc
+    return OutputDirectoryIgnores(tuple(missing), tuple(tracked))
 
 
 def _as_text(raw: bytes) -> str:

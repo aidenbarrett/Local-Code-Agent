@@ -96,7 +96,9 @@ repository in place. No model is used and each step gets its own verified result
 Tracked and unignored work stays exactly as it was; the build itself creates or
 updates normal artifacts in the declared build directory, and run logs go beside it.
 `init` declares `.local-agent/build`, so your own `build/` tree is never read or
-written. Add `.local-agent/` to your `.gitignore`: a check that leaves tracked or
+written. Doctor checks that declared build outputs and run logs are ignored and
+prints one exact command for missing rules; it never edits `.gitignore` itself.
+Add `.local-agent/` to your `.gitignore`: a check that leaves tracked or
 unignored files changed fails instead of passing.
 
 ```powershell

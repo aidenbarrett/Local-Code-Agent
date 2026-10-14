@@ -144,6 +144,57 @@ def check_python(pyproject: Path) -> Check:
     return Check("Python", READY, observed=f"{version}; runtime contract satisfied")
 
 
+def check_artifact_ignores(start: Path, which: Which) -> Check:
+    """Observe declared output directories through the existing Git process owner."""
+    from local_agent.tools.git import observe_output_ignores
+    from local_agent.tools.tool_primitives import ToolError
+
+    try:
+        repo = load_repo_config(find_repo_root(start))
+    except (ConfigError, tomllib.TOMLDecodeError, OSError):
+        return Check("Build artifacts", UNKNOWN, observed="requires a valid repository declaration")
+    if which("git") is None:
+        return Check("Build artifacts", UNKNOWN, observed="requires Git")
+    paths = tuple(dict.fromkeys((repo.build_dir, repo.run_dir)))
+    configured = ", ".join(repr(path) for path in paths)
+    try:
+        facts = observe_output_ignores(repo.root, paths)
+    except ToolError as exc:
+        return Check("Build artifacts", UNKNOWN, configured=configured, observed=str(exc))
+    return _artifact_ignore_check(repo.root, configured, facts.missing, facts.tracked)
+
+
+def _artifact_ignore_check(
+    root: Path, configured: str, missing: tuple[str, ...], tracked: tuple[str, ...],
+) -> Check:
+    if tracked:
+        return Check("Build artifacts", BLOCKED, configured=configured,
+                     observed=f"{tracked[0]!r} contains tracked files",
+                     next_action="choose untracked output directories in .local-agent.toml "
+                                 "and its profile commands, then rerun doctor")
+    if not missing:
+        return Check("Build artifacts", READY, configured=configured,
+                     observed="Git ignores both build outputs and run logs")
+    if any("\n" in path or "\r" in path for path in missing):
+        return Check("Build artifacts", BLOCKED, configured=configured,
+                     observed="an output directory contains a line break",
+                     next_action="choose output paths without line breaks in .local-agent.toml "
+                                 "and its profile commands, then rerun doctor")
+    ignore_file = root / ".gitignore"
+    if ignore_file.is_symlink():
+        return Check("Build artifacts", BLOCKED, configured=configured,
+                     observed=".gitignore is a symlink; the suggested edit would follow it",
+                     next_action="review the symlink and use a regular repository .gitignore, "
+                                 "then rerun doctor")
+    patterns = ["/" + "".join("\\" + char if char in "\\*?[]" else char for char in path)
+                + "/" for path in missing]
+    values = ", ".join(powershell_literal(value) for value in ("", *patterns))
+    return Check("Build artifacts", MISSING, configured=configured,
+                 observed="unignored outputs would change repository status during build/test",
+                 next_action=f"Add-Content -LiteralPath {powershell_literal(ignore_file)} "
+                             f"-Encoding utf8 -Value @({values})")
+
+
 def check_on_path(name: str, command: str, which: Which) -> Check:
     found = which(command)
     if found is None:
@@ -270,10 +321,15 @@ def assess(
 ) -> list[Check]:
     """Every readiness row, in the order a user should fix them."""
     seen = observers or Observers.of_this_process(LauncherFacts())
+    python_check = check_python(pyproject)
+    artifacts = (check_artifact_ignores(start, seen.which) if python_check.state == READY
+                 else Check("Build artifacts", UNKNOWN,
+                            observed="requires a usable Python runtime; fix the Python row first"))
     checks = [
         check_repository(start),
-        check_python(pyproject),
+        python_check,
         check_on_path("Git", "git", seen.which),
+        artifacts,
         check_on_path("CMake", "cmake", seen.which),
         check_compiler(seen),
     ]
