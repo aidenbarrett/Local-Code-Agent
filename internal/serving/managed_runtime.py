@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 import os
 from pathlib import Path
+from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -74,6 +75,16 @@ class RuntimeEnsureResult:
     @property
     def ok(self) -> bool:
         return self.lifecycle is not RuntimeLifecycle.REFUSED
+
+    def fact(self) -> dict[str, Any]:
+        """The typed outcome as plain data, for durable session events and evidence."""
+        return {
+            "lifecycle": self.lifecycle.value,
+            "replaced_reason": None if self.replaced_reason is None else self.replaced_reason.value,
+            "refused_reason": None if self.refused_reason is None else self.refused_reason.value,
+            "changed_fields": list(self.changed_fields),
+            "launch_to_ready_ms": self.launch_to_ready_ms,
+        }
 
 
 def endpoint_reachable(config: ModelConfig) -> bool:

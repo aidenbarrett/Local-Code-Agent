@@ -161,4 +161,4 @@ def test_repository_summary_exposes_canonical_authority_boundary(tmp_path):
 def test_product_session_wires_repository_authority_into_visible_runtime_summary():
     source = SCRIPT.read_text(encoding="utf-8")
     assert "_repository_summary(root, execution_enabled=args.allow_execution)" in source
-    assert "runtime_summary=f" in source
+    assert "runtime_summary=" in source

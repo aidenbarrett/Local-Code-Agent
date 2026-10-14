@@ -34,7 +34,7 @@ from local_agent.provenance import package_identity  # noqa: E402
 from local_agent.session.cancellable_task_executor import CancellableDurableTaskExecutor  # noqa: E402
 from local_agent.session.conversation_gateway import conversation_budgets  # noqa: E402
 from local_agent.session.conversation_store import (  # noqa: E402
-    ContextRefusal, conversation, create_session, ensure_runtime, new_session,
+    ContextRefusal, conversation, create_session, ensure_runtime, new_session, session_path,
 )
 from local_agent.session.durable_routes import DurableRouteEvents  # noqa: E402
 from local_agent.session.durable_task_controller import AdmittedDurableTaskController  # noqa: E402
@@ -52,7 +52,9 @@ from local_agent.session.task_controller import TaskController  # noqa: E402
 from local_agent.session.workspaces import GitWorkspaceManager  # noqa: E402
 from local_agent.session.task_history import DurableTaskHistory  # noqa: E402
 from local_agent.session.textual_runtime import build_textual_session_runtime  # noqa: E402
-from serving.managed_runtime import ensure_managed_runtime  # noqa: E402
+from serving.managed_runtime import (  # noqa: E402
+    RuntimeEnsureResult, RuntimeLifecycle, ensure_managed_runtime,
+)
 from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
 from serving.model_store import default_runtime_root as _runtime_root  # noqa: E402
 
@@ -122,6 +124,47 @@ def _emit_session_opened(service: DurableSessionService, *, conversation_id: str
         },
     )
     receipt.wait(5)
+
+
+def _emit_runtime_ensured(
+    service: DurableSessionService, *, profile: str, runtime: str,
+    ensured: RuntimeEnsureResult,
+) -> None:
+    """Record the managed-runtime owner's outcome; the decision is never made here."""
+    receipt = service.append(
+        "runtime.ensured", {"profile": profile, "runtime": runtime, **ensured.fact()},
+    )
+    receipt.wait(5)
+
+
+def _record_refused_runtime(
+    runtime_root: Path, conversation_id: str, *, profile: str, runtime: str,
+    ensured: RuntimeEnsureResult,
+) -> None:
+    """A refused reopen belongs in that conversation's history; a new one is never minted for it."""
+    try:
+        if not session_path(runtime_root, conversation_id).is_file():
+            return
+    except ContextRefusal:
+        return  # an invalid id names no conversation; the reopen refusal reports it later
+    service, _recovered = _open_durable_service(runtime_root, conversation_id)
+    try:
+        _emit_runtime_ensured(service, profile=profile, runtime=runtime, ensured=ensured)
+    finally:
+        service.close()
+
+
+def _runtime_lifecycle_summary(ensured: RuntimeEnsureResult) -> str:
+    """What opening this session did to the model server, from the owner's outcome only."""
+    if ensured.lifecycle is RuntimeLifecycle.REUSED:
+        return "server reused"
+    elapsed = ensured.launch_to_ready_ms
+    ready = ("launch time not recorded" if elapsed is None
+             else f"ready {elapsed / 1000:.1f}s after launch")
+    if ensured.lifecycle is RuntimeLifecycle.REPLACED:
+        changed = f": {', '.join(ensured.changed_fields)}" if ensured.changed_fields else ""
+        return f"server replaced ({ensured.replaced_reason}{changed}), {ready}"
+    return f"server started, {ready}"
 
 
 def _resolve_model_configs(args: argparse.Namespace):
@@ -281,10 +324,19 @@ def main(argv: list[str] | None = None) -> int:
     runtime_root = _runtime_root()
 
     try:
-        if not args.check:
-            ensured = ensure_managed_runtime(args.profile, chat_config, runtime_root)
-            if not ensured.ok:
-                raise RuntimeError(ensured.message)
+        ensured = (None if args.check
+                   else ensure_managed_runtime(args.profile, chat_config, runtime_root))
+        if ensured is not None and not ensured.ok:
+            if args.conversation:
+                try:
+                    _record_refused_runtime(runtime_root, args.conversation, profile=args.profile,
+                                            runtime=chat_config.runtime, ensured=ensured)
+                except Exception as exc:
+                    # The runtime refusal stays the reported cause.
+                    raise RuntimeError(
+                        f"{ensured.message}; the refusal was not recorded: {exc}"
+                    ) from exc
+            raise RuntimeError(ensured.message)
 
         runtime_facts = RuntimeFacts.observe(
             args.profile, chat_config, execution_enabled=args.allow_execution,
@@ -305,6 +357,9 @@ def main(argv: list[str] | None = None) -> int:
             service, recovered = _open_durable_service(runtime_root, conversation_id)
             try:
                 _emit_session_opened(service, conversation_id=conversation_id, repo=repo, recovered=bool(recovered))
+                if ensured is not None:
+                    _emit_runtime_ensured(service, profile=args.profile,
+                                          runtime=chat_config.runtime, ensured=ensured)
                 graph = compose_session_graph(
                     service, repo, chat_config, worker_config,
                     runtime_facts=runtime_facts, opened=opened, runtime_index=runtime_index,
@@ -326,7 +381,11 @@ def main(argv: list[str] | None = None) -> int:
                         task_id,
                         execution_epoch=execution_epoch,
                     ),
-                    runtime_summary=f"{runtime_facts.header()} · {_repository_summary(root, execution_enabled=args.allow_execution)}",
+                    runtime_summary=" · ".join((
+                        runtime_facts.header(),
+                        *(() if ensured is None else (_runtime_lifecycle_summary(ensured),)),
+                        _repository_summary(root, execution_enabled=args.allow_execution),
+                    )),
                 ) as textual:
                     textual.app.run()
                 return 0

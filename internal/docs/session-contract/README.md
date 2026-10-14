@@ -47,6 +47,7 @@ in the schema. Maximum strings/arrays are constrained there; event frame cap is
 | Kind | Typed payload fields | Durable? |
 |---|---|---|
 | `session.opened` | conversation_id?, repository_id, controller_commit, capabilities[], recovered:bool | Yes |
+| `runtime.ensured` | profile, runtime, lifecycle:reused/started/replaced/refused, replaced_reason:dead/unhealthy/config_changed?, refused_reason:foreign_endpoint/start_failed/not_healthy?, changed_fields:exe/args/env/model_dir[], launch_to_ready_ms:int? (session-scoped; `task_id` is null) | Yes |
 | `turn.recorded` | turn_ref:TurnRef, role:user/assistant, content_ref:ArtifactRef | Yes |
 | `route.proposed` | route_id:UUID, revision:int, turn_ref, source:rule/model_proposal/user_direct, mode:conversation/work/clarify, skill?, rule_id?, explanation, requires_acceptance:bool | Yes |
 | `route.resolved` | route_id, revision, resolution:accepted/corrected/rejected, mode, source:user/controller, skill? | Yes |
@@ -73,7 +74,8 @@ in a negotiated later contract before enabling writes, never overload route.acce
 
 Minimum activity projections: route.proposed/resolved -> selection;
 task.admitted/state_changed -> current operation; endpoint.state_changed -> wait;
-tool.started/finished -> concrete action; task.verdict/closed -> result. Show these
+tool.started/finished -> concrete action; task.verdict/closed -> result;
+runtime.ensured -> what opening the session did to the model server. Show these
 automatically. Artifact and token events do not each create a new activity row.
 Watch projects watch events into its own mandatory pane. Telemetry never drives
 task lifecycle or proof.

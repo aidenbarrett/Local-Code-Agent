@@ -1129,7 +1129,7 @@
    },
    "internal/scripts/session-hub.py": {
     "BLE001": 1,
-    "E501": 10,
+    "E501": 9,
     "PLR0913": 1,
     "PLR0915": 1,
     "RUF059": 1,
@@ -1179,5 +1179,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1608
+ "total": 1607
 }

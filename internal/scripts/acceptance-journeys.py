@@ -2204,7 +2204,7 @@ class Runner:
             else:
                 ensured = HUB.ensure_managed_runtime(self.profile, self.chat_config, HUB._runtime_root())
                 facts["model_endpoint"] = {"ok": bool(ensured.ok), "message": str(ensured.message),
-                                           **endpoint_lifecycle(ensured)}
+                                           **ensured.fact()}
             if facts["model_endpoint"]["ok"]:
                 probe = model_call_probe(self.chat_config)
                 facts["model_call"] = probe
@@ -2454,21 +2454,6 @@ _UNMANAGED_LIFECYCLE: dict[str, Any] = {
     "lifecycle": "not_managed", "replaced_reason": None, "refused_reason": None,
     "changed_fields": [], "launch_to_ready_ms": None,
 }
-
-
-def endpoint_lifecycle(ensured: Any) -> dict[str, Any]:
-    """The managed-runtime owner's typed outcome, retained as acceptance evidence (#481)."""
-
-    def value(field: Any) -> Any:
-        return None if field is None else str(field)
-
-    return {
-        "lifecycle": value(ensured.lifecycle),
-        "replaced_reason": value(ensured.replaced_reason),
-        "refused_reason": value(ensured.refused_reason),
-        "changed_fields": list(ensured.changed_fields),
-        "launch_to_ready_ms": ensured.launch_to_ready_ms,
-    }
 
 
 def model_line(preconditions: dict[str, Any]) -> str:
