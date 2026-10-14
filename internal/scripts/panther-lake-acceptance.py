@@ -722,7 +722,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         if args.command == "run":
             print(
-                "\nCANCELLED: preparation evidence was retained; retry with "
+                "\nCANCELLED: any completed preparation evidence was retained; retry with "
                 f".\\local-code-agent.ps1 qualify --profile {args.profile} "
                 "--output <new-output-folder>",
                 file=sys.stderr,
