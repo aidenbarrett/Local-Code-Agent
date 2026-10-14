@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -460,7 +461,7 @@ class SessionHubApp(App):
 
     def __init__(self, state: HubViewState | None = None, *, palette_name: str = "neon") -> None:
         self.view_state = state or HubViewState()
-        self._candidate_choices: list[tuple[str, str]] = []
+        self._candidate_choices: list[tuple[Text, str]] = []
         palette = load_palette(palette_name)
         # Textual reads CSS from the instance as well as the class; keep one source
         # of named colour roles while allowing the high-contrast fixture path.
@@ -556,8 +557,18 @@ class SessionHubApp(App):
 
     def _sync_candidate_actions(self) -> None:
         tasks = self._candidate_tasks()
-        choices = [(f"Candidate {key[:8]} · {task.candidate.role.replace('_', ' ')}", key)
-                   for key, task in tasks.items() if task.candidate is not None]
+        choices: list[tuple[Text, str]] = []
+        for key, choice_task in tasks.items():
+            choice_candidate = choice_task.candidate
+            if choice_candidate is None:
+                continue
+            name = choice_candidate.paths[0] if choice_candidate.paths else "Candidate"
+            name = "".join(f"\\x{ord(char):02x}" if ord(char) < 32 or ord(char) == 127 else char
+                           for char in name)
+            more = (f" (+{len(choice_candidate.paths) - 1})"
+                    if len(choice_candidate.paths) > 1 else "")
+            label = f"{name}{more} · {choice_candidate.role.replace('_', ' ')} · {key[:8]}"
+            choices.append((Text(label), key))
         selector = self.query_one("#candidate-select", Select)
         selected = selector.value
         if choices != self._candidate_choices:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from uuid import uuid4
 
-from textual.widgets import Button, Input, Select, Static
+from rich.text import Text
+from textual.widgets import Button, Input, OptionList, Select, Static
 
 from local_agent.session.candidate_facts import CandidateFacts
 from local_agent.session.task_read_model import TaskSnapshot
@@ -123,4 +125,38 @@ def test_commit_requires_verified_applied_candidate_and_disables_after_terminal_
                 app.replace_state(HubViewState(tasks=(task(candidate_id, role=role),)))
                 await pilot.pause()
                 assert app.query_one("#commit-candidate", Button).disabled
+    asyncio.run(scenario())
+
+
+def test_candidate_menu_shows_literal_changed_files_without_changing_action_identity():
+    async def scenario():
+        first, second = str(uuid4()), str(uuid4())
+        a, b = task(first), task(second, sequence=2)
+        a = replace(a, candidate=replace(a.candidate, paths=("src/[red]one\n.cpp", "include/one.hpp")))
+        b = replace(b, candidate=replace(b.candidate, paths=("src/two.cpp",)))
+        commands = []
+        class App(SessionHubApp):
+            def on_hub_input_submitted(self, message):
+                commands.append(message.text)
+        app = App(HubViewState(tasks=(a, b)))
+        async with app.run_test(size=(120, 40)) as pilot:
+            selector = app.query_one("#candidate-select", Select)
+            selector.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            options = app.query_one(OptionList)
+            prompts = [str(options.get_option_at_index(i).prompt) for i in range(options.option_count)]
+            assert any("src/[red]one\\x0a.cpp (+1)" in prompt and first[:8] in prompt
+                       for prompt in prompts)
+            assert any("src/two.cpp" in prompt and second[:8] in prompt for prompt in prompts)
+            literal = next(options.get_option_at_index(i).prompt for i in range(options.option_count)
+                           if "src/[red]one" in str(options.get_option_at_index(i).prompt))
+            assert isinstance(literal, Text) and "[red]" in literal.plain and literal.spans == []
+            assert "\n" not in literal.plain
+            await pilot.press("escape")
+            selector.value = second
+            await pilot.pause()
+            await pilot.click("#review-candidate")
+            await pilot.pause()
+            assert commands == [f"/diff {second}"]
     asyncio.run(scenario())
