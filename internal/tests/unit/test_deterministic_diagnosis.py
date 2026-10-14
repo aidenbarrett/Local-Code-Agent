@@ -9,6 +9,7 @@ diagnostic worker.
 from __future__ import annotations
 
 from uuid import uuid4
+import asyncio
 
 import pytest
 
@@ -30,6 +31,9 @@ from local_agent.session.task_history import (
     admitted_configured_check,
 )
 from local_agent.session.workspaces import GitWorkspaceManager
+from local_agent.session.textual_feed import DurableHubFeed
+from local_agent.session.textual_live_app import LiveSessionHubApp
+from textual.widgets import Input, Select, Static
 
 
 class NoModel:
@@ -101,6 +105,45 @@ def test_two_failed_checks_still_ask_which_one(sandbox, tmp_path):
         answer = gateway.turn("why did that fail?")
         assert _admissions(service) == admitted_before
         assert "FAILED (" not in answer, "an ambiguous referent was answered by recency"
+    finally:
+        service.close()
+
+
+def test_selecting_a_real_retained_failure_explains_it_without_a_model_or_new_task(sandbox, tmp_path):
+    sandbox.scenario("compile_error")
+    service, gateway = _session(sandbox, tmp_path)
+    feed = DurableHubFeed(service)
+    try:
+        gateway.turn("build it")
+        earlier = gateway.last_result
+        gateway.turn("build it")
+        later = gateway.last_result
+        assert earlier.outcome is TaskOutcome.FAIL and later.outcome is TaskOutcome.FAIL
+        assert earlier.task_id != later.task_id
+        admitted_before = _admissions(service)
+        answers = []
+
+        class App(LiveSessionHubApp):
+            def on_hub_input_submitted(self, message):
+                assert not message.from_composer
+                answers.append(gateway.turn(message.text))
+
+        async def scenario():
+            app = App(feed)
+            async with app.run_test(size=(80, 30)) as pilot:
+                composer = app.query_one("#composer", Input)
+                composer.value = "unfinished user message"
+                app.query_one("#task-select", Select).value = earlier.task_id
+                await pilot.pause()
+                assert earlier.task_id in str(app.query_one("#activity", Static).render())
+                await pilot.click("#explain-task")
+                await pilot.pause()
+                assert len(answers) == 1
+                assert answers[0].startswith(f"Task {earlier.task_id} (build it) failed.")
+                assert "FAILED (compile)" in answers[0] and "no task was run" in answers[0]
+                assert _admissions(service) == admitted_before
+                assert composer.value == "unfinished user message"
+        asyncio.run(scenario())
     finally:
         service.close()
 

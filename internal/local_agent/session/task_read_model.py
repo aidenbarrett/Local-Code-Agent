@@ -11,6 +11,7 @@ from typing import Any, Iterable
 from uuid import UUID
 
 from .candidate_facts import CandidateFacts
+from .task_history import admitted_configured_check
 
 
 class TaskReadModelError(RuntimeError):
@@ -78,6 +79,7 @@ class TaskSnapshot:
     endpoint: EndpointActivity | None = None
     faults: list[tuple[str, str]] = field(default_factory=list)
     activity: list[TaskActivity] = field(default_factory=list)
+    configured_check: str | None = None
 
     @property
     def candidate_not_applied(self) -> bool:
@@ -295,6 +297,7 @@ def project_task(events: Iterable[dict[str, Any]], task_id: str) -> TaskSnapshot
         skill=None if payload["skill"] is None else str(payload["skill"]),
         deadline_utc=str(payload["deadline_utc"]),
         request_ref=dict(payload["request_ref"]),
+        configured_check=admitted_configured_check(payload),
     )
     snapshot.activity.append(
         _activity(
