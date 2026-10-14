@@ -440,9 +440,9 @@ def _css(palette: Mapping[str, str]) -> str:
         min-height: 3;
         padding: 0 1;
     }}
-    #candidate-actions {{ height: 3; }}
-    #candidate-actions Button {{ width: 1fr; min-width: 8; }}
-    #candidate-select {{ height: 3; }}
+    #task-actions {{ height: 3; }}
+    #task-actions Button {{ width: 1fr; min-width: 8; }}
+    #task-select {{ height: 3; }}
     #status {{
         height: 1;
         padding: 0 1;
@@ -461,7 +461,7 @@ class SessionHubApp(App):
 
     def __init__(self, state: HubViewState | None = None, *, palette_name: str = "neon") -> None:
         self.view_state = state or HubViewState()
-        self._candidate_choices: list[tuple[Text, str]] = []
+        self._task_choices: list[tuple[Text, str]] = []
         palette = load_palette(palette_name)
         # Textual reads CSS from the instance as well as the class; keep one source
         # of named colour roles while allowing the high-contrast fixture path.
@@ -484,12 +484,14 @@ class SessionHubApp(App):
                     )
                 yield Input(placeholder="Message Local Code Agent…", id="composer")
             with Vertical(id="side-column"):
-                yield Select([], prompt="Select candidate", id="candidate-select")
-                with Horizontal(id="candidate-actions"):
+                yield Select([], prompt="Select task or candidate", id="task-select")
+                with Horizontal(id="task-actions"):
                     yield Button("Review", id="review-candidate", disabled=True)
                     yield Button("Apply", id="apply-candidate", disabled=True)
                     yield Button("Undo", id="undo-candidate", disabled=True)
                     yield Button("Commit", id="commit-candidate", disabled=True)
+                    yield Button("Explain", id="explain-task", disabled=True)
+                    yield Button("Fix", id="fix-task", disabled=True)
                 with VerticalScroll(id="attention-pane"):
                     yield Static(
                         render_attention(self.view_state.tasks), id="attention", markup=False,
@@ -501,7 +503,7 @@ class SessionHubApp(App):
         yield Static(self.view_state.status, id="status", markup=False)
 
     def on_mount(self) -> None:
-        self._sync_candidate_actions()
+        self._sync_task_actions()
         self._apply_layout(self.size.width)
         self._apply_watch_visibility()
         self._apply_attention_visibility()
@@ -531,7 +533,7 @@ class SessionHubApp(App):
         if not isinstance(state, HubViewState):
             raise TypeError("Session Hub state must be HubViewState")
         self.view_state = state
-        self._sync_candidate_actions()
+        self._sync_task_actions()
         self.query_one("#conversation", Static).update(render_conversation(state.conversation))
         self.query_one("#attention", Static).update(render_attention(state.tasks))
         self._apply_attention_visibility()
@@ -548,19 +550,34 @@ class SessionHubApp(App):
         return latest
 
     def _activity_state(self) -> HubViewState:
-        selected = self.query_one("#candidate-select", Select).value
-        task = self._candidate_tasks().get(str(selected))
+        selected = self.query_one("#task-select", Select).value
+        task = self._selectable_tasks().get(str(selected))
         return self.view_state if task is None else replace(self.view_state, tasks=(task,))
+
+    def _selectable_tasks(self) -> dict[str, TaskSnapshot]:
+        tasks = {task.task_id: task for task in self.view_state.tasks if task.candidate is None}
+        tasks.update(self._candidate_tasks())
+        return dict(sorted(tasks.items(), key=lambda item: item[1].last_sequence))
+
+    @staticmethod
+    def _check_failure(task: TaskSnapshot | None) -> bool:
+        return (task is not None and task.terminal and task.verdict == "FAILED"
+                and task.configured_check is not None and task.candidate is None)
 
     def _refresh_activity(self) -> None:
         self.query_one("#activity", Static).update(render_activity(self._activity_state()))
 
-    def _sync_candidate_actions(self) -> None:
-        tasks = self._candidate_tasks()
+    def _sync_task_actions(self) -> None:
+        tasks = self._selectable_tasks()
         choices: list[tuple[Text, str]] = []
         for key, choice_task in tasks.items():
             choice_candidate = choice_task.candidate
             if choice_candidate is None:
+                kind = {"run-build": "Build", "run-tests": "Tests"}.get(
+                    choice_task.configured_check or "", "Task",
+                )
+                label = f"{kind} · {choice_task.verdict or 'pending'} · {key[:8]}"
+                choices.append((Text(label), key))
                 continue
             name = choice_candidate.paths[0] if choice_candidate.paths else "Candidate"
             name = "".join(f"\\x{ord(char):02x}" if ord(char) < 32 or ord(char) == 127 else char
@@ -569,19 +586,26 @@ class SessionHubApp(App):
                     if len(choice_candidate.paths) > 1 else "")
             label = f"{name}{more} · {choice_candidate.role.replace('_', ' ')} · {key[:8]}"
             choices.append((Text(label), key))
-        selector = self.query_one("#candidate-select", Select)
+        selector = self.query_one("#task-select", Select)
         selected = selector.value
-        if choices != self._candidate_choices:
-            self._candidate_choices = choices
+        if choices != self._task_choices:
+            self._task_choices = choices
             selector.set_options(choices)
             if selected in tasks:
                 selector.value = selected
             else:
                 selector.clear()
-        selector.display = bool(choices)
-        self.query_one("#candidate-actions").display = bool(choices)
+        selector.display = bool(self._candidate_tasks()) or len(choices) > 1
         task = tasks.get(str(selector.value))
         candidate = task.candidate if task is not None else None
+        check_failure = self._check_failure(task)
+        self.query_one("#task-actions").display = candidate is not None or check_failure
+        for name in ("review-candidate", "apply-candidate", "undo-candidate", "commit-candidate"):
+            self.query_one("#" + name, Button).display = candidate is not None
+        for name in ("explain-task", "fix-task"):
+            button = self.query_one("#" + name, Button)
+            button.display = candidate is None
+            button.disabled = not check_failure
         verified = task is not None and _retained_result_verified(task)
         prepared = next((item for item in self.view_state.tasks
                          if item.candidate_not_applied and item.candidate is not None
@@ -595,8 +619,8 @@ class SessionHubApp(App):
         self.query_one("#commit-candidate", Button).disabled = not applied
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id == "candidate-select":
-            self._sync_candidate_actions()
+        if event.select.id == "task-select":
+            self._sync_task_actions()
             self._refresh_activity()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -605,7 +629,14 @@ class SessionHubApp(App):
             "commit-candidate": "commit",
         }
         command = commands.get(event.button.id or "")
-        selected = self.query_one("#candidate-select", Select).value
+        selected = self.query_one("#task-select", Select).value
+        if event.button.id in {"explain-task", "fix-task"}:
+            task = self._selectable_tasks().get(str(selected))
+            if not event.button.disabled and self._check_failure(task):
+                text = (f"Why did task {selected} fail?" if event.button.id == "explain-task"
+                        else f"Fix task {selected}")
+                self.post_message(HubInputSubmitted(text, from_composer=False))
+            return
         if (command is not None and not event.button.disabled
                 and str(selected) in self._candidate_tasks()):
             self.post_message(HubInputSubmitted(f"/{command} {selected}", from_composer=False))
