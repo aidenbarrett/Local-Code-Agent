@@ -259,13 +259,37 @@ def test_persistent_session_records_each_turn_without_claiming_task_success():
 def test_persistent_session_keeps_unproven_reuse_unknown():
     module = _module()
     endpoint = _FakeEndpoint([(True, ("m",), None)] * 4)
-    module.benchmark_generation = lambda client, prompt, max_tokens: client.stream_chat(prompt, max_tokens)
+    module.benchmark_generation = (
+        lambda client, prompt, max_tokens: client.stream_chat(prompt, max_tokens)
+    )
     result = module.benchmark_persistent_session(endpoint, _profile(module), module.LifecycleRun(
         prompt="p", max_tokens=8, nonce="abcd", established_cold=False,
     ), 1)
 
     assert result["endpoint_process_reused_across_all_turns"] is None
     assert result["turns"][0]["sequence_label"] == "subsequent_request_endpoint_reuse_unproven"
+
+
+def test_persistent_session_refuses_reuse_after_an_observed_restart():
+    module = _module()
+    endpoint = _FakeEndpoint([
+        (True, ("m",), "boot-1"),
+        (True, ("m",), "boot-2"),
+        (True, ("m",), "boot-2"),
+    ])
+    profile = module.Profile(
+        name="t", base_url="http://127.0.0.1:9000/v1/", model="m", runtime="r", device="d",
+        identity_url="http://127.0.0.1:9000/identity", identity_instance_path="instance",
+    )
+    module.benchmark_generation = (
+        lambda client, prompt, max_tokens: client.stream_chat(prompt, max_tokens)
+    )
+    result = module.benchmark_persistent_session(endpoint, profile, module.LifecycleRun(
+        prompt="p", max_tokens=8, nonce="abcd", established_cold=False,
+    ), 1)
+
+    assert result["endpoint_process_reused_across_all_turns"] is False
+    assert result["turns"][0]["sequence_label"] == "lifecycle_boundary_observed_new_sequence"
 
 
 def test_backend_memory_is_reported_only_from_an_explicit_hook():
