@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `a1051001c7653d3d265faeacf317536e5d5ddbe5`
+Reconciled against GitHub `main` at `089d487985062198bffcda23aa66080d2e2f2f11`
 on 2026-10-14. One CPU-reference model repair on pinned cxxopts produced the exact
 identifier fix, passed its configured full build and independent full tests, and
 completed diff/apply/exact commit with unrelated work preserved after PR#517 repaired
@@ -36,6 +36,13 @@ scripted evidence (#571), but it still marks physical execution for review and
 does not certify Panther Lake or offline operation.
 
 ## Capability ledger
+
+The recovered first-use/candidate workflow is merged in #576 with independently
+reviewed full Linux/Windows CI and exact resulting-main tree verification. Init
+can explicitly opt into candidate repair/commit permissions; recovery commands
+preserve the selected repository/profile from external directories; the Hub names
+candidate files and offers exact selected-candidate Commit. This is controller/CI
+proof, not new real-model or physical/offline qualification.
 
 Qualification describes the strongest retained evidence, not configured intent. `unknown`
 is deliberate where the required physical or repository-setting observation is absent.

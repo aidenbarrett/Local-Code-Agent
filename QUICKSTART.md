@@ -146,6 +146,12 @@ Fix the failing tests.
 
 The controller decides the permitted route/tools and owns verification. The model never receives arbitrary shell authority and cannot certify its own success.
 
+If several tasks have failed, select the failed **Build** or **Tests** task in the
+Hub. **Explain** reads its recorded failure; **Fix** requests an isolated repair
+of that exact task. These actions preserve your unfinished message and still use
+the controller's eligibility and permission checks. Selecting a task only shows
+its retained result; it does not rerun anything.
+
 A verified fix is an isolated candidate. Select it in the Hub, click **Review**,
 then **Apply** to change your checkout. After applying, **Undo** restores that
 candidate's owned changes or **Commit** commits exactly those changes. Each button
