@@ -141,17 +141,23 @@ def _record_refused_runtime(
     runtime_root: Path, conversation_id: str, *, profile: str, runtime: str,
     ensured: RuntimeEnsureResult,
 ) -> None:
-    """A refused reopen belongs in that conversation's history; a new one is never minted for it."""
+    """A refused reopen belongs in that conversation's history; a new one is never minted for it.
+
+    Opening the durable stream recovers unfinished tasks, so it happens only while this
+    process holds the conversation, exactly as a successful reopen does. A conversation
+    open elsewhere, or one that does not validate, raises ContextRefusal and is untouched.
+    """
     try:
         if not session_path(runtime_root, conversation_id).is_file():
             return
     except ContextRefusal:
         return  # an invalid id names no conversation; the reopen refusal reports it later
-    service, _recovered = _open_durable_service(runtime_root, conversation_id)
-    try:
-        _emit_runtime_ensured(service, profile=profile, runtime=runtime, ensured=ensured)
-    finally:
-        service.close()
+    with conversation(runtime_root, conversation_id):
+        service, _recovered = _open_durable_service(runtime_root, conversation_id)
+        try:
+            _emit_runtime_ensured(service, profile=profile, runtime=runtime, ensured=ensured)
+        finally:
+            service.close()
 
 
 def _runtime_lifecycle_summary(ensured: RuntimeEnsureResult) -> str:

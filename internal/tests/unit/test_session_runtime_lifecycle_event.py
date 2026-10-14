@@ -6,12 +6,18 @@ that typed outcome in the session's durable stream and shows it in the header.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+import subprocess
+import sys
+from uuid import uuid4
 
 import pytest
 
+from local_agent.session.conversation_store import session_path
 from local_agent.session.event_contract import EventContractError, build_event
+from local_agent.session.session_event_service import DurableSessionService
 from local_agent.session.session_store import SQLiteSessionStore
 from serving import serve
 from serving.managed_runtime import (
@@ -143,6 +149,107 @@ def test_a_refused_reopen_is_recorded_in_that_conversation_and_stops_startup(
     assert events[-1]["kind"] == "runtime.ensured"
     assert events[-1]["payload"]["lifecycle"] == "refused"
     assert events[-1]["payload"]["refused_reason"] == "foreign_endpoint"
+
+
+_REFUSED = RuntimeEnsureResult(
+    RuntimeLifecycle.REFUSED, "configured model endpoint is reachable but is not owned",
+    refused_reason=RefusedReason.FOREIGN_ENDPOINT,
+)
+
+_HOLD_CONVERSATION = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from pathlib import Path
+from local_agent.session.conversation_store import conversation
+with conversation(Path(sys.argv[2]), sys.argv[3]):
+    print("held", flush=True)
+    sys.stdin.read()
+"""
+
+
+def _admit_unfinished_task(hub, runtime_root: Path, conversation_id: str) -> str:
+    """A live Hub's task: admitted and running, with no verdict or close yet."""
+    stream_id, session_id = hub._durable_ids(conversation_id)
+    service = DurableSessionService(
+        SQLiteSessionStore(runtime_root / "session-hub" / "session.db"),
+        stream_id=stream_id, session_id=session_id,
+    )
+    try:
+        request = b"request"
+        receipt = service.submit_task(
+            request_id=str(uuid4()), payload_sha256="c" * 64,
+            admission_payload={
+                "origin": {"kind": "user_direct", "turn_ref": {
+                    "conversation_id": conversation_id, "turn_index": 0,
+                    "turn_sha256": "a" * 64}},
+                "request_ref": {"artifact_id": str(uuid4()),
+                                "sha256": hashlib.sha256(request).hexdigest(),
+                                "media_type": "application/json",
+                                "size_bytes": len(request), "availability": "unavailable"},
+                "contract_sha256": "b" * 64, "repository_id": "repo-1", "skill": "inspect",
+                "execution_epoch": 0, "deadline_utc": "2030-01-01T00:00:00Z",
+            },
+        )
+        receipt.wait(5)
+        assert receipt.task_id is not None
+        service.append("task.state_changed", {
+            "previous": "admitted", "current": "running", "reason_code": "requested",
+            "execution_epoch": 0,
+        }, task_id=receipt.task_id).wait(5)
+        return receipt.task_id
+    finally:
+        service.close()
+
+
+def test_a_refused_reopen_of_a_conversation_open_elsewhere_never_touches_its_stream(
+        tmp_path, monkeypatch, capsys):
+    """Recording must not recover or finalize a live Hub's task without its conversation lock."""
+    hub = _load_hub()
+    observed = _start_hub(hub, tmp_path, monkeypatch, RuntimeEnsureResult(
+        RuntimeLifecycle.REUSED, "owned model endpoint already ready"))
+    assert hub.main(["--repo", str(REPO), "--profile", PROFILE]) == 0
+    conversation_id = str(observed["conversation_id"])
+    live_task = _admit_unfinished_task(hub, tmp_path, conversation_id)
+    before = _events(hub, tmp_path, conversation_id)
+    capsys.readouterr()
+
+    holder = subprocess.Popen(
+        [sys.executable, "-c", _HOLD_CONVERSATION, str(REPO / "internal"), str(tmp_path),
+         conversation_id],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+    )
+    try:
+        assert holder.stdout is not None and holder.stdout.readline().strip() == "held"
+        _start_hub(hub, tmp_path, monkeypatch, _REFUSED)
+        assert hub.main(["--repo", str(REPO), "--profile", PROFILE,
+                         "--conversation", conversation_id]) == 2
+    finally:
+        holder.communicate("", timeout=30)
+
+    after = _events(hub, tmp_path, conversation_id)
+    assert not [event for event in after if event["task_id"] == live_task
+                and event["kind"] in {"task.verdict", "task.closed"}], "the live task was finalized"
+    assert after == before, "a refused reopen wrote to a stream another process owns"
+    error = capsys.readouterr().err
+    assert "is not owned" in error, "the runtime refusal must stay the reported cause"
+    assert "the refusal was not recorded" in error and "already open in another process" in error
+
+
+def test_a_refused_reopen_of_a_malformed_conversation_records_nothing(
+        tmp_path, monkeypatch, capsys):
+    hub = _load_hub()
+    conversation_id = "2026-10-14T00-00-00-000000Z-beef"
+    path = session_path(tmp_path, conversation_id)
+    path.parent.mkdir(parents=True)
+    path.write_text("{not a conversation", encoding="utf-8")
+    _start_hub(hub, tmp_path, monkeypatch, _REFUSED)
+
+    assert hub.main(["--repo", str(REPO), "--profile", PROFILE,
+                     "--conversation", conversation_id]) == 2
+
+    assert not (tmp_path / "session-hub").exists(), "a malformed conversation got a stream"
+    error = capsys.readouterr().err
+    assert "is not owned" in error and "the refusal was not recorded" in error
 
 
 def test_a_refused_new_session_mints_no_conversation_or_stream(tmp_path, monkeypatch, capsys):
