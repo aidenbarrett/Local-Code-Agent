@@ -22,7 +22,7 @@ from .tool_primitives import (
     ToolResult,
     relpath,
 )
-from .tool_context import ToolContext
+from .tool_context import ToolContext, ignore_instrument_directory
 from .testing_tools import (
     _source_hashes,
     changed_build_inputs,
@@ -114,6 +114,7 @@ def _claim_or_require_build_root(ctx: ToolContext) -> Path:
             )
     else:
         resolved.mkdir(parents=True)
+        ignore_instrument_directory(ctx.root, resolved)
         marker.write_text("Local Code Agent owned build directory\n", encoding="utf-8")
     return resolved
 

@@ -161,3 +161,26 @@ def _public_doctor():
     sys.modules["doctor_for_config_tests"] = module
     spec.loader.exec_module(module)
     return module
+
+
+def test_the_instrument_directory_ignores_itself_without_replacing_a_users_file(tmp_path):
+    from local_agent.tools.tool_context import ignore_instrument_directory
+
+    root = tmp_path / 'repo'
+    ignore_instrument_directory(root, root / '.local-agent' / 'runs')
+    marker = root / '.local-agent' / '.gitignore'
+    assert marker.read_text(encoding='utf-8').splitlines()[-1] == '*'
+    marker.write_text('mine\n', encoding='utf-8')
+    ignore_instrument_directory(root, root / '.local-agent' / 'build')
+    assert marker.read_text(encoding='utf-8') == 'mine\n'
+
+
+@pytest.mark.parametrize('created', ['build', 'out/lca', '.local-agent-elsewhere'])
+def test_directories_outside_the_instrument_get_no_ignore_file(tmp_path, created):
+    from local_agent.tools.tool_context import ignore_instrument_directory
+
+    root = tmp_path / 'repo'
+    (root / created).mkdir(parents=True)
+    ignore_instrument_directory(root, root / created)
+    assert not (root / '.local-agent').exists()
+    assert not (root / created / '.gitignore').exists()

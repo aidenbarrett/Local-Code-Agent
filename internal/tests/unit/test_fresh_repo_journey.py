@@ -34,7 +34,8 @@ def _git(root: Path, *args: str) -> str:
     ).stdout
 
 
-def _fresh_cmake_repo(root: Path, *, test_passes: bool, compiles: bool = True) -> Path:
+def _fresh_cmake_repo(root: Path, *, test_passes: bool, compiles: bool = True,
+                     ignore: str = "build/\n.local-agent/\n") -> Path:
     (root / "src").mkdir(parents=True)
     (root / "CMakeLists.txt").write_text(
         "cmake_minimum_required(VERSION 3.20)\nproject(fresh CXX)\nenable_testing()\n"
@@ -51,7 +52,8 @@ def _fresh_cmake_repo(root: Path, *, test_passes: bool, compiles: bool = True) -
             "int main() { std::fputs(\"Assertion `value == 0' failed.\\n\", stderr); return 1; }\n"
         )
     (root / "src" / "fresh_test.cpp").write_text(source, encoding="utf-8")
-    (root / ".gitignore").write_text("build/\n.local-agent/\n", encoding="utf-8")
+    if ignore:
+        (root / ".gitignore").write_text(ignore, encoding="utf-8")
     _git(root, "init", "-q")
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "fresh")
@@ -109,6 +111,16 @@ def test_a_fresh_cmake_repository_gets_separate_build_and_test_proof(tmp_path):
 def _tree_bytes(root: Path) -> dict[str, bytes]:
     return {path.relative_to(root).as_posix(): path.read_bytes()
             for path in sorted(root.rglob("*")) if path.is_file()}
+
+
+def test_a_repository_that_never_ignored_local_agent_still_gets_build_and_test_proof(tmp_path):
+    """Following init and Doctor must be enough; nobody has to edit .gitignore first."""
+    repo = _fresh_cmake_repo(tmp_path / "unignored cmake project", test_passes=True, ignore="")
+    journeys = _journeys(tmp_path, repo)
+    assert journeys["R02-build"]["status"] == "MEASURED:pass", journeys["R02-build"]
+    assert journeys["R03-tests"]["status"] == "MEASURED:pass", journeys["R03-tests"]
+    assert not (repo / ".gitignore").exists(), "the developer's .gitignore was created or edited"
+    assert _git(repo, "status", "--porcelain=v1", "--ignored", ".local-agent") == "!! .local-agent/\n"
 
 
 def test_the_developers_own_build_tree_is_neither_refused_nor_written(tmp_path):
