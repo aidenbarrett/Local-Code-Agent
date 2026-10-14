@@ -237,3 +237,90 @@ def test_unknown_running_and_unrelated_tasks_offer_no_failure_actions():
                 assert app.query_one("#fix-task", Button).disabled
                 assert not app.query_one("#task-actions").display
     asyncio.run(scenario())
+
+
+def _check_task(task_id, *, check="run-build", state="failed", verdict="FAILED", closed=True):
+    return TaskSnapshot(
+        task_id=task_id, admitted_sequence=1, last_sequence=2, state=state, execution_epoch=0,
+        origin_kind="user_rule", repository_id="repo", skill=check,
+        deadline_utc="2030-01-01T00:00:00Z", verdict=verdict,
+        result_verified_at_completion=False, closed_sequence=2 if closed else None,
+        configured_check=check, result_answer="Recorded compiler error",
+    )
+
+
+async def _choose_only_task_by_keyboard(app, pilot):
+    selector = app.query_one("#task-select", Select)
+    assert selector.display, "the only failed task has no visible selector"
+    selector.focus()
+    await pilot.press("enter")
+    await pilot.pause()
+    await pilot.press("down", "enter")
+    await pilot.pause()
+
+
+def test_the_only_failed_check_is_selectable_and_explained_without_new_work():
+    """Fresh mount with one failed Build: reachable by keyboard and click only."""
+    async def scenario():
+        task_id = str(uuid4())
+        commands = []
+        class App(SessionHubApp):
+            def on_hub_input_submitted(self, message):
+                commands.append((message.text, message.from_composer))
+        app = App(HubViewState(tasks=(_check_task(task_id),)))
+        async with app.run_test(size=(100, 30)) as pilot:
+            composer = app.query_one("#composer", Input)
+            composer.value = "unfinished user message"
+            await _choose_only_task_by_keyboard(app, pilot)
+            assert app.query_one("#task-select", Select).value == task_id
+            assert not app.query_one("#explain-task", Button).disabled
+            await pilot.click("#explain-task")
+            await pilot.pause()
+            await pilot.click("#fix-task")
+            await pilot.pause()
+            assert commands == [(f"Why did task {task_id} fail?", False), (f"Fix task {task_id}", False)]
+            assert composer.value == "unfinished user message"
+            decision = decide_route(commands[1][0], active_repo_count=1,
+                                    eligible_task_ids=(task_id,), failure_kinds={task_id: "build"})
+            assert decision.action == RouteAction.WORK and decision.reference_ids == (task_id,)
+    asyncio.run(scenario())
+
+
+def test_a_build_that_fails_while_the_hub_is_open_becomes_selectable():
+    """Empty -> running -> failed, with no direct selector assignment."""
+    async def scenario():
+        task_id = str(uuid4())
+        commands = []
+        class App(SessionHubApp):
+            def on_hub_input_submitted(self, message):
+                commands.append(message.text)
+        app = App(HubViewState())
+        async with app.run_test(size=(100, 30)) as pilot:
+            selector = app.query_one("#task-select", Select)
+            assert not selector.display
+            app.replace_state(HubViewState(tasks=(
+                _check_task(task_id, state="running", verdict=None, closed=False),)))
+            await pilot.pause()
+            assert not selector.display, "a running task offered failure actions"
+            assert app.query_one("#explain-task", Button).disabled
+            app.replace_state(HubViewState(tasks=(_check_task(task_id),)))
+            await pilot.pause()
+            await _choose_only_task_by_keyboard(app, pilot)
+            await pilot.click("#explain-task")
+            await pilot.pause()
+            assert commands == [f"Why did task {task_id} fail?"]
+    asyncio.run(scenario())
+
+
+def test_a_lone_task_that_is_not_a_failed_check_still_offers_no_selector():
+    async def scenario():
+        for changed in (_check_task(str(uuid4()), verdict="VERIFIED"),
+                        _check_task(str(uuid4()), verdict="NO_VERDICT"),
+                        replace(_check_task(str(uuid4())), configured_check=None, skill="inspect")):
+            app = SessionHubApp(HubViewState(tasks=(changed,)))
+            async with app.run_test(size=(100, 30)) as pilot:
+                await pilot.pause()
+                assert not app.query_one("#task-select", Select).display
+                assert app.query_one("#explain-task", Button).disabled
+                assert app.query_one("#fix-task", Button).disabled
+    asyncio.run(scenario())

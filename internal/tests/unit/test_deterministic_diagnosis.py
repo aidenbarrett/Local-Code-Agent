@@ -148,6 +148,49 @@ def test_selecting_a_real_retained_failure_explains_it_without_a_model_or_new_ta
         service.close()
 
 
+def test_the_first_and_only_failed_build_is_explained_through_the_visible_selector(sandbox, tmp_path):
+    """The ordinary first-build-fails journey: one failure, no direct selector assignment."""
+    sandbox.scenario("compile_error")
+    service, gateway = _session(sandbox, tmp_path)
+    feed = DurableHubFeed(service)
+    try:
+        gateway.turn("build it")
+        only = gateway.last_result
+        assert only.outcome is TaskOutcome.FAIL
+        admitted_before = _admissions(service)
+        answers = []
+
+        class App(LiveSessionHubApp):
+            def on_hub_input_submitted(self, message):
+                assert not message.from_composer
+                answers.append(gateway.turn(message.text))
+
+        async def scenario():
+            app = App(feed)
+            async with app.run_test(size=(80, 30)) as pilot:
+                composer = app.query_one("#composer", Input)
+                composer.value = "unfinished user message"
+                await pilot.pause()
+                selector = app.query_one("#task-select", Select)
+                assert selector.display, "the only failed build cannot be selected"
+                selector.focus()
+                await pilot.press("enter")
+                await pilot.pause()
+                await pilot.press("down", "enter")
+                await pilot.pause()
+                assert selector.value == only.task_id
+                await pilot.click("#explain-task")
+                await pilot.pause()
+                assert len(answers) == 1
+                assert answers[0].startswith(f"Task {only.task_id} (build it) failed.")
+                assert "no task was run" in answers[0]
+                assert _admissions(service) == admitted_before
+                assert composer.value == "unfinished user message"
+        asyncio.run(scenario())
+    finally:
+        service.close()
+
+
 @pytest.mark.parametrize(("payload", "expected"), [
     ({"origin": {"kind": "user_rule", "rule_id": "build-and-test/v1"}, "skill": "run-build"}, "run-build"),
     ({"origin": {"kind": "user_rule", "rule_id": "run-tests/v1"}, "skill": "run-tests"}, "run-tests"),
