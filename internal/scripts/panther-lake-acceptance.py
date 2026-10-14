@@ -497,7 +497,10 @@ def run_qualification(
         ).strip()
         if response != "DISCONNECTED":
             raise AcceptanceCaptureError(
-                "disconnected run cancelled; exact confirmation was not supplied"
+                "disconnected run cancelled; exact confirmation was not supplied; "
+                f"preparation evidence remains in {output}; retry with "
+                f".\\local-code-agent.ps1 qualify --profile {profile} "
+                "--output <new-output-folder>"
             )
 
     isolation_method = input("Describe how external networking was disconnected: ")
@@ -716,6 +719,16 @@ def main(argv: list[str] | None = None) -> int:
         else:
             summary = write_summary(args.acceptance, args.output) if args.output else render_summary(args.acceptance)
             print(summary, end="")
+    except KeyboardInterrupt:
+        if args.command == "run":
+            sys.stderr.write(
+                "\nCANCELLED: any completed preparation evidence was retained; retry with "
+                f".\\local-code-agent.ps1 qualify --profile {args.profile} "
+                "--output <new-output-folder>\n"
+            )
+        else:
+            sys.stderr.write("\nCANCELLED\n")
+        return 130
     except (AcceptanceCaptureError, EOFError, OSError, KeyError, TypeError, ValueError,
             json.JSONDecodeError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
