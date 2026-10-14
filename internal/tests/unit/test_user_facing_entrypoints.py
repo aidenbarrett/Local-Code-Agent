@@ -202,9 +202,11 @@ def test_local_code_agent_root_facade_is_the_default_product_surface():
     assert "capabilities" in wrapper
     assert "run-task" in wrapper
     assert "verification-demo" in wrapper
+    assert "'benchmark' {" in wrapper
     assert "$internal = Join-Path $root 'internal'" in wrapper
     assert "(Join-Path $internal 'scripts\\session-hub.py')" in wrapper
     assert "(Join-Path $internal 'scripts\\capabilities.py')" in wrapper
+    assert "(Join-Path $internal 'perf\\endpoint_harness.py')" in wrapper
 
 
 def test_doctor_remains_available_when_runtime_preflight_fails():
@@ -233,6 +235,7 @@ def test_public_help_teaches_model_listing_download_choice_and_one_run_override(
         r".\local-code-agent.ps1 acceptance --output C:\lca-acc\run-1 --allow-model",
         r".\local-code-agent.ps1 acceptance --compare C:\lca-acc\run-1 C:\lca-acc\run-2",
         r".\local-code-agent.ps1 qualify --profile ptl-gpu-30b --output C:\lca-qualification\gpu30b",
+        r".\local-code-agent.ps1 benchmark --profile .local-agent\perf\my-endpoint.toml --cold-start --output C:\lca-benchmarks\run-1.json",
     ):
         assert command in output
     assert "Default worker" in output
@@ -322,6 +325,7 @@ def test_launcher_tab_completion_names_exactly_the_dispatched_commands():
     assert dispatched, "no commands found in the launcher switch"
     assert "acceptance" in dispatched
     assert "qualify" in dispatched
+    assert "benchmark" in dispatched
     assert completed == dispatched
 
 

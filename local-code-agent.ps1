@@ -13,7 +13,7 @@ param(
     # switch, which prints help.
     [ArgumentCompleter({
         param($commandName, $parameterName, $wordToComplete)
-        @('session', 'chat', 'help', 'doctor', 'init', 'capabilities', 'run-task', 'acceptance', 'qualify', 'models', 'verification-demo', 'advanced') |
+        @('session', 'chat', 'help', 'doctor', 'init', 'capabilities', 'run-task', 'acceptance', 'qualify', 'benchmark', 'models', 'verification-demo', 'advanced') |
             Where-Object { $_ -like "$wordToComplete*" } |
             ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
     })]
@@ -210,6 +210,13 @@ switch ($Command.ToLowerInvariant()) {
         } else {
             & $python (Join-Path $internal 'scripts\panther-lake-acceptance.py') run --repo $root @Rest
         }
+        exit $LASTEXITCODE
+    }
+    'benchmark' {
+        # Public entrypoint for the one backend-agnostic runtime measurement owner.
+        # Endpoint identity, lifecycle classification and report semantics remain in
+        # endpoint_harness.py; this facade only removes the internal Python invocation.
+        & $python (Join-Path $internal 'perf\endpoint_harness.py') @Rest
         exit $LASTEXITCODE
     }
     'models' {

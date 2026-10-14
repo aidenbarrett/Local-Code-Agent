@@ -161,7 +161,7 @@ Their timing is live demo output, not benchmark evidence. Runtime comparison bel
 For engineering/runtime work, copy the generic example profile to an ignored local path and point it at the endpoint being measured:
 
 ```powershell
-python internal/perf/endpoint_harness.py --profile .local-agent/perf/my-endpoint.toml --cold-start --cancellation --soak-hours 4 --output run.json
+.\local-code-agent.ps1 benchmark --profile .local-agent\perf\my-endpoint.toml --cold-start --cancellation --soak-hours 4 --output run.json
 ```
 
 See `internal/perf/README.md`. Backend-specific commands and observation hooks belong in that local profile, not in harness source.
