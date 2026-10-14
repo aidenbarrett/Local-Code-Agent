@@ -61,7 +61,6 @@ if str(SOURCE_ROOT) not in sys.path:
 import psutil  # noqa: E402
 
 from local_agent.config import MODEL_PRESETS, ModelConfig, load_repo_config  # noqa: E402
-from local_agent.tools.tool_context import INSTRUMENT_DIR  # noqa: E402
 from local_agent.llm.client import build_client, tool_call  # noqa: E402
 from local_agent.llm.protocol import ChatResponse, LLMTransportError, ToolCall  # noqa: E402
 from local_agent.provenance import package_identity  # noqa: E402
@@ -1692,14 +1691,24 @@ def r_questions(s: Session) -> None:
     _measure_observations(s, grades, "; repository unchanged")
 
 
-def _user_work_status(repo: Path) -> str:
-    """Git status of everything except Local Code Agent's own directory.
+def _user_work_status(repo: Path) -> tuple[str, tuple[str, ...]]:
+    """Tracked status everywhere, plus untracked files outside LCA's own output trees.
 
-    The instrument directory is never user work (candidate diffs and source hashes
-    exclude it too); its self-ignore appearing must not read as a change to the user's
-    files, while any change anywhere else still does.
+    Every tracked change counts, wherever it is, including under .local-agent: a
+    directory name is not proof of ownership. Untracked entries are normalised only
+    inside the configured run and build directories, which LCA owns, so its
+    self-ignore appearing over earlier unignored output is not read as a user change.
     """
-    return _git(repo, "status", "--porcelain=v1", "--", ".", f":(exclude){INSTRUMENT_DIR}")
+    tracked = _git(repo, "status", "--porcelain=v1", "--untracked-files=no")
+    declared = load_repo_config(repo)
+    owned = tuple(f"{directory.strip('/')}/"
+                  for directory in (declared.run_dir, declared.build_dir))
+    listed = _git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    untracked = tuple(sorted(
+        entry[3:] for entry in listed.split("\0")
+        if entry.startswith("?? ") and not entry[3:].startswith(owned)
+    ))
+    return tracked, untracked
 
 
 def r_build(s: Session) -> None:
