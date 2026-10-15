@@ -1,7 +1,7 @@
 # Current state
 
-Reconciled against GitHub `main` at `1fd4968c43f11f361f74ab360c37d563e21ebedb`
-on 2026-10-14. One CPU-reference model repair on pinned cxxopts produced the exact
+Reconciled against GitHub `main` at `1f4034ed34cbda6a80485a84e50f1bc264a168f2`
+on 2026-10-15. One CPU-reference model repair on pinned cxxopts produced the exact
 identifier fix, passed its configured full build and independent full tests, and
 completed diff/apply/exact commit with unrelated work preserved after PR#517 repaired
 byte fidelity. This is one retained attempt, not a success rate, general competence,
@@ -51,6 +51,13 @@ that differs from `repo.build_dir` refuses at load (#582); trees chosen by CMake
 presets or other build tools remain unchecked. Printed next steps now name the
 installed checkout rather than the current directory (#583); that fixes launcher
 locations, not proof that every recovery command carries every argument it needs.
+
+First-use CMake build/test evidence no longer requires a manual ignore-file edit:
+LCA's run/build output trees under `.local-agent` ignore themselves, not their parent
+directory. Tracked changes anywhere and unowned untracked notes remain checked.
+The first and only failed configured check is now selectable in the Hub, exposing
+Explain/Fix without selecting or submitting work automatically (#586). These are
+deterministic Linux/Windows-tested capabilities, not physical qualification.
 
 ## Capability ledger
 
