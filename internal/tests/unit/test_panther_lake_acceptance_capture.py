@@ -567,6 +567,11 @@ def test_composed_finalize_refuses_missing_required_journey(tmp_path, monkeypatc
     ("dirty", "checkout became dirty"),
     ("schema", "schema/phase"),
     ("empty", "no journey outcomes"),
+    ("duplicate", "duplicate journey"),
+    ("duplicate-last", "duplicate journey"),
+    ("duplicate-identical", "duplicate journey"),
+    ("invalid-row", "invalid journey identity"),
+    ("non-object-row", "invalid journey identity"),
 ])
 def test_composed_finalize_refuses_unbound_or_stale_evidence(tmp_path, monkeypatch, defect, reason):
     module = _load()
@@ -594,6 +599,16 @@ def test_composed_finalize_refuses_unbound_or_stale_evidence(tmp_path, monkeypat
         prepared["schema"] = "obsolete"
     elif defect == "empty":
         report["journeys"] = []
+    elif defect == "duplicate":
+        report["journeys"].insert(0, {"id": "J07-stop-model", "status": "FAIL"})
+    elif defect == "duplicate-last":
+        report["journeys"].append({"id": "J07-stop-model", "status": "FAIL"})
+    elif defect == "duplicate-identical":
+        report["journeys"].append({"id": "J07-stop-model", "status": "PASS"})
+    elif defect == "invalid-row":
+        report["journeys"].append({"status": "FAIL"})
+    elif defect == "non-object-row":
+        report["journeys"].append(None)
     preflight = tmp_path / "preflight.json"
     preflight.write_text(json.dumps(prepared), encoding="utf-8")
     journeys = tmp_path / "journeys.json"

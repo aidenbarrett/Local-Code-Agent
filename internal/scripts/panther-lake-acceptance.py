@@ -426,10 +426,18 @@ def finalize_qualification_run(
     rows = journeys.get("journeys")
     if not isinstance(rows, list) or not rows:
         raise AcceptanceCaptureError("acceptance report contains no journey outcomes")
-    by_id = {
-        row.get("id"): row for row in rows
-        if isinstance(row, dict) and isinstance(row.get("id"), str)
-    }
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+            raise AcceptanceCaptureError(
+                "acceptance report contains an invalid journey identity"
+            )
+        journey_id = row["id"]
+        if journey_id in by_id:
+            raise AcceptanceCaptureError(
+                f"acceptance report contains duplicate journey: {journey_id}"
+            )
+        by_id[journey_id] = row
     required = ("J05-stop-build", "J07-stop-model", "J24-continuous")
     missing = [journey_id for journey_id in required if journey_id not in by_id]
     if missing:
