@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -39,27 +40,25 @@ def _request_json(url: str, token: str | None = None) -> Any:
         return json.load(response)
 
 
-def _load_rulesets(owner: str, repo: str, token: str | None) -> list[dict[str, Any]]:
-    summaries = _request_json(f"https://api.github.com/repos/{owner}/{repo}/rulesets", token)
-    if not isinstance(summaries, list):
-        raise ValueError("GitHub returned an unexpected ruleset-list response shape")
-    details: list[dict[str, Any]] = []
-    for summary in summaries:
-        if not isinstance(summary, dict):
-            raise ValueError("GitHub returned a malformed ruleset summary")
-        if "rules" in summary:
-            details.append(summary)
-            continue
-        ruleset_id = summary.get("id")
-        if not isinstance(ruleset_id, int) or isinstance(ruleset_id, bool):
-            raise ValueError("GitHub ruleset summary did not include a numeric id")
-        detail = _request_json(
-            f"https://api.github.com/repos/{owner}/{repo}/rulesets/{ruleset_id}", token
+def _load_branch_rules(
+    owner: str, repo: str, branch: str, token: str | None,
+) -> list[dict[str, Any]]:
+    # GitHub owns ref-pattern matching, exclusions and inherited rules. This endpoint
+    # returns only active rules applying to this branch, not repository-wide rulesets.
+    ref = urllib.parse.quote(branch, safe="")
+    rules: list[dict[str, Any]] = []
+    for page in range(1, 101):
+        response = _request_json(
+            f"https://api.github.com/repos/{owner}/{repo}/rules/branches/{ref}"
+            f"?per_page=100&page={page}",
+            token,
         )
-        if not isinstance(detail, dict):
-            raise ValueError("GitHub returned an unexpected ruleset-detail response shape")
-        details.append(detail)
-    return details
+        if not isinstance(response, list) or any(not isinstance(rule, dict) for rule in response):
+            raise ValueError("GitHub returned a malformed branch-rules response")
+        rules.extend(response)
+        if len(response) < 100:
+            return rules
+    raise ValueError("GitHub branch-rules pagination exceeded the observation limit")
 
 
 def _classic_protection(branch: dict[str, Any]) -> EnforcementResult | None:
@@ -92,23 +91,17 @@ def _classic_protection(branch: dict[str, Any]) -> EnforcementResult | None:
     )
 
 
-def _ruleset_protection(rulesets: list[dict[str, Any]]) -> EnforcementResult | None:
+def _ruleset_protection(branch_rules: list[dict[str, Any]]) -> EnforcementResult | None:
     required: set[str] = set()
     active = False
-    for ruleset in rulesets:
-        if not isinstance(ruleset, dict):
+    for rule in branch_rules:
+        if rule.get("type") != "required_status_checks":
             continue
-        if ruleset.get("enforcement") != "active":
-            continue
-        rules = ruleset.get("rules") or ()
-        for rule in rules:
-            if not isinstance(rule, dict) or rule.get("type") != "required_status_checks":
-                continue
-            active = True
-            parameters = rule.get("parameters") or {}
-            for check in parameters.get("required_status_checks") or ():
-                if isinstance(check, dict) and check.get("context"):
-                    required.add(str(check["context"]))
+        active = True
+        parameters = rule.get("parameters") or {}
+        for check in parameters.get("required_status_checks") or ():
+            if isinstance(check, dict) and check.get("context"):
+                required.add(str(check["context"]))
     if not active:
         return None
     if not required:
@@ -122,23 +115,23 @@ def _ruleset_protection(rulesets: list[dict[str, Any]]) -> EnforcementResult | N
         True,
         "ruleset",
         tuple(sorted(required)),
-        "required status checks are enforced by an active repository ruleset",
+        "required status checks apply to the requested branch through active rulesets",
     )
 
 
 def evaluate_merge_enforcement(
     branch: dict[str, Any],
-    rulesets: list[dict[str, Any]],
+    branch_rules: list[dict[str, Any]],
     *,
     expected_checks: tuple[str, ...] = (),
 ) -> EnforcementResult:
-    candidate = _classic_protection(branch) or _ruleset_protection(rulesets)
+    candidate = _classic_protection(branch) or _ruleset_protection(branch_rules)
     if candidate is None:
         return EnforcementResult(
             False,
             "none",
             (),
-            "main is unprotected and no active required-status-check ruleset was found",
+            "branch is unprotected and no applicable active required-status-check rule was found",
         )
     if not candidate.enforced:
         return candidate
@@ -185,15 +178,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         owner, repo = _parse_repository(args.repository)
         token = os.environ.get("GITHUB_TOKEN")
+        ref = urllib.parse.quote(args.branch, safe="")
         branch = _request_json(
-            f"https://api.github.com/repos/{owner}/{repo}/branches/{args.branch}", token
+            f"https://api.github.com/repos/{owner}/{repo}/branches/{ref}", token
         )
-        rulesets = _load_rulesets(owner, repo, token)
+        branch_rules = _load_branch_rules(owner, repo, args.branch, token)
         if not isinstance(branch, dict):
             raise ValueError("GitHub returned an unexpected branch response shape")
         result = evaluate_merge_enforcement(
             branch,
-            rulesets,
+            branch_rules,
             expected_checks=tuple(args.require),
         )
     except (ValueError, urllib.error.URLError, TimeoutError, OSError) as exc:
