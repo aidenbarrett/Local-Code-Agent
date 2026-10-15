@@ -1,6 +1,6 @@
 # Development candidate handoff
 
-Candidate: 1f4034ed34cbda6a80485a84e50f1bc264a168f2 (tree 9d6da9ed80476ca729181aa28ddd7626697a9e16).
+Candidate: bfbc4224b63c858624f06d110e592362471fa5e7 (tree 4cbde3376daf87e9486f670ae11e1d942689e249).
 This is a development candidate. Physical disconnected Panther Lake acceptance,
 configuration-specific model competence and enforced merge policy remain open.
 #403 remains the release decision; this handoff does not close it.
@@ -10,7 +10,7 @@ configuration-specific model competence and enforced merge policy remain open.
 ```powershell
 git clone https://github.com/aidenbarrett/Local-Code-Agent.git
 cd Local-Code-Agent
-git checkout --detach 1f4034ed34cbda6a80485a84e50f1bc264a168f2
+git checkout --detach bfbc4224b63c858624f06d110e592362471fa5e7
 .\install.ps1 -CheckOnly
 .\install.ps1 -InstallMissing -SkipModelDownload
 .\local-code-agent.ps1 models
@@ -59,13 +59,17 @@ See [QUICKSTART.md](../../QUICKSTART.md) for setup details and
 
 ## Evidence and limits
 
-The candidate above is tree-identical to reviewed PR #586 head
-`50fb515151a12fb24bb0cd3f3a8a3379c5d680aa`. Full Linux pytest and all five
+The candidate above is tree-identical to reviewed PR #591 head
+`dc0fb036dc1cd220b173b46ab9752013b3b6d2a6`. Full Linux pytest and all five
 Windows shards passed in
-[tests run 38646895029](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38646895029);
+[tests run 38747577003](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38747577003);
 native endpoint, serving, product acceptance, import-boundary and integration-eligibility
 workflows also passed on that exact head.
-Merged main has tree `9d6da9ed80476ca729181aa28ddd7626697a9e16` as that tested head.
+Merged main has tree `4cbde3376daf87e9486f670ae11e1d942689e249` as that tested head.
+Qualification now keeps caller-relative output together (#590) and refuses
+duplicate or malformed journey identities instead of silently losing outcomes (#591).
+The merge-policy checker now consumes branch-applicable rules (#589), not rules
+that may protect a different branch. None of these changes certifies physical success.
 The candidate includes installed-checkout recovery commands (#583), owned default
 build paths (#582), runtime-open evidence (#579), and first-use output ignoring
 plus reachable first-failure Explain/Fix (#586). Run/build output ignores only its
@@ -144,13 +148,16 @@ intervention rate is inferred from these small, differently prepared runs.
 ## Remaining release actions
 
 - Aiden: run the supported physical PTL profile and the disconnected public flow:
-  `.\local-code-agent.ps1 qualify --profile ptl-gpu-30b --output C:\lca-evidence\ptl-1`.
+  `& $lca qualify --profile ptl-gpu-30b --output C:\lca-evidence\ptl-1`.
+  Use the saved installed-checkout launcher from the walkthrough above, even while
+  the current directory is the developer's repository. Choose a new output folder
+  for each attempt; do not reuse or delete an earlier evidence bundle.
   Preparation and reports are automated; the actual target machine and disconnect
   confirmation are required. CPU reference runs cannot substitute for #293/#418.
 - Repository owner: configure reviewed-green main protection and re-observe it
-  with the existing checker. The 15 October 2026 authenticated branch/ruleset read,
-  evaluated by the existing checker, found main unprotected,
-  no active required-status-check ruleset and no required checks. Administration
+  with the existing checker. The 15 October 2026 checker run on this candidate,
+  using branch-applicable rules after #589, returned `enforced: false`, `source: none`,
+  and no required checks: main was unprotected with no applicable active required-status-check rule. Administration
   was not changed; manually reviewed green merges do not establish enforcement.
 - Retain model/hardware-specific failures and observe the next task after Stop.
   With OVMS an in-flight generation may finish after the client is stopped;

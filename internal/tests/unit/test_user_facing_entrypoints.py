@@ -77,6 +77,12 @@ def test_release_handoff_checkout_matches_its_declared_candidate_tree():
     assert f"tree `{tree}` as that tested head" in handoff
 
 
+def test_release_handoff_qualification_uses_the_saved_installed_launcher():
+    handoff = (REPO / "docs/releases/RC_HANDOFF.md").read_text(encoding="utf-8")
+    assert "& $lca qualify --profile ptl-gpu-30b --output" in handoff
+    assert ".\\local-code-agent.ps1 qualify" not in handoff
+
+
 def test_release_handoff_enables_the_permissions_its_mutation_journey_needs():
     handoff = (REPO / "docs/releases/RC_HANDOFF.md").read_text(encoding="utf-8")
     commands = re.findall(r"^& \$lca init([^\n]*)$", handoff, re.M)

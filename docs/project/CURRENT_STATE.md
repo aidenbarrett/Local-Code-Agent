@@ -1,6 +1,6 @@
 # Current state
 
-Reconciled against GitHub `main` at `1f4034ed34cbda6a80485a84e50f1bc264a168f2`
+Reconciled against GitHub `main` at `bfbc4224b63c858624f06d110e592362471fa5e7`
 on 2026-10-15. One CPU-reference model repair on pinned cxxopts produced the exact
 identifier fix, passed its configured full build and independent full tests, and
 completed diff/apply/exact commit with unrelated work preserved after PR#517 repaired
@@ -60,6 +60,16 @@ Explain/Fix without selecting or submitting work automatically (#586). These are
 deterministic Linux/Windows-tested capabilities, not physical qualification.
 
 ## Capability ledger
+
+The pinned handoff includes qualification caller-relative path binding (#590)
+and rejection of duplicate/malformed journey identities (#591). Evidence stays
+in one output folder, and a duplicate PASS cannot overwrite a failed journey.
+These changes have exact-head Linux/Windows CI; physical qualification remains
+unknown. The merge-policy checker uses branch-applicable rules (#589). A fresh
+15 October run on this source returned `enforced: false`, `source: none`, and no
+required checks: main was unprotected with no applicable active required-status-check
+rule. Repository settings were not changed. This observation does not prove that
+the complete release policy, including review and bypass restrictions, is sufficient.
 
 Qualification describes the strongest retained evidence, not configured intent. `unknown`
 is deliberate where the required physical or repository-setting observation is absent.
