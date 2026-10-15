@@ -333,14 +333,19 @@ def test_public_qualification_resolves_ovms_from_selected_root(tmp_path, equals_
 
 
 @pytest.mark.parametrize("exit_code", [0, 1])
+@pytest.mark.parametrize("relative_paths", [False, True])
 def test_one_run_composes_existing_capture_and_acceptance_owners(
-    tmp_path, monkeypatch, capsys, exit_code
+    tmp_path, monkeypatch, capsys, exit_code, relative_paths
 ):
     module = _load()
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "local-code-agent.ps1").write_text("launcher", encoding="utf-8")
     output = tmp_path / "qualification"
+    monkeypatch.chdir(tmp_path)
+    input_repo = Path("repo") if relative_paths else repo
+    input_runtime = Path("runtime") if relative_paths else tmp_path / "runtime"
+    input_output = Path("qualification") if relative_paths else output
     observed = {}
 
     def prepare(_repo, _runtime, destination, profile):
@@ -365,8 +370,10 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(
 
     def run(args, **_kwargs):
         destination = Path(args[args.index("--output") + 1])
+        if not destination.is_absolute():
+            destination = _kwargs["cwd"] / destination
         observed["runtime_root"] = _kwargs["runtime_root"]
-        destination.mkdir()
+        destination.mkdir(parents=True)
         rows = [
             {"id": journey_id, "status": "PASS", "reason": "", "measured": {}}
             for journey_id in ("J05-stop-build", "J07-stop-model", "J24-continuous")
@@ -397,19 +404,20 @@ def test_one_run_composes_existing_capture_and_acceptance_owners(
     if exit_code:
         with pytest.raises(module.AcceptanceCaptureError, match="reported failure"):
             module.run_qualification(
-                repo, tmp_path / "runtime", output, "ptl-gpu-30b",
+                input_repo, input_runtime, input_output, "ptl-gpu-30b",
                 confirm_disconnected=True,
             )
         payload = json.loads((output / "acceptance.json").read_text(encoding="utf-8"))
     else:
         payload = module.run_qualification(
-            repo, tmp_path / "runtime", output, "ptl-gpu-30b",
+            input_repo, input_runtime, input_output, "ptl-gpu-30b",
             confirm_disconnected=True,
         )
 
     assert observed["prepared"] == observed["preflight"] == "ptl-gpu-30b"
     assert observed["command"][-3:] == ["--profile", "ptl-gpu-30b", "--allow-model"]
     assert observed["runtime_root"] == tmp_path / "runtime"
+    assert not (repo / "qualification").exists(), "evidence was split into the checkout"
     assert payload["self_certified"] is False
     assert payload["offline_gate"]["operator_isolation_method"] == "Wi-Fi disabled"
     assert payload["run_evidence"]["journeys"]["J24-continuous"]["status"] == "PASS"

@@ -490,6 +490,10 @@ def run_qualification(
     repo: Path, runtime_root: Path, output: Path, profile: str, *,
     confirm_disconnected: bool,
 ) -> dict[str, Any]:
+    # Bind caller-relative paths before the acceptance child changes its cwd.
+    repo = repo.resolve()
+    runtime_root = runtime_root.resolve()
+    output = output.resolve()
     preparation = prepare_qualification(repo, runtime_root, output, profile)
     _print_preparation(preparation)
     if not preparation["ready_to_disconnect"]:
