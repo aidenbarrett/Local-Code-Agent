@@ -1,6 +1,6 @@
 # Development candidate handoff
 
-Candidate: 4c4d6d33b7c262d7a60367759652c60569086dd9 (tree dc0b17a0d03b471b3158749b8d42469286e15ba6).
+Candidate: 1f4034ed34cbda6a80485a84e50f1bc264a168f2 (tree 9d6da9ed80476ca729181aa28ddd7626697a9e16).
 This is a development candidate. Physical disconnected Panther Lake acceptance,
 configuration-specific model competence and enforced merge policy remain open.
 #403 remains the release decision; this handoff does not close it.
@@ -10,7 +10,7 @@ configuration-specific model competence and enforced merge policy remain open.
 ```powershell
 git clone https://github.com/aidenbarrett/Local-Code-Agent.git
 cd Local-Code-Agent
-git checkout --detach 4c4d6d33b7c262d7a60367759652c60569086dd9
+git checkout --detach 1f4034ed34cbda6a80485a84e50f1bc264a168f2
 .\install.ps1 -CheckOnly
 .\install.ps1 -InstallMissing -SkipModelDownload
 .\local-code-agent.ps1 models
@@ -29,16 +29,19 @@ need their named prerequisite resolved. Choose the preset for the machine explic
 .\local-code-agent.ps1 doctor
 $lca = (Resolve-Path .\local-code-agent.ps1).Path
 cd C:\src\my-project
-& $lca init
+& $lca init --allow-patch --allow-commit
 ```
 
 Review the proposed `.local-agent.toml`, including the real configure/build/test
-commands and ignored artifact directories. Then `init --write` creates it without
-replacing an existing declaration. Setup or doctor refusal means readiness has
+commands, artifact directories and the explicit patch/commit permissions needed for
+the mutation sequence below. Omit both opt-ins for a build/test-only journey.
+The matching `init --write` command creates it without replacing an existing
+declaration. An existing declaration must be reviewed and edited explicitly; rerunning
+`init` does not upgrade its permissions. Setup or doctor refusal means readiness has
 not been established; resolve the named prerequisite before proceeding.
 
 ```powershell
-& $lca init --write
+& $lca init --write --allow-patch --allow-commit
 & $lca doctor --repo .
 & $lca acceptance --repo . --allow-build --only R02-build --only R03-tests --output C:\lca-evidence\repo-1
 & $lca session --repo . --allow-execution
@@ -56,17 +59,23 @@ See [QUICKSTART.md](../../QUICKSTART.md) for setup details and
 
 ## Evidence and limits
 
-The candidate above is tree-identical to independently reviewed PR #571 head
-`1522c53ce9b88c84dc8b7f5b5b26936ad4402d3a`. Full Linux pytest and all five
+The candidate above is tree-identical to reviewed PR #586 head
+`50fb515151a12fb24bb0cd3f3a8a3379c5d680aa`. Full Linux pytest and all five
 Windows shards passed in
-[tests run 38475379773](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38475379773);
+[tests run 38646895029](https://github.com/aidenbarrett/Local-Code-Agent/actions/runs/38646895029);
 native endpoint, serving, product acceptance, import-boundary and integration-eligibility
-workflows also passed on that exact head. The native-endpoint Windows archive download
-had one DNS failure and passed when rerun without changing the head. Merged main has tree `dc0b17a0d03b471b3158749b8d42469286e15ba6` as that tested head.
+workflows also passed on that exact head.
+Merged main has tree `9d6da9ed80476ca729181aa28ddd7626697a9e16` as that tested head.
+The candidate includes installed-checkout recovery commands (#583), owned default
+build paths (#582), runtime-open evidence (#579), and first-use output ignoring
+plus reachable first-failure Explain/Fix (#586). Run/build output ignores only its
+own trees; unrelated notes under `.local-agent` remain visible and tracked changes
+remain checked everywhere. These supported CMake journeys do not establish support
+for arbitrary build systems or CMake preset-selected output paths.
 This is deterministic CI/controller evidence, not exact-candidate model or physical
 qualification.
 
-| Later retained evidence | What it supports | Limit |
+| Separately retained evidence | What it supports | Limit |
 |---|---|---|
 | CPU8B cxxopts compile repair, #514 | One model-generated identifier repair, full build and independent seven-test suite | The original candidate also changed line endings; retained without rescore. Byte preservation was repaired in #517. No rate or PTL proof |
 | CPU30B cxxopts compile repair, retained in #516/#517 | One model-generated identifier repair, independent seven-test suite and subsequent controller diff/apply/exact commit preserving unrelated work | Model repair source `44cec210bbb32107789427559ec2c545e62a935b86387bff2be9dadc2907dca7`; controller follow-through is a separate proof class |
@@ -139,7 +148,8 @@ intervention rate is inferred from these small, differently prepared runs.
   Preparation and reports are automated; the actual target machine and disconnect
   confirmation are required. CPU reference runs cannot substitute for #293/#418.
 - Repository owner: configure reviewed-green main protection and re-observe it
-  with the existing checker. The 12 October observation found main unprotected,
+  with the existing checker. The 15 October 2026 authenticated branch/ruleset read,
+  evaluated by the existing checker, found main unprotected,
   no active required-status-check ruleset and no required checks. Administration
   was not changed; manually reviewed green merges do not establish enforcement.
 - Retain model/hardware-specific failures and observe the next task after Stop.

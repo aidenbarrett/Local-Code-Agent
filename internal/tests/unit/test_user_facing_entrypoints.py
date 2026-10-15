@@ -77,6 +77,18 @@ def test_release_handoff_checkout_matches_its_declared_candidate_tree():
     assert f"tree `{tree}` as that tested head" in handoff
 
 
+def test_release_handoff_enables_the_permissions_its_mutation_journey_needs():
+    handoff = (REPO / "docs/releases/RC_HANDOFF.md").read_text(encoding="utf-8")
+    commands = re.findall(r"^& \$lca init([^\n]*)$", handoff, re.M)
+    assert len(commands) == 2
+    assert "--write" not in commands[0]
+    assert "--write" in commands[1]
+    for command in commands:
+        assert "--allow-patch" in command
+        assert "--allow-commit" in command
+    assert "does not upgrade its permissions" in handoff
+
+
 def test_raw_chat_is_subordinate_to_the_canonical_launcher():
     wrapper = (REPO / "local-code-agent.ps1").read_text(encoding="utf-8")
     assert "[string]$Command = 'session'" in wrapper
