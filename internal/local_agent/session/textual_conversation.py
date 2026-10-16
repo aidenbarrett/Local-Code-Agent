@@ -6,7 +6,8 @@ inventing system turns, task results, verdict prose, or route authority.
 """
 from __future__ import annotations
 
-from .conversation_store import OpenConversation, Session
+from .conversation_store import OpenConversation, Session, turn_ref
+from .task_read_model import OriginTurn
 from .textual_hub import ConversationEntry
 
 
@@ -34,7 +35,11 @@ def project_conversation(session: Session) -> tuple[ConversationEntry, ...]:
             raise ConversationProjectionError(
                 f"stored conversation turn {index} has non-string content"
             )
-        entries.append(ConversationEntry(turn.role, turn.content))
+        ref = turn_ref(session, index)
+        entries.append(ConversationEntry(
+            turn.role, turn.content,
+            OriginTurn(str(ref["conversation_id"]), index, str(ref["turn_sha256"])),
+        ))
     return tuple(entries)
 
 
