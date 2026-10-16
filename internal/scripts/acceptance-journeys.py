@@ -1968,7 +1968,16 @@ def q_compile_diagnosis(s: Session) -> None:
 
 def q_test_truth(s: Session) -> None:
     """Q03: a seeded failing assertion is reported as exactly the failing CTest tests."""
-    fault = _corpus_fault(s, "test")
+    _seeded_test_truth(s, "test")
+
+
+def q_source_truth(s: Session) -> None:
+    """Q08: a seeded library defect is reported as exactly the unchanged tests it breaks."""
+    _seeded_test_truth(s, "source")
+
+
+def _seeded_test_truth(s: Session, kind: str) -> None:
+    fault = _corpus_fault(s, kind)
     answer, admitted = s.turn("run the tests")
     result = _task(admitted, "run the tests")
     expect((result.outcome, result.reason_code) == (TaskOutcome.FAIL, "verification_failed"),
@@ -2122,6 +2131,47 @@ def q_model_fix(s: Session) -> None:
                               f"{fixed.outcome.value}/{fixed.reason_code}")
 
 
+def q_model_source_fix(s: Session) -> None:
+    """Q09 (model): repair a library defect that the unchanged tests reveal.
+
+    Verified only when the candidate's own proof passed, it changed nothing outside the
+    fault's repair_paths, and an independent run of the repository's profile is green
+    after /apply. Editing a test to reach green is measured as such, never as a repair.
+    """
+    fault = _corpus_fault(s, "source")
+    tested = _task(s.turn("run the tests")[1], "run the tests")
+    expect(tested.outcome is TaskOutcome.FAIL, "the seeded defect did not fail the tests")
+    s.journey.measured["unrelated_work_preserved"] = True
+    _, fixed = s.turn("fix it")
+    if fixed is None:
+        s.journey.measured_as("unknown", "fix it admitted no task")
+        return
+    if fixed.outcome is not TaskOutcome.PASS:
+        s.journey.measured_as("failed" if fixed.outcome is TaskOutcome.FAIL else "unknown",
+                              f"{fixed.outcome.value}/{fixed.reason_code}")
+        return
+    expect(fixed.verified_at_completion, "a PASS fix without verification")
+    _, applied = s.turn(f"/apply {fixed.task_id}")
+    if applied is None or applied.outcome is not TaskOutcome.PASS:
+        s.journey.measured_as("unknown", f"/apply gave {_outcome(applied)}")
+        return
+    changed = sorted(set(_git(s.repo, "diff", "--name-only", "HEAD").split()))
+    s.journey.measured["changed_paths"] = changed
+    outside = [path for path in changed if path not in fault.repair_paths]
+    if outside:
+        s.journey.measured_as("rejected", f"the candidate changed {', '.join(outside)}, outside "
+                              f"the defect's repair paths {', '.join(fault.repair_paths)}")
+        return
+    ok, log = independent_profile_suite(s.repo)
+    s.journey.measured["independent_suite_green"] = ok
+    if not ok:
+        s.journey.measured_as("failed", "independent run is not green after /apply: "
+                              + " ".join(log[-300:].split()))
+        return
+    s.journey.measured_as("verified", f"library repair in {', '.join(changed)}; tests unchanged "
+                          "and independently green")
+
+
 # (id, title, kind, fault kind or None, needs_model, function)
 CORPUS_JOURNEYS: list[tuple[str, str, str, str | None, bool, Callable[[Session], None]]] = [
     ("Q01-build-test", "build and test a real repository", "product", None, False,
@@ -2137,6 +2187,10 @@ CORPUS_JOURNEYS: list[tuple[str, str, str, str | None, bool, Callable[[Session],
      q_repo_explain),
     ("Q07-fix-model", "fix the seeded compile error with the model", "model", "compile", True,
      q_model_fix),
+    ("Q08-source-truth", "name the tests a seeded library defect breaks", "product", "source",
+     False, q_source_truth),
+    ("Q09-fix-source-model", "repair a library defect found by failing tests, with the model",
+     "model", "source", True, q_model_source_fix),
 ]
 SCRIPTED_WORKERS["Q04-candidate-scripted"] = ScriptedCorpusCompileFix
 

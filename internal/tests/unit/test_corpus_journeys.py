@@ -16,7 +16,7 @@ import pytest
 from test_acceptance_corpus import corpus, journeys
 
 DETERMINISTIC_Q = ["Q01-build-test", "Q02-compile-diagnosis", "Q03-test-truth",
-                   "Q04-candidate-scripted", "Q05-stop-build"]
+                   "Q04-candidate-scripted", "Q05-stop-build", "Q08-source-truth"]
 
 
 def _cache() -> Path:
@@ -53,5 +53,5 @@ def test_the_deterministic_real_repository_journeys_pass(tmp_path):
     assert all(metrics["unrelated_work_preserved"][jid] is True for jid in DETERMINISTIC_Q)
     assert metrics["rate_claimed"] is False
     # Model journeys never pretend: without a model they are UNKNOWN with the reason.
-    for jid in ("Q06-repo-explain", "Q07-fix-model"):
+    for jid in ("Q06-repo-explain", "Q07-fix-model", "Q09-fix-source-model"):
         assert results[jid]["status"] == "UNKNOWN"

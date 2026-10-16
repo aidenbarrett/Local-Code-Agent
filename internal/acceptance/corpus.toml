@@ -11,8 +11,9 @@
 #   commit   the exact 40-hex commit every run uses
 #   licence  SPDX identifier; only permissive licences are accepted
 #   overlay  our .local-agent.toml for the repository (relative to this file)
-#   faults   seeded faults: id, patch (relative to this file), kind ("compile"|"test"),
-#            expect (compile: "path:line" of the error; test: failing CTest names)
+#   faults   seeded faults: id, patch (relative to this file), kind ("compile"|"test"|"source"),
+#            expect (compile: "path:line" of the error; test/source: failing CTest names),
+#            repair_paths (source only: the files a repair may change)
 
 [[repository]]
 name = "cxxopts"
@@ -32,3 +33,10 @@ id = "test-failure"
 patch = "cxxopts/test-failure.patch"
 kind = "test"
 expect = ["options", "options_no_regex"]
+
+[[repository.faults]]
+id = "source-defect"
+patch = "cxxopts/source-defect.patch"
+kind = "source"
+expect = ["options", "options_no_regex"]
+repair_paths = ["include/cxxopts.hpp"]
