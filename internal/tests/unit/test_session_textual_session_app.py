@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 from uuid import uuid4
 
@@ -30,6 +31,11 @@ async def _wait_until(predicate, *, timeout: float = 2.0) -> None:
         if loop.time() >= deadline:
             raise AssertionError("timed out waiting for deterministic Textual test condition")
         await asyncio.sleep(0.01)
+
+
+def _working(status: str) -> bool:
+    """In-flight conversation status: elapsed m:ss, then what is happening."""
+    return re.fullmatch(r"Working \d+:\d\d · conversation turn in progress", status) is not None
 
 
 def _opened(service: DurableSessionService, label: str) -> None:
@@ -76,7 +82,7 @@ def test_completed_turn_refreshes_canonical_conversation_not_returned_prose(tmp_
                     and [entry.text for entry in app.view_state.conversation]
                     == ["hello exactly", "persisted answer"]
                 )
-                assert app.view_state.status == "Working · conversation turn in progress"
+                assert _working(app.view_state.status)
                 release.set()
                 await _wait_until(lambda: app.view_state.status == "Live · durable seq 1")
                 await pilot.pause()
@@ -127,11 +133,11 @@ def test_live_feed_advances_without_hiding_inflight_turn_status(tmp_path):
                 _opened(service, "while-busy")
                 await _wait_until(
                     lambda: app.live_binding.state.status == "Live · durable seq 1"
-                    and app.view_state.status == "Working · conversation turn in progress"
+                    and _working(app.view_state.status)
                 )
                 await pilot.pause()
                 assert app.live_binding.state.status == "Live · durable seq 1"
-                assert app.view_state.status == "Working · conversation turn in progress"
+                assert _working(app.view_state.status)
                 gateway.release.set()
                 await _wait_until(lambda: app.view_state.status == "Live · durable seq 1")
                 await pilot.pause()
