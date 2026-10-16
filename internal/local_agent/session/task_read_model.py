@@ -48,19 +48,12 @@ class OriginTurn:
     turn_index: int
     turn_sha256: str
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.conversation_id, str) or not self.conversation_id:
-            raise TaskReadModelError("turn reference conversation_id must be nonempty text")
-        if (not isinstance(self.turn_index, int) or isinstance(self.turn_index, bool)
-                or self.turn_index < 0):
-            raise TaskReadModelError("turn reference turn_index must be a non-negative integer")
-        if (not isinstance(self.turn_sha256, str) or len(self.turn_sha256) != 64
-                or any(ch not in "0123456789abcdef" for ch in self.turn_sha256)):
-            raise TaskReadModelError("turn reference turn_sha256 must be lowercase SHA-256 hex")
-
 
 def origin_turn(origin: object) -> OriginTurn | None:
-    """The admitting turn, or ``None`` for an origin that carries no turn reference."""
+    """The admitting turn, or ``None`` for an origin that carries no turn reference.
+
+    This is the one boundary where a durable turn reference becomes a typed value.
+    """
     if not isinstance(origin, dict):
         raise TaskReadModelError("task origin must be an object")
     ref = origin.get("turn_ref")
@@ -68,7 +61,15 @@ def origin_turn(origin: object) -> OriginTurn | None:
         return None
     if not isinstance(ref, dict) or set(ref) != {"conversation_id", "turn_index", "turn_sha256"}:
         raise TaskReadModelError("task origin turn_ref is malformed")
-    return OriginTurn(ref["conversation_id"], ref["turn_index"], ref["turn_sha256"])
+    conversation_id, index, digest = ref["conversation_id"], ref["turn_index"], ref["turn_sha256"]
+    if not isinstance(conversation_id, str) or not conversation_id:
+        raise TaskReadModelError("turn reference conversation_id must be nonempty text")
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        raise TaskReadModelError("turn reference turn_index must be a non-negative integer")
+    if (not isinstance(digest, str) or len(digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in digest)):
+        raise TaskReadModelError("turn reference turn_sha256 must be lowercase SHA-256 hex")
+    return OriginTurn(conversation_id, index, digest)
 
 
 @dataclass(frozen=True)
