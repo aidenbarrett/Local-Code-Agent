@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import replace
 from uuid import uuid4
 
@@ -24,6 +25,31 @@ def task(candidate_id, *, sequence=1, role="prepared", verified=True):
     )
 
 
+async def _press(pilot, selector):
+    """Click a button only once it can actually receive the click.
+
+    Selecting a task toggles the action row's display; on a slow runner the
+    layout can lag the message that enabled the button, so a click aimed at the
+    old geometry lands elsewhere and is silently lost. A button also ignores
+    clicks while its press effect (``-active``) is still showing. Wait for the
+    button to be shown, enabled, idle and topmost at its own centre, then
+    require the click to hit.
+    """
+    app = pilot.app
+    button = app.query_one(selector, Button)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        await pilot.pause(0.02)
+        region = button.region
+        if (button.display and not button.disabled and not button.has_class("-active")
+                and region.area
+                and app.get_widget_at(*region.center)[0] is button):
+            break
+    else:
+        raise AssertionError(f"{selector} never became clickable within 10 s")
+    assert await pilot.click(selector), f"click on {selector} landed on another widget"
+
+
 def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_durable_state():
     async def scenario():
         first, second = str(uuid4()), str(uuid4())
@@ -43,8 +69,8 @@ def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_dura
             await pilot.pause()
             assert first in str(app.query_one("#activity", Static).render())
             assert second not in str(app.query_one("#activity", Static).render())
-            await pilot.click("#review-candidate")
-            await pilot.click("#apply-candidate")
+            await _press(pilot, "#review-candidate")
+            await _press(pilot, "#apply-candidate")
             await pilot.pause()
             assert commands == [(f"/diff {first}", False),(f"/apply {first}",False)]
             assert app.query_one("#commit-candidate", Button).disabled
@@ -55,8 +81,8 @@ def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_dura
             assert selector.value == first
             assert not app.query_one("#review-candidate", Button).disabled
             assert not app.query_one("#apply-candidate", Button).disabled
-            await pilot.click("#review-candidate")
-            await pilot.click("#apply-candidate")
+            await _press(pilot, "#review-candidate")
+            await _press(pilot, "#apply-candidate")
             await pilot.pause()
             assert commands[-2:] == [(f"/diff {first}",False),(f"/apply {first}",False)]
             assert composer.value == "unfinished user message"
@@ -67,17 +93,17 @@ def test_selected_candidate_actions_bind_exact_id_preserve_draft_and_follow_dura
             assert app.query_one("#apply-candidate", Button).disabled
             assert not app.query_one("#undo-candidate", Button).disabled
             assert not app.query_one("#commit-candidate", Button).disabled
-            await pilot.click("#commit-candidate")
+            await _press(pilot, "#commit-candidate")
             await pilot.pause()
             assert commands[-1] == (f"/commit {first}", False)
             assert composer.value == "unfinished user message"
-            await pilot.click("#undo-candidate")
+            await _press(pilot, "#undo-candidate")
             await pilot.pause()
             assert commands[-1] == (f"/undo {first}",False)
             selector.value = second
             await pilot.pause()
             assert app.query_one("#commit-candidate", Button).disabled
-            await pilot.click("#apply-candidate")
+            await _press(pilot, "#apply-candidate")
             await pilot.pause()
             assert commands[-1] == (f"/apply {second}",False)
             app.replace_state(HubViewState())
@@ -119,7 +145,7 @@ def test_commit_requires_verified_applied_candidate_and_disables_after_terminal_
             assert commands == []
             app.replace_state(HubViewState(tasks=(task(candidate_id, role="applied"),)))
             await pilot.pause()
-            await pilot.click("#commit-candidate")
+            await _press(pilot, "#commit-candidate")
             await pilot.pause()
             assert commands == [f"/commit {candidate_id}"]
             for role in ("committed", "undone", "apply_refused"):
@@ -157,7 +183,7 @@ def test_candidate_menu_shows_literal_changed_files_without_changing_action_iden
             await pilot.press("escape")
             selector.value = second
             await pilot.pause()
-            await pilot.click("#review-candidate")
+            await _press(pilot, "#review-candidate")
             await pilot.pause()
             assert commands == [f"/diff {second}"]
     asyncio.run(scenario())
@@ -186,8 +212,8 @@ def test_select_earlier_failure_explains_and_fixes_exact_task_without_copying_id
             activity = str(app.query_one("#activity", Static).render())
             assert "Earlier compiler error" in activity and "Later assertion failure" not in activity
             assert not app.query_one("#review-candidate", Button).display
-            await pilot.click("#explain-task")
-            await pilot.click("#fix-task")
+            await _press(pilot, "#explain-task")
+            await _press(pilot, "#fix-task")
             await pilot.pause()
             assert commands == [(f"Why did task {first} fail?", False), (f"Fix task {first}", False)]
             assert composer.value == "unfinished user message"
@@ -196,8 +222,8 @@ def test_select_earlier_failure_explains_and_fixes_exact_task_without_copying_id
                                         failure_kinds={first: "build", second: "test"})
                 assert decision.action == RouteAction.WORK and decision.reference_ids == (first,)
             selector.value = second
-            await pilot.pause(0.3)
-            await pilot.click("#fix-task")
+            await pilot.pause()
+            await _press(pilot, "#fix-task")
             await pilot.pause()
             decision = decide_route(commands[-1][0], active_repo_count=1,
                                     eligible_task_ids=(first, second),
@@ -276,9 +302,9 @@ def test_the_only_failed_check_is_selectable_and_explained_without_new_work():
             await _choose_only_task_by_keyboard(app, pilot)
             assert app.query_one("#task-select", Select).value == task_id
             assert not app.query_one("#explain-task", Button).disabled
-            await pilot.click("#explain-task")
+            await _press(pilot, "#explain-task")
             await pilot.pause()
-            await pilot.click("#fix-task")
+            await _press(pilot, "#fix-task")
             await pilot.pause()
             assert commands == [(f"Why did task {task_id} fail?", False), (f"Fix task {task_id}", False)]
             assert composer.value == "unfinished user message"
@@ -308,7 +334,7 @@ def test_a_build_that_fails_while_the_hub_is_open_becomes_selectable():
             app.replace_state(HubViewState(tasks=(_check_task(task_id),)))
             await pilot.pause()
             await _choose_only_task_by_keyboard(app, pilot)
-            await pilot.click("#explain-task")
+            await _press(pilot, "#explain-task")
             await pilot.pause()
             assert commands == [f"Why did task {task_id} fail?"]
     asyncio.run(scenario())
