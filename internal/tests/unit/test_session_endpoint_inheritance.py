@@ -24,6 +24,7 @@ def _args(**overrides):
         "base_url": None,
         "worker_base_url": None,
         "model": None,
+        "worker_model": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -69,3 +70,38 @@ def test_model_override_is_shared_by_chat_and_worker():
     chat, _worker_profile, worker = hub._resolve_model_configs(
         _args(base_url="http://chat.invalid:18000/v1", model="served-elsewhere"))
     assert chat.model == worker.model == "served-elsewhere"
+
+
+def test_a_worker_split_onto_another_endpoint_keeps_its_preset_model():
+    hub = _session_hub_module()
+    chat, _worker_profile, worker = hub._resolve_model_configs(_args(
+        base_url="http://chat.invalid:18000/v1", worker_base_url="http://worker.invalid:19000/v1",
+        model="served-by-chat"))
+    assert chat.model == "served-by-chat"
+    assert worker.model == hub.MODEL_PRESETS["ptl-npu-8b"].model
+
+
+def test_a_worker_split_onto_another_profile_keeps_its_preset_model():
+    hub = _session_hub_module()
+    other = next(name for name, preset in hub.MODEL_PRESETS.items()
+                 if name != "ptl-npu-8b" and preset.base_url != hub.MODEL_PRESETS["ptl-npu-8b"].base_url)
+    chat, worker_profile, worker = hub._resolve_model_configs(_args(
+        worker_profile=other, model="served-by-chat"))
+    assert chat.model == "served-by-chat"
+    assert worker_profile == other and worker.model == hub.MODEL_PRESETS[other].model
+
+
+def test_a_split_worker_takes_only_its_own_model_override():
+    hub = _session_hub_module()
+    chat, _worker_profile, worker = hub._resolve_model_configs(_args(
+        base_url="http://chat.invalid:18000/v1", worker_base_url="http://worker.invalid:19000/v1",
+        model="served-by-chat", worker_model="served-by-worker"))
+    assert chat.model == "served-by-chat" and worker.model == "served-by-worker"
+
+
+def test_a_worker_on_the_same_endpoint_given_twice_still_shares_the_model():
+    hub = _session_hub_module()
+    _chat, _worker_profile, worker = hub._resolve_model_configs(_args(
+        base_url="http://same.invalid:18000/v1", worker_base_url="http://same.invalid:18000/v1",
+        worker_profile="ptl-npu-8b", model="served"))
+    assert worker.model == "served"

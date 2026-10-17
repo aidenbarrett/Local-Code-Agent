@@ -188,8 +188,14 @@ def _resolve_model_configs(args: argparse.Namespace):
     worker_base_url = args.worker_base_url or args.base_url
     if worker_base_url:
         worker_config = replace(worker_config, base_url=worker_base_url)
-    if args.model:
-        worker_config = replace(worker_config, model=args.model)
+    # --model names what the conversation endpoint serves. The worker shares it only
+    # when it shares that endpoint; an explicitly split worker keeps its preset model
+    # unless --worker-model names what its own endpoint serves.
+    split = (worker_profile != args.profile
+             or worker_config.base_url != chat_config.base_url)
+    worker_model = args.worker_model or (None if split else args.model)
+    if worker_model:
+        worker_config = replace(worker_config, model=worker_model)
     return chat_config, worker_profile, worker_config
 
 
@@ -329,7 +335,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--worker-profile", default=None, choices=sorted(MODEL_PRESETS))
     parser.add_argument("--base-url", help="override conversation and worker endpoint unless --worker-base-url is set")
     parser.add_argument("--worker-base-url", help="explicitly split the worker onto a different endpoint")
-    parser.add_argument("--model", help="model id the endpoint serves (default: the preset's)")
+    parser.add_argument("--model", help="model id the endpoint serves (default: the preset's); "
+                        "the worker shares it unless split onto another endpoint")
+    parser.add_argument("--worker-model", help="model id a split worker endpoint serves")
     parser.add_argument("--allow-execution", action="store_true", help="allow configured build/test execution")
     parser.add_argument("--conversation", metavar="ID", help="resume a persisted Session Hub conversation")
     parser.add_argument("--check", action="store_true", help="run deterministic self-check once and exit")
