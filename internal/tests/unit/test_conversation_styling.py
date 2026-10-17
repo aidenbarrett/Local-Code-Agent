@@ -81,3 +81,13 @@ def test_text_that_looks_like_markup_or_a_diff_outside_a_diff_stays_literal():
     assert "[bold red]-not a removal[/]" in text.plain
     assert _style_of(text, "[bold red]-not a removal[/]") == ""
     assert _style_of(text, "- a bullet, not a diff") == ""
+
+
+def test_a_read_only_answer_is_labelled_answered_not_by_the_proof_it_skipped():
+    task = _task("NOT_REQUIRED", "RingBuffer::full is defined at src/ring_buffer.cpp:29.")
+    task.verdict_reason = "verification_not_required"
+    text = render_conversation_text((ConversationEntry("user", "where is it?", TURN),),
+                                    (task,), PALETTE)
+    assert "LCA · ANSWERED · read-only\nRingBuffer::full is defined" in text.plain
+    assert "NOT REQUIRED" not in text.plain
+    assert PALETTE["secondary"] in _style_of(text, "ANSWERED")
