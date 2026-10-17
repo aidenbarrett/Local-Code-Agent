@@ -121,3 +121,33 @@ def test_attention_pane_is_hidden_until_something_needs_attention():
             assert f"/apply {ready.task_id}" in str(pane.render())
 
     asyncio.run(scenario())
+
+
+def _later(candidate_task: TaskSnapshot, role: str, *, sequence: int,
+           verdict: str = "VERIFIED", reason: str | None = None) -> TaskSnapshot:
+    task = _task(verdict=verdict)
+    task.admitted_sequence = task.last_sequence = task.closed_sequence = sequence
+    task.verdict_reason = reason
+    task.candidate = CandidateFacts(
+        role=role, candidate_task_id=candidate_task.task_id, retained=role == "prepared",
+        paths=("src/ring_buffer.cpp",), patch_sha256="a" * 64,
+        base_commit="b" * 40, commit="c" * 40 if role == "committed" else None,
+    )
+    return task
+
+
+def test_a_candidate_that_was_applied_or_committed_is_no_longer_offered():
+    for role in ("applied", "committed", "undone", "discarded"):
+        ready = _ready()
+        rendered = render_attention((ready, _later(ready, role, sequence=5)))
+        assert "Verified candidate ready" not in rendered, role
+        assert f"/apply {ready.task_id}" not in rendered, role
+
+
+def test_an_apply_refusal_superseded_by_a_later_apply_is_dropped():
+    ready = _ready()
+    refused = _later(ready, "apply_refused", sequence=5, verdict="FAILED", reason="scope_changed")
+    applied = _later(ready, "applied", sequence=7)
+    assert "scope_changed" not in render_attention((ready, refused, applied))
+    # While the refusal is the candidate's latest state, it is what needs the user.
+    assert f"FAILED · {refused.task_id}\nscope_changed" in render_attention((ready, refused))

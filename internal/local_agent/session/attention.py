@@ -13,9 +13,19 @@ from .task_read_model import TaskSnapshot
 
 def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
     """Up to three durable facts that need the user, newest first; empty when none."""
+    ordered = sorted(tasks, key=lambda item: item.last_sequence)
+    # A candidate's state is its latest task: once it has been applied, refused,
+    # undone, committed or discarded, the task that prepared it (or an earlier
+    # refusal) no longer describes it.
+    latest: dict[str, int] = {}
+    for task in ordered:
+        if task.candidate is not None:
+            latest[task.candidate.candidate_task_id] = task.last_sequence
     items: list[str] = []
-    for task in reversed(tuple(tasks)):
+    for task in reversed(ordered):
         candidate = task.candidate
+        if candidate is not None and latest[candidate.candidate_task_id] != task.last_sequence:
+            continue
         if (
             candidate is not None
             and candidate.role == "prepared"
