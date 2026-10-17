@@ -438,8 +438,8 @@ def _css(palette: Mapping[str, str]) -> str:
         color: {palette['foreground']};
     }}
     #title {{
-        height: 3;
-        padding: 1 2;
+        height: auto;
+        padding: 0 2;
         background: {palette['surface']};
         color: {palette['secondary']};
         text-style: bold;
