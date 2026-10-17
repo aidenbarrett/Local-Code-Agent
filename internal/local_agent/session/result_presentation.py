@@ -80,7 +80,10 @@ def render_result_evidence(task: TaskSnapshot) -> str:
 
     scope = _scope_text(task.verdict_scope) or "not established"
     evidence = ", ".join(task.evidence_ids) if task.evidence_ids else "none"
-    verification = "not established"
+    verification = (
+        "not required by controller contract"
+        if task.verdict == "NOT_REQUIRED" else "not established"
+    )
     if task.result_verified_at_completion is True:
         verification = "passed at task completion"
     elif task.result_verification_ran is True:

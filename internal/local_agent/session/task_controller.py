@@ -438,7 +438,9 @@ class TaskController:
         )
 
     @staticmethod
-    def _product_outcome(run: RunResult) -> TaskOutcome:
+    def _product_outcome(
+        run: RunResult, *, grounded_read_only_answer: bool = False,
+    ) -> TaskOutcome:
         """Project worker outcome into product lifecycle without calling outages refusals."""
         outcome = TaskOutcome(run.outcome.value)
         if run.state.halt_cause in (
@@ -453,6 +455,8 @@ class TaskController:
             # A command's process tree could not be shown ended, so its effects are not
             # owned: neither a pass nor an engineering failure (#436 review).
             return TaskOutcome.NO_VERDICT
+        if outcome.succeeded and grounded_read_only_answer:
+            outcome = TaskOutcome.ANSWERED
         if outcome.succeeded and not run.state.verified:
             # The worker completed its job, but the tree is not proven. If the last
             # current-epoch proof is an observed build or test failure, the honest
@@ -461,6 +465,27 @@ class TaskController:
                 return TaskOutcome.FAIL
             return TaskOutcome.NO_VERDICT
         return outcome
+
+    @staticmethod
+    def _is_grounded_read_only_answer(
+        run: RunResult, skill: Skill | None, registry: ToolRegistry,
+    ) -> bool:
+        """Whether a completed worker answer has a read-only evidence contract."""
+        return bool(
+            run.outcome.succeeded
+            and run.state.halt_cause is None
+            and run.state.mutation_epoch == 0
+            and run.state.cited_evidence
+            and run.state.cited_correctly
+            and all(item.execution == "ok" and not item.blocked for item in run.state.history)
+            and skill is not None
+            and skill.tools
+            and not skill.verification_required
+            and all(
+                name in registry and registry.get(name).risk is Risk.READ
+                for name in skill.tools
+            )
+        )
 
     @staticmethod
     def _answer_with_model_failure(answer: str, run: RunResult) -> str:
@@ -495,6 +520,8 @@ class TaskController:
             return "cancel_unreconciled"
         if outcome is TaskOutcome.NO_VERDICT and _process_cleanup_unknown(run.state):
             return "cleanup_unknown"
+        if outcome is TaskOutcome.ANSWERED:
+            return "verification_not_required"
         if outcome.succeeded:
             return "verification_passed"
         if outcome in (TaskOutcome.FAIL, TaskOutcome.ESCALATED_FAIL):
@@ -543,14 +570,19 @@ class TaskController:
                     {k: payload[k] for k in fields[kind] if k in payload}, task_id,
                 )
 
+        skills = self._skill_library()
         worker = Orchestrator(
-            repo=self.repo, registry=registry, client=client, skills=self._skill_library(),
+            repo=self.repo, registry=registry, client=client, skills=skills,
             approval=deny_all_approvals, observer=observe,
             context_budget_tokens=self.context_budget_tokens,
             allow_escalation=False,
         )
         run = worker.run(task, skill_name=skill_name)
-        task_outcome = self._product_outcome(run)
+        skill = skills.get(skill_name) if skill_name is not None else None
+        task_outcome = self._product_outcome(
+            run,
+            grounded_read_only_answer=self._is_grounded_read_only_answer(run, skill, registry),
+        )
         if skill_name == CONFIGURED_CHECK_SKILL and any(item.blocked for item in run.state.history):
             # A configured check is a fixed plan: every step is the one requested. If
             # policy refused a step (the tests), proof from an earlier step (the build)

@@ -131,6 +131,23 @@ def test_result_evidence_fails_closed_when_proof_is_not_established():
     assert "passed" not in rendered
 
 
+def test_answered_result_is_explicitly_read_only_and_not_unverified():
+    task = _task(
+        verdict="NOT_REQUIRED",
+        reason="verification_not_required",
+        scope="none",
+    )
+    task.result_answer = "RingBuffer is declared in include/sandbox/ring_buffer.hpp."
+    task.evidence_ids = ("read_file:0",)
+
+    rendered = render_live_activity(HubViewState(tasks=(task,)))
+
+    assert "Result: COMPLETED — verification was not required" in rendered
+    assert "Verification: not required by controller contract" in rendered
+    assert "Retained read-only answer (not engineering verification):" in rendered
+    assert "unverified as completion" not in rendered
+
+
 def test_live_activity_keeps_evidence_separate_from_retained_worker_answer():
     task = _task(
         verdict="VERIFIED",

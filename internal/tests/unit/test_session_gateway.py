@@ -70,6 +70,7 @@ def test_cli_exit_code_mapping_covers_every_task_outcome():
     codes = {outcome: task_exit_code(outcome) for outcome in TaskOutcome}
     assert set(codes) == set(TaskOutcome)
     assert codes[TaskOutcome.PASS] == 0
+    assert codes[TaskOutcome.ANSWERED] == 0
     assert codes[TaskOutcome.ESCALATED_PASS] == 0
     assert codes[TaskOutcome.FAIL] == 1
     assert codes[TaskOutcome.ESCALATED_FAIL] == 1

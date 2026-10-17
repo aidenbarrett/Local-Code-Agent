@@ -56,6 +56,8 @@ def test_reason_and_verdict_vocabularies_match_v1_schema_exactly():
     "outcome,verdict,reason",
     [
         (TaskOutcome.PASS, TaskVerdict.VERIFIED, VerdictReason.VERIFICATION_PASSED),
+        (TaskOutcome.ANSWERED, TaskVerdict.NOT_REQUIRED,
+         VerdictReason.VERIFICATION_NOT_REQUIRED),
         (TaskOutcome.ESCALATED_PASS, TaskVerdict.VERIFIED, VerdictReason.VERIFICATION_PASSED),
         (TaskOutcome.FAIL, TaskVerdict.FAILED, VerdictReason.VERIFICATION_FAILED),
         (TaskOutcome.ESCALATED_FAIL, TaskVerdict.FAILED, VerdictReason.VERIFICATION_FAILED),
@@ -83,6 +85,11 @@ def test_verification_line_distinguishes_pass_failed_attempt_and_not_run():
     assert passed.rendered_lines[2] == "Verification: passed at task completion."
     assert attempted.rendered_lines[2] == "Verification: ran but did not establish success."
     assert not_run.rendered_lines[2] == "Verification: not established."
+
+
+def test_answered_verification_line_says_not_required_instead_of_unverified():
+    answered = verdict_block_from_task_result(_result(TaskOutcome.ANSWERED))
+    assert answered.rendered_lines[2] == "Verification: not required by controller contract."
 
 
 def test_evidence_is_explicit_when_empty_and_preserved_in_original_order():

@@ -288,20 +288,26 @@ def _retained_result_verified(task: TaskSnapshot) -> bool:
 
 
 def _recent_result_line(task: TaskSnapshot, answer: str) -> str:
-    label = "Result" if _retained_result_verified(task) else "Unverified result detail"
+    if task.verdict == "NOT_REQUIRED":
+        label = "Read-only answer"
+    else:
+        label = "Result" if _retained_result_verified(task) else "Unverified result detail"
     return f"  {label}: {_result_preview(answer)}"
 
 
 def _retained_result_lines(task: TaskSnapshot) -> tuple[str, ...]:
     if task.result_answer is None:
         return ()
-    label = (
-        "Retained candidate detail (not checkout proof):"
-        if task.candidate_not_applied
-        else ("Retained result:" if _retained_result_verified(task)
-              else "Retained result (unverified as completion):")
-    )
-    if task.result_verified_at_completion is True:
+    if task.candidate_not_applied:
+        label = "Retained candidate detail (not checkout proof):"
+    elif task.verdict == "NOT_REQUIRED":
+        label = "Retained read-only answer (not engineering verification):"
+    else:
+        label = ("Retained result:" if _retained_result_verified(task)
+                 else "Retained result (unverified as completion):")
+    if task.verdict == "NOT_REQUIRED":
+        verification = "Result verification: not required by controller contract"
+    elif task.result_verified_at_completion is True:
         verification = "Result verification: passed at task completion"
     elif task.result_verification_ran:
         verification = "Result verification: ran but did not establish success"

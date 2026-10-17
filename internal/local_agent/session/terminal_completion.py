@@ -134,7 +134,9 @@ def validate_terminal_completion(
 
     verification_lines = [line for line in lines if line.startswith("Verification:")]
     if verification_lines:
-        if typed.verified_at_completion:
+        if verdict == "NOT_REQUIRED":
+            expected = "Verification: not required by controller contract."
+        elif typed.verified_at_completion:
             expected = "Verification: passed at task completion."
         elif typed.verification_ran:
             expected = "Verification: ran but did not establish success."
