@@ -23,6 +23,7 @@ def _args(**overrides):
         "worker_profile": None,
         "base_url": None,
         "worker_base_url": None,
+        "model": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -61,3 +62,10 @@ def test_no_override_preserves_profile_defaults():
 
     assert chat.base_url == hub.MODEL_PRESETS["ptl-npu-8b"].base_url
     assert worker.base_url == hub.MODEL_PRESETS["ptl-npu-8b"].base_url
+
+
+def test_model_override_is_shared_by_chat_and_worker():
+    hub = _session_hub_module()
+    chat, _worker_profile, worker = hub._resolve_model_configs(
+        _args(base_url="http://chat.invalid:18000/v1", model="served-elsewhere"))
+    assert chat.model == worker.model == "served-elsewhere"
