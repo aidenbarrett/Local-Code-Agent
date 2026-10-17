@@ -16,7 +16,8 @@ import pytest
 from test_acceptance_corpus import corpus, journeys
 
 DETERMINISTIC_Q = ["Q01-build-test", "Q02-compile-diagnosis", "Q03-test-truth",
-                   "Q04-candidate-scripted", "Q05-stop-build", "Q08-source-truth"]
+                   "Q04-candidate-scripted", "Q05-stop-build", "Q08-source-truth",
+                   "Q10-walkthrough-scripted"]
 
 
 def _cache() -> Path:

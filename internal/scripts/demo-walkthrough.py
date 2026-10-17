@@ -28,9 +28,9 @@ from serving.model_store import default_runtime_root  # noqa: E402
 
 CORPUS_NAME = "cxxopts"
 FAULT_ID = "source-defect"
-STAGED = ("CHANGELOG-draft.md", "- Document the --verbose flag.\n")
-UNSTAGED = ("README.md", "\nLocal note: benchmark parsing after the next release.\n")
-UNTRACKED = ("scratch notes.txt", "ideas, not for commit\n")
+STAGED = corpus.WALKTHROUGH_STAGED
+UNSTAGED = corpus.WALKTHROUGH_UNSTAGED
+UNTRACKED = corpus.WALKTHROUGH_UNTRACKED
 
 STEPS = (
     "explain this repository",

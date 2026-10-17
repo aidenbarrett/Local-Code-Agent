@@ -1860,6 +1860,25 @@ class ScriptedCorpusCompileFix(ScriptedCompileFix):
     _EDITS = (('CHECK(reslt.count("s") == 1);', 'CHECK(result.count("s") == 1);'),)
 
 
+class ScriptedCorpusSourceFix(ScriptedCompileFix):
+    """Repair the cxxopts seeded library defect with ordinary tools and no model, then
+    prove it with a full test run, as fix-test-failure requires."""
+
+    _PATH = "include/cxxopts.hpp"
+    _EDITS = (("digit = static_cast<US>(ch - 'a' + 9);",
+               "digit = static_cast<US>(ch - 'a' + 10);"),)
+
+    def chat(self, messages: list[dict[str, Any]], tools: Any = None,
+             max_tokens: int | None = None) -> ChatResponse:
+        step = len([m for m in messages if m.get("role") == "tool"])
+        if step == 2 * len(self._EDITS):
+            return ChatResponse(tool_calls=[tool_call("run_test", {}, "t")])
+        if step > 2 * len(self._EDITS):
+            return self._finish("success", "corrected lowercase hex digit parsing; the full "
+                                "test suite passes", [f"run_test:{step - 1}"])
+        return super().chat(messages, tools, max_tokens)
+
+
 # The harness's own builds run outside Local Code Agent's process ownership, so they must
 # not leave anything behind either: MSBuild otherwise keeps reusable worker nodes (and
 # the VS telemetry helper) alive after the build, which a CI runner then reports as
@@ -2199,6 +2218,59 @@ def q_model_source_fix(s: Session) -> None:
                           "and independently green")
 
 
+def q_walkthrough_scripted(s: Session) -> None:
+    """Q10: the walkthrough's controller steps on the seeded library defect, with a
+    scripted worker: tests fail, the recorded failure is explained, a candidate repair
+    is reviewed, applied, re-tested on the checkout and committed exactly, and the
+    developer's staged, unstaged and untracked work survives every step."""
+    fault = _corpus_fault(s, "source")
+    staged = s.repo / corpus.WALKTHROUGH_STAGED[0]
+    staged.write_text(corpus.WALKTHROUGH_STAGED[1], encoding="utf-8")
+    _git(s.repo, "add", "--", corpus.WALKTHROUGH_STAGED[0])
+    readme = s.repo / corpus.WALKTHROUGH_UNSTAGED[0]
+    readme_after = readme.read_bytes() + corpus.WALKTHROUGH_UNSTAGED[1].encode("utf-8")
+    readme.write_bytes(readme_after)
+    untracked = s.repo / corpus.WALKTHROUGH_UNTRACKED[0]
+    untracked.write_text(corpus.WALKTHROUGH_UNTRACKED[1], encoding="utf-8")
+    index = _git(s.repo, "ls-files", "--stage", "--", corpus.WALKTHROUGH_STAGED[0])
+
+    def user_work_intact() -> bool:
+        return (readme.read_bytes() == readme_after
+                and untracked.read_text(encoding="utf-8") == corpus.WALKTHROUGH_UNTRACKED[1]
+                and _git(s.repo, "ls-files", "--stage", "--",
+                         corpus.WALKTHROUGH_STAGED[0]) == index)
+
+    tested = _task(s.turn("run the tests")[1], "run the tests")
+    expect(tested.outcome is TaskOutcome.FAIL, f"the seeded defect gave {_outcome(tested)}")
+    explained, admitted = s.turn("why did that fail?")
+    expect(admitted is None, "explaining the recorded failure admitted a task")
+    expect(all(name in explained for name in fault.expect),
+           "the explanation does not name the failing tests")
+    fixed = _task(s.turn("fix it")[1], "fix it")
+    expect(fixed.outcome is TaskOutcome.PASS and fixed.verified_at_completion,
+           f"the scripted repair gave {_outcome(fixed)}")
+    review, reviewed = s.turn(f"/diff {fixed.task_id}")
+    expect(reviewed is not None and reviewed.outcome is TaskOutcome.PASS, "/diff failed")
+    expect("+      digit = static_cast<US>(ch - 'a' + 10);" in review,
+           "the review does not show the repair")
+    expect(user_work_intact(), "preparing or reviewing the candidate touched user work")
+    _, applied = s.turn(f"/apply {fixed.task_id}")
+    expect(applied is not None and applied.outcome is TaskOutcome.PASS, "/apply failed")
+    expect(user_work_intact(), "/apply touched user work")
+    retested = _task(s.turn("run the tests")[1], "run the tests again")
+    expect(retested.outcome is TaskOutcome.PASS,
+           f"tests on the applied checkout gave {_outcome(retested)}")
+    _, committed = s.turn(f"/commit {fixed.task_id}")
+    expect(committed is not None and committed.outcome is TaskOutcome.PASS, "/commit failed")
+    files = _git(s.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split()
+    expect(files == list(fault.repair_paths), f"the commit contains {files}")
+    expect(user_work_intact(), "/commit touched user work")
+    s.journey.measured["unrelated_work_preserved"] = True
+    s.journey.passed("walkthrough on a real library defect: tests FAIL, recorded explanation, "
+                     "reviewed candidate, apply, tests PASS on the checkout, exact commit; "
+                     "staged, unstaged and untracked work preserved")
+
+
 # (id, title, kind, fault kind or None, needs_model, function)
 CORPUS_JOURNEYS: list[tuple[str, str, str, str | None, bool, Callable[[Session], None]]] = [
     ("Q01-build-test", "build and test a real repository", "product", None, False,
@@ -2218,8 +2290,11 @@ CORPUS_JOURNEYS: list[tuple[str, str, str, str | None, bool, Callable[[Session],
      False, q_source_truth),
     ("Q09-fix-source-model", "repair a library defect found by failing tests, with the model",
      "model", "source", True, q_model_source_fix),
+    ("Q10-walkthrough-scripted", "walkthrough steps on a library defect with a scripted fix",
+     "product", "source", False, q_walkthrough_scripted),
 ]
 SCRIPTED_WORKERS["Q04-candidate-scripted"] = ScriptedCorpusCompileFix
+SCRIPTED_WORKERS["Q10-walkthrough-scripted"] = ScriptedCorpusSourceFix
 
 
 def corpus_metrics(journeys: list[Journey]) -> dict[str, Any]:
