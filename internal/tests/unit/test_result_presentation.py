@@ -95,8 +95,11 @@ def test_live_activity_puts_human_result_above_raw_controller_detail():
         "Repository: repo-1\n"
         "Result: VERIFIED — full current-tree build proof.\nEvidence:\n"
     )
-    assert "Verdict: VERIFIED · verification_passed" in rendered
-    assert "Proof scope: full_build." in rendered
+    # The result line above already states the verdict; the controller's own lines
+    # follow verbatim and are not restated.
+    assert "Verdict: VERIFIED" not in rendered
+    assert "Controller verdict:\n  VERIFIED: pass.\n  Reason: verification_passed.\n" \
+        "  Proof scope: full_build." in rendered
 
 
 def test_live_activity_keeps_no_task_empty_state_without_fake_result():
