@@ -21,10 +21,21 @@ def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
     for task in ordered:
         if task.candidate is not None:
             latest[task.candidate.candidate_task_id] = task.last_sequence
+    # Likewise a configured check's state is its latest finished run in that
+    # repository: a failure that a later run of the same check has replaced no
+    # longer describes the checkout.
+    latest_check: dict[tuple[str, str], int] = {}
+    for task in ordered:
+        if task.configured_check is not None and task.terminal:
+            latest_check[(task.repository_id, task.configured_check)] = task.last_sequence
     items: list[str] = []
     for task in reversed(ordered):
         candidate = task.candidate
         if candidate is not None and latest[candidate.candidate_task_id] != task.last_sequence:
+            continue
+        check = (None if task.configured_check is None or not task.terminal
+                 else (task.repository_id, task.configured_check))
+        if check is not None and latest_check[check] != task.last_sequence:
             continue
         if (
             candidate is not None
