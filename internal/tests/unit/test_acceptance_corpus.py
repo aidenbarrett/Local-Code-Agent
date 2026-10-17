@@ -76,7 +76,7 @@ def _upstream(tmp_path: Path) -> tuple[Path, str]:
 
 def _manifest(tmp_path: Path, *, commit: str, url: str = "https://example.invalid/tiny",
               licence: str | None = "MIT", overlay: str = OVERLAY, patch: str = PATCH,
-              kind: str = "test") -> Path:
+              kind: str = "test", repair: str = "") -> Path:
     base = tmp_path / "acceptance"
     (base / "tiny").mkdir(parents=True, exist_ok=True)
     (base / "tiny" / "local-agent.toml").write_text(overlay, encoding="utf-8")
@@ -87,7 +87,7 @@ def _manifest(tmp_path: Path, *, commit: str, url: str = "https://example.invali
         f'name = "tiny"\nurl = "{url}"\ncommit = "{commit}"\n{licence_line}'
         'overlay = "tiny/local-agent.toml"\n'
         "[[repository.faults]]\n"
-        f'id = "seed"\npatch = "tiny/fault.patch"\nkind = "{kind}"\nexpect = ["a"]\n',
+        f'id = "seed"\npatch = "tiny/fault.patch"\nkind = "{kind}"\nexpect = ["a"]\n{repair}',
         encoding="utf-8",
     )
     return base / "corpus.toml"
@@ -98,7 +98,11 @@ def test_the_shipped_manifest_is_valid_and_pins_cxxopts():
     cxxopts = entries["cxxopts"]
     assert cxxopts.commit == "639cdbad93d45e74fd781e4cf6b0ac798eeec2aa"
     assert cxxopts.licence == "MIT"
-    assert {f.kind for f in cxxopts.faults} == {"compile", "test"}
+    assert {f.kind for f in cxxopts.faults} == {"compile", "test", "source"}
+    source = cxxopts.fault_of_kind("source")
+    assert source.repair_paths == ("include/cxxopts.hpp",)
+    assert "include/cxxopts.hpp" in source.patch.read_text(encoding="utf-8")
+    assert all(f.repair_paths == () for f in cxxopts.faults if f.kind != "source")
     for fault in cxxopts.faults:
         text = fault.patch.read_text(encoding="utf-8")
         # Every quoted context line carries the upstream licence with it.
@@ -114,11 +118,24 @@ def test_the_shipped_manifest_is_valid_and_pins_cxxopts():
     ({"overlay": "[repo]\nname = 'x'\n"}, "no build profiles"),
     ({"kind": "runtime"}, "kind must be one of"),
     ({"url": "http://example.invalid/tiny"}, "url must be https"),
+    ({"kind": "source"}, "repair_paths is required for, and only for, a source fault"),
+    ({"repair": 'repair_paths = ["a.txt"]\n'}, "required for, and only for, a source fault"),
+    ({"kind": "source", "repair": 'repair_paths = ["../a.txt"]\n'}, "repository-relative"),
+    ({"kind": "source", "repair": 'repair_paths = ["/a.txt"]\n'}, "repository-relative"),
+    ({"kind": "source", "repair": 'repair_paths = ["C:/a.txt"]\n'}, "repository-relative"),
+    ({"kind": "source", "repair": 'repair_paths = ["src\\\\a.txt"]\n'}, "repository-relative"),
+    ({"kind": "source", "repair": 'repair_paths = "a.txt"\n'}, "repository-relative"),
 ])
 def test_an_invalid_manifest_fails_closed(tmp_path, change, message):
     fields = {"commit": "a" * 40, **change}
     with pytest.raises(corpus.CorpusError, match=message):
         corpus.load_manifest(_manifest(tmp_path, **fields))
+
+
+def test_a_source_fault_with_repair_paths_loads(tmp_path):
+    entry = corpus.load_manifest(_manifest(tmp_path, commit="a" * 40, kind="source",
+                                           repair='repair_paths = ["a.txt", "src/b.cpp"]\n'))
+    assert entry["tiny"].fault("seed").repair_paths == ("a.txt", "src/b.cpp")
 
 
 def test_a_missing_patch_file_fails_closed(tmp_path):
@@ -172,6 +189,33 @@ def test_disposable_copies_carry_overlay_and_fault_and_never_touch_the_cache(tmp
     assert _git(copy, "remote") == ""
     assert _git(cached, "status", "--porcelain=v1", "--ignored") == before
     assert _git(cached, "rev-parse", "HEAD") == head
+
+
+def test_a_disposable_copy_has_no_history_that_reveals_the_seeded_fault(tmp_path):
+    upstream, commit = _upstream(tmp_path)
+    (upstream / "b.txt").write_bytes(b"later\n")
+    _git(upstream, "add", "-A")
+    _git(upstream, "commit", "-qm", "a later upstream commit")
+    _git(upstream, "tag", "v1")
+    entry = corpus.load_manifest(_manifest(tmp_path, commit=commit))["tiny"]
+    cached = corpus.cache_path(entry, tmp_path / "cache")
+    cached.parent.mkdir()
+    shutil.copytree(upstream, cached)
+
+    copy = corpus.disposable_copy(entry, cached, tmp_path / "copy", fault=entry.faults[0])
+
+    # One root commit holding the faulty tree: no parent, branch, tag or object to diff.
+    assert _git(copy, "rev-list", "--all", "--count").strip() == "1"
+    assert _git(copy, "for-each-ref", "--format=%(refname)").split() == [
+        "refs/heads/qualification"]
+    assert _git(copy, "tag") == ""
+    assert "seed" not in _git(copy, "log", "--format=%B")
+    assert not (copy / "b.txt").exists(), "the copy is not the pinned commit"
+    objects = _git(copy, "count-objects", "-v")
+    assert (copy / "a.txt").read_bytes() == b"new\n" and "count: " in objects
+    old_blob = _git(upstream, "rev-parse", f"{commit}:a.txt").strip()
+    missing = subprocess.run(["git", "cat-file", "-e", old_blob], cwd=copy, check=False)
+    assert missing.returncode != 0, "the unfaulted upstream content is reachable in the copy"
 
 
 def test_without_a_cached_copy_every_corpus_journey_is_unknown_and_nothing_is_fetched(
@@ -236,3 +280,85 @@ def test_a_crlf_checkout_of_the_cache_does_not_break_fault_application(tmp_path)
     corpus.check_faults(entry, cached)
     copy = corpus.disposable_copy(entry, cached, tmp_path / "copy", fault=entry.faults[0])
     assert (copy / "a.txt").read_bytes() == b"new\n"
+
+
+# Q09 scores a model repair. Its rules are tested here without a model: the stub
+# session answers turns with fixed task results and applies a chosen file change.
+def _q09(tmp_path, monkeypatch, *, fix_outcome="pass", edit=("lib.hpp",), suite_ok=True,
+         repair=("lib.hpp",)):
+    from types import SimpleNamespace
+
+    from local_agent.session.contracts import TaskOutcome, TaskResult
+
+    repo, _ = _upstream(tmp_path)
+    (repo / "lib.hpp").write_text("int f();\n", encoding="utf-8")
+    (repo / "t.cpp").write_text("CHECK(f());\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "fault")
+    fault = corpus.Fault("seed", tmp_path / "unused.patch", "source", ("options",), repair)
+    journey = journeys.Journey("Q09-fix-source-model", "repair", "model")
+
+    def turn(text):
+        if text == "run the tests":
+            return "", TaskResult("t1", TaskOutcome.FAIL, "", reason_code="verification_failed")
+        if text == "fix it":
+            outcome = TaskOutcome(fix_outcome)
+            return "", TaskResult("c1", outcome, "", verified_at_completion=outcome is TaskOutcome.PASS,
+                                  reason_code="verification_passed" if fix_outcome == "pass"
+                                  else "verification_failed")
+        assert text == "/apply c1"
+        for name in edit:
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (repo / name).write_text("changed\n", encoding="utf-8")
+        return "", TaskResult("a1", TaskOutcome.PASS, "", verified_at_completion=True)
+
+    session = SimpleNamespace(repo=repo, journey=journey, turn=turn,
+                              runner=SimpleNamespace(corpus=SimpleNamespace(
+                                  fault_of_kind=lambda kind: fault)))
+    monkeypatch.setattr(journeys, "independent_profile_suite", lambda path: (suite_ok, "log"))
+    journeys.q_model_source_fix(session)
+    return journey
+
+
+def test_q09_counts_a_library_repair_that_is_independently_green(tmp_path, monkeypatch):
+    journey = _q09(tmp_path, monkeypatch)
+    assert journey.status == "MEASURED:verified"
+    assert journey.measured["changed_paths"] == ["lib.hpp"]
+
+
+def test_q09_never_counts_a_test_edit_as_a_repair(tmp_path, monkeypatch):
+    journey = _q09(tmp_path, monkeypatch, edit=("lib.hpp", "t.cpp"))
+    assert journey.status == "MEASURED:rejected"
+    assert "t.cpp" in journey.reason
+
+
+def test_q09_needs_an_independent_green_run_after_apply(tmp_path, monkeypatch):
+    journey = _q09(tmp_path, monkeypatch, suite_ok=False)
+    assert journey.status == "MEASURED:failed"
+
+
+def test_q09_reports_a_failed_candidate_as_failed(tmp_path, monkeypatch):
+    journey = _q09(tmp_path, monkeypatch, fix_outcome="fail")
+    assert journey.status == "MEASURED:failed"
+
+
+def test_q09_rejects_an_untracked_file_added_outside_the_repair_paths(tmp_path, monkeypatch):
+    # The allowed file changes and an extra untracked test appears; even if the
+    # independent run were green, the repair is not confined.
+    journey = _q09(tmp_path, monkeypatch, edit=("lib.hpp", "test/extra_main.cpp"))
+    assert journey.status == "MEASURED:rejected"
+    assert "test/extra_main.cpp" in journey.reason
+
+
+def test_q09_rejects_an_ignored_file_written_outside_the_repair_paths(tmp_path, monkeypatch):
+    # The fixture upstream ignores dotfiles; a write there is still a write.
+    journey = _q09(tmp_path, monkeypatch, edit=("lib.hpp", ".hidden-config"))
+    assert journey.status == "MEASURED:rejected"
+    assert ".hidden-config" in journey.reason
+
+
+def test_q09_handles_repair_paths_with_spaces_exactly(tmp_path, monkeypatch):
+    journey = _q09(tmp_path, monkeypatch, edit=("src dir/lib file.hpp",),
+                   repair=("src dir/lib file.hpp",))
+    assert journey.status == "MEASURED:verified"
+    assert journey.measured["changed_paths"] == ["src dir/lib file.hpp"]

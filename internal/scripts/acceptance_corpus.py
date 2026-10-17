@@ -12,10 +12,12 @@ fails closed with :class:`CorpusError`.
 """
 from __future__ import annotations
 
+import io
 import os
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import tomllib
 from dataclasses import dataclass
@@ -27,7 +29,11 @@ CACHE_DIR_NAME = "qualification-cache"
 # Permissive licences only: a corpus repository is copied and built on user machines.
 PERMISSIVE_LICENCES = frozenset({"MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0",
                                  "BSL-1.0", "Zlib", "ISC"})
-FAULT_KINDS = frozenset({"compile", "test"})
+# compile: the build fails at ``expect`` (path:line).
+# test:    test expectations were edited; ``expect`` names the failing CTest tests.
+# source:  a defect in library source makes the unchanged tests ``expect`` fail. A repair
+#          may change only ``repair_paths``; editing a test to get green is not a repair.
+FAULT_KINDS = frozenset({"compile", "test", "source"})
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 _GIT_TIMEOUT_S = 600
@@ -43,6 +49,7 @@ class Fault:
     patch: Path
     kind: str
     expect: tuple[str, ...]
+    repair_paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -106,7 +113,21 @@ def _fault(base: Path, raw: object, where: str) -> Fault:
             or not all(isinstance(item, str) and item for item in expect)):
         raise CorpusError(f"{where}: fault {fault_id!r} needs a non-empty expect list")
     patch = _relative_file(base, _text(raw, "patch", where), f"{where}: fault {fault_id!r}")
-    return Fault(fault_id, patch, kind, tuple(expect))
+    repair = raw.get("repair_paths", [])
+    if (not isinstance(repair, list)
+            or not all(isinstance(item, str) and _repo_relative(item) for item in repair)):
+        raise CorpusError(f"{where}: fault {fault_id!r} repair_paths must be repository-relative "
+                          "POSIX paths")
+    if (kind == "source") != bool(repair):
+        raise CorpusError(f"{where}: fault {fault_id!r}: repair_paths is required for, and "
+                          "only for, a source fault")
+    return Fault(fault_id, patch, kind, tuple(expect), tuple(repair))
+
+
+def _repo_relative(path: str) -> bool:
+    if not path or path.startswith("/") or "\\" in path or ":" in path:
+        return False
+    return all(part not in {"", ".", ".."} for part in path.split("/"))
 
 
 def load_manifest(path: Path = MANIFEST) -> dict[str, CorpusRepository]:
@@ -235,28 +256,51 @@ def check_faults(repo: CorpusRepository, cached: Path) -> None:
 
 def disposable_copy(repo: CorpusRepository, cached: Path, dest: Path, *,
                     fault: Fault | None = None) -> Path:
-    """A private clone of the cache with our overlay and an optional fault, committed.
+    """A fresh repository holding the pinned tree, our overlay and an optional fault.
 
-    The overlay and the fault are one baseline commit, so the copy starts clean and
-    the cache itself is never touched.
+    The copy is one root commit with no upstream history, refs or objects, so nothing
+    in it shows what was seeded: there is no earlier commit to diff against. The cache
+    itself is never touched.
     """
     if dest.exists():
         shutil.rmtree(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    _git(dest.parent, "clone", "--quiet", "--local", "--no-hardlinks", str(cached), str(dest))
-    _git(dest, "checkout", "--quiet", "--detach", repo.commit)
-    _git(dest, "switch", "--quiet", "-c", "qualification")
-    _git(dest, "remote", "remove", "origin")
-    shutil.copyfile(repo.overlay, dest / ".local-agent.toml")
-    if fault is not None:
-        _git(dest, "apply", str(fault.patch))
+    dest.mkdir(parents=True)
+    _extract_tree(cached, repo.commit, dest)
+    _git(dest, "init", "--quiet", "--initial-branch=qualification")
     _git(dest, "config", "user.email", "qualification@example.invalid")
     _git(dest, "config", "user.name", "Qualification")
     _git(dest, "config", "core.autocrlf", "false")
+    shutil.copyfile(repo.overlay, dest / ".local-agent.toml")
+    if fault is not None:
+        _git(dest, "apply", str(fault.patch))
     _git(dest, "add", "-A")
     # Upstream .gitignore files may ignore dotfiles (cxxopts ignores ".*"); the overlay
     # must be part of the baseline so candidate worktrees carry the same policy.
     _git(dest, "add", "--force", "--", ".local-agent.toml")
-    label = f"qualification baseline: {repo.name}" + (f" with {fault.id}" if fault else "")
-    _git(dest, "commit", "--quiet", "--no-verify", "-m", label)
+    # The message never names the fault either.
+    _git(dest, "commit", "--quiet", "--no-verify", "-m", f"{repo.name} at {repo.commit[:12]}")
     return dest
+
+
+def _extract_tree(cached: Path, commit: str, dest: Path) -> None:
+    """Write exactly the committed files of ``commit`` (LF as committed) into ``dest``."""
+    git = shutil.which("git")
+    if git is None:
+        raise CorpusError("git is not on PATH")
+    done = subprocess.run(  # noqa: S603 - resolved git, fixed argv
+        [git, "-c", "core.autocrlf=false", "archive", "--format=tar", commit],
+        cwd=str(cached), capture_output=True, check=False, timeout=_GIT_TIMEOUT_S,
+    )
+    if done.returncode != 0:
+        raise CorpusError(f"git archive {commit} failed in {cached}: "
+                          f"{done.stderr.decode('utf-8', 'replace').strip()[:500]}")
+    with tarfile.open(fileobj=io.BytesIO(done.stdout)) as archive:
+        for member in archive.getmembers():
+            target = (dest / member.name).resolve()
+            if not target.is_relative_to(dest.resolve()) or not (member.isfile()
+                                                                 or member.isdir()):
+                raise CorpusError(f"pinned tree has an unsupported entry: {member.name!r}")
+        if hasattr(tarfile, "data_filter"):
+            archive.extractall(dest, filter="data")
+        else:  # Python before 3.11.4; every member was checked above
+            archive.extractall(dest)  # noqa: S202
