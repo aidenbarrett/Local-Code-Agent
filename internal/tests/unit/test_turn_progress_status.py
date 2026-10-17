@@ -112,7 +112,11 @@ def test_the_live_status_ticks_and_esc_stops_the_active_task(tmp_path):
                 assert stops == [(running.task_id, 3)]
                 assert app.view_state.status == f"Stop requested · task {running.task_id}"
                 release.set()
-                await _wait_until(lambda: not dispatcher.busy)
+                # Leave the app only after it has processed the turn's completion: a
+                # completion poll still pending at teardown would update widgets the
+                # closing screen no longer has.
+                await _wait_until(lambda: not dispatcher.busy and app._turn_future is None)
+                await pilot.pause()
         finally:
             release.set()
             dispatcher.close()
