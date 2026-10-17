@@ -107,7 +107,7 @@ class LiveDispatchingSessionHubApp(LiveSessionHubApp):
         super().on_mount()
         if self.runtime_summary:
             self.query_one("#title", Static).update(
-                "LOCAL CODE AGENT · SESSION HUB  ·  " + self.runtime_summary
+                "LOCAL CODE AGENT · SESSION HUB\n" + self.runtime_summary
             )
         self.set_interval(self.completion_poll_interval, self._poll_turn_completion)
 

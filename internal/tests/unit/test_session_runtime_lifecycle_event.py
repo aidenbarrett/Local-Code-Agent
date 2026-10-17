@@ -104,7 +104,7 @@ def test_an_opened_session_records_what_it_did_to_the_server(
     assert ensured["payload"] == {
         "profile": PROFILE, "runtime": hub.MODEL_PRESETS[PROFILE].runtime, **payload,
     }
-    assert f" · {summary} · " in str(observed["runtime_summary"])
+    assert f"\n{summary}\n" in str(observed["runtime_summary"])
 
 
 def test_a_reopened_conversation_gets_its_own_outcome_without_rewriting_the_first(
