@@ -190,13 +190,22 @@ def _conversation_blocks(
 
 
 _SPEAKER = {"user": "YOU", "assistant": "LCA", "system": "SYSTEM"}
+# The empty conversation invites a first request instead of showing nothing. These
+# are suggestions to type, not claims about what is available here; "what can you
+# do?" is answered from the policy actually in force.
+_EMPTY_CONVERSATION = (
+    "No conversation yet. Ask in plain words, for example:\n"
+    "  what can you do?\n"
+    "  explain this repository\n"
+    "  run the tests"
+)
 
 
 def render_conversation(
     entries: Sequence[ConversationEntry], tasks: Sequence[TaskSnapshot] = (),
 ) -> str:
     if not entries:
-        return "No conversation yet."
+        return _EMPTY_CONVERSATION
     return "\n\n".join(text if kind == "task" else f"{_SPEAKER[kind]}\n{text}"
                         for kind, text in _conversation_blocks(entries, tasks))
 
@@ -244,7 +253,7 @@ def render_conversation_text(
     exactly :func:`render_conversation`. Every string is appended literally."""
     text = Text()
     if not entries:
-        text.append("No conversation yet.", style=palette["muted"])
+        text.append(_EMPTY_CONVERSATION, style=palette["muted"])
         return text
     for index, (kind, block) in enumerate(_conversation_blocks(entries, tasks)):
         if index:
@@ -367,7 +376,9 @@ def render_activity(state: HubViewState) -> str:
     if state.route_summary:
         lines.append(f"Route: {state.route_summary}")
     if task is None:
-        lines.extend(("Task: none", "Skill: none", "Tool: none", "Verdict: none"))
+        lines.extend(("No task yet.",
+                      "Work you start appears here: what is running, the verdict and the "
+                      "proof behind it."))
         return "\n".join(lines)
 
     lines.append(f"Task: {task.task_id}")
