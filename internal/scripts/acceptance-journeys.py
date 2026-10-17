@@ -2222,7 +2222,8 @@ def q_walkthrough_scripted(s: Session) -> None:
     """Q10: the walkthrough's controller steps on the seeded library defect, with a
     scripted worker: tests fail, the recorded failure is explained, a candidate repair
     is reviewed, applied, re-tested on the checkout and committed exactly, and the
-    developer's staged, unstaged and untracked work survives every step."""
+    developer's staged, unstaged and untracked work is observed intact immediately after
+    every turn."""
     fault = _corpus_fault(s, "source")
     staged = s.repo / corpus.WALKTHROUGH_STAGED[0]
     staged.write_text(corpus.WALKTHROUGH_STAGED[1], encoding="utf-8")
@@ -2240,31 +2241,35 @@ def q_walkthrough_scripted(s: Session) -> None:
                 and _git(s.repo, "ls-files", "--stage", "--",
                          corpus.WALKTHROUGH_STAGED[0]) == index)
 
-    tested = _task(s.turn("run the tests")[1], "run the tests")
+    def step(said: str) -> tuple[str, TaskResult | None]:
+        """One walkthrough turn; the user's work is observed immediately after it."""
+        answer, result = s.turn(said)
+        expect(user_work_intact(), f"{said!r} touched the developer's staged, unstaged "
+                                   "or untracked work")
+        return answer, result
+
+    tested = _task(step("run the tests")[1], "run the tests")
     expect(tested.outcome is TaskOutcome.FAIL, f"the seeded defect gave {_outcome(tested)}")
-    explained, admitted = s.turn("why did that fail?")
+    explained, admitted = step("why did that fail?")
     expect(admitted is None, "explaining the recorded failure admitted a task")
     expect(all(name in explained for name in fault.expect),
            "the explanation does not name the failing tests")
-    fixed = _task(s.turn("fix it")[1], "fix it")
+    fixed = _task(step("fix it")[1], "fix it")
     expect(fixed.outcome is TaskOutcome.PASS and fixed.verified_at_completion,
            f"the scripted repair gave {_outcome(fixed)}")
-    review, reviewed = s.turn(f"/diff {fixed.task_id}")
+    review, reviewed = step(f"/diff {fixed.task_id}")
     expect(reviewed is not None and reviewed.outcome is TaskOutcome.PASS, "/diff failed")
     expect("+      digit = static_cast<US>(ch - 'a' + 10);" in review,
            "the review does not show the repair")
-    expect(user_work_intact(), "preparing or reviewing the candidate touched user work")
-    _, applied = s.turn(f"/apply {fixed.task_id}")
+    _, applied = step(f"/apply {fixed.task_id}")
     expect(applied is not None and applied.outcome is TaskOutcome.PASS, "/apply failed")
-    expect(user_work_intact(), "/apply touched user work")
-    retested = _task(s.turn("run the tests")[1], "run the tests again")
+    retested = _task(step("run the tests")[1], "run the tests again")
     expect(retested.outcome is TaskOutcome.PASS,
            f"tests on the applied checkout gave {_outcome(retested)}")
-    _, committed = s.turn(f"/commit {fixed.task_id}")
+    _, committed = step(f"/commit {fixed.task_id}")
     expect(committed is not None and committed.outcome is TaskOutcome.PASS, "/commit failed")
     files = _git(s.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split()
     expect(files == list(fault.repair_paths), f"the commit contains {files}")
-    expect(user_work_intact(), "/commit touched user work")
     s.journey.measured["unrelated_work_preserved"] = True
     s.journey.passed("walkthrough on a real library defect: tests FAIL, recorded explanation, "
                      "reviewed candidate, apply, tests PASS on the checkout, exact commit; "
