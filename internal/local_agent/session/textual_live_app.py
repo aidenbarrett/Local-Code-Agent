@@ -6,7 +6,7 @@ conversation provider owned by ``DurableHubFeed``.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from textual.widgets import Static
 
@@ -17,7 +17,7 @@ from .result_presentation import (
     render_result_summary,
 )
 from .textual_feed import DurableHubFeed, HubFeedError
-from .textual_hub import HubViewState, SessionHubApp, render_activity
+from .textual_hub import HubViewState, SessionHubApp, admitting_entry, render_activity
 
 
 @dataclass
@@ -45,13 +45,18 @@ class HubLiveBinding:
 
 
 def render_live_activity(state: HubViewState) -> str:
-    """Put concise durable result semantics above the existing detailed projection."""
-    detail = render_activity(state)
+    """Put concise durable result semantics above the compact controller detail."""
+    detail = render_activity(state, compact=True)
     task = next((item for item in reversed(state.tasks) if not item.terminal), None)
     if task is None and state.tasks:
         task = state.tasks[-1]
     if task is None:
         return detail
+    entry = admitting_entry(state.conversation, task)
+    if entry is not None:
+        # The admitting turn is the user's own words; the retained request artifact
+        # also carries the controller's routing provenance.
+        task = replace(task, requested_outcome=entry.text)
     return (
         f"{render_result_context(task)}\n"
         f"{render_result_summary(task)}\n"
