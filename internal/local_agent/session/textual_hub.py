@@ -530,8 +530,9 @@ class SessionHubApp(App):
         yield Static(self.view_state.status, id="status", markup=False)
 
     def on_mount(self) -> None:
-        self.call_after_refresh(
-            self.query_one("#conversation-pane", VerticalScroll).scroll_end, animate=False)
+        # Anchored: the pane stays at the newest reply as content grows, until the
+        # reader scrolls up; scrolling back to the bottom re-anchors it.
+        self.query_one("#conversation-pane", VerticalScroll).anchor()
         self._sync_task_actions()
         self._apply_layout(self.size.width)
         self._apply_watch_visibility()
@@ -563,17 +564,10 @@ class SessionHubApp(App):
             raise TypeError("Session Hub state must be HubViewState")
         self.view_state = state
         self._sync_task_actions()
-        pane = self.query_one("#conversation-pane", VerticalScroll)
-        following = pane.scroll_y >= pane.max_scroll_y
-        conversation = self.query_one("#conversation", Static)
         rendered = render_conversation(state.conversation, state.tasks)
         if rendered != self._conversation_text:
             self._conversation_text = rendered
-            conversation.update(rendered)
-            if following:
-                # New replies arrive at the bottom; keep them in view unless the
-                # user has scrolled up to read something earlier.
-                self.call_after_refresh(pane.scroll_end, animate=False)
+            self.query_one("#conversation", Static).update(rendered)
         self.query_one("#attention", Static).update(render_attention(state.tasks))
         self._apply_attention_visibility()
         self._refresh_activity()

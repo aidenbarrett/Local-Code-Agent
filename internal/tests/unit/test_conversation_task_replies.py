@@ -188,6 +188,14 @@ def _long_conversation(count: int) -> tuple[tuple[ConversationEntry, ...], tuple
     return entries, tasks
 
 
+async def _settled(pilot, predicate) -> bool:
+    for _ in range(100):
+        await pilot.pause(0.05)
+        if predicate():
+            return True
+    return False
+
+
 def test_a_new_reply_stays_in_view_while_following_and_never_steals_a_scrolled_reader():
     from local_agent.session.textual_hub import HubViewState, SessionHubApp
     from textual.containers import VerticalScroll
@@ -197,19 +205,19 @@ def test_a_new_reply_stays_in_view_while_following_and_never_steals_a_scrolled_r
         app = SessionHubApp(HubViewState(conversation=entries, tasks=tasks))
         async with app.run_test(size=(120, 30)) as pilot:
             pane = app.query_one("#conversation-pane", VerticalScroll)
-            await pilot.pause()
-            assert pane.max_scroll_y > 0 and pane.scroll_y == pane.max_scroll_y, \
-                "an opened conversation does not show its latest reply"
+            at_end = lambda: pane.max_scroll_y > 0 and pane.scroll_y == pane.max_scroll_y  # noqa: E731
+            assert await _settled(pilot, at_end), "an opened conversation does not show its latest reply"
             more, more_tasks = _long_conversation(14)
+            grown = pane.max_scroll_y
             app.replace_state(HubViewState(conversation=more, tasks=more_tasks))
-            await pilot.pause()
-            await pilot.pause()
-            assert pane.scroll_y == pane.max_scroll_y, "the newest reply is below the fold"
-            pane.scroll_to(y=0, animate=False)
-            await pilot.pause()
+            assert await _settled(pilot, lambda: pane.max_scroll_y > grown and at_end()), \
+                "the newest reply is below the fold"
+            pane.scroll_home(animate=False)
+            assert await _settled(pilot, lambda: pane.scroll_y == 0)
             most, most_tasks = _long_conversation(16)
+            grown = pane.max_scroll_y
             app.replace_state(HubViewState(conversation=most, tasks=most_tasks))
-            await pilot.pause()
-            await pilot.pause()
+            assert await _settled(pilot, lambda: pane.max_scroll_y > grown)
+            await pilot.pause(0.2)
             assert pane.scroll_y == 0, "a reader who scrolled up was pulled to the bottom"
     asyncio.run(scenario())
