@@ -13,7 +13,7 @@ param(
     # switch, which prints help.
     [ArgumentCompleter({
         param($commandName, $parameterName, $wordToComplete)
-        @('session', 'chat', 'help', 'doctor', 'init', 'capabilities', 'run-task', 'acceptance', 'qualify', 'benchmark', 'models', 'verification-demo', 'advanced') |
+        @('session', 'chat', 'help', 'doctor', 'init', 'capabilities', 'run-task', 'acceptance', 'qualify', 'benchmark', 'models', 'verification-demo', 'walkthrough', 'advanced') |
             Where-Object { $_ -like "$wordToComplete*" } |
             ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
     })]
@@ -228,6 +228,17 @@ switch ($Command.ToLowerInvariant()) {
     }
     'verification-demo' {
         & $python (Join-Path $internal 'scripts\demo-trust-boundary.py') @Rest
+        exit $LASTEXITCODE
+    }
+    'walkthrough' {
+        # Prepare a disposable copy of a pinned real repository with one seeded library
+        # defect and the developer's own uncommitted work, then open the Hub on it.
+        $prepared = @(& $python (Join-Path $internal 'scripts\demo-walkthrough.py') @Rest)
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $prepared | Select-Object -SkipLast 1 | ForEach-Object { Write-Host $_ }
+        $walkthroughRepo = $prepared[-1]
+        Set-ManagedOvmsEnvironment
+        & $python (Join-Path $internal 'scripts\session-hub.py') --repo $walkthroughRepo --allow-execution
         exit $LASTEXITCODE
     }
     'advanced' {
