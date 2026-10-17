@@ -161,8 +161,13 @@ def render_task_reply(task: TaskSnapshot) -> str:
     if not task.terminal:
         step = task.last_tool.tool_name if task.last_tool is not None else task.state
         return f"LCA · working · {step}"
-    verdict = (task.verdict or "NO_VERDICT").replace("_", " ")
-    reason = f" · {task.verdict_reason.replace('_', ' ')}" if task.verdict_reason else ""
+    if task.verdict == "NOT_REQUIRED":
+        # The projection of TaskOutcome.ANSWERED: a grounded read-only answer that
+        # needs no verification. Say what it is, not which proof it did not need.
+        verdict, reason = "ANSWERED", " · read-only"
+    else:
+        verdict = (task.verdict or "NO_VERDICT").replace("_", " ")
+        reason = f" · {task.verdict_reason.replace('_', ' ')}" if task.verdict_reason else ""
     body = task.result_answer if task.result_answer else "(recorded result text unavailable)"
     return f"LCA · {verdict}{reason}\n{body}"
 
@@ -197,7 +202,7 @@ def render_conversation(
 
 
 _VERDICT_ROLE = {"VERIFIED": "verified", "FAILED": "fail", "NO VERDICT": "warn",
-                 "working": "secondary"}
+                 "ANSWERED": "secondary", "working": "secondary"}
 # A line that can continue a unified diff once one has started.
 _DIFF_CONTINUATION = ("diff --git ", "index ", "--- ", "+++ ", "@@", "+", "-", " ")
 
