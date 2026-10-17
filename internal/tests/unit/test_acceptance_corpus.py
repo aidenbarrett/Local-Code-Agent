@@ -284,7 +284,8 @@ def test_a_crlf_checkout_of_the_cache_does_not_break_fault_application(tmp_path)
 
 # Q09 scores a model repair. Its rules are tested here without a model: the stub
 # session answers turns with fixed task results and applies a chosen file change.
-def _q09(tmp_path, monkeypatch, *, fix_outcome="pass", edit=("lib.hpp",), suite_ok=True):
+def _q09(tmp_path, monkeypatch, *, fix_outcome="pass", edit=("lib.hpp",), suite_ok=True,
+         repair=("lib.hpp",)):
     from types import SimpleNamespace
 
     from local_agent.session.contracts import TaskOutcome, TaskResult
@@ -294,7 +295,7 @@ def _q09(tmp_path, monkeypatch, *, fix_outcome="pass", edit=("lib.hpp",), suite_
     (repo / "t.cpp").write_text("CHECK(f());\n", encoding="utf-8")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "fault")
-    fault = corpus.Fault("seed", tmp_path / "unused.patch", "source", ("options",), ("lib.hpp",))
+    fault = corpus.Fault("seed", tmp_path / "unused.patch", "source", ("options",), repair)
     journey = journeys.Journey("Q09-fix-source-model", "repair", "model")
 
     def turn(text):
@@ -307,6 +308,7 @@ def _q09(tmp_path, monkeypatch, *, fix_outcome="pass", edit=("lib.hpp",), suite_
                                   else "verification_failed")
         assert text == "/apply c1"
         for name in edit:
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
             (repo / name).write_text("changed\n", encoding="utf-8")
         return "", TaskResult("a1", TaskOutcome.PASS, "", verified_at_completion=True)
 
@@ -338,3 +340,25 @@ def test_q09_needs_an_independent_green_run_after_apply(tmp_path, monkeypatch):
 def test_q09_reports_a_failed_candidate_as_failed(tmp_path, monkeypatch):
     journey = _q09(tmp_path, monkeypatch, fix_outcome="fail")
     assert journey.status == "MEASURED:failed"
+
+
+def test_q09_rejects_an_untracked_file_added_outside_the_repair_paths(tmp_path, monkeypatch):
+    # The allowed file changes and an extra untracked test appears; even if the
+    # independent run were green, the repair is not confined.
+    journey = _q09(tmp_path, monkeypatch, edit=("lib.hpp", "test/extra_main.cpp"))
+    assert journey.status == "MEASURED:rejected"
+    assert "test/extra_main.cpp" in journey.reason
+
+
+def test_q09_rejects_an_ignored_file_written_outside_the_repair_paths(tmp_path, monkeypatch):
+    # The fixture upstream ignores dotfiles; a write there is still a write.
+    journey = _q09(tmp_path, monkeypatch, edit=("lib.hpp", ".hidden-config"))
+    assert journey.status == "MEASURED:rejected"
+    assert ".hidden-config" in journey.reason
+
+
+def test_q09_handles_repair_paths_with_spaces_exactly(tmp_path, monkeypatch):
+    journey = _q09(tmp_path, monkeypatch, edit=("src dir/lib file.hpp",),
+                   repair=("src dir/lib file.hpp",))
+    assert journey.status == "MEASURED:verified"
+    assert journey.measured["changed_paths"] == ["src dir/lib file.hpp"]

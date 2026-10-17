@@ -2131,6 +2131,32 @@ def q_model_fix(s: Session) -> None:
                               f"{fixed.outcome.value}/{fixed.reason_code}")
 
 
+def worktree_snapshot(repo: Path) -> dict[str, str]:
+    """SHA-256 of every file in the working tree outside .git, by POSIX relative path.
+
+    Tracked, untracked and ignored files alike: a confinement claim has to see
+    everything an apply could have written, and paths come from the filesystem, never
+    from splitting Git output.
+    """
+    snapshot: dict[str, str] = {}
+    for directory, dirs, files in os.walk(repo):
+        dirs[:] = [name for name in dirs if not (Path(directory) == repo and name == ".git")]
+        linked = [name for name in dirs if (Path(directory) / name).is_symlink()]
+        dirs[:] = [name for name in dirs if name not in linked]
+        for name in [*files, *linked]:
+            path = Path(directory) / name
+            relative = path.relative_to(repo).as_posix()
+            snapshot[relative] = ("symlink:" + os.readlink(path) if path.is_symlink()
+                                  else hashlib.sha256(path.read_bytes()).hexdigest())
+    return snapshot
+
+
+def worktree_delta(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """Paths added, removed or changed between two snapshots, sorted."""
+    return sorted(path for path in before.keys() | after.keys()
+                  if before.get(path) != after.get(path))
+
+
 def q_model_source_fix(s: Session) -> None:
     """Q09 (model): repair a library defect that the unchanged tests reveal.
 
@@ -2151,11 +2177,12 @@ def q_model_source_fix(s: Session) -> None:
                               f"{fixed.outcome.value}/{fixed.reason_code}")
         return
     expect(fixed.verified_at_completion, "a PASS fix without verification")
+    before = worktree_snapshot(s.repo)
     _, applied = s.turn(f"/apply {fixed.task_id}")
     if applied is None or applied.outcome is not TaskOutcome.PASS:
         s.journey.measured_as("unknown", f"/apply gave {_outcome(applied)}")
         return
-    changed = sorted(set(_git(s.repo, "diff", "--name-only", "HEAD").split()))
+    changed = worktree_delta(before, worktree_snapshot(s.repo))
     s.journey.measured["changed_paths"] = changed
     outside = [path for path in changed if path not in fault.repair_paths]
     if outside:
