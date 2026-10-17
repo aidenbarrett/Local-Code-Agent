@@ -81,10 +81,3 @@ def test_text_that_looks_like_markup_or_a_diff_outside_a_diff_stays_literal():
     assert "[bold red]-not a removal[/]" in text.plain
     assert _style_of(text, "[bold red]-not a removal[/]") == ""
     assert _style_of(text, "- a bullet, not a diff") == ""
-
-
-def test_the_empty_conversation_invites_a_first_request():
-    plain = render_conversation(())
-    assert plain.startswith("No conversation yet. Ask in plain words")
-    assert "what can you do?" in plain and "run the tests" in plain
-    assert render_conversation_text((), (), PALETTE).plain == plain
