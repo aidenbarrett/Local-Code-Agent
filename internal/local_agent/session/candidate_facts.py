@@ -13,6 +13,11 @@ from typing import Any, Mapping
 from uuid import UUID
 
 ROLES = frozenset({"prepared", "applied", "apply_refused", "undone", "committed", "discarded"})
+EFFECT_ROLES = {
+    "apply-candidate": "applied",
+    "undo-candidate": "undone",
+    "commit-candidate": "committed",
+}
 _KEYS = frozenset({
     "role", "candidate_task_id", "retained", "paths", "patch_sha256", "base_commit", "commit",
 })
@@ -139,6 +144,38 @@ def project_candidate(task_id: str, succeeded: bool, metrics: Mapping[str, Any])
     return None
 
 
+def require_effect_owner(
+    action: str,
+    task_id: str,
+    *,
+    succeeded: bool,
+    metrics: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Return an effect's owning candidate facts; refuse ownerless success.
+
+    Non-effect actions and unsuccessful effects keep their existing result semantics.
+    A successful checkout effect must project the role owned by that action's typed
+    receipt.  This is the trust boundary that prevents a bare PASS from becoming a
+    durable VERIFIED apply, undo or commit.
+    """
+    expected = EFFECT_ROLES.get(action)
+    if expected is None:
+        return None
+    if not succeeded:
+        return None
+    candidate = project_candidate(task_id, succeeded, metrics)
+    if (
+        candidate is None
+        or candidate.get("role") != expected
+        or not candidate.get("paths")
+        or (expected == "applied" and candidate.get("patch_sha256") is None)
+    ):
+        raise ValueError(
+            f"successful {action} result has no authoritative {expected} receipt"
+        )
+    return candidate
+
+
 RESULT_SCHEMA_V1 = "lca.task-result/1"
 RESULT_SCHEMA = "lca.task-result/2"
 RESULT_FIELDS_V1 = frozenset({
@@ -158,6 +195,7 @@ def result_fields_for(schema: object) -> frozenset[str]:
 
 
 __all__ = [
-    "CandidateFacts", "RESULT_FIELDS", "RESULT_SCHEMA", "RESULT_SCHEMA_V1", "ROLES",
-    "project_candidate", "result_fields_for", "validate_candidate",
+    "CandidateFacts", "EFFECT_ROLES", "RESULT_FIELDS", "RESULT_SCHEMA", "RESULT_SCHEMA_V1",
+    "ROLES", "project_candidate", "require_effect_owner", "result_fields_for",
+    "validate_candidate",
 ]
