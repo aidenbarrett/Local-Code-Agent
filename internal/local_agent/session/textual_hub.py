@@ -167,22 +167,91 @@ def render_task_reply(task: TaskSnapshot) -> str:
     return f"LCA · {verdict}{reason}\n{body}"
 
 
+def _conversation_blocks(
+    entries: Sequence[ConversationEntry], tasks: Sequence[TaskSnapshot],
+) -> list[tuple[str, str]]:
+    """(kind, text) blocks in display order: ``user``, ``assistant``, ``system`` or ``task``."""
+    replies: dict[OriginTurn, list[TaskSnapshot]] = {}
+    for task in sorted(tasks, key=lambda item: item.admitted_sequence):
+        if task.origin_turn is not None:
+            replies.setdefault(task.origin_turn, []).append(task)
+    blocks: list[tuple[str, str]] = []
+    for entry in entries:
+        blocks.append((entry.role, entry.text))
+        if entry.turn is not None:
+            blocks.extend(("task", render_task_reply(task))
+                          for task in replies.get(entry.turn, ()))
+    return blocks
+
+
+_SPEAKER = {"user": "YOU", "assistant": "LCA", "system": "SYSTEM"}
+
+
 def render_conversation(
     entries: Sequence[ConversationEntry], tasks: Sequence[TaskSnapshot] = (),
 ) -> str:
     if not entries:
         return "No conversation yet."
-    labels = {"user": "YOU", "assistant": "LCA", "system": "SYSTEM"}
-    replies: dict[OriginTurn, list[TaskSnapshot]] = {}
-    for task in sorted(tasks, key=lambda item: item.admitted_sequence):
-        if task.origin_turn is not None:
-            replies.setdefault(task.origin_turn, []).append(task)
-    blocks: list[str] = []
-    for entry in entries:
-        blocks.append(f"{labels[entry.role]}\n{entry.text}")
-        if entry.turn is not None:
-            blocks.extend(render_task_reply(task) for task in replies.get(entry.turn, ()))
-    return "\n\n".join(blocks)
+    return "\n\n".join(text if kind == "task" else f"{_SPEAKER[kind]}\n{text}"
+                        for kind, text in _conversation_blocks(entries, tasks))
+
+
+_VERDICT_ROLE = {"VERIFIED": "verified", "FAILED": "fail", "NO VERDICT": "warn",
+                 "working": "secondary"}
+# A line that can continue a unified diff once one has started.
+_DIFF_CONTINUATION = ("diff --git ", "index ", "--- ", "+++ ", "@@", "+", "-", " ")
+
+
+def _style_task_reply(text: Text, reply: str, palette: Mapping[str, str]) -> None:
+    header, _, body = reply.partition("\n")
+    speaker, _, rest = header.partition(" · ")
+    verdict, sep, detail = rest.partition(" · ")
+    text.append(speaker, style=f"bold {palette['secondary']}")
+    text.append(" · ")
+    role = _VERDICT_ROLE.get(verdict)
+    text.append(verdict, style=f"bold {palette[role]}" if role else "")
+    if sep:
+        text.append(" · ")
+        text.append(detail, style=palette["muted"])
+    if not body:
+        return
+    in_diff = False
+    for line in body.split("\n"):
+        text.append("\n")
+        in_diff = (line.startswith("diff --git ")
+                   or (in_diff and line.startswith(_DIFF_CONTINUATION)))
+        style = ""
+        if in_diff:
+            if line.startswith(("+++ ", "--- ", "diff --git ", "index ", "@@")):
+                style = palette["muted"]
+            elif line.startswith("+"):
+                style = palette["verified"]
+            elif line.startswith("-"):
+                style = palette["fail"]
+        text.append(line, style=style)
+
+
+def render_conversation_text(
+    entries: Sequence[ConversationEntry], tasks: Sequence[TaskSnapshot],
+    palette: Mapping[str, str],
+) -> Text:
+    """The conversation with speaker, verdict and diff colours; its plain text is
+    exactly :func:`render_conversation`. Every string is appended literally."""
+    text = Text()
+    if not entries:
+        text.append("No conversation yet.", style=palette["muted"])
+        return text
+    for index, (kind, block) in enumerate(_conversation_blocks(entries, tasks)):
+        if index:
+            text.append("\n\n")
+        if kind == "task":
+            _style_task_reply(text, block, palette)
+            continue
+        role = "accent" if kind == "user" else "secondary"
+        text.append(_SPEAKER[kind], style=f"bold {palette[role]}")
+        text.append("\n")
+        text.append(block)
+    return text
 
 
 def _active_task(tasks: Sequence[TaskSnapshot]) -> TaskSnapshot | None:
@@ -490,9 +559,10 @@ class SessionHubApp(App):
     def __init__(self, state: HubViewState | None = None, *, palette_name: str = "neon") -> None:
         self.view_state = state or HubViewState()
         self._task_choices: list[tuple[Text, str]] = []
-        self._conversation_text = render_conversation(self.view_state.conversation,
-                                                      self.view_state.tasks)
         palette = load_palette(palette_name)
+        self._palette = palette
+        self._conversation_text = render_conversation_text(
+            self.view_state.conversation, self.view_state.tasks, palette)
         # Textual reads CSS from the instance as well as the class; keep one source
         # of named colour roles while allowing the high-contrast fixture path.
         self.CSS = _css(palette)
@@ -564,7 +634,7 @@ class SessionHubApp(App):
             raise TypeError("Session Hub state must be HubViewState")
         self.view_state = state
         self._sync_task_actions()
-        rendered = render_conversation(state.conversation, state.tasks)
+        rendered = render_conversation_text(state.conversation, state.tasks, self._palette)
         if rendered != self._conversation_text:
             self._conversation_text = rendered
             self.query_one("#conversation", Static).update(rendered)
@@ -695,6 +765,7 @@ __all__ = [
     "load_palette",
     "render_activity",
     "render_conversation",
+    "render_conversation_text",
     "render_task_reply",
     "render_watches",
 ]
