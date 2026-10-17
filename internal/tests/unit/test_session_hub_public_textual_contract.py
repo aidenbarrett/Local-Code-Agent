@@ -70,7 +70,7 @@ def test_public_session_launches_textual_with_real_durable_object_graph(tmp_path
     assert observed["facts_preset"] == "ptl-npu-8b"
     assert observed["facts_execution"] is False
     assert observed["runtime_summary"] == (
-        f"{facts.header()} · server reused · "
+        f"{facts.header()}\nserver reused\n"
         f"{hub._repository_summary(REPO, execution_enabled=False)}"
     )
     assert callable(observed["stop_task"])

@@ -390,7 +390,8 @@ def main(argv: list[str] | None = None) -> int:
                         task_id,
                         execution_epoch=execution_epoch,
                     ),
-                    runtime_summary=" · ".join((
+                    # One fact group per line: runtime, server lifecycle, repository.
+                    runtime_summary="\n".join((
                         runtime_facts.header(),
                         *(() if ensured is None else (_runtime_lifecycle_summary(ensured),)),
                         _repository_summary(root, execution_enabled=args.allow_execution),
