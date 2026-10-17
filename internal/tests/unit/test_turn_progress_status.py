@@ -97,6 +97,9 @@ def test_the_live_status_ticks_and_esc_stops_the_active_task(tmp_path):
         app._clock = lambda: clock[0]
         try:
             async with app.run_test(size=(100, 30)) as pilot:
+                # A slow runner can hand control back before the Hub has composed its
+                # widgets; submit only once the screen the turn will update exists.
+                await _wait_until(lambda: bool(app.query("#task-select")))
                 app.post_message(HubInputSubmitted("fix it"))
                 await _wait_until(lambda: app.view_state.status.startswith("Working 0:00"))
                 running = _task(open_tools={"c1": ToolActivity("c1", "build_target")})
@@ -132,6 +135,7 @@ def test_esc_with_no_active_task_does_nothing(tmp_path):
                                            stop_task=lambda *a: stops.append(a))
         try:
             async with app.run_test(size=(100, 30)) as pilot:
+                await _wait_until(lambda: bool(app.query("#task-select")))
                 before = app.view_state.status
                 await pilot.press("escape")
                 await pilot.pause()
