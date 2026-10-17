@@ -369,12 +369,13 @@ def test_unverified_prepared_candidate_is_not_reported_as_saved(tmp_path):
 
 
 class _PolicyController:
-    def __init__(self, *, execution: bool, patch: bool, commit: bool, workspaces: bool = True):
+    def __init__(self, *, execution: bool = True, patch: bool = True, commit: bool = True,
+                 build: bool = True, test: bool = True, workspaces: bool = True):
         from types import SimpleNamespace
         self.allow_execution = execution
         self.workspaces = object() if workspaces else None
         self.declared_repo = SimpleNamespace(policy=SimpleNamespace(
-            allow_build=True, allow_test=True, allow_patch=patch, allow_commit=commit))
+            allow_build=build, allow_test=test, allow_patch=patch, allow_commit=commit))
 
 
 def _help(controller) -> str:
@@ -383,23 +384,38 @@ def _help(controller) -> str:
     return gateway.turn("what can you do?")
 
 
-def test_help_offers_candidates_commit_and_stop_when_policy_enables_them():
-    answer = _help(_PolicyController(execution=True, patch=True, commit=True))
+def test_help_offers_candidates_commit_and_stop_when_everything_is_enabled():
+    answer = _help(_PolicyController())
     assert "Build it / run the tests" in answer
-    assert "isolated candidate" in answer and "Review and Apply" in answer
+    assert "Fix a build or test failure, or make a change, in an isolated candidate" in answer
     assert "Commit an applied candidate" in answer
     assert "Stop the running task" in answer
     assert "not available" not in answer
 
 
-def test_help_never_offers_what_policy_or_wiring_does_not_allow():
-    no_patch = _help(_PolicyController(execution=True, patch=False, commit=True))
-    assert "Source changes are not enabled" in no_patch
-    assert "isolated candidate" not in no_patch and "Commit an applied" not in no_patch
-    no_workspace = _help(_PolicyController(execution=True, patch=True, commit=True,
-                                           workspaces=False))
-    assert "isolated candidate" not in no_workspace
-    no_commit = _help(_PolicyController(execution=True, patch=True, commit=False))
-    assert "isolated candidate" in no_commit and "Commit an applied" not in no_commit
+def test_help_offers_candidates_only_where_the_candidate_preflight_admits_them():
+    # Each case is a reason the controller's candidate_blockers would refuse a fix.
+    for controller, reason in (
+        (_PolicyController(patch=False), "allow_patch = false"),
+        (_PolicyController(execution=False), "execution is not enabled"),
+        (_PolicyController(build=False), "allow_build = false"),
+        (_PolicyController(workspaces=False), "candidate workspaces are not configured"),
+    ):
+        answer = _help(controller)
+        assert "isolated candidate" not in answer, reason
+        assert "Commit an applied candidate" not in answer, reason
+        assert "Source changes are not available here" in answer and reason in answer
+
+
+def test_with_tests_switched_off_only_build_fixes_are_offered():
+    answer = _help(_PolicyController(test=False))
+    assert "Fix a build failure in an isolated candidate" in answer
+    assert "make a change" not in answer
+    assert "Build it with the repository's configured commands" in answer
+
+
+def test_commit_is_offered_separately_from_candidates():
+    assert "Commit an applied candidate" not in _help(_PolicyController(commit=False))
+    assert "isolated candidate" in _help(_PolicyController(commit=False))
     no_execution = _help(_PolicyController(execution=False, patch=False, commit=False))
     assert "execution is disabled" in no_execution and "Build it" not in no_execution

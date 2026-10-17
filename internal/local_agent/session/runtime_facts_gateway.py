@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..llm.protocol import LLMTransportError
+from .candidate_change import candidate_blockers
 from .contracts import MAX_MESSAGE_CHARS, Proposal
 from .conversation_gateway import ConversationGateway, quarantined_endpoint_answer
 from .endpoint_client import ModelEndpointQuarantinedError
@@ -169,14 +170,13 @@ class RuntimeFactsGateway(ConversationGateway):
 
     def _help_answer(self) -> str:
         """What this session can do, derived from the controller and repository policy
-        actually in force, never from a fixed description."""
+        actually in force, never from a fixed description. Candidate work is offered
+        only where the controller's own preflight (candidate_blockers) would admit it."""
         controller = self.controller
         declared = getattr(controller, "declared_repo", None)
         policy = getattr(declared, "policy", None)
         execution = bool(getattr(controller, "allow_execution", False))
-        candidates = (getattr(controller, "workspaces", None) is not None
-                      and bool(getattr(policy, "allow_patch", False)))
-        commit = candidates and bool(getattr(policy, "allow_commit", False))
+        manager = getattr(controller, "workspaces", None) is not None
         name = (self.repository_facts.name if self.repository_facts is not None
                 else "the configured repository")
         lines = [
@@ -197,14 +197,28 @@ class RuntimeFactsGateway(ConversationGateway):
             lines.append("- Configured build/test execution is disabled for this session.")
         lines.append("- Explain why a recorded build or test failed, from its evidence, "
                      "without running anything again.")
-        if candidates:
-            lines.append("- Fix a failure or make a change in an isolated candidate with its "
-                         "own build/test proof. Your checkout is untouched until you Review "
-                         "and Apply it, and Undo restores exactly what was there.")
+        build_fix = not candidate_blockers(declared, allow_execution=execution,
+                                           skill="fix-build-failure") if declared else False
+        full_fix = not candidate_blockers(declared, allow_execution=execution,
+                                          skill="fix-test-failure") if declared else False
+        if manager and full_fix:
+            lines.append("- Fix a build or test failure, or make a change, in an isolated "
+                         "candidate with its own build and test proof. Your checkout is "
+                         "untouched until you Review and Apply it, and Undo restores exactly "
+                         "what was there.")
+        elif manager and build_fix:
+            lines.append("- Fix a build failure in an isolated candidate with its own build "
+                         "proof (tests are switched off, so test fixes and changes are not "
+                         "offered). Your checkout is untouched until you Review and Apply it.")
         else:
-            lines.append("- Source changes are not enabled for this repository "
-                         "(allow_patch is off).")
-        if commit:
+            reasons = ([] if manager else ["candidate workspaces are not configured"]) + [
+                blocker.explanation for blocker in (
+                    candidate_blockers(declared, allow_execution=execution,
+                                       skill="fix-build-failure") if declared else ())]
+            lines.append("- Source changes are not available here: "
+                         + ("; ".join(reasons) or "the repository declaration is missing")
+                         + ".")
+        if manager and build_fix and getattr(policy, "allow_commit", False):
             lines.append("- Commit an applied candidate: only its files, on the current "
                          "branch, without running hooks.")
         lines.append("- Stop the running task with Esc or \"stop\".")
