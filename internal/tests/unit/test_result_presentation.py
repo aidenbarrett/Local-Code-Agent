@@ -99,8 +99,8 @@ def test_live_activity_puts_human_result_above_raw_controller_detail():
 
 def test_live_activity_keeps_no_task_empty_state_without_fake_result():
     rendered = render_live_activity(HubViewState())
-    assert "Result:" not in rendered
-    assert "Task: none" in rendered
+    assert "Result:" not in rendered and "Verdict:" not in rendered
+    assert rendered.startswith("No task yet.")
 
 
 def test_result_evidence_names_durable_identity_scope_and_evidence_without_prose():
