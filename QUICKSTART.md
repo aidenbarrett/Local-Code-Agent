@@ -132,6 +132,19 @@ that session only. It does not change what the next session uses.
 
 Raw chat has no repository authority, tools or independent verification. The Session Hub is the product path for controlled engineering work.
 
+To run the same session against a model served elsewhere (any OpenAI-compatible
+endpoint), name it explicitly. LCA then starts, replaces and stops nothing; the
+header says so and reports the model the endpoint actually serves:
+
+```powershell
+& $lca session --repo . --allow-execution --base-url http://host:8000/v1 --model <model-id>
+```
+
+For an endpoint that needs a key, use the `cloud` preset with
+`LOCAL_AGENT_CLOUD_BASE_URL`, `LOCAL_AGENT_CLOUD_MODEL` and
+`LOCAL_AGENT_CLOUD_API_KEY` set in the environment. The key is sent only as a
+bearer token to that endpoint and is never shown.
+
 ## 4. Ask for work naturally
 
 Examples:

@@ -25,6 +25,7 @@ from local_agent.config import (  # noqa: E402
     DEFAULT_CONFIG_NAME,
     MODEL_PRESETS,
     ConfigError,
+    ModelConfig,
     find_repo_root,
     load_repo_config,
 )
@@ -43,7 +44,7 @@ from local_agent.session.endpoint_client import ManagedLLMClient, ManagedWorkerC
 from local_agent.session.endpoint_lease import EndpointArbiter, EndpointRole  # noqa: E402
 from local_agent.session.endpoint_runtime import EndpointRuntime  # noqa: E402
 from local_agent.session.event_buffer import EventBuffer  # noqa: E402
-from local_agent.session.runtime_facts import RuntimeFacts  # noqa: E402
+from local_agent.session.runtime_facts import RuntimeFacts, models_fetcher  # noqa: E402
 from local_agent.session.runtime_facts_gateway import RepositoryFacts, RuntimeFactsGateway  # noqa: E402
 from local_agent.session.session_event_service import DurableSessionService  # noqa: E402
 from local_agent.session.session_store import SQLiteSessionStore  # noqa: E402
@@ -55,7 +56,7 @@ from local_agent.session.textual_runtime import build_textual_session_runtime  #
 from serving.managed_runtime import (  # noqa: E402
     RuntimeEnsureResult, RuntimeLifecycle, ensure_managed_runtime,
 )
-from serving.model_choice import ModelChoiceError, resolve_preset  # noqa: E402
+from serving.model_choice import LOCAL_RUNTIMES, ModelChoiceError, resolve_preset  # noqa: E402
 from serving.model_store import default_runtime_root as _runtime_root  # noqa: E402
 from local_agent.public_commands import public_entrypoint  # noqa: E402
 
@@ -180,12 +181,39 @@ def _resolve_model_configs(args: argparse.Namespace):
     chat_config = MODEL_PRESETS[args.profile]
     if args.base_url:
         chat_config = replace(chat_config, base_url=args.base_url)
+    if args.model:
+        chat_config = replace(chat_config, model=args.model)
     worker_profile = args.worker_profile or args.profile
     worker_config = MODEL_PRESETS[worker_profile]
     worker_base_url = args.worker_base_url or args.base_url
     if worker_base_url:
         worker_config = replace(worker_config, base_url=worker_base_url)
+    # --model names what the conversation endpoint serves. The worker shares it only
+    # when it shares that endpoint; an explicitly split worker keeps its preset model
+    # unless --worker-model names what its own endpoint serves.
+    split = (worker_profile != args.profile
+             or worker_config.base_url != chat_config.base_url)
+    worker_model = args.worker_model or (None if split else args.model)
+    if worker_model:
+        worker_config = replace(worker_config, model=worker_model)
     return chat_config, worker_profile, worker_config
+
+
+def _owns_model_server(args: argparse.Namespace, chat_config: ModelConfig) -> bool:
+    """LCA starts, reuses or replaces a model server only for a local preset served at
+    that preset's own endpoint. An explicit --base-url, or a non-local preset such as
+    ``cloud``, names someone else's endpoint: LCA never starts, replaces or stops it.
+    An endpoint nobody configured is refused here, before any session state exists."""
+    owned = chat_config.runtime in LOCAL_RUNTIMES and not args.base_url
+    if not owned and not chat_config.base_url:
+        raise RuntimeError(
+            f"model endpoint not configured for preset {args.profile}. Next: pass "
+            "--base-url (and --model), or for the cloud preset set "
+            "LOCAL_AGENT_CLOUD_BASE_URL, LOCAL_AGENT_CLOUD_MODEL and LOCAL_AGENT_CLOUD_API_KEY")
+    return owned
+
+
+EXTERNAL_ENDPOINT_SUMMARY = "external endpoint · not started, replaced or stopped by LCA"
 
 
 def _endpoint_adapter(config, adapters: dict[str, EndpointCallAdapter]) -> EndpointCallAdapter:
@@ -307,6 +335,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--worker-profile", default=None, choices=sorted(MODEL_PRESETS))
     parser.add_argument("--base-url", help="override conversation and worker endpoint unless --worker-base-url is set")
     parser.add_argument("--worker-base-url", help="explicitly split the worker onto a different endpoint")
+    parser.add_argument("--model", help="model id the endpoint serves (default: the preset's); "
+                        "the worker shares it unless split onto another endpoint")
+    parser.add_argument("--worker-model", help="model id a split worker endpoint serves")
     parser.add_argument("--allow-execution", action="store_true", help="allow configured build/test execution")
     parser.add_argument("--conversation", metavar="ID", help="resume a persisted Session Hub conversation")
     parser.add_argument("--check", action="store_true", help="run deterministic self-check once and exit")
@@ -333,7 +364,8 @@ def main(argv: list[str] | None = None) -> int:
     runtime_root = _runtime_root()
 
     try:
-        ensured = (None if args.check
+        owns_server = _owns_model_server(args, chat_config)
+        ensured = (None if args.check or not owns_server
                    else ensure_managed_runtime(args.profile, chat_config, runtime_root))
         if ensured is not None and not ensured.ok:
             if args.conversation:
@@ -349,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
 
         runtime_facts = RuntimeFacts.observe(
             args.profile, chat_config, execution_enabled=args.allow_execution,
+            fetch=models_fetcher(chat_config.api_key),
         )
 
         if args.conversation:
@@ -393,7 +426,9 @@ def main(argv: list[str] | None = None) -> int:
                     # One fact group per line: runtime, server lifecycle, repository.
                     runtime_summary="\n".join((
                         runtime_facts.header(),
-                        *(() if ensured is None else (_runtime_lifecycle_summary(ensured),)),
+                        *((EXTERNAL_ENDPOINT_SUMMARY,) if not owns_server
+                          else () if ensured is None
+                          else (_runtime_lifecycle_summary(ensured),)),
                         _repository_summary(root, execution_enabled=args.allow_execution),
                     )),
                 ) as textual:
