@@ -62,7 +62,7 @@ def test_help_and_runtime_identity_are_deterministic_without_model_calls():
     runtime_answer = gateway.turn("what are you running on?")
 
     assert client.calls == 0
-    assert "read-only tools" in help_answer
+    assert "Read-only." in help_answer
     assert "Observed served model: served-qwen" in runtime_answer
     assert "Declared device: NPU" in runtime_answer
     assert "not hardware-utilisation proof" in runtime_answer
@@ -365,3 +365,41 @@ def test_unverified_prepared_candidate_is_not_reported_as_saved(tmp_path):
     assert client.calls == 0
     assert "not verified at completion" in answer
     assert "has not been applied" in answer
+
+
+
+class _PolicyController:
+    def __init__(self, *, execution: bool, patch: bool, commit: bool, workspaces: bool = True):
+        from types import SimpleNamespace
+        self.allow_execution = execution
+        self.workspaces = object() if workspaces else None
+        self.declared_repo = SimpleNamespace(policy=SimpleNamespace(
+            allow_build=True, allow_test=True, allow_patch=patch, allow_commit=commit))
+
+
+def _help(controller) -> str:
+    gateway = RuntimeFactsGateway(_NoModelClient(), controller, EventBuffer("help"),
+                                  runtime_facts=_facts())
+    return gateway.turn("what can you do?")
+
+
+def test_help_offers_candidates_commit_and_stop_when_policy_enables_them():
+    answer = _help(_PolicyController(execution=True, patch=True, commit=True))
+    assert "Build it / run the tests" in answer
+    assert "isolated candidate" in answer and "Review and Apply" in answer
+    assert "Commit an applied candidate" in answer
+    assert "Stop the running task" in answer
+    assert "not available" not in answer
+
+
+def test_help_never_offers_what_policy_or_wiring_does_not_allow():
+    no_patch = _help(_PolicyController(execution=True, patch=False, commit=True))
+    assert "Source changes are not enabled" in no_patch
+    assert "isolated candidate" not in no_patch and "Commit an applied" not in no_patch
+    no_workspace = _help(_PolicyController(execution=True, patch=True, commit=True,
+                                           workspaces=False))
+    assert "isolated candidate" not in no_workspace
+    no_commit = _help(_PolicyController(execution=True, patch=True, commit=False))
+    assert "isolated candidate" in no_commit and "Commit an applied" not in no_commit
+    no_execution = _help(_PolicyController(execution=False, patch=False, commit=False))
+    assert "execution is disabled" in no_execution and "Build it" not in no_execution

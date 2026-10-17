@@ -167,15 +167,55 @@ class RuntimeFactsGateway(ConversationGateway):
             )
         return self._candidate_location_answer(result)
 
+    def _help_answer(self) -> str:
+        """What this session can do, derived from the controller and repository policy
+        actually in force, never from a fixed description."""
+        controller = self.controller
+        declared = getattr(controller, "declared_repo", None)
+        policy = getattr(declared, "policy", None)
+        execution = bool(getattr(controller, "allow_execution", False))
+        candidates = (getattr(controller, "workspaces", None) is not None
+                      and bool(getattr(policy, "allow_patch", False)))
+        commit = candidates and bool(getattr(policy, "allow_commit", False))
+        name = (self.repository_facts.name if self.repository_facts is not None
+                else "the configured repository")
+        lines = [
+            f"In {name} I can:",
+            "- Answer questions about it: explain it, how it is built and tested, where "
+            "something is defined, what changed on your branch, what state Git is in. "
+            "Read-only.",
+        ]
+        if execution:
+            checks = [label for label, allowed in (
+                ("build it", getattr(policy, "allow_build", False)),
+                ("run the tests", getattr(policy, "allow_test", False))) if allowed]
+            if checks:
+                lines.append(f"- {' / '.join(checks).capitalize()} with the repository's "
+                             "configured commands, reporting PASS, FAIL or NO_VERDICT "
+                             "from what actually ran.")
+        else:
+            lines.append("- Configured build/test execution is disabled for this session.")
+        lines.append("- Explain why a recorded build or test failed, from its evidence, "
+                     "without running anything again.")
+        if candidates:
+            lines.append("- Fix a failure or make a change in an isolated candidate with its "
+                         "own build/test proof. Your checkout is untouched until you Review "
+                         "and Apply it, and Undo restores exactly what was there.")
+        else:
+            lines.append("- Source changes are not enabled for this repository "
+                         "(allow_patch is off).")
+        if commit:
+            lines.append("- Commit an applied candidate: only its files, on the current "
+                         "branch, without running hooks.")
+        lines.append("- Stop the running task with Esc or \"stop\".")
+        lines.append("I never push, run arbitrary shell commands, or change your checkout "
+                     "except when you Apply or Undo a candidate.")
+        return "\n".join(lines)
+
     def _deterministic_answer(self, said: str) -> str | None:
         normalized = " ".join(said.strip().lower().split())
         if normalized in _HELP_INPUTS:
-            execution = "enabled" if self.runtime_facts.execution_enabled else "disabled"
-            return (
-                "I can chat, inspect the configured repository with read-only tools, review Git state, "
-                "and run the deterministic self-check. Configured build/test execution is "
-                f"{execution}. Source edits, staging, commits, push and Stop are not available on this path."
-            )
+            return self._help_answer()
         if normalized in _RUNTIME_INPUTS:
             return self.runtime_facts.answer()
         if normalized in _EFFECT_LOCATION_INPUTS:
