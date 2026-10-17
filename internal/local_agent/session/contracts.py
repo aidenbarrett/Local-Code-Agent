@@ -32,6 +32,7 @@ class TaskOutcome(str, Enum):
     """
 
     PASS = "pass"
+    ANSWERED = "answered"
     ESCALATED_PASS = "escalated_pass"
     ESCALATED_FAIL = "escalated_fail"
     FAIL = "fail"
@@ -76,6 +77,7 @@ class TaskOutcomeProjection:
 # reliable final verdict cannot be established.
 TASK_OUTCOME_PROJECTIONS: dict[TaskOutcome, TaskOutcomeProjection] = {
     TaskOutcome.PASS: TaskOutcomeProjection(TerminalState.COMPLETED, TaskVerdict.VERIFIED),
+    TaskOutcome.ANSWERED: TaskOutcomeProjection(TerminalState.COMPLETED, TaskVerdict.NOT_REQUIRED),
     TaskOutcome.ESCALATED_PASS: TaskOutcomeProjection(TerminalState.COMPLETED, TaskVerdict.VERIFIED),
     TaskOutcome.ESCALATED_FAIL: TaskOutcomeProjection(TerminalState.FAILED, TaskVerdict.FAILED),
     TaskOutcome.FAIL: TaskOutcomeProjection(TerminalState.FAILED, TaskVerdict.FAILED),
@@ -90,9 +92,9 @@ UNREACHABLE_TERMINAL_STATES = frozenset({
 
 
 def task_exit_code(outcome: TaskOutcome | str) -> int:
-    """Stable CLI projection: success=0, observed failure=1, blocked/unknown=2."""
+    """Stable CLI projection: completed=0, failure=1, blocked/unknown=2."""
     value = outcome if isinstance(outcome, TaskOutcome) else TaskOutcome(outcome)
-    if value.succeeded:
+    if value.succeeded or value is TaskOutcome.ANSWERED:
         return 0
     if value in (TaskOutcome.FAIL, TaskOutcome.ESCALATED_FAIL):
         return 1
@@ -201,10 +203,12 @@ class TaskResult:
                 f"\nRequest SHA-256: {binding.request_sha256}"
                 f"\nTree SHA-256: {binding.tree_sha256}"
             )
-        detail_label = (
-            "Task detail:" if self.verified_at_completion
-            else "Unverified task detail (not proof of a completed change):"
-        )
+        if self.verified_at_completion:
+            detail_label = "Task detail:"
+        elif self.outcome is TaskOutcome.ANSWERED:
+            detail_label = "Read-only answer (not a verified engineering outcome):"
+        else:
+            detail_label = "Unverified task detail (not proof of a completed change):"
         return (f"[Controller: {self.outcome.value}; verification: {proof}{reason}; "
                 f"evidence: {len(self.evidence_ids)} item(s); task: {self.task_id}]"
                 f"{binding_lines}\nEvidence IDs: {', '.join(self.evidence_ids) or 'none'}"

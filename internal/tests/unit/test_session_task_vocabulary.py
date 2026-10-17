@@ -39,6 +39,7 @@ def test_task_domain_type_names_are_explicit_and_legacy_aliases_do_not_return():
 def test_task_outcome_and_verdict_wire_values_are_unchanged_by_the_python_rename():
     assert {item.name: item.value for item in TaskOutcome} == {
         "PASS": "pass",
+        "ANSWERED": "answered",
         "ESCALATED_PASS": "escalated_pass",
         "ESCALATED_FAIL": "escalated_fail",
         "FAIL": "fail",

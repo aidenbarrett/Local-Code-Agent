@@ -63,6 +63,7 @@ _CURRENT_REASON_BY_VERDICT: dict[TaskVerdict, VerdictReason] = {
     TaskVerdict.FAILED: VerdictReason.VERIFICATION_FAILED,
     TaskVerdict.REFUSED: VerdictReason.POLICY_DENIED,
     TaskVerdict.NO_VERDICT: VerdictReason.CLEANUP_UNKNOWN,
+    TaskVerdict.NOT_REQUIRED: VerdictReason.VERIFICATION_NOT_REQUIRED,
 }
 
 _ALLOWED_REASONS_BY_VERDICT: dict[TaskVerdict, frozenset[VerdictReason]] = {
@@ -116,6 +117,16 @@ def _tree_sha256(value: object) -> str | None:
     ):
         raise ValueError("tree_sha256 must be lowercase SHA-256 or None")
     return value
+
+
+def _verification_line(result: TaskResult, verdict: TaskVerdict) -> str:
+    if verdict is TaskVerdict.NOT_REQUIRED:
+        return "Verification: not required by controller contract."
+    if result.verified_at_completion:
+        return "Verification: passed at task completion."
+    if result.verification_ran:
+        return "Verification: ran but did not establish success."
+    return "Verification: not established."
 
 
 def _evidence_ids(values: Iterable[str]) -> tuple[str, ...]:
@@ -237,12 +248,7 @@ def verdict_block_from_task_result(
         # Compatibility for self-check and historical/current producers that predate
         # typed worker proof binding. Absence remains visible as generic scope.
         tree = _tree_sha256(result.metrics.get("tree_sha256"))
-    if result.verified_at_completion:
-        verification = "Verification: passed at task completion."
-    elif result.verification_ran:
-        verification = "Verification: ran but did not establish success."
-    else:
-        verification = "Verification: not established."
+    verification = _verification_line(result, verdict)
 
     lines = [
         f"{verdict.value}: {result.outcome.value}.",

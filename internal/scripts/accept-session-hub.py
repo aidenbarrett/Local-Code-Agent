@@ -131,7 +131,7 @@ def conversation_ownership_gates() -> None:
 def outcome_gates() -> None:
     from local_agent.session.contracts import (
         TASK_OUTCOME_PROJECTIONS, UNREACHABLE_TERMINAL_STATES, TaskOutcome,
-        TaskResult, TerminalState, task_exit_code,
+        TaskResult, TaskVerdict, TerminalState, task_exit_code,
     )
 
     schema_states = set(_schema()["$defs"]["TaskCompletion"]["properties"]["status"]["enum"])
@@ -153,6 +153,16 @@ def outcome_gates() -> None:
 
     unknown = TaskResult("accept", TaskOutcome.NO_VERDICT, "unknown", False)
     require(unknown.projection.terminal_state == TerminalState.UNKNOWN, "NO_VERDICT projects to explicit unknown lifecycle state")
+    answered = TaskResult("accept", TaskOutcome.ANSWERED, "grounded read-only answer", False)
+    require(
+        not answered.outcome.succeeded,
+        "ANSWERED does not enter the verified-success count",
+    )
+    require(
+        answered.projection.verdict == TaskVerdict.NOT_REQUIRED,
+        "ANSWERED never projects to VERIFIED",
+    )
+    require(task_exit_code(answered.outcome) == 0, "ANSWERED is still a completed CLI task")
     require(TerminalState.INTERRUPTED in unreachable, "interrupted is not used as the generic unknown-result bucket")
 
 
