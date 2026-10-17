@@ -16,7 +16,8 @@ import pytest
 from test_acceptance_corpus import corpus, journeys
 
 DETERMINISTIC_Q = ["Q01-build-test", "Q02-compile-diagnosis", "Q03-test-truth",
-                   "Q04-candidate-scripted", "Q05-stop-build", "Q08-source-truth"]
+                   "Q04-candidate-scripted", "Q05-stop-build", "Q08-source-truth",
+                   "Q10-walkthrough-scripted"]
 
 
 def _cache() -> Path:
@@ -55,3 +56,35 @@ def test_the_deterministic_real_repository_journeys_pass(tmp_path):
     # Model journeys never pretend: without a model they are UNKNOWN with the reason.
     for jid in ("Q06-repo-explain", "Q07-fix-model", "Q09-fix-source-model"):
         assert results[jid]["status"] == "UNKNOWN"
+
+
+def _walkthrough():
+    import importlib.util
+    import sys
+
+    name = "lca_demo_walkthrough"
+    if name not in sys.modules:
+        script = Path(journeys.__file__).resolve().parent / "demo-walkthrough.py"
+        spec = importlib.util.spec_from_file_location(name, script)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+def test_the_walkthrough_repository_fails_only_the_seeded_tests_and_holds_user_work(tmp_path):
+    cache = _cache()
+    walkthrough = _walkthrough()
+    repo = walkthrough.prepare(tmp_path / "walk", cache)
+
+    status = journeys._git(repo, "status", "--porcelain=v1", "--untracked-files=all")
+    assert f"A  {walkthrough.STAGED[0]}" in status
+    assert f" M {walkthrough.UNSTAGED[0]}" in status
+    assert walkthrough.UNTRACKED[0] in status
+    assert journeys._git(repo, "rev-list", "--all", "--count").strip() == "1"
+    ok, log = journeys.independent_profile_suite(repo)
+    assert not ok
+    fault = corpus.load_manifest()["cxxopts"].fault(walkthrough.FAULT_ID)
+    assert journeys.ctest_failed_names(log) == sorted(fault.expect)
+    assert fault.kind == "source"

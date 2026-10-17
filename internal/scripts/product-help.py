@@ -37,6 +37,8 @@ def main() -> int:
     term.field("capabilities", "Show what controlled repository work is available")
     term.field("run-task", "Run one controlled engineering task headlessly")
     term.field("verification-demo", "Show stale passing tests being rejected as invalid evidence")
+    term.field("walkthrough", "Open the Hub on a prepared real repository with a seeded defect "
+                              "and your own uncommitted work to preserve")
     term.field("acceptance", "Run the acceptance journeys and keep every log; '--compare OLD NEW' sets two runs side by side")
     term.field(
         "qualify",

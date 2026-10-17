@@ -39,6 +39,14 @@ _NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 _GIT_TIMEOUT_S = 600
 
 
+# The developer's own uncommitted work in the walkthrough repository (staged new file,
+# unstaged edit, untracked file with a space); the walkthrough command creates it and
+# qualification journey Q10 checks it survives every step.
+WALKTHROUGH_STAGED = ("CHANGELOG-draft.md", "- Document the --verbose flag.\n")
+WALKTHROUGH_UNSTAGED = ("README.md", "\nLocal note: benchmark parsing after the next release.\n")
+WALKTHROUGH_UNTRACKED = ("scratch notes.txt", "ideas, not for commit\n")
+
+
 class CorpusError(ValueError):
     """The manifest, a cached copy or a fault patch is not usable; nothing ran."""
 
