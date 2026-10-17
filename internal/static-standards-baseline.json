@@ -827,7 +827,7 @@
     "UP037": 1
    },
    "internal/local_agent/session/runtime_facts_gateway.py": {
-    "E501": 4
+    "E501": 2
    },
    "internal/local_agent/session/self_check.py": {
     "C420": 1,
@@ -1172,5 +1172,5 @@
   }
  },
  "schema": "lca.static-standards-baseline/1",
- "total": 1601
+ "total": 1599
 }
