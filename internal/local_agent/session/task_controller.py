@@ -16,6 +16,7 @@ from ..tools import build_registry
 from ..tools.tool_primitives import Risk, ToolRegistry
 from ..verification import CONTRADICTS_CURRENT_TREE, ProofKind
 from .contracts import RouteSource, TaskOutcome, TaskResult
+from .candidate_facts import require_effect_owner
 from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
@@ -92,6 +93,29 @@ if frozenset(_CONTROLLER_ACTION_HANDLERS) != CONTROLLER_ACTIONS:
 
 
 _PROGRAMMER_ERRORS = (TypeError, AttributeError, NameError, AssertionError)
+
+
+def _effect_result_with_owner(action: str, result: TaskResult) -> TaskResult:
+    """Fail closed when a successful checkout effect lost its typed receipt owner."""
+    try:
+        require_effect_owner(
+            action,
+            result.task_id,
+            succeeded=result.outcome.succeeded,
+            metrics=result.metrics,
+        )
+    except (TypeError, ValueError):
+        return TaskResult(
+            result.task_id,
+            TaskOutcome.NO_VERDICT,
+            "The controller action completed, but its authoritative effect receipt is "
+            "missing or invalid. Inspect repository state before retrying.",
+            False,
+            metrics=result.metrics,
+            verification_ran=result.verification_ran,
+            reason_code="protocol_mismatch",
+        )
+    return result
 
 
 # Typed worker block reasons projected into the product reason vocabulary. Anything not
@@ -842,8 +866,11 @@ class TaskController:
                 from .self_check import run_self_check
                 result = run_self_check(self.repo, task_id, self.events)
             elif (action := _CONTROLLER_ACTION_HANDLERS.get(resolved_skill or "")) is not None:
-                result = action(
-                    self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
+                result = _effect_result_with_owner(
+                    resolved_skill or "",
+                    action(
+                        self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
+                    ),
                 )
             elif resolved_skill is not None and resolved_skill in CANDIDATE_CHANGE_SKILLS:
                 result = self._run_candidate_change(

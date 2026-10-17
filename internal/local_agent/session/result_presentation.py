@@ -18,6 +18,7 @@ _SCOPE_LABELS = {
     "none": "no current proof scope",
 }
 _OUTCOME_PREVIEW_CHARS = 240
+_EFFECT_ROLES = frozenset({"applied", "undone", "committed"})
 
 
 def _scope_text(scope: str | None) -> str | None:
@@ -79,6 +80,8 @@ def render_result_evidence(task: TaskSnapshot) -> str:
         raise TypeError("result evidence requires TaskSnapshot")
 
     scope = _scope_text(task.verdict_scope) or "not established"
+    candidate = task.candidate
+    effect = candidate if candidate is not None and candidate.role in _EFFECT_ROLES else None
     evidence = ", ".join(task.evidence_ids) if task.evidence_ids else "none"
     verification = (
         "not required by controller contract"
@@ -94,9 +97,20 @@ def render_result_evidence(task: TaskSnapshot) -> str:
         f"  Repository: {task.repository_id}",
         f"  Execution epoch: {task.execution_epoch}",
         f"  Proof scope: {scope}",
-        f"  Evidence IDs: {evidence}",
         f"  Verification: {verification}",
     ]
+    if effect is None:
+        lines.insert(4, f"  Evidence IDs: {evidence}")
+    else:
+        lines.extend((
+            f"  Effect owner: candidate receipt ({effect.role})",
+            f"  Candidate task: {effect.candidate_task_id}",
+            "  Paths: " + ", ".join(effect.paths),
+        ))
+        if effect.patch_sha256 is not None:
+            lines.append(f"  Patch SHA-256: {effect.patch_sha256}")
+        if effect.commit is not None:
+            lines.append(f"  Commit: {effect.commit}")
     if task.candidate_not_applied:
         lines.extend((
             "  Proof target: isolated candidate tree",

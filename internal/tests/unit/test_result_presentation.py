@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from local_agent.session.candidate_facts import CandidateFacts
 from local_agent.session.result_presentation import (
     render_result_context,
@@ -129,6 +131,38 @@ def test_result_evidence_fails_closed_when_proof_is_not_established():
     assert "Evidence IDs: none" in rendered
     assert "Verification: not established" in rendered
     assert "passed" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("role", "patch", "commit", "expected"),
+    [
+        ("applied", "a" * 64, None, "Patch SHA-256: " + "a" * 64),
+        ("undone", None, None, "candidate receipt (undone)"),
+        ("committed", None, "c" * 40, "Commit: " + "c" * 40),
+    ],
+)
+def test_effect_proof_is_projected_from_candidate_receipt(role, patch, commit, expected):
+    task = _task(verdict="VERIFIED", reason="verification_passed", scope="none")
+    candidate_id = str(uuid4())
+    task.candidate = CandidateFacts(
+        role=role,
+        candidate_task_id=candidate_id,
+        retained=False,
+        paths=("src/example.cpp",),
+        patch_sha256=patch,
+        base_commit=None,
+        commit=commit,
+    )
+    task.result_verification_ran = True
+    task.result_verified_at_completion = True
+
+    rendered = render_result_evidence(task)
+
+    assert f"Effect owner: candidate receipt ({role})" in rendered
+    assert f"Candidate task: {candidate_id}" in rendered
+    assert "Paths: src/example.cpp" in rendered
+    assert expected in rendered
+    assert "Evidence IDs: none" not in rendered
 
 
 def test_answered_result_is_explicitly_read_only_and_not_unverified():
