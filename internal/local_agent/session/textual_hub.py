@@ -23,7 +23,7 @@ from textual.message import Message
 from textual.widgets import Button, Input, Select, Static
 
 from .attention import render_attention
-from .task_read_model import TaskSnapshot, project_tasks
+from .task_read_model import OriginTurn, TaskSnapshot, project_tasks
 from .watch_read_model import WatchSnapshot, project_watches
 
 
@@ -55,12 +55,17 @@ class PaletteError(RuntimeError):
 class ConversationEntry:
     role: str
     text: str
+    # The stored turn this entry projects. Only a task admitted from exactly this
+    # turn (conversation, index and content hash all equal) is shown beneath it.
+    turn: OriginTurn | None = None
 
     def __post_init__(self) -> None:
         if self.role not in {"user", "assistant", "system"}:
             raise ValueError("conversation role must be user, assistant or system")
         if not isinstance(self.text, str):
             raise TypeError("conversation text must be a string")
+        if self.turn is not None and not isinstance(self.turn, OriginTurn):
+            raise TypeError("conversation turn reference must be OriginTurn")
 
 
 @dataclass(frozen=True)
@@ -147,13 +152,36 @@ def build_view_state(
     )
 
 
-def render_conversation(entries: Sequence[ConversationEntry]) -> str:
+def render_task_reply(task: TaskSnapshot) -> str:
+    """One task's controller-recorded result, shown under the turn that admitted it.
+
+    Only durable facts are rendered: the recorded verdict and reason, and the
+    controller-authored result text. A task that has not closed says so.
+    """
+    if not task.terminal:
+        step = task.last_tool.tool_name if task.last_tool is not None else task.state
+        return f"LCA · working · {step}"
+    verdict = (task.verdict or "NO_VERDICT").replace("_", " ")
+    reason = f" · {task.verdict_reason.replace('_', ' ')}" if task.verdict_reason else ""
+    body = task.result_answer if task.result_answer else "(recorded result text unavailable)"
+    return f"LCA · {verdict}{reason}\n{body}"
+
+
+def render_conversation(
+    entries: Sequence[ConversationEntry], tasks: Sequence[TaskSnapshot] = (),
+) -> str:
     if not entries:
         return "No conversation yet."
     labels = {"user": "YOU", "assistant": "LCA", "system": "SYSTEM"}
+    replies: dict[OriginTurn, list[TaskSnapshot]] = {}
+    for task in sorted(tasks, key=lambda item: item.admitted_sequence):
+        if task.origin_turn is not None:
+            replies.setdefault(task.origin_turn, []).append(task)
     blocks: list[str] = []
     for entry in entries:
         blocks.append(f"{labels[entry.role]}\n{entry.text}")
+        if entry.turn is not None:
+            blocks.extend(render_task_reply(task) for task in replies.get(entry.turn, ()))
     return "\n\n".join(blocks)
 
 
@@ -462,6 +490,8 @@ class SessionHubApp(App):
     def __init__(self, state: HubViewState | None = None, *, palette_name: str = "neon") -> None:
         self.view_state = state or HubViewState()
         self._task_choices: list[tuple[Text, str]] = []
+        self._conversation_text = render_conversation(self.view_state.conversation,
+                                                      self.view_state.tasks)
         palette = load_palette(palette_name)
         # Textual reads CSS from the instance as well as the class; keep one source
         # of named colour roles while allowing the high-contrast fixture path.
@@ -478,10 +508,7 @@ class SessionHubApp(App):
         with Horizontal(id="workspace"):
             with Vertical(id="conversation-column"):
                 with VerticalScroll(id="conversation-pane"):
-                    yield Static(
-                        render_conversation(self.view_state.conversation),
-                        id="conversation", markup=False,
-                    )
+                    yield Static(self._conversation_text, id="conversation", markup=False)
                 yield Input(placeholder="Message Local Code Agent…", id="composer")
             with Vertical(id="side-column"):
                 yield Select([], prompt="Select task or candidate", id="task-select")
@@ -503,6 +530,9 @@ class SessionHubApp(App):
         yield Static(self.view_state.status, id="status", markup=False)
 
     def on_mount(self) -> None:
+        # Anchored: the pane stays at the newest reply as content grows, until the
+        # reader scrolls up; scrolling back to the bottom re-anchors it.
+        self.query_one("#conversation-pane", VerticalScroll).anchor()
         self._sync_task_actions()
         self._apply_layout(self.size.width)
         self._apply_watch_visibility()
@@ -534,7 +564,10 @@ class SessionHubApp(App):
             raise TypeError("Session Hub state must be HubViewState")
         self.view_state = state
         self._sync_task_actions()
-        self.query_one("#conversation", Static).update(render_conversation(state.conversation))
+        rendered = render_conversation(state.conversation, state.tasks)
+        if rendered != self._conversation_text:
+            self._conversation_text = rendered
+            self.query_one("#conversation", Static).update(rendered)
         self.query_one("#attention", Static).update(render_attention(state.tasks))
         self._apply_attention_visibility()
         self._refresh_activity()
@@ -662,5 +695,6 @@ __all__ = [
     "load_palette",
     "render_activity",
     "render_conversation",
+    "render_task_reply",
     "render_watches",
 ]

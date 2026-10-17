@@ -41,6 +41,38 @@ class EndpointActivity:
 
 
 @dataclass(frozen=True)
+class OriginTurn:
+    """The stored conversation turn that admitted a task (``origin.turn_ref``)."""
+
+    conversation_id: str
+    turn_index: int
+    turn_sha256: str
+
+
+def origin_turn(origin: object) -> OriginTurn | None:
+    """The admitting turn, or ``None`` for an origin that carries no turn reference.
+
+    This is the one boundary where a durable turn reference becomes a typed value.
+    """
+    if not isinstance(origin, dict):
+        raise TaskReadModelError("task origin must be an object")
+    ref = origin.get("turn_ref")
+    if ref is None:
+        return None
+    if not isinstance(ref, dict) or set(ref) != {"conversation_id", "turn_index", "turn_sha256"}:
+        raise TaskReadModelError("task origin turn_ref is malformed")
+    conversation_id, index, digest = ref["conversation_id"], ref["turn_index"], ref["turn_sha256"]
+    if not isinstance(conversation_id, str) or not conversation_id:
+        raise TaskReadModelError("turn reference conversation_id must be nonempty text")
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        raise TaskReadModelError("turn reference turn_index must be a non-negative integer")
+    if (not isinstance(digest, str) or len(digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in digest)):
+        raise TaskReadModelError("turn reference turn_sha256 must be lowercase SHA-256 hex")
+    return OriginTurn(conversation_id, index, digest)
+
+
+@dataclass(frozen=True)
 class TaskActivity:
     sequence: int
     occurred_utc: str
@@ -80,6 +112,7 @@ class TaskSnapshot:
     faults: list[tuple[str, str]] = field(default_factory=list)
     activity: list[TaskActivity] = field(default_factory=list)
     configured_check: str | None = None
+    origin_turn: OriginTurn | None = None
 
     @property
     def candidate_not_applied(self) -> bool:
@@ -298,6 +331,7 @@ def project_task(events: Iterable[dict[str, Any]], task_id: str) -> TaskSnapshot
         deadline_utc=str(payload["deadline_utc"]),
         request_ref=dict(payload["request_ref"]),
         configured_check=admitted_configured_check(payload),
+        origin_turn=origin_turn(payload["origin"]),
     )
     snapshot.activity.append(
         _activity(
