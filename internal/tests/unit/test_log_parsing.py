@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -140,7 +141,8 @@ def test_catch2_assertion_reaches_worker_summary_after_context_collapse(location
     assert evidence["log_line"] == 1
     assert 'result.count("job") == 4' in evidence["text"]
     assert "1 == 4" in evidence["text"]
-    summary = _failed_tests_summary(report, ["ctest", "--output-on-failure"])
+    summary = _failed_tests_summary(report, ["ctest", "--output-on-failure"], Path("/nonexistent-root"))
+    assert summary.split(" -- command:")[0].endswith(f" at {file}:1558")
     message = tool_result_message("test-call", "run_test", json.dumps({"ok": False, "summary": summary}))
     collapsed = json.loads(_collapse(message)["content"])
     assert 'result.count("job") == 4' in collapsed["summary"]
