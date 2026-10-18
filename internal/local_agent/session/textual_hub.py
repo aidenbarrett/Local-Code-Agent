@@ -369,10 +369,11 @@ def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
             f"Commit exact candidate: /commit {candidate_id}",
         )
     if candidate.role == "reviewed":
-        return (
-            "Candidate: REVIEWED · NOT APPLIED",
-            f"Apply: /apply {candidate_id}",
-        )
+        # A review task records the read-only observation but does not own the
+        # prepared task's completion proof.  The action buttons consult that
+        # authoritative prepared receipt before enabling Apply; this projection
+        # must not advertise the command unconditionally.
+        return ("Candidate: REVIEWED · NOT APPLIED",)
     labels = {
         "apply_refused": "Candidate: NOT APPLIED · apply refused",
         "undone": "Candidate: UNDONE",

@@ -128,6 +128,24 @@ def test_unverified_candidate_actions_remain_unavailable():
     asyncio.run(scenario())
 
 
+def test_reviewed_activity_does_not_advertise_apply_without_prepared_proof():
+    async def scenario():
+        candidate_id = str(uuid4())
+        prepared = task(candidate_id, verified=False)
+        reviewed = task(candidate_id, sequence=2, role="reviewed", verified=False)
+        app = SessionHubApp(HubViewState(tasks=(prepared, reviewed)))
+        async with app.run_test() as pilot:
+            app.query_one("#task-select", Select).value = candidate_id
+            await pilot.pause()
+            activity = str(app.query_one("#activity", Static).render())
+            assert "Candidate: REVIEWED · NOT APPLIED" in activity
+            assert f"/apply {candidate_id}" not in activity
+            assert app.query_one("#review-candidate", Button).disabled
+            assert app.query_one("#apply-candidate", Button).disabled
+
+    asyncio.run(scenario())
+
+
 def test_commit_requires_verified_applied_candidate_and_disables_after_terminal_state():
     async def scenario():
         candidate_id = str(uuid4())
