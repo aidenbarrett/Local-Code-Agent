@@ -151,3 +151,50 @@ def test_an_apply_refusal_superseded_by_a_later_apply_is_dropped():
     assert "scope_changed" not in render_attention((ready, refused, applied))
     # While the refusal is the candidate's latest state, it is what needs the user.
     assert f"FAILED · {refused.task_id}\nscope_changed" in render_attention((ready, refused))
+
+
+def _check(check: str, verdict: str | None, *, sequence: int, repository: str = "repo-1",
+           closed: bool = True) -> TaskSnapshot:
+    task = _task(verdict=verdict, closed=closed)
+    task.configured_check = check
+    task.repository_id = repository
+    task.skill = check
+    task.admitted_sequence = sequence
+    task.last_sequence = sequence
+    task.closed_sequence = sequence if closed else None
+    if verdict == "FAILED":
+        task.verdict_reason = "verification_failed"
+    task.result_verification_ran = closed and verdict in {"VERIFIED", "FAILED"}
+    return task
+
+
+def test_a_failed_check_that_a_later_run_of_the_same_check_replaced_needs_no_attention():
+    failed = _check("run-tests", "FAILED", sequence=2)
+    passed = _check("run-tests", "VERIFIED", sequence=9)
+    assert render_attention((failed, passed)) == ""
+    failed_again = _check("run-tests", "FAILED", sequence=12)
+    shown = render_attention((failed, passed, failed_again))
+    assert failed_again.task_id in shown and failed.task_id not in shown
+
+
+def test_a_failure_stays_until_that_same_check_finishes_again_in_that_repository():
+    failed = _check("run-tests", "FAILED", sequence=2)
+    for later in (_check("run-build", "VERIFIED", sequence=9),          # a different check
+                  _check("run-tests", "VERIFIED", sequence=9, repository="repo-2"),
+                  _check("run-tests", None, sequence=9, closed=False),  # still running
+                  _check("run-tests", "VERIFIED", sequence=1)):         # earlier, not later
+        assert failed.task_id in render_attention((failed, later)), later
+    fix = _task(verdict="VERIFIED")                                     # a fix is not a re-run
+    fix.last_sequence = 9
+    assert failed.task_id in render_attention((failed, fix))
+
+
+def test_a_later_run_that_did_not_execute_the_check_replaces_no_failure():
+    failed = _check("run-tests", "FAILED", sequence=2)
+    refused = _check("run-tests", "REFUSED", sequence=9)
+    refused.verdict_reason = "policy_denied"
+    cancelled = _check("run-tests", "NO_VERDICT", sequence=10)
+    unrecorded = _check("run-tests", "VERIFIED", sequence=11)
+    unrecorded.result_verification_ran = None
+    for later in (refused, cancelled, unrecorded):
+        assert failed.task_id in render_attention((failed, later)), later.verdict
