@@ -29,6 +29,7 @@ from .intents import (
 )
 from .proof_binding import repository_tree_sha256
 from .workspaces import (
+    CandidateNotRetainedError,
     CandidatePatch,
     CandidateRefusedError,
     CommitDrifted,
@@ -362,6 +363,11 @@ def apply_candidate(
                       "No change was applied: repository policy does not allow patches.")
     try:
         workspace, candidate = manager.load(referent)
+    except CandidateNotRetainedError:
+        return refuse(TaskOutcome.BLOCKED, "invalid_input",
+                      f"No change was applied: task {referent} has no retained candidate. "
+                      "A candidate is used up once it is applied (even if that apply is "
+                      "later undone) or discarded; say \"fix it\" to prepare a new one.")
     except (WorkspaceError, ValueError, KeyError) as exc:
         return refuse(TaskOutcome.BLOCKED, "invalid_input",
                       f"No change was applied: no usable candidate for task {referent} ({exc}).")
@@ -706,7 +712,9 @@ def undo_candidate(
     return TaskResult(
         task_id, TaskOutcome.PASS,
         f"Undid the change applied from task {referent}. Restored exactly: "
-        + ", ".join(undone.paths) + ". Nothing was staged or committed.",
+        + ", ".join(undone.paths) + ". Nothing was staged or committed.\n"
+        "That candidate was used by its apply, so it cannot be applied again; "
+        "say \"fix it\" to prepare a new one.",
         True,
         metrics={"candidate_undo": facts, "tree_sha256": repository_tree_sha256(declared.root)},
         verification_ran=True,
