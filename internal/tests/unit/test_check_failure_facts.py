@@ -22,6 +22,7 @@ from local_agent.session.check_failure import (
 from local_agent.session.conversation_gateway import ConversationGateway
 from local_agent.session.intents import RULE_TASK_DIAGNOSTIC, RouteAction, RouteDecision, RouteSource
 from local_agent.session.task_history import TaskObservation
+from local_agent.tools.logs import parse_test_log
 
 
 @dataclass
@@ -79,22 +80,56 @@ def test_only_an_executed_failing_step_with_typed_data_counts(tmp_path):
     assert check_failure_facts([_Record("run_test", domain="pass")], tmp_path) is None
     assert check_failure_facts([_Record("run_test", execution="error")], tmp_path) is None
     assert check_failure_facts([_Record("read_file")], tmp_path) is None
-    # A failing step whose structured report is empty yields facts without a first
-    # failure; its prose summary is never mined for one.
-    facts = check_failure_facts([_Record("run_test", evidence={})], tmp_path)
-    assert facts is not None and facts["first"] is None and facts["kind"] is None
+    # A failing step whose structured report is empty says nothing typed about the
+    # failure, so there are no facts and the diagnosis stays generic; its prose
+    # summary is never mined for any.
+    assert check_failure_facts([_Record("run_test", evidence={})], tmp_path) is None
+    assert check_failure_facts([_Record("build_target", evidence={"command": ["make"]})],
+                               tmp_path) is None
 
 
-def test_names_and_paths_are_bounded(tmp_path):
-    names = tuple(f"t{i}" for i in range(25))
-    data = _tests_data(tmp_path, names=names)
-    data["assertions"][0]["file"] = "/outside/" + "deep/" * 60 + "x.cpp"
+def test_the_failing_count_comes_from_the_real_report_total(tmp_path):
+    """run_test stores TestLogReport.as_dict(), which keeps ten names and the total."""
+    log = "\n".join(["The following tests FAILED:",
+                     *(f"\t{i} - t{i} (Failed)" for i in range(1, 26)),
+                     "0% tests passed, 25 tests failed out of 25"])
+    data = {"command": ["ctest"], **parse_test_log(log).as_dict()}
+    assert len(data["failed"]) == 10 and data["totals"]["failed"] == 25
     facts = check_failure_facts([_Record("run_test", evidence=data)], tmp_path)
     assert facts is not None
     assert len(facts["tests"]) == MAX_TESTS and facts["test_count"] == 25
+    lines = render_check_failure(read_check_failure(facts))
+    assert lines[0] == "Tests failed: 25 test(s)." and lines[1].endswith("t10 and 15 more")
+    # A total smaller than the names it must cover is not trusted.
+    data["totals"]["failed"] = 3
+    assert check_failure_facts([_Record("run_test", evidence=data)], tmp_path)["test_count"] == 10
+
+
+def test_a_long_in_repository_path_is_bounded(tmp_path):
+    data = _tests_data(tmp_path)
+    data["assertions"][0]["file"] = str(tmp_path / ("deep/" * 60) / "x.cpp")
+    facts = check_failure_facts([_Record("run_test", evidence=data)], tmp_path)
     location = facts["first"]["location"]
     assert location.startswith("…") and location.endswith("x.cpp:910") and len(location) <= 170
     assert read_check_failure(facts) is not None
+
+
+@pytest.mark.parametrize(("file", "shown"), [
+    ("test/options.cpp", "test/options.cpp:910"),             # relative to the root
+    ("{root}/test/options.cpp", "test/options.cpp:910"),      # absolute inside it
+    ("{root}/test/../test/options.cpp", "test/options.cpp:910"),  # normalised
+    ("/private/build/secret.cpp", None),                      # outside the root
+    ("../outside.cpp", None),                                 # traversal out of it
+    ("{root}/../sibling/x.cpp", None),
+    ("test/opt\nions.cpp", None),                            # a line break
+])
+def test_a_location_is_shown_only_inside_the_repository(tmp_path, file, shown):
+    data = _tests_data(tmp_path)
+    data["assertions"][0]["file"] = file.format(root=tmp_path)
+    facts = check_failure_facts([_Record("run_test", evidence=data)], tmp_path)
+    assert facts["first"]["location"] == shown
+    # The message is kept either way.
+    assert facts["first"]["text"].startswith("CHECK( positional[4]")
 
 
 @pytest.mark.parametrize("bad", [
@@ -105,6 +140,16 @@ def test_names_and_paths_are_bounded(tmp_path):
     {"step": "tests", "kind": None, "tests": [], "test_count": 0, "first": {"text": "x"},
      "command": []},
     {"step": "tests", "kind": None, "tests": [], "test_count": 0, "first": None, "command": [1]},
+    # Semantically empty: no failing count, or a build with neither kind nor first error.
+    {"step": "tests", "kind": "assertion", "tests": [], "test_count": 0, "first": None,
+     "command": ["ctest"]},
+    {"step": "build", "kind": None, "tests": [], "test_count": 0, "first": None,
+     "command": ["make"]},
+    # Locations that are not repository-relative.
+    *({"step": "tests", "kind": None, "tests": ["a"], "test_count": 1,
+       "first": {"location": loc, "text": "x"}, "command": []}
+      for loc in ("/private/x.cpp:1", "../x.cpp:1", "C:\\x.cpp:1", "a\\b.cpp:1", "x.cpp",
+                  "x.cpp:", "a/\nb.cpp:1")),
 ])
 def test_malformed_facts_read_as_absent(bad):
     assert read_check_failure(bad) is None
@@ -170,5 +215,5 @@ def test_without_typed_facts_the_diagnosis_stays_generic():
     answer = _diagnosis("run-tests", None)
     assert answer.startswith("Task 11111111-1111-4111-8111-111111111111 (run the tests) failed. "
                              "Its recorded result:\nRECORDED PROSE\n\n")
-    assert render_check_failure(CheckFailure("tests", None, (), 0, None, ())) == [
-        "Tests failed: 0 test(s)."]
+    assert read_check_failure({"step": "tests", "kind": None, "tests": [], "test_count": 0,
+                               "first": None, "command": []}) is None

@@ -64,15 +64,39 @@ def _bounded(text: str, limit: int) -> str:
 
 
 def _location(file: object, line: object, root: Path) -> str | None:
-    if not isinstance(file, str) or not file or not isinstance(line, int) or line < 1:
+    """``path:line`` relative to the repository root, or None.
+
+    A relative path is taken as relative to the root. Only a path whose canonical form
+    lies inside the root is shown; anything outside it, or that cannot be resolved,
+    keeps its message but loses the location.
+    """
+    if (not isinstance(file, str) or not file or not file.isprintable()
+            or not isinstance(line, int) or isinstance(line, bool) or line < 1):
         return None
+    path = Path(file)
     try:
-        shown = Path(file).resolve().relative_to(root.resolve()).as_posix()
+        canonical_root = root.resolve()
+        shown = (path if path.is_absolute() else root / path).resolve().relative_to(
+            canonical_root).as_posix()
     except (OSError, ValueError):
-        shown = file
+        return None
+    if shown in {"", "."}:
+        return None
     if len(shown) > MAX_LOCATION_CHARS:
         shown = "…" + shown[-(MAX_LOCATION_CHARS - 1):]
     return f"{shown}:{line}"
+
+
+def _valid_location(location: object) -> bool:
+    """A retained location is a bounded repository-relative ``path:line``."""
+    if not isinstance(location, str) or not location.isprintable():
+        return False
+    path, sep, line = location.rpartition(":")
+    if not sep or not line.isdigit() or not path or len(path) > MAX_LOCATION_CHARS:
+        return False
+    parts = path.lstrip("…").split("/")
+    return (not path.startswith(("/", "\\")) and ":" not in path and "\\" not in path
+            and ".." not in parts)
 
 
 def _first(step: str, data: Mapping[str, Any], root: Path) -> FirstFailure | None:
@@ -125,11 +149,35 @@ def check_failure_facts(history: Sequence[Any], root: Path) -> dict[str, Any] | 
         step=step,
         kind=kind if kind in _KINDS else None,
         tests=names[:MAX_TESTS],
-        test_count=len(names),
+        test_count=_failed_count(step, data, len(names)),
         first=_first(step, data, root),
         command=argv,
     )
-    return facts.as_payload()
+    return facts.as_payload() if _substantive(facts) else None
+
+
+def _failed_count(step: str, data: Mapping[str, Any], named: int) -> int:
+    """How many tests failed: the report's own total, which outlives the bounded
+    list of names, when it is a valid count at least as large as that list."""
+    if step != "tests":
+        return 0
+    totals = data.get("totals")
+    total = totals.get("failed") if isinstance(totals, Mapping) else None
+    if isinstance(total, int) and not isinstance(total, bool) and total >= named:
+        return total
+    return named
+
+
+def _substantive(facts: CheckFailure) -> bool:
+    """Facts that say something about the failure; otherwise the diagnosis stays generic.
+
+    A test failure needs a positive failing count; a build failure needs its kind or
+    its first error. An empty report must never render as "0 test(s)" or a bare
+    "the build failed" with false precision.
+    """
+    if facts.step == "tests":
+        return facts.test_count > 0
+    return facts.kind is not None or facts.first is not None
 
 
 def project_check_failure(metrics: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -160,7 +208,7 @@ def _read_first(first: object) -> FirstFailure | None | bool:
     if not isinstance(first, Mapping) or set(first) != _FIRST_KEYS:
         return False
     text, location = _str(first["text"], MAX_TEXT_CHARS), first["location"]
-    location_ok = location is None or _str(location, MAX_LOCATION_CHARS + 12) is not None
+    location_ok = location is None or _valid_location(location)
     return FirstFailure(location, text) if text is not None and location_ok else False
 
 
@@ -178,14 +226,16 @@ def read_check_failure(value: object) -> CheckFailure | None:
     first = _read_first(value["first"])
     if not shape_ok or first is False:
         return None
-    return CheckFailure(step, kind, tuple(value["tests"]), value["test_count"],
-                        first if isinstance(first, FirstFailure) else None,
-                        tuple(value["command"]))
+    facts = CheckFailure(step, kind, tuple(value["tests"]), value["test_count"],
+                         first if isinstance(first, FirstFailure) else None,
+                         tuple(value["command"]))
+    return facts if _substantive(facts) else None
 
 
 def render_check_failure(facts: CheckFailure) -> list[str]:
     """The fixed-layout lines describing a recorded check failure."""
-    kind = f" ({facts.kind})" if facts.kind else ""
+    # "failed" is ctest's plain status; naming it again adds nothing.
+    kind = f" ({facts.kind})" if facts.kind and facts.kind != "failed" else ""
     if facts.step == "tests":
         lines = [f"Tests failed{kind}: {facts.test_count} test(s)."]
         if facts.tests:
