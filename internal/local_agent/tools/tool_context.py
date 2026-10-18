@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import BuildProfile, ConfigError, RepoConfig
-from .tool_primitives import Reason, ToolError
+from .tool_primitives import CommandStoppedError, Reason, ToolError
 from .process_runner import (
     CancellationProbe,
     CommandCancellationRequested,
@@ -97,12 +97,12 @@ class ToolContext:
         """Run one configured command under this task's timeout and Stop authority.
 
         A Stop observed before spawn raises ``BlockedError``: nothing ran. A Stop observed
-        while the command ran ends its tree and raises ``ToolError``: the command was
+        while the command ran ends its tree and raises ``CommandStoppedError``: the command was
         interrupted and its partial output is not evidence about the code. Both carry
         ``COMMAND_CANCELLED`` so the durable finish records ``cancelled`` rather than a
         build or test verdict.
         """
-        from .tool_primitives import BlockedError, Reason, ToolError
+        from .tool_primitives import BlockedError, Reason
 
         # A configured command leaves logs here; read-only tools must leave no files,
         # and a Stop already requested fences this effect like every other.
@@ -124,11 +124,11 @@ class ToolContext:
                 Reason.COMMAND_CANCELLED,
             ) from exc
         if outcome.cancel_requested:
-            confirmed = outcome.process_cleanup_confirmed
-            raise ToolError(
+            confirmed = outcome.process_cleanup_confirmed is True
+            raise CommandStoppedError(
                 "Stop interrupted this command; its output is not a result. "
                 f"Process-tree cleanup confirmed={str(confirmed).lower()} "
                 f"(containment={outcome.containment}).",
-                Reason.COMMAND_CANCELLED,
+                process_cleanup_confirmed=confirmed,
             )
         return outcome

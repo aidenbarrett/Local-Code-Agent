@@ -58,7 +58,9 @@ _ALLOWED_DOMAIN = frozenset({"pass", "fail", "unknown"})
 # short message as a result artifact, because the reviewed event vocabulary folds
 # several typed reasons together (``not_found`` and ``bad_arguments`` are both
 # ``invalid_input``). The message is tool-authored evidence, never authority.
-TOOL_FAILURE_SCHEMA = "lca.tool-failure/2"
+TOOL_FAILURE_SCHEMA = "lca.tool-failure/3"
+# /3 adds ``process_cleanup_confirmed``; a /2 record never confirms cleanup.
+TOOL_FAILURE_SCHEMAS = frozenset({"lca.tool-failure/2", TOOL_FAILURE_SCHEMA})
 TOOL_FAILURE_MEDIA_TYPE = "application/json"
 TOOL_PROPOSAL_SCHEMA = "lca.patch-proposal/1"
 MAX_FAILURE_DETAIL_CHARS = 300
@@ -70,12 +72,15 @@ def tool_failure_artifact(
     tool_reason: str,
     failure_detail: str,
     process_started: bool | None = None,
+    process_cleanup_confirmed: bool | None = None,
 ) -> tuple[dict[str, Any], bytes]:
     """The retained result reference and bytes for one failed tool call.
 
     ``process_started`` is the controller's own count of processes the call spawned
     (None when the call cannot spawn any). It is what lets terminal truth tell a call
     refused before anything ran from one that may have left a process behind.
+    ``process_cleanup_confirmed`` is the command runner's typed answer, for a stopped
+    command, to whether its whole process tree is gone (None when not stopped).
     """
     detail = " ".join(failure_detail.split())[:MAX_FAILURE_DETAIL_CHARS]
     payload = json.dumps({
@@ -84,6 +89,7 @@ def tool_failure_artifact(
         "tool_reason": tool_reason,
         "detail": detail,
         "process_started": process_started,
+        "process_cleanup_confirmed": process_cleanup_confirmed,
     }, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ref = {
         "artifact_id": str(uuid4()),
@@ -244,6 +250,7 @@ class DurableToolActivity:
         failure_detail: str | None = None,
         process_started: bool | None = None,
         proposal_data: dict[str, Any] | None = None,
+        process_cleanup_confirmed: bool | None = None,
     ) -> None:
         """Commit a typed finish for exactly the currently-open durable call.
 
@@ -270,12 +277,16 @@ class DurableToolActivity:
                 raise ValueError("failure_detail must be a string")
             if process_started is not None and not isinstance(process_started, bool):
                 raise ValueError("process_started must be a boolean")
+            if (process_cleanup_confirmed is not None
+                    and not isinstance(process_cleanup_confirmed, bool)):
+                raise ValueError("process_cleanup_confirmed must be a boolean")
             if reason is not None:
                 result_ref, result_bytes = tool_failure_artifact(
                     tool_name=tool_name,
                     tool_reason=reason,
                     failure_detail=failure_detail or "",
                     process_started=process_started,
+                    process_cleanup_confirmed=process_cleanup_confirmed,
                 )
         ids = tuple(str(value) for value in evidence_ids)
         if any(not value for value in ids):

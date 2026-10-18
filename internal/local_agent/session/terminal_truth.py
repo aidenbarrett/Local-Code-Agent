@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
-from .durable_activity import OK_EXECUTION_REASON_CODES, TOOL_FAILURE_SCHEMA
+from .durable_activity import OK_EXECUTION_REASON_CODES, TOOL_FAILURE_SCHEMAS
 
 
 class DurableWriteFailed(RuntimeError):
@@ -82,20 +82,21 @@ def derive_terminal_activity_truth(
         cleanup = "unknown"
     elif not process_calls:
         cleanup = "not_needed"
+    elif all(finish is not None and _ended_normally(finish) for finish in process_calls.values()):
+        cleanup = "not_needed"
     elif all(
-        finish is not None
-        and finish.get("execution") == "ok"
-        and finish.get("reason_code") in OK_EXECUTION_REASON_CODES
+        finish is not None and (_ended_normally(finish) or _stop_confirmed(service, finish))
         for finish in process_calls.values()
     ):
-        cleanup = "not_needed"
+        # Every spawned tree either ended on its own or was stopped and confirmed gone
+        # by the runner's typed answer (subreaper or Job settlement), not its prose.
+        cleanup = "confirmed"
     elif any(
         finish is not None and finish.get("reason_code") in {"tool_timeout", "cancelled"}
         for finish in process_calls.values()
     ):
-        # The command runner ended the tree on timeout or Stop. Windows Job Object
-        # accounting can confirm that locally, but the confirmation is not yet carried
-        # in the durable tool.finished contract, so terminal truth cannot claim it.
+        # The command runner ended the tree on timeout or Stop without a durable typed
+        # confirmation that it is gone, so terminal truth cannot claim it.
         cleanup = "attempted"
     else:
         cleanup = "unknown"
@@ -106,10 +107,31 @@ def derive_terminal_activity_truth(
     )
 
 
-def _started_no_process(service: Any, finish: dict[str, Any]) -> bool:
-    """True only when the retained failure record says the call spawned nothing."""
+def _ended_normally(finish: dict[str, Any]) -> bool:
+    return (finish.get("execution") == "ok"
+            and finish.get("reason_code") in OK_EXECUTION_REASON_CODES)
+
+
+def _failure_record(service: Any, finish: dict[str, Any]) -> dict[str, Any] | None:
+    """The retained typed failure record of a call that did not execute cleanly."""
     ref = finish.get("result_ref")
     if finish.get("execution") == "ok" or not isinstance(ref, dict):
-        return False
+        return None
     record = json.loads(service.store.artifact_bytes(ref))
-    return record.get("schema") == TOOL_FAILURE_SCHEMA and record.get("process_started") is False
+    if not isinstance(record, dict) or record.get("schema") not in TOOL_FAILURE_SCHEMAS:
+        return None
+    return record
+
+
+def _started_no_process(service: Any, finish: dict[str, Any]) -> bool:
+    """True only when the retained failure record says the call spawned nothing."""
+    record = _failure_record(service, finish)
+    return record is not None and record.get("process_started") is False
+
+
+def _stop_confirmed(service: Any, finish: dict[str, Any]) -> bool:
+    """True only for a Stop whose retained record carries the runner's typed confirmation."""
+    if finish.get("reason_code") != "cancelled":
+        return False
+    record = _failure_record(service, finish)
+    return record is not None and record.get("process_cleanup_confirmed") is True
