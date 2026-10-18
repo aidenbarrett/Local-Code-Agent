@@ -61,6 +61,9 @@ def render_result_summary(task: TaskSnapshot) -> str:
         return f"Result: REFUSED — the controller did not authorize or execute the requested work{suffix}."
 
     if verdict == "NO_VERDICT":
+        if reason == "cancelled":
+            return ("Result: NO VERDICT — stopped on request; every command it started is "
+                    "confirmed ended, and no result stands.")
         if reason in {"cleanup_unknown", "cancel_unreconciled"}:
             return "Result: NO VERDICT — final outcome is unknown because cleanup is not fully reconciled."
         suffix = "" if not reason else f" ({reason.replace('_', ' ')})"
@@ -150,6 +153,8 @@ def render_result_next_action(task: TaskSnapshot) -> str:
         action = "review the refusal reason and revise the request or configuration."
     elif task.verdict == "FAILED":
         action = "inspect the evidence and failure detail before retrying."
+    elif task.verdict == "NO_VERDICT" and task.verdict_reason == "cancelled":
+        action = "repeat the request when you want a result."
     elif task.verdict == "NO_VERDICT":
         action = "inspect repository and cleanup state before retrying."
     else:
