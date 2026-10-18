@@ -25,8 +25,15 @@ from ..tools.tool_primitives import (
 )
 
 
-def _finish_exception(finish: Callable[..., None], exc: BaseException, started: float) -> None:
-    """Close one call as a typed failure; ``finish`` already names the call."""
+def _finish_exception(
+    finish: Callable[..., None], exc: BaseException, started: float,
+    *, settled_before_stop: bool = False,
+) -> None:
+    """Close one call as a typed failure; ``finish`` already names the call.
+
+    ``settled_before_stop`` is the controller's own count saying that a Stop fenced
+    this call after every process it had spawned was accounted ended by the runner.
+    """
     if isinstance(exc, BlockedError):
         execution = "blocked"
         reason = exc.reason.value
@@ -39,9 +46,15 @@ def _finish_exception(finish: Callable[..., None], exc: BaseException, started: 
     else:
         execution = "error"
         reason = Reason.INTERNAL_ERROR.value
-    # Only a stopped command has a cleanup answer to record.
-    extra = ({"process_cleanup_confirmed": exc.process_cleanup_confirmed}
-             if isinstance(exc, CommandStoppedError) else {})
+    # Only a stopped call has a cleanup answer to record: the runner's typed answer for
+    # an interrupted command, or the settled-process count for a call whose earlier
+    # steps all ended before Stop fenced its next one.
+    extra: dict[str, bool | None] = {}
+    if isinstance(exc, CommandStoppedError):
+        extra = {"process_cleanup_confirmed": exc.process_cleanup_confirmed}
+    elif (settled_before_stop and isinstance(exc, BlockedError)
+            and exc.reason is Reason.COMMAND_CANCELLED):
+        extra = {"process_cleanup_confirmed": True}
     finish(
         execution=execution,
         domain="unknown",
@@ -58,6 +71,7 @@ def wrap_registry_with_durable_activity(
     activity,
     *,
     process_starts: Callable[[], int] | None = None,
+    process_settlements: Callable[[], int] | None = None,
 ) -> ToolRegistry:
     """Return an equivalent registry whose handler effects are durably bracketed.
 
@@ -90,11 +104,20 @@ def wrap_registry_with_durable_activity(
             started = monotonic()
             counter = process_starts if _tool.risk is Risk.EXECUTE else None
             spawned_before = counter() if counter is not None else 0
+            settled = process_settlements if counter is not None else None
+            settled_before = settled() if settled is not None else 0
 
             def process_started() -> bool | None:
                 # Only a tool that can spawn has a meaningful answer; for the rest the
                 # question does not arise and the record says so with None.
                 return None if counter is None else counter() > spawned_before
+
+            def all_settled() -> bool:
+                # Every process this call spawned was accounted ended by the runner.
+                if counter is None or settled is None:
+                    return False
+                spawned = counter() - spawned_before
+                return spawned > 0 and settled() - settled_before == spawned
 
             def fail(exc: BaseException) -> None:
                 _finish_exception(
@@ -106,6 +129,7 @@ def wrap_registry_with_durable_activity(
                     ),
                     exc,
                     started,
+                    settled_before_stop=all_settled(),
                 )
 
             try:

@@ -599,6 +599,7 @@ class TaskController:
                 registry,
                 durable_activity,
                 process_starts=lambda: tool_ctx.processes_started,
+                process_settlements=lambda: tool_ctx.processes_settled,
             )
 
         def observe(kind: str, payload: Mapping[str, object]) -> None:
@@ -728,6 +729,7 @@ class TaskController:
                     registry,
                     durable_activity,
                     process_starts=lambda: candidate_ctx.processes_started,
+                    process_settlements=lambda: candidate_ctx.processes_settled,
                 )
             self.events.emit("worker.workspace", {
                 "workspace_id": workspace.workspace_id,
