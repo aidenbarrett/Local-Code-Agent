@@ -218,12 +218,19 @@ class RuntimeFactsGateway(ConversationGateway):
             lines.append("- Source changes are not available here: "
                          + ("; ".join(reasons) or "the repository declaration is missing")
                          + ".")
-        if manager and build_fix and getattr(policy, "allow_commit", False):
+        commit = bool(manager and build_fix and getattr(policy, "allow_commit", False))
+        if commit:
             lines.append("- Commit an applied candidate: only its files, on the current "
                          "branch, without running hooks.")
         lines.append("- Stop the running task with Esc or \"stop\".")
-        lines.append("I never push, run arbitrary shell commands, or change your checkout "
-                     "except when you Apply or Undo a candidate.")
+        # Name exactly the actions offered above that change the repository.
+        effects = (("Apply, Undo or Commit" if commit else "Apply or Undo")
+                   if manager and build_fix else None)
+        lines.append(f"I never push or run arbitrary shell commands, and I change your "
+                     f"source files or Git history only when you {effects} a candidate."
+                     if effects else
+                     "I never push, run arbitrary shell commands, or change your source "
+                     "files or Git history in this session.")
         return "\n".join(lines)
 
     def _deterministic_answer(self, said: str) -> str | None:

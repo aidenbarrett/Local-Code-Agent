@@ -420,3 +420,13 @@ def test_commit_is_offered_separately_from_candidates():
     assert "isolated candidate" in _help(_PolicyController(commit=False))
     no_execution = _help(_PolicyController(execution=False, patch=False, commit=False))
     assert "execution is disabled" in no_execution and "Build it" not in no_execution
+
+
+def test_help_names_exactly_the_actions_that_change_the_repository():
+    everything = _help(_PolicyController())
+    assert everything.endswith("only when you Apply, Undo or Commit a candidate.")
+    assert _help(_PolicyController(commit=False)).endswith(
+        "only when you Apply or Undo a candidate.")
+    read_only = _help(_PolicyController(patch=False, commit=False))
+    assert read_only.endswith("or change your source files or Git history in this session.")
+    assert "Apply" not in read_only.splitlines()[-1]
