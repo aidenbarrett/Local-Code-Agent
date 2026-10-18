@@ -398,7 +398,7 @@ def test_apply_imports_the_reviewed_fix_once_and_says_the_proof_covers_it(sandbo
     fixed = (sandbox.root / RING).read_text(encoding="utf-8")
     assert "++count_;" in fixed and "return count_ == 0; }" in fixed
     assert _staged(sandbox.root) == ""
-    assert "build proof covers them" in result.answer
+    assert "candidate's proof covers them" in result.answer
     assert result.metrics["candidate_import"]["checkout_matches_candidate_tree"] is True
     assert _worktrees(sandbox.root) == 1
 
@@ -1021,7 +1021,7 @@ def test_an_untracked_source_file_the_user_builds_is_part_of_the_candidate(sandb
     assert "Included 1 untracked file(s)" in result.answer
     applied = _apply(controller, task_id)
     assert applied.metrics["candidate_import"]["checkout_matches_candidate_tree"] is True
-    assert "build proof covers them" in applied.answer
+    assert "candidate's proof covers them" in applied.answer
 
 
 def test_an_unready_machine_refuses_before_any_worktree_or_model_call(sandbox, tmp_path, monkeypatch):
@@ -1113,7 +1113,7 @@ def test_a_retained_candidate_keeps_no_build_output_and_still_applies(sandbox, t
     assert _diff(controller, task_id).outcome is TaskOutcome.PASS
     applied = _apply(controller, task_id)
     assert applied.outcome is TaskOutcome.PASS, applied.answer
-    assert "build proof covers them" in applied.answer
+    assert "candidate's proof covers them" in applied.answer
 
 
 def test_discard_removes_an_unapplied_candidate_and_is_durable(sandbox, tmp_path):
@@ -1171,6 +1171,15 @@ def test_unproven_fix_is_proven_by_the_controller_running_the_full_build(sandbox
     assert result.reason_code == "verification_passed"
     assert result.metrics["controller_check"] == {"check": "run-build", "decided": True}
     assert "The controller ran the configured full build on the candidate: it passed." in result.answer
+    # One statement of proof, then the patch, then the worker's prose labelled as not
+    # proof, then the commands.
+    answer = result.answer
+    assert "A full build of the candidate passed." not in answer
+    assert answer.count("passed") == 1, answer
+    assert (answer.index("it passed.") < answer.index("Diffstat:")
+            < answer.index("Worker's summary (not proof): ")
+            < answer.index(f"Review: /diff {task_id}"))
+    assert answer.rstrip().endswith(f"Apply: /apply {task_id}")
     assert result.metrics["candidate"]["retained"] is True
     assert result.metrics["proof_binding"]["scope"] == "full_build"
     cited = result.metrics["proof_binding"]["evidence_ids"]
