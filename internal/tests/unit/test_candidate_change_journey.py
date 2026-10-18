@@ -659,6 +659,14 @@ def test_undo_restores_exactly_the_pre_import_bytes_once(sandbox, tmp_path):
     assert _staged(sandbox.root) == ""
     again = _undo(controller, candidate_task)
     assert again.outcome is TaskOutcome.BLOCKED, "undo must be single-use"
+    # The undo says the candidate is used up, and a second apply says why it refuses.
+    assert "cannot be applied again" in undone.answer and '"fix it"' in undone.answer
+    reapplied = _apply(controller, candidate_task)
+    assert reapplied.outcome is TaskOutcome.BLOCKED and reapplied.reason_code == "invalid_input"
+    assert f"task {candidate_task} has no retained candidate" in reapplied.answer
+    assert "used up once it is applied" in reapplied.answer
+    assert reapplied.answer.count(candidate_task) == 1, reapplied.answer
+    assert (sandbox.root / RING).read_bytes() == before
 
 
 def test_undo_refuses_to_overwrite_work_done_after_the_apply(sandbox, tmp_path):

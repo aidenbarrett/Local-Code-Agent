@@ -152,6 +152,11 @@ class _StopScope:
         return self.probe is not None and self.probe.requested
 
 
+class CandidateNotRetainedError(WorkspaceError):
+    """No retained candidate record exists for the task: it was never retained, or it
+    was used (applied) or discarded, which removes the record."""
+
+
 class CandidateRefusedError(WorkspaceError):
     """The candidate's own content cannot be snapshotted or imported safely."""
 
@@ -1579,7 +1584,7 @@ class GitWorkspaceManager:
         """Load a retained candidate, refusing any record whose patch bytes were altered."""
         path = self._record_path(task_id)
         if not path.is_file():
-            raise WorkspaceError(f"no retained candidate for task {task_id}")
+            raise CandidateNotRetainedError(f"no retained candidate for task {task_id}")
         raw = json.loads(path.read_text(encoding="utf-8"))
         w, c = raw["workspace"], raw["candidate"]
         workspace = Workspace(
