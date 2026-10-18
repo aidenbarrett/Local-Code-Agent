@@ -183,25 +183,31 @@ def require_action_owner(
 
 
 RESULT_SCHEMA_V1 = "lca.task-result/1"
-RESULT_SCHEMA = "lca.task-result/2"
+RESULT_SCHEMA_V2 = "lca.task-result/2"
+# /3 adds ``check_failure``: typed facts of a failed configured check (check_failure.py).
+RESULT_SCHEMA = "lca.task-result/3"
 RESULT_FIELDS_V1 = frozenset({
     "schema", "task_id", "outcome", "terminal_state", "verdict",
     "verification_ran", "verified_at_completion", "evidence_ids", "answer",
 })
-RESULT_FIELDS = RESULT_FIELDS_V1 | {"candidate"}
+RESULT_FIELDS_V2 = RESULT_FIELDS_V1 | {"candidate"}
+RESULT_FIELDS = RESULT_FIELDS_V2 | {"check_failure"}
 
 
 def result_fields_for(schema: object) -> frozenset[str]:
     """The exact field set a retained result of this schema must have."""
     if schema == RESULT_SCHEMA:
         return RESULT_FIELDS
+    if schema == RESULT_SCHEMA_V2:
+        return RESULT_FIELDS_V2
     if schema == RESULT_SCHEMA_V1:
         return RESULT_FIELDS_V1
     raise ValueError(f"unknown retained task result schema: {schema!r}")
 
 
 __all__ = [
-    "CandidateFacts", "EFFECT_ROLES", "OWNED_ACTION_ROLES", "RESULT_FIELDS", "RESULT_SCHEMA",
-    "RESULT_SCHEMA_V1", "ROLES", "project_candidate", "require_action_owner", "result_fields_for",
+    "CandidateFacts", "EFFECT_ROLES", "OWNED_ACTION_ROLES", "RESULT_FIELDS", "RESULT_FIELDS_V2",
+    "RESULT_SCHEMA", "RESULT_SCHEMA_V1", "RESULT_SCHEMA_V2", "ROLES", "project_candidate",
+    "require_action_owner", "result_fields_for",
     "validate_candidate",
 ]

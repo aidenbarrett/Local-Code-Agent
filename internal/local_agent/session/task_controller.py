@@ -17,6 +17,7 @@ from ..tools.tool_primitives import Risk, ToolRegistry
 from ..verification import CONTRADICTS_CURRENT_TREE, ProofKind
 from .contracts import RouteSource, TaskOutcome, TaskResult
 from .candidate_facts import require_action_owner
+from .check_failure import check_failure_facts
 from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
@@ -639,6 +640,10 @@ class TaskController:
         verified = bool(task_outcome.succeeded and run.state.verified)
         metrics = run.state.metrics.as_dict()
         metrics["proof_binding"] = binding_from_run(task, run, self.repo.root).as_dict()
+        if skill_name == CONFIGURED_CHECK_SKILL and task_outcome is TaskOutcome.FAIL:
+            # Typed facts of the failing step, kept with the result for a later
+            # "why did that fail?"; never derived from the answer text.
+            metrics["check_failure"] = check_failure_facts(run.state.history, self.repo.root)
         return TaskResult(
             task_id, task_outcome, self._answer_with_model_failure(run.answer, run),
             verified,
