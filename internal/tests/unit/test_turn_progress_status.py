@@ -36,7 +36,16 @@ def _finished(n: int) -> list[TaskActivity]:
 def test_status_names_the_running_tool_and_elapsed_time():
     task = _task(open_tools={"c1": ToolActivity("c1", "build_target")})
     assert working_status(HubViewState(tasks=(task,)), 75.9) == \
-        "Working 1:15 · running build_target · Esc to stop"
+        "Working 1:15 · running build · Esc to stop"
+
+
+def test_configured_steps_are_named_in_words():
+    for tool, words in (("run_test", "running tests"), ("configure_project", "running configure"),
+                        ("read_file", "running read_file")):
+        task = _task(open_tools={"c1": ToolActivity("c1", tool)})
+        assert f"· {words} ·" in working_status(HubViewState(tasks=(task,)), 1)
+    done = _task(last_tool=ToolActivity("c2", "build_target"), activity=_finished(1))
+    assert "1 step done, last build" in working_status(HubViewState(tasks=(done,)), 1)
 
 
 def test_between_tools_the_status_claims_only_what_finished():
@@ -106,7 +115,7 @@ def test_the_live_status_ticks_and_esc_stops_the_active_task(tmp_path):
                 app.replace_state(HubViewState(tasks=(running,), status="Live"))
                 clock[0] += 65
                 await _wait_until(lambda: app.view_state.status
-                                  == "Working 1:05 · running build_target · Esc to stop")
+                                  == "Working 1:05 · running build · Esc to stop")
                 await pilot.press("escape")
                 await pilot.pause()
                 assert stops == [(running.task_id, 3)]
