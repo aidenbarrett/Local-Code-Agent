@@ -81,7 +81,7 @@ def test_the_report_names_steps_in_words_not_tool_names():
     plan = ConfiguredCheckPlan(RUN_TEST_CHECK)
     done = _submitted(plan.chat([_tool_message("build_target", "ok", "pass"),
                                  _tool_message("run_test", "ok", "fail")]))
-    assert done["summary"] == "Build_target pass; Tests: run_test fail"
+    assert done["summary"] == "Build_target pass\nTests: run_test fail"
     assert "build_target:" not in done["summary"] and "run_test:" not in done["summary"]
     assert done["evidence_ids"] == ["build_target:0", "run_test:1"]
 
