@@ -216,10 +216,15 @@ class VerdictBlock:
         }
 
 
+# The scope a verdict carries when no typed proof binding exists: it names where the
+# verdict came from, not a proof, so presentation never shows it as a proof scope.
+UNBOUND_RESULT_SCOPE = "controller task result at durable completion"
+
+
 def verdict_block_from_task_result(
     result: TaskResult,
     *,
-    scope: str = "controller task result at durable completion",
+    scope: str = UNBOUND_RESULT_SCOPE,
 ) -> VerdictBlock:
     """Render one typed controller result without erasing its stop reason."""
     if not isinstance(result, TaskResult):

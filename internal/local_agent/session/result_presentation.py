@@ -5,6 +5,7 @@ infers success from worker prose, or turns partial evidence into whole-task veri
 """
 from __future__ import annotations
 
+from .results import UNBOUND_RESULT_SCOPE
 from .task_read_model import TaskSnapshot
 
 
@@ -27,6 +28,9 @@ def _scope_text(scope: str | None) -> str | None:
         return None
     # Proof-bound verdict scopes include request identity after a semicolon.
     proof_scope = scope.split(";", 1)[0].strip()
+    if proof_scope == UNBOUND_RESULT_SCOPE:
+        # No typed proof binding: there is no proof scope to name.
+        return None
     return _SCOPE_LABELS.get(proof_scope, proof_scope.replace("_", " "))
 
 

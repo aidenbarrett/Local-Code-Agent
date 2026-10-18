@@ -93,7 +93,8 @@ def test_live_activity_puts_human_result_above_raw_controller_detail():
     assert rendered.startswith(
         "Requested outcome: Build and test the current repository.\n"
         "Repository: repo-1\n"
-        "Result: VERIFIED — full current-tree build proof.\nEvidence:\n"
+        "Result: VERIFIED — full current-tree build proof.\n"
+        "Next action: wait for the verdict, or press Esc to stop this task.\nEvidence:\n"
     )
     # The result line above already states the verdict; the controller's own lines
     # follow verbatim and are not restated.
@@ -403,3 +404,26 @@ def test_running_task_next_action_names_stop_for_the_task_stop_targets():
     assert _active_task(state) is newer
     assert "Requested outcome: newer request" in rendered
     assert "press Esc to stop this task" in rendered
+
+
+def test_a_verdict_without_proof_binding_names_no_proof_scope():
+    """The unbound default scope says where a verdict came from; it is not a proof."""
+    from local_agent.session.results import UNBOUND_RESULT_SCOPE
+
+    stopped = _task(verdict="NO_VERDICT", reason="cancelled", scope=UNBOUND_RESULT_SCOPE)
+    stopped.closed_sequence = 2
+    assert "  Proof scope: not established" in render_result_evidence(stopped)
+    assert UNBOUND_RESULT_SCOPE not in render_result_evidence(stopped)
+    legacy = _task(verdict="VERIFIED", reason="verification_passed", scope=UNBOUND_RESULT_SCOPE)
+    assert render_result_summary(legacy) == "Result: VERIFIED — controller verification passed."
+
+
+def test_next_action_stays_in_the_first_lines_of_the_live_card():
+    """A short projector-height card shows what to do before the proof identity."""
+    failed = _task(verdict="FAILED", reason="verification_failed",
+                   scope="observed_build_failure; request_sha256=" + "d" * 64)
+    failed.closed_sequence = 2
+    lines = render_live_activity(HubViewState(tasks=(failed,))).splitlines()
+    assert lines[2].startswith("Result: FAILED")
+    assert lines[3] == "Next action: inspect the evidence and failure detail before retrying."
+    assert lines[4] == "Evidence:"
