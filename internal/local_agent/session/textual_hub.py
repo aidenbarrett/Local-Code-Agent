@@ -545,12 +545,18 @@ def _css(palette: Mapping[str, str]) -> str:
     #workspace.compact #side-column {{
         width: 100%;
     }}
+    /* Stacked: the conversation is the primary surface, so it takes the larger
+       share; the side column scrolls within what is left. */
     #workspace.medium #conversation-column {{
-        height: 1fr;
+        height: 5fr;
         min-height: 6;
     }}
     #workspace.medium #side-column {{
-        height: 2fr;
+        height: 3fr;
+        min-height: 8;
+    }}
+    #workspace.medium.side-busy #side-column {{
+        min-height: 14;
     }}
     #workspace.compact #conversation-column {{
         height: 3;
@@ -689,18 +695,28 @@ class SessionHubApp(App):
         mode = layout_mode(width)
         workspace = self.query_one("#workspace")
         workspace.set_classes(mode)
+        self._apply_side_load()
         warning = self.query_one("#layout-warning")
         warning.display = mode == "compact"
+
+    def _apply_side_load(self) -> None:
+        """Stacked, the side column normally yields to the conversation; when it also
+        carries Attention or a watch, it keeps room to show them without scrolling."""
+        busy = (self.query_one("#attention-pane").display
+                or self.query_one("#watch-pane").display)
+        self.query_one("#workspace").set_class(bool(busy), "side-busy")
 
     def _apply_watch_visibility(self) -> None:
         watch = self.query_one("#watch", Static)
         watch.display = bool(self.view_state.watches)
         self.query_one("#watch-pane").display = watch.display
+        self._apply_side_load()
 
     def _apply_attention_visibility(self) -> None:
         attention = self.query_one("#attention", Static)
         attention.display = bool(render_attention(self.view_state.tasks))
         self.query_one("#attention-pane").display = attention.display
+        self._apply_side_load()
 
     def replace_state(self, state: HubViewState) -> None:
         """Replace already-derived presentation state on the Textual thread."""
