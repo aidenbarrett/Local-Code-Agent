@@ -12,12 +12,15 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 from uuid import UUID
 
-ROLES = frozenset({"prepared", "applied", "apply_refused", "undone", "committed", "discarded"})
+ROLES = frozenset({
+    "prepared", "reviewed", "applied", "apply_refused", "undone", "committed", "discarded",
+})
 EFFECT_ROLES = {
     "apply-candidate": "applied",
     "undo-candidate": "undone",
     "commit-candidate": "committed",
 }
+OWNED_ACTION_ROLES = {"diff-candidate": "reviewed", **EFFECT_ROLES}
 _KEYS = frozenset({
     "role", "candidate_task_id", "retained", "paths", "patch_sha256", "base_commit", "commit",
 })
@@ -83,6 +86,8 @@ def validate_candidate(value: object) -> CandidateFacts | None:
         raise ValueError("a commit id is present exactly when the role is committed")
     if value["retained"] and (not paths or value["patch_sha256"] is None):
         raise ValueError("a retained candidate must name its paths and patch")
+    if role == "reviewed" and (not paths or value["patch_sha256"] is None):
+        raise ValueError("a reviewed candidate must name its paths and checked patch")
     return CandidateFacts(
         role=role,
         candidate_task_id=_canonical_uuid(value["candidate_task_id"]),
@@ -116,6 +121,7 @@ def project_candidate(task_id: str, succeeded: bool, metrics: Mapping[str, Any])
         return facts.as_payload()
 
     for key, ok_role, bad_role in (
+        ("candidate_diff", "reviewed", None),
         ("candidate_import", "applied", "apply_refused"),
         ("candidate_undo", "undone", None),
         ("candidate_commit", "committed", None),
@@ -144,21 +150,21 @@ def project_candidate(task_id: str, succeeded: bool, metrics: Mapping[str, Any])
     return None
 
 
-def require_effect_owner(
+def require_action_owner(
     action: str,
     task_id: str,
     *,
     succeeded: bool,
     metrics: Mapping[str, Any],
 ) -> dict[str, Any] | None:
-    """Return an effect's owning candidate facts; refuse ownerless success.
+    """Return an action's owning candidate facts; refuse ownerless success.
 
-    Non-effect actions and unsuccessful effects keep their existing result semantics.
-    A successful checkout effect must project the role owned by that action's typed
-    receipt.  This is the trust boundary that prevents a bare PASS from becoming a
-    durable VERIFIED apply, undo or commit.
+    Unowned actions and unsuccessful owned actions keep their existing result semantics.
+    A successful candidate review or checkout effect must project the role owned by
+    that action's typed receipt. This is the trust boundary that prevents a bare PASS
+    from becoming a durable VERIFIED diff, apply, undo or commit.
     """
-    expected = EFFECT_ROLES.get(action)
+    expected = OWNED_ACTION_ROLES.get(action)
     if expected is None:
         return None
     if not succeeded:
@@ -168,10 +174,10 @@ def require_effect_owner(
         candidate is None
         or candidate.get("role") != expected
         or not candidate.get("paths")
-        or (expected == "applied" and candidate.get("patch_sha256") is None)
+        or (expected in {"reviewed", "applied"} and candidate.get("patch_sha256") is None)
     ):
         raise ValueError(
-            f"successful {action} result has no authoritative {expected} receipt"
+            f"successful {action} result has no authoritative {expected} candidate receipt"
         )
     return candidate
 
@@ -195,7 +201,7 @@ def result_fields_for(schema: object) -> frozenset[str]:
 
 
 __all__ = [
-    "CandidateFacts", "EFFECT_ROLES", "RESULT_FIELDS", "RESULT_SCHEMA", "RESULT_SCHEMA_V1",
-    "ROLES", "project_candidate", "require_effect_owner", "result_fields_for",
+    "CandidateFacts", "EFFECT_ROLES", "OWNED_ACTION_ROLES", "RESULT_FIELDS", "RESULT_SCHEMA",
+    "RESULT_SCHEMA_V1", "ROLES", "project_candidate", "require_action_owner", "result_fields_for",
     "validate_candidate",
 ]

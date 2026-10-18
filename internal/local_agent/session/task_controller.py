@@ -16,7 +16,7 @@ from ..tools import build_registry
 from ..tools.tool_primitives import Risk, ToolRegistry
 from ..verification import CONTRADICTS_CURRENT_TREE, ProofKind
 from .contracts import RouteSource, TaskOutcome, TaskResult
-from .candidate_facts import require_effect_owner
+from .candidate_facts import require_action_owner
 from .durable_tool_registry import wrap_registry_with_durable_activity
 from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
@@ -96,10 +96,10 @@ if frozenset(_CONTROLLER_ACTION_HANDLERS) != CONTROLLER_ACTIONS:
 _PROGRAMMER_ERRORS = (TypeError, AttributeError, NameError, AssertionError)
 
 
-def _effect_result_with_owner(action: str, result: TaskResult) -> TaskResult:
-    """Fail closed when a successful checkout effect lost its typed receipt owner."""
+def _action_result_with_owner(action: str, result: TaskResult) -> TaskResult:
+    """Fail closed when a successful owned action lost its typed candidate receipt."""
     try:
-        require_effect_owner(
+        require_action_owner(
             action,
             result.task_id,
             succeeded=result.outcome.succeeded,
@@ -109,7 +109,7 @@ def _effect_result_with_owner(action: str, result: TaskResult) -> TaskResult:
         return TaskResult(
             result.task_id,
             TaskOutcome.NO_VERDICT,
-            "The controller action completed, but its authoritative effect receipt is "
+            "The controller action completed, but its authoritative candidate receipt is "
             "missing or invalid. Inspect repository state before retrying.",
             False,
             metrics=result.metrics,
@@ -886,7 +886,7 @@ class TaskController:
                 from .self_check import run_self_check
                 result = run_self_check(self.repo, task_id, self.events)
             elif (action := _CONTROLLER_ACTION_HANDLERS.get(resolved_skill or "")) is not None:
-                result = _effect_result_with_owner(
+                result = _action_result_with_owner(
                     resolved_skill or "",
                     action(
                         self.workspaces, self.declared_repo, task_id=task_id, request_text=task,
