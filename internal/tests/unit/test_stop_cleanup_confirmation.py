@@ -156,3 +156,93 @@ def test_a_reconciled_stop_reads_as_stopped_and_an_unreconciled_one_does_not():
     unreconciled = task("cancel_unreconciled")
     assert "cleanup is not fully reconciled" in render_result_summary(unreconciled)
     assert "cleanup state" in render_result_next_action(unreconciled)
+
+
+class _StopAfterFirstStep:
+    """Stop arrives after the first configured command returned, before the next one."""
+
+    def __init__(self) -> None:
+        self.returned = 0
+
+    @property
+    def requested(self) -> bool:
+        return self.returned >= 1
+
+
+def _two_step_build(tmp_path, service, task_id, monkeypatch, *, first_unproven=False):
+    import sys
+
+    from local_agent.config import load_repo_config
+    from local_agent.session.durable_tool_registry import wrap_registry_with_durable_activity
+    from local_agent.tools import build_registry
+    from local_agent.tools.tool_primitives import BlockedError
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    ok = json.dumps([sys.executable, "-c", "raise SystemExit(0)"])
+    (root / ".local-agent.toml").write_text(
+        f"[profiles.debug]\nconfigure={ok}\nbuild={ok}\n", encoding="utf-8")
+    probe = _StopAfterFirstStep()
+    registry, ctx, _ = build_registry(load_repo_config(root), cancellation_probe=probe)
+    from local_agent.tools import tool_context
+
+    real = tool_context.run_command
+
+    def counted(*args, **kwargs):
+        outcome = real(*args, **kwargs)
+        if first_unproven:
+            outcome.process_cleanup_confirmed = False
+        probe.returned += 1
+        return outcome
+
+    monkeypatch.setattr(tool_context, "run_command", counted)
+    activity = DurableToolActivity.from_task(service, task_id)
+    wrapped = wrap_registry_with_durable_activity(
+        registry, activity,
+        process_starts=lambda: ctx.processes_started,
+        process_settlements=lambda: ctx.processes_settled,
+    )
+    with pytest.raises(BlockedError):
+        wrapped.get("build_target").handler()
+    return ctx
+
+
+def test_stop_between_configured_steps_is_confirmed_by_the_settled_count(tmp_path, monkeypatch):
+    """Configure ran and ended; Stop then fenced the build before it spawned. Nothing
+    is left running, and terminal truth says so from typed counts, not prose."""
+    service, task_id = _admitted(tmp_path)
+    try:
+        ctx = _two_step_build(tmp_path, service, task_id, monkeypatch)
+        assert (ctx.processes_started, ctx.processes_settled) == (1, 1)
+        assert _cleanup(service, task_id) == ("confirmed", ())
+    finally:
+        service.close()
+
+
+def test_stop_after_a_step_whose_cleanup_is_unproven_stays_attempted(tmp_path, monkeypatch):
+    service, task_id = _admitted(tmp_path)
+    try:
+        ctx = _two_step_build(tmp_path, service, task_id, monkeypatch, first_unproven=True)
+        assert ctx.processes_settled == 0
+        assert _cleanup(service, task_id) == ("attempted", ())
+    finally:
+        service.close()
+
+
+def test_settled_count_only_confirms_a_stop_fence():
+    from local_agent.tools.tool_primitives import BlockedError, Reason
+
+    seen: dict = {}
+    _finish_exception(lambda **kw: seen.update(kw),
+                      BlockedError("policy", Reason.BAD_ARGUMENTS), 0.0,
+                      settled_before_stop=True)
+    assert "process_cleanup_confirmed" not in seen
+    seen.clear()
+    _finish_exception(lambda **kw: seen.update(kw),
+                      BlockedError("stop", Reason.COMMAND_CANCELLED), 0.0,
+                      settled_before_stop=False)
+    assert "process_cleanup_confirmed" not in seen
+    _finish_exception(lambda **kw: seen.update(kw),
+                      BlockedError("stop", Reason.COMMAND_CANCELLED), 0.0,
+                      settled_before_stop=True)
+    assert seen["process_cleanup_confirmed"] is True

@@ -2110,6 +2110,16 @@ def q_stop_build(s: Session) -> None:
     retained = s.graph.history.result_for_task(task_id)
     expect(retained is not None and not retained.verified_at_completion,
            "the stopped build has no unverified terminal result")
+    # The Hub says "stopped on request; every command it started is confirmed ended"
+    # only for reason "cancelled". Anything else (cleanup not reconciled) is a failure
+    # of the Stop claim, even when no process is visible afterwards.
+    verdict = next((e for e in s.events() if e.get("task_id") == task_id
+                    and e.get("kind") == "task.verdict"), None)
+    reason = None if verdict is None else (
+        (verdict.get("payload") or {}).get("completion", {}).get("verdict_block", {})
+        .get("reason_code"))
+    s.journey.measured["stop_reason"] = reason
+    expect(reason == "cancelled", f"the stopped build's reason was {reason!r}, not 'cancelled'")
     time.sleep(3)
     alive = processes_under(s.repo)
     s.journey.measured["surviving_processes"] = alive

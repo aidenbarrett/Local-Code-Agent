@@ -50,6 +50,11 @@ class ToolContext:
     # Durable activity compares it around one tool call, so a call refused before
     # anything spawned is not mistaken for one that may have left a process behind.
     processes_started: int = 0
+    # How many of those processes the command runner accounted for as ended: the run
+    # returned and its whole-tree owner either saw nothing left or confirmed every
+    # process gone. A run whose cleanup the runner could not prove is not counted, and
+    # neither is one that raised, so a gap between the two counts fails closed.
+    processes_settled: int = 0
 
     def profile(self, name: str | None = None) -> BuildProfile:
         """Resolve a tool argument without exposing configuration errors as crashes."""
@@ -108,6 +113,7 @@ class ToolContext:
         # and a Stop already requested fences this effect like every other.
         self.refuse_if_cancelled()
         ignore_owned_output(self.root, self.run_root)
+        spawned_before = self.processes_started
         try:
             outcome = run_command(
                 command,
@@ -123,6 +129,9 @@ class ToolContext:
                 "Stop was requested before this command started; it did not run.",
                 Reason.COMMAND_CANCELLED,
             ) from exc
+        if (self.processes_started > spawned_before
+                and outcome.process_cleanup_confirmed is not False):
+            self.processes_settled += 1
         if outcome.cancel_requested:
             confirmed = outcome.process_cleanup_confirmed is True
             raise CommandStoppedError(

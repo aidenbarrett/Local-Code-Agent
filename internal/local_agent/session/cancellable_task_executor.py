@@ -178,8 +178,8 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
                 handle.task_id,
                 TaskOutcome.NO_VERDICT,
                 (
-                    "Stopped. The running command was ended and its process tree confirmed "
-                    "gone; the interrupted run is not a result."
+                    "Stopped. Every command it started has ended, confirmed by its "
+                    "process owner; the interrupted run is not a result."
                 ),
                 False,
                 verification_ran=False,
