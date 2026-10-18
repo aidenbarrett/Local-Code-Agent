@@ -54,14 +54,36 @@ def failed_command_suffix(command: list[str]) -> str:
     return f" -- command: {json.dumps(command)}"
 
 
-def _failed_tests_summary(report: TestLogReport, command: list[str]) -> str:
-    """Which tests failed, the failure's kind, its first evidence and the failing argv."""
+_LOCATION_MAX = 160
+
+
+def _source_location(entry: dict[str, Any], root: Path) -> str | None:
+    """Where an assertion failed: repository-relative when the file is under ``root``."""
+    file, line = entry.get("file"), entry.get("line")
+    if not isinstance(file, str) or not file or not isinstance(line, int):
+        return None
+    path = Path(file)
+    try:
+        shown = path.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        shown = file
+    if len(shown) > _LOCATION_MAX:
+        shown = "…" + shown[-(_LOCATION_MAX - 1):]
+    return f"{shown}:{line}"
+
+
+def _failed_tests_summary(report: TestLogReport, command: list[str], root: Path) -> str:
+    """Which tests failed, the failure's kind, its first evidence (expression first,
+    then where it failed) and the failing argv."""
     names = ", ".join(entry["name"] for entry in report.failed[:5]) or "see log"
     kind = report.failure_kind or "failed"
     summary = f"{len(report.failed)} test(s) FAILED ({kind}): {names}"
     evidence = (report.assertions or report.crash_markers)[:1]
     if evidence:
         summary += f"; first {kind} evidence: {evidence[0]['text'][:200]}"
+        location = _source_location(evidence[0], root)
+        if location is not None:
+            summary += f" at {location}"
     return summary + failed_command_suffix(command)
 
 
@@ -434,7 +456,7 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> None:
                 "configured or not built. Run configure_project and build_target first."
             )
         else:
-            summary = _failed_tests_summary(report, command)
+            summary = _failed_tests_summary(report, command, ctx.root)
 
         # Every one of these means the binaries ctest just executed are not the
         # binaries this source tree would produce. Prepended in reverse order
