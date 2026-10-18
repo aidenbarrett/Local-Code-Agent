@@ -421,7 +421,7 @@ def decide_route(
     explicit_mode: ExplicitMode | str | None = None,
     active_repo_count: int | None = None,
     eligible_task_ids: Sequence[str] = (),
-    failure_kinds: Mapping[str, str] | None = None,
+    fixable_failure_kinds: Mapping[str, str | None] | None = None,
 ) -> RouteDecision:
     """Resolve deterministic routing before the model-fallback boundary.
 
@@ -439,6 +439,13 @@ def decide_route(
             minimum=0,
             message="active_repo_count must be a nonnegative integer or None",
         )
+    eligible = _validate_reference_ids(eligible_task_ids)
+    fixable_kinds = {} if fixable_failure_kinds is None else dict(fixable_failure_kinds)
+    fixable = _validate_reference_ids(tuple(fixable_kinds))
+    if not set(fixable).issubset(eligible):
+        raise ValueError("fixable task references must be eligible failed task references")
+    if any(kind is not None and not isinstance(kind, str) for kind in fixable_kinds.values()):
+        raise ValueError("fixable failure kinds must be strings or None")
 
     stripped = text.strip()
     lowered = stripped.lower()
@@ -650,15 +657,18 @@ def decide_route(
     explicit_fix = _EXPLICIT_FIX.fullmatch(stripped)
     if explicit_fix is not None or _FIX.fullmatch(stripped):
         if explicit_fix is not None:
-            task_id, reason = _explicit_referent(explicit_fix.group("task_id"), eligible_task_ids)
+            task_id, reason = _explicit_referent(explicit_fix.group("task_id"), eligible)
+            if task_id is not None and task_id not in fixable:
+                task_id, reason = None, "superseded_task_reference"
         else:
-            task_id, reason = _unique_referent(eligible_task_ids)
+            task_id, reason = _unique_referent(fixable)
         if task_id is None:
             return RouteDecision(RouteAction.CLARIFY, reason_code=reason)
         repo_reason = _repository_target_reason(active_repo_count)
         if repo_reason is not None:
             return RouteDecision(RouteAction.CLARIFY, reason_code=repo_reason)
-        skill = FIX_SKILL_BY_FAILURE_KIND.get((failure_kinds or {}).get(task_id, ""))
+        failure_kind = fixable_kinds.get(task_id)
+        skill = None if failure_kind is None else FIX_SKILL_BY_FAILURE_KIND.get(failure_kind)
         if skill is None:
             return RouteDecision(RouteAction.CLARIFY, reason_code="unfixable_failure_kind")
         return RouteDecision(

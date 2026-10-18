@@ -16,6 +16,7 @@ from .session_store import ArtifactIntegrityError, SQLiteSessionStore
 
 from .candidate_facts import CandidateFacts, result_fields_for, validate_candidate
 from .check_failure import CheckFailure, read_check_failure
+from .check_supersession import ExecutedCheckRun, check_run_is_superseded
 _RESULT_MEDIA_TYPE = "application/vnd.lca.task-result+json"
 
 
@@ -265,3 +266,70 @@ class DurableTaskHistory:
                 if completion["verdict_block"]["verdict"] == TaskVerdict.FAILED.value:
                     failed.add(task_id)
         return tuple(admissions[task_id] for task_id in order if task_id in failed)
+
+    def fixable_failure_task_ids(self, conversation_id: str) -> tuple[str, ...]:
+        """Return failed referents that still describe the configured checkout state.
+
+        Diagnostics keep every durable failure.  Fix routing is narrower: a later
+        executed run of the same configured check in the same repository replaces an
+        older failure.  Refused, cancelled and unrecorded runs replace nothing.
+        """
+        candidates = self.failure_candidates(conversation_id)
+        admissions: dict[str, tuple[str, str]] = {}
+        verdict_sequence: dict[str, int] = {}
+        for event in self._stream_events():
+            task_id = event.get("task_id")
+            if not isinstance(task_id, str):
+                continue
+            if event.get("kind") == "task.admitted":
+                payload = event.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                check = admitted_configured_check(payload)
+                repository = payload.get("repository_id")
+                if check is not None and isinstance(repository, str):
+                    admissions[task_id] = (repository, check)
+            elif event.get("kind") == "task.verdict":
+                verdict_sequence[task_id] = int(event["sequence"])
+
+        executed = self._executed_check_runs(admissions, verdict_sequence)
+
+        fixable: list[str] = []
+        executed_by_id = {run.task_id: run for run in executed}
+        for candidate in candidates:
+            run = executed_by_id.get(candidate.task_id)
+            if run is None:
+                # A configured check without retained execution proof fails closed;
+                # ordinary non-check failures remain eligible for their typed repair.
+                if candidate.task_id not in admissions:
+                    fixable.append(candidate.task_id)
+                continue
+            if not check_run_is_superseded(executed, run):
+                fixable.append(candidate.task_id)
+        return tuple(fixable)
+
+    def _executed_check_runs(
+        self,
+        admissions: dict[str, tuple[str, str]],
+        verdict_sequence: dict[str, int],
+    ) -> tuple[ExecutedCheckRun, ...]:
+        """Project only configured checks with retained proof that they executed."""
+        executed: list[ExecutedCheckRun] = []
+        for task_id, check_key in admissions.items():
+            sequence = verdict_sequence.get(task_id)
+            if sequence is None:
+                continue
+            result = self.result_for_task(task_id)
+            if (
+                result is None
+                or not result.verification_ran
+                or result.verdict not in {TaskVerdict.VERIFIED.value, TaskVerdict.FAILED.value}
+            ):
+                continue
+            executed.append(ExecutedCheckRun(
+                task_id=task_id,
+                repository_id=check_key[0],
+                configured_check=check_key[1],
+                sequence=sequence,
+            ))
+        return tuple(executed)

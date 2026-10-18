@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from .check_supersession import ExecutedCheckRun, check_run_is_superseded
 from .task_read_model import TaskSnapshot
 
 
@@ -18,16 +19,26 @@ def _executed_check(task: TaskSnapshot) -> bool:
             and task.result_verification_ran is True)
 
 
+def _check_run(task: TaskSnapshot) -> ExecutedCheckRun | None:
+    if not _executed_check(task):
+        return None
+    return ExecutedCheckRun(
+        task_id=task.task_id,
+        repository_id=task.repository_id,
+        configured_check=str(task.configured_check),
+        sequence=task.last_sequence,
+    )
+
+
 def superseded_check(tasks: Sequence[TaskSnapshot], task: TaskSnapshot) -> bool:
     """Whether a later run of the same configured check in the same repository, one
     that actually executed the check, has replaced ``task`` as that check's state."""
-    if not _executed_check(task):
+    target = _check_run(task)
+    if target is None:
         return False
-    return any(
-        _executed_check(other) and other.last_sequence > task.last_sequence
-        and other.repository_id == task.repository_id
-        and other.configured_check == task.configured_check
-        for other in tasks
+    return check_run_is_superseded(
+        (run for other in tasks if (run := _check_run(other)) is not None),
+        target,
     )
 
 
@@ -42,22 +53,15 @@ def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
     for task in ordered:
         if task.candidate is not None and task.candidate.role != "reviewed":
             latest[task.candidate.candidate_task_id] = task.last_sequence
-    # Likewise a configured check's state is its latest run in that repository that
-    # actually executed the check: a failure that such a run has replaced no longer
-    # describes the checkout. A refused, cancelled or unrecorded run executed nothing
-    # and replaces nothing.
-    latest_check: dict[tuple[str, str], int] = {}
-    for task in ordered:
-        if _executed_check(task):
-            latest_check[(task.repository_id, str(task.configured_check))] = task.last_sequence
+    check_runs = [run for task in ordered if (run := _check_run(task)) is not None]
     items: list[str] = []
     for task in reversed(ordered):
         candidate = task.candidate
         if (candidate is not None
                 and latest.get(candidate.candidate_task_id) != task.last_sequence):
             continue
-        check = (task.repository_id, str(task.configured_check))
-        if _executed_check(task) and latest_check[check] != task.last_sequence:
+        check_run = _check_run(task)
+        if check_run is not None and check_run_is_superseded(check_runs, check_run):
             continue
         if (
             candidate is not None
