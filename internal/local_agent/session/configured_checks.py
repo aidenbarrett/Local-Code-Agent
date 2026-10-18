@@ -127,7 +127,7 @@ class ConfiguredCheckPlan:
         else:
             # The check could not be run (blocked, errored, timed out): no verdict.
             claim = "diagnosis"
-        summary = "; ".join(_step_line(step.name, step.summary) for step in done) or "nothing ran"
+        summary = "\n".join(_step_line(step.name, step.summary) for step in done) or "nothing ran"
         return ChatResponse(tool_calls=[tool_call("submit_answer", {
             "claim": claim, "summary": summary, "evidence_ids": evidence,
         }, f"check-{len(done)}")])
