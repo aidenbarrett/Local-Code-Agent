@@ -80,6 +80,11 @@ def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
             reason, message = task.faults[-1]
             items.append(f"Fault · {task.task_id}\n{reason}: {message}")
             continue
+        if (task.verdict == "NO_VERDICT" and task.verdict_reason == "cancelled"
+                and task.cleanup == "confirmed"):
+            # A Stop the user asked for, with every command it started confirmed
+            # ended, leaves nothing to intervene on. An unreconciled Stop does.
+            continue
         if task.terminal and task.verdict in {"FAILED", "NO_VERDICT"}:
             reason = task.verdict_reason or "reason unavailable"
             items.append(f"{task.verdict} · {task.task_id}\n{reason}")
