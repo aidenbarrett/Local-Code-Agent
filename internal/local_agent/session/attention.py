@@ -18,6 +18,19 @@ def _executed_check(task: TaskSnapshot) -> bool:
             and task.result_verification_ran is True)
 
 
+def superseded_check(tasks: Sequence[TaskSnapshot], task: TaskSnapshot) -> bool:
+    """Whether a later run of the same configured check in the same repository, one
+    that actually executed the check, has replaced ``task`` as that check's state."""
+    if not _executed_check(task):
+        return False
+    return any(
+        _executed_check(other) and other.last_sequence > task.last_sequence
+        and other.repository_id == task.repository_id
+        and other.configured_check == task.configured_check
+        for other in tasks
+    )
+
+
 def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
     """Up to three durable facts that need the user, newest first; empty when none."""
     ordered = sorted(tasks, key=lambda item: item.last_sequence)
@@ -69,4 +82,4 @@ def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
     return "\n\n".join(items[:3])
 
 
-__all__ = ["render_attention"]
+__all__ = ["render_attention", "superseded_check"]

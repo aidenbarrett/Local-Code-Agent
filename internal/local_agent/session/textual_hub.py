@@ -22,7 +22,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import Button, Input, Select, Static
 
-from .attention import render_attention
+from .attention import render_attention, superseded_check
 from .task_read_model import OriginTurn, TaskSnapshot, project_tasks
 from .watch_read_model import WatchSnapshot, project_watches
 
@@ -798,10 +798,13 @@ class SessionHubApp(App):
         self.query_one("#task-actions").display = candidate is not None or check_failure
         for name in ("review-candidate", "apply-candidate", "undo-candidate", "commit-candidate"):
             self.query_one("#" + name, Button).display = candidate is not None
+        # A failure that a later run of the same check has replaced can still be
+        # explained, but there is nothing on the checkout left for Fix to repair.
+        replaced = task is not None and superseded_check(self.view_state.tasks, task)
         for name in ("explain-task", "fix-task"):
             button = self.query_one("#" + name, Button)
             button.display = candidate is None
-            button.disabled = not check_failure
+            button.disabled = not check_failure or (name == "fix-task" and replaced)
         verified = task is not None and _retained_result_verified(task)
         prepared = next((item for item in self.view_state.tasks
                          if item.candidate_not_applied and item.candidate is not None
@@ -829,7 +832,9 @@ class SessionHubApp(App):
         selected = self.query_one("#task-select", Select).value
         if event.button.id in {"explain-task", "fix-task"}:
             task = self._selectable_tasks().get(str(selected))
-            if not event.button.disabled and self._check_failure(task):
+            if (not event.button.disabled and self._check_failure(task)
+                    and not (event.button.id == "fix-task" and task is not None
+                             and superseded_check(self.view_state.tasks, task))):
                 text = (f"Why did task {selected} fail?" if event.button.id == "explain-task"
                         else f"Fix task {selected}")
                 self.post_message(HubInputSubmitted(text, from_composer=False))
