@@ -62,7 +62,7 @@ def test_the_build_plan_runs_the_build_then_reports_what_it_saw():
     (first,) = plan.chat([{"role": "user", "content": "build it"}]).tool_calls
     assert (first.name, first.arguments) == ("build_target", {})
     passed = _submitted(plan.chat([_tool_message("build_target", "ok", "pass")]))
-    assert passed == {"claim": "success", "summary": "build_target: build_target pass",
+    assert passed == {"claim": "success", "summary": "Build_target pass",
                       "evidence_ids": ["build_target:0"]}
     failed = _submitted(plan.chat([_tool_message("build_target", "ok", "fail")]))
     assert (failed["claim"], failed["evidence_ids"]) == ("failure", ["build_target:0"])
@@ -75,6 +75,15 @@ def test_the_test_plan_builds_first_and_stops_at_a_failed_build():
     stopped = _submitted(plan.chat([_tool_message("build_target", "ok", "fail")]))
     assert stopped["claim"] == "failure"
     assert stopped["evidence_ids"] == ["build_target:0"]
+
+
+def test_the_report_names_steps_in_words_not_tool_names():
+    plan = ConfiguredCheckPlan(RUN_TEST_CHECK)
+    done = _submitted(plan.chat([_tool_message("build_target", "ok", "pass"),
+                                 _tool_message("run_test", "ok", "fail")]))
+    assert done["summary"] == "Build_target pass; Tests: run_test fail"
+    assert "build_target:" not in done["summary"] and "run_test:" not in done["summary"]
+    assert done["evidence_ids"] == ["build_target:0", "run_test:1"]
 
 
 def test_a_check_that_could_not_run_claims_nothing():
