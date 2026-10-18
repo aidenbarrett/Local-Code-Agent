@@ -50,7 +50,7 @@ def test_feed_projects_pending_and_resolved_route_from_durable_events(tmp_path):
         assert feed.poll() is True
         resolved = feed.state()
         assert resolved.route_summary == "model proposal · work · repo-navigation · accepted"
-        assert resolved.status.startswith("Live · durable seq ")
+        assert resolved.status.startswith("Live · ") and resolved.status.endswith(" recorded")
     finally:
         service.close()
 
@@ -70,6 +70,6 @@ def test_explicit_route_summary_provider_remains_an_override_without_inventing_d
         feed = DurableHubFeed(service, route_summary_provider=lambda: "fixture override")
         state = feed.start()
         assert state.route_summary == "fixture override"
-        assert state.status.startswith("Live · durable seq ")
+        assert state.status.startswith("Live · ") and state.status.endswith(" recorded")
     finally:
         service.close()
