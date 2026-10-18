@@ -149,6 +149,17 @@ class ToolError(RuntimeError):
             self.reason = reason
 
 
+class CommandStoppedError(ToolError):
+    """Stop interrupted a running command. ``process_cleanup_confirmed`` is the runner's
+    own typed answer to whether the command's whole process tree is gone."""
+
+    reason = Reason.COMMAND_CANCELLED
+
+    def __init__(self, message: str, *, process_cleanup_confirmed: bool) -> None:
+        super().__init__(message)
+        self.process_cleanup_confirmed = process_cleanup_confirmed
+
+
 class NotFoundError(ToolError):
     """The thing the model asked for is not there. Its problem to fix, so ERROR."""
 

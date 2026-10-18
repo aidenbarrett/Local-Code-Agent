@@ -93,6 +93,8 @@ _ALLOWED_REASONS_BY_VERDICT: dict[TaskVerdict, frozenset[VerdictReason]] = {
         VerdictReason.CONTROLLER_FAULT,
         VerdictReason.DURABLE_WRITE_FAILED,
         VerdictReason.CANCEL_UNRECONCILED,
+        # A Stop whose spawned process trees are all confirmed gone; no result stands.
+        VerdictReason.CANCELLED,
         VerdictReason.CONTROLLER_CRASH,
         VerdictReason.ENDPOINT_UNAVAILABLE,
         VerdictReason.INFERENCE_TIMEOUT,
