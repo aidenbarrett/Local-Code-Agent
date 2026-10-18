@@ -15,6 +15,7 @@ from time import monotonic
 
 from ..tools.tool_primitives import (
     BlockedError,
+    CommandStoppedError,
     Reason,
     Risk,
     Tool,
@@ -38,6 +39,9 @@ def _finish_exception(finish: Callable[..., None], exc: BaseException, started: 
     else:
         execution = "error"
         reason = Reason.INTERNAL_ERROR.value
+    # Only a stopped command has a cleanup answer to record.
+    extra = ({"process_cleanup_confirmed": exc.process_cleanup_confirmed}
+             if isinstance(exc, CommandStoppedError) else {})
     finish(
         execution=execution,
         domain="unknown",
@@ -45,6 +49,7 @@ def _finish_exception(finish: Callable[..., None], exc: BaseException, started: 
         exit_code=None,
         duration_ms=max(0, int((monotonic() - started) * 1000)),
         failure_detail=str(exc),
+        **extra,
     )
 
 
