@@ -209,3 +209,15 @@ def test_a_later_run_that_did_not_execute_the_check_replaces_no_failure():
     unrecorded.result_verification_ran = None
     for later in (refused, cancelled, unrecorded):
         assert failed.task_id in render_attention((failed, later)), later.verdict
+
+
+def test_a_confirmed_stop_needs_no_attention_but_an_unreconciled_one_does():
+    stopped = _task(verdict="NO_VERDICT")
+    stopped.verdict_reason = "cancelled"
+    assert render_attention((stopped,)) == ""
+    unreconciled = _task(verdict="NO_VERDICT")
+    unreconciled.verdict_reason = "cancel_unreconciled"
+    assert (f"NO_VERDICT · {unreconciled.task_id}\ncancel_unreconciled"
+            in render_attention((stopped, unreconciled)))
+    stopped.faults = [("controller_fault", "writer failed")]
+    assert f"Fault · {stopped.task_id}" in render_attention((stopped,))
