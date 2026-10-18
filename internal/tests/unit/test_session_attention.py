@@ -214,6 +214,7 @@ def test_a_later_run_that_did_not_execute_the_check_replaces_no_failure():
 def test_a_confirmed_stop_needs_no_attention_but_an_unreconciled_one_does():
     stopped = _task(verdict="NO_VERDICT")
     stopped.verdict_reason = "cancelled"
+    stopped.cleanup = "confirmed"
     assert render_attention((stopped,)) == ""
     unreconciled = _task(verdict="NO_VERDICT")
     unreconciled.verdict_reason = "cancel_unreconciled"
@@ -221,3 +222,13 @@ def test_a_confirmed_stop_needs_no_attention_but_an_unreconciled_one_does():
             in render_attention((stopped, unreconciled)))
     stopped.faults = [("controller_fault", "writer failed")]
     assert f"Fault · {stopped.task_id}" in render_attention((stopped,))
+
+
+def test_a_cancelled_stop_without_confirmed_cleanup_stays_in_attention():
+    """The skip consumes the durable cleanup fact; the reason alone proves nothing."""
+    for cleanup in ("attempted", "unknown", "not_needed", None):
+        stopped = _task(verdict="NO_VERDICT")
+        stopped.verdict_reason = "cancelled"
+        stopped.cleanup = cleanup
+        assert (f"NO_VERDICT · {stopped.task_id}\ncancelled"
+                in render_attention((stopped,))), cleanup
