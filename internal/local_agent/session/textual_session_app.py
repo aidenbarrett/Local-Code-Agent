@@ -37,6 +37,15 @@ def _active_task(state: HubViewState) -> TaskSnapshot | None:
     return next((item for item in reversed(state.tasks) if not item.terminal), None)
 
 
+# What the status line calls a recorded tool step; other tools keep their own name.
+_STEP_NAMES = {"build_target": "build", "run_test": "tests",
+               "configure_project": "configure"}
+
+
+def _step_name(tool_name: str) -> str:
+    return _STEP_NAMES.get(tool_name, tool_name)
+
+
 def working_status(state: HubViewState, elapsed_s: float) -> str:
     """What an in-flight turn is doing, from durable task facts and local elapsed time.
 
@@ -52,12 +61,12 @@ def working_status(state: HubViewState, elapsed_s: float) -> str:
         running = task.frozen_open_tools()
         finished = sum(1 for item in task.activity if item.kind == "tool.finished")
         if running:
-            names = ", ".join(tool.tool_name for tool in running[:2])
+            names = ", ".join(_step_name(tool.tool_name) for tool in running[:2])
             more = f" +{len(running) - 2}" if len(running) > 2 else ""
             parts.append(f"running {names}{more}")
         elif task.last_tool is not None:
             parts.append(f"{finished} step{'s' if finished != 1 else ''} done, "
-                         f"last {task.last_tool.tool_name}")
+                         f"last {_step_name(task.last_tool.tool_name)}")
         else:
             parts.append(f"task {task.state}")
         parts.append("Esc to stop")
