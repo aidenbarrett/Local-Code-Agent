@@ -36,6 +36,7 @@ from .intents import (
 )
 from .endpoint_client import ModelEndpointQuarantinedError
 from .session_store import ArtifactIntegrityError
+from .check_failure import render_check_failure
 from .task_history import TaskObservation
 
 
@@ -450,9 +451,13 @@ class ConversationGateway:
         if check is None:
             return None
         asked = {"run-build": "build it", "run-tests": "run the tests"}[check]
+        facts = observation.check_failure
+        recorded = (
+            "\n" + "\n".join(render_check_failure(facts)) if facts is not None
+            else f" Its recorded result:\n{observation.answer}"
+        )
         return (
-            f"Task {observation.task_id} ({asked}) failed. Its recorded result:\n"
-            f"{observation.answer}\n\n"
+            f"Task {observation.task_id} ({asked}) failed.{recorded}\n\n"
             "This is the result recorded when that check ran, not a new check; no task was run. "
             "Next: say \"fix it\" to prepare an isolated candidate fix, or change the code "
             f"yourself and say \"{asked}\" again."

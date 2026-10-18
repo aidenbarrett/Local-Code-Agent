@@ -937,7 +937,8 @@ def _round_trip(result):
 
     _ref, payload = DurableTaskExecutor._result_artifact(result)
     raw = _json.loads(payload)
-    assert raw["schema"] == "lca.task-result/2"
+    assert raw["schema"] == "lca.task-result/3"
+    assert raw["check_failure"] is None
     _retained_result(result.task_id, payload)
     DurableTaskHistory._parse_result(payload, task_id=result.task_id)
     return raw["candidate"]
