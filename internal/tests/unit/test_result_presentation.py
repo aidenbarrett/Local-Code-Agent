@@ -385,3 +385,21 @@ def test_endpoint_action_follows_the_verdict_reason_not_an_earlier_fault():
     assert render_result_next_action(unrecorded) == (
         "Next action: restore the configured local endpoint, then retry this request."
     )
+
+
+def test_running_task_next_action_names_stop_for_the_task_stop_targets():
+    from local_agent.session.textual_session_app import _active_task
+
+    older, newer = _task(), _task()
+    older.requested_outcome = "older request"
+    newer.requested_outcome = "newer request"
+    state = HubViewState(tasks=(older, newer))
+    assert not newer.terminal
+    assert render_result_next_action(newer) == (
+        "Next action: wait for the verdict, or press Esc to stop this task."
+    )
+    # The card describes exactly the task Esc (or a typed "stop") would end.
+    rendered = render_live_activity(state)
+    assert _active_task(state) is newer
+    assert "Requested outcome: newer request" in rendered
+    assert "press Esc to stop this task" in rendered
