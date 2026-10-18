@@ -1,8 +1,8 @@
 """One policy for when a configured-check run replaces an older run."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 
 @dataclass(frozen=True)

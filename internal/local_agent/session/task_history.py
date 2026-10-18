@@ -292,6 +292,28 @@ class DurableTaskHistory:
             elif event.get("kind") == "task.verdict":
                 verdict_sequence[task_id] = int(event["sequence"])
 
+        executed = self._executed_check_runs(admissions, verdict_sequence)
+
+        fixable: list[str] = []
+        executed_by_id = {run.task_id: run for run in executed}
+        for candidate in candidates:
+            run = executed_by_id.get(candidate.task_id)
+            if run is None:
+                # A configured check without retained execution proof fails closed;
+                # ordinary non-check failures remain eligible for their typed repair.
+                if candidate.task_id not in admissions:
+                    fixable.append(candidate.task_id)
+                continue
+            if not check_run_is_superseded(executed, run):
+                fixable.append(candidate.task_id)
+        return tuple(fixable)
+
+    def _executed_check_runs(
+        self,
+        admissions: dict[str, tuple[str, str]],
+        verdict_sequence: dict[str, int],
+    ) -> tuple[ExecutedCheckRun, ...]:
+        """Project only configured checks with retained proof that they executed."""
         executed: list[ExecutedCheckRun] = []
         for task_id, check_key in admissions.items():
             sequence = verdict_sequence.get(task_id)
@@ -310,15 +332,4 @@ class DurableTaskHistory:
                 configured_check=check_key[1],
                 sequence=sequence,
             ))
-
-        fixable: list[str] = []
-        executed_by_id = {run.task_id: run for run in executed}
-        for candidate in candidates:
-            run = executed_by_id.get(candidate.task_id)
-            if run is None:
-                if candidate.task_id not in admissions:
-                    fixable.append(candidate.task_id)
-                continue
-            if not check_run_is_superseded(executed, run):
-                fixable.append(candidate.task_id)
-        return tuple(fixable)
+        return tuple(executed)

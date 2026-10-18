@@ -421,8 +421,7 @@ def decide_route(
     explicit_mode: ExplicitMode | str | None = None,
     active_repo_count: int | None = None,
     eligible_task_ids: Sequence[str] = (),
-    fixable_task_ids: Sequence[str] | None = None,
-    failure_kinds: Mapping[str, str] | None = None,
+    fixable_failure_kinds: Mapping[str, str | None] | None = None,
 ) -> RouteDecision:
     """Resolve deterministic routing before the model-fallback boundary.
 
@@ -441,9 +440,12 @@ def decide_route(
             message="active_repo_count must be a nonnegative integer or None",
         )
     eligible = _validate_reference_ids(eligible_task_ids)
-    fixable = eligible if fixable_task_ids is None else _validate_reference_ids(fixable_task_ids)
+    fixable_kinds = {} if fixable_failure_kinds is None else dict(fixable_failure_kinds)
+    fixable = _validate_reference_ids(tuple(fixable_kinds))
     if not set(fixable).issubset(eligible):
         raise ValueError("fixable task references must be eligible failed task references")
+    if any(kind is not None and not isinstance(kind, str) for kind in fixable_kinds.values()):
+        raise ValueError("fixable failure kinds must be strings or None")
 
     stripped = text.strip()
     lowered = stripped.lower()
@@ -665,7 +667,8 @@ def decide_route(
         repo_reason = _repository_target_reason(active_repo_count)
         if repo_reason is not None:
             return RouteDecision(RouteAction.CLARIFY, reason_code=repo_reason)
-        skill = FIX_SKILL_BY_FAILURE_KIND.get((failure_kinds or {}).get(task_id, ""))
+        failure_kind = fixable_kinds.get(task_id)
+        skill = None if failure_kind is None else FIX_SKILL_BY_FAILURE_KIND.get(failure_kind)
         if skill is None:
             return RouteDecision(RouteAction.CLARIFY, reason_code="unfixable_failure_kind")
         return RouteDecision(

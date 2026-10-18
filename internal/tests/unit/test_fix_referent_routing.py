@@ -23,7 +23,7 @@ from local_agent.session.task_history import (
 def test_fix_it_with_one_failed_build_routes_to_the_build_fix(text):
     task_id = str(uuid4())
     decision = decide_route(text, active_repo_count=1, eligible_task_ids=(task_id,),
-                            failure_kinds={task_id: "build"})
+                            fixable_failure_kinds={task_id: "build"})
     assert decision.action is RouteAction.WORK
     assert decision.source is RouteSource.RULE
     assert (decision.rule_id, decision.skill) == (RULE_FIX_REFERENT, "fix-build-failure")
@@ -33,7 +33,7 @@ def test_fix_it_with_one_failed_build_routes_to_the_build_fix(text):
 def test_fix_it_with_one_failed_test_run_routes_to_the_test_fix():
     task_id = str(uuid4())
     decision = decide_route("fix it", active_repo_count=1, eligible_task_ids=(task_id,),
-                            failure_kinds={task_id: "test"})
+                            fixable_failure_kinds={task_id: "test"})
     assert decision.skill == "fix-test-failure"
 
 
@@ -41,22 +41,25 @@ def test_fix_it_never_guesses_between_failed_tasks_or_unknown_kinds():
     one, two = str(uuid4()), str(uuid4())
     kinds = {one: "build", two: "test"}
     assert decide_route("fix it", active_repo_count=1, eligible_task_ids=(one, two),
-                        failure_kinds=kinds).reason_code == "ambiguous_task_reference"
+                        fixable_failure_kinds=kinds).reason_code == "ambiguous_task_reference"
     assert decide_route("fix it", active_repo_count=1, eligible_task_ids=(),
-                        failure_kinds={}).reason_code == "no_eligible_task_reference"
-    unknown = decide_route("fix it", active_repo_count=1, eligible_task_ids=(one,), failure_kinds={})
+                        fixable_failure_kinds={}).reason_code == "no_eligible_task_reference"
+    unknown = decide_route(
+        "fix it", active_repo_count=1, eligible_task_ids=(one,),
+        fixable_failure_kinds={one: None},
+    )
     assert (unknown.action, unknown.reason_code) == (RouteAction.CLARIFY, "unfixable_failure_kind")
 
 
 def test_explicit_fix_task_selects_one_of_many():
     one, two = str(uuid4()), str(uuid4())
     decision = decide_route(f"fix task {two}", active_repo_count=1, eligible_task_ids=(one, two),
-                            failure_kinds={one: "build", two: "test"})
+                            fixable_failure_kinds={one: "build", two: "test"})
     assert (decision.skill, decision.reference_ids) == ("fix-test-failure", (two,))
     assert decide_route(f"fix task {two[:8]}", active_repo_count=1, eligible_task_ids=(one, two),
-                        failure_kinds={}).reason_code == "invalid_task_reference"
+                        fixable_failure_kinds={}).reason_code == "invalid_task_reference"
     assert decide_route(f"fix task {uuid4()}", active_repo_count=1, eligible_task_ids=(one,),
-                        failure_kinds={one: "build"}).reason_code == "ineligible_task_reference"
+                        fixable_failure_kinds={one: "build"}).reason_code == "ineligible_task_reference"
 
 
 def test_fix_routes_use_the_fixable_subset_without_hiding_diagnostics():
@@ -66,16 +69,16 @@ def test_fix_routes_use_the_fixable_subset_without_hiding_diagnostics():
 
     implicit = decide_route(
         "fix it", active_repo_count=1, eligible_task_ids=eligible,
-        fixable_task_ids=(current,), failure_kinds=kinds,
+        fixable_failure_kinds={current: kinds[current]},
     )
     assert implicit.reference_ids == (current,)
     assert decide_route(
         f"fix task {old}", active_repo_count=1, eligible_task_ids=eligible,
-        fixable_task_ids=(current,), failure_kinds=kinds,
+        fixable_failure_kinds={current: kinds[current]},
     ).reason_code == "superseded_task_reference"
     explained = decide_route(
         f"why did task {old} fail?", active_repo_count=1,
-        eligible_task_ids=eligible, fixable_task_ids=(current,), failure_kinds=kinds,
+        eligible_task_ids=eligible, fixable_failure_kinds={current: kinds[current]},
     )
     assert explained.reference_ids == (old,)
 
@@ -84,7 +87,7 @@ def test_fix_it_with_no_current_failure_does_not_route_old_history():
     old = str(uuid4())
     decision = decide_route(
         "fix it", active_repo_count=1, eligible_task_ids=(old,),
-        fixable_task_ids=(), failure_kinds={old: "test"},
+        fixable_failure_kinds={},
     )
     assert (decision.action, decision.reason_code) == (
         RouteAction.CLARIFY, "no_eligible_task_reference",
@@ -94,7 +97,7 @@ def test_fix_it_with_no_current_failure_does_not_route_old_history():
 def test_fix_it_needs_an_active_repository():
     task_id = str(uuid4())
     decision = decide_route("fix it", active_repo_count=0, eligible_task_ids=(task_id,),
-                            failure_kinds={task_id: "build"})
+                            fixable_failure_kinds={task_id: "build"})
     assert decision.action is RouteAction.CLARIFY
 
 
@@ -337,3 +340,36 @@ def test_gateway_fixes_only_current_check_but_still_explains_replaced_history():
     answer = gateway.turn(f"why did task {old} fail?")
     assert len(runner.calls) == 1
     assert old in answer and "old test failure" in answer
+
+
+def test_unretained_failure_does_not_hide_an_independent_fixable_failure():
+    runner = _Runner()
+    events = EventBuffer("s")
+    gateway = ConversationGateway(
+        _Chat(), SimpleNamespace(repo=object(), run=None), events, task_runner=runner,
+    )
+    expired_index = len(gateway.session.turns)
+    append_turn(gateway.session, "user", "old failed work", gateway.runtime_index)
+    expired_ref = turn_ref(gateway.session, expired_index)
+    current_index = len(gateway.session.turns)
+    append_turn(gateway.session, "user", "current failed build", gateway.runtime_index)
+    current_ref = turn_ref(gateway.session, current_index)
+    expired, current = str(uuid4()), str(uuid4())
+    observation = TaskObservation(
+        current, current_ref, "failed", "FAILED", "current build failure", (),
+    )
+    gateway.task_history = _History(
+        (TaskCandidate(expired, expired_ref), TaskCandidate(current, current_ref)),
+        {current: observation},
+        {expired: "test", current: "build"},
+        fixable=(expired, current),
+    )
+
+    gateway.turn("fix it")
+
+    assert len(runner.calls) == 1
+    assert current in runner.calls[0][0] and expired not in runner.calls[0][0]
+    assert not any(
+        event.kind == "conversation.task_history_unavailable"
+        for event in events.after(0)
+    )

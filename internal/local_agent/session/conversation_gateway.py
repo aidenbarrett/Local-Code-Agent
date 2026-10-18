@@ -270,34 +270,27 @@ class ConversationGateway:
             return {}
         return out
 
-    def _failure_kinds(self, failure_observations: dict[str, object]) -> dict[str, str]:
-        """Typed failure kind per eligible failed task, for deterministic fix routing."""
-        resolver = getattr(self.task_history, "failure_kind", None)
-        if not callable(resolver):
-            return {}
-        kinds: dict[str, str] = {}
-        for task_id in failure_observations:
-            kind = resolver(task_id)
-            if kind is not None:
-                kinds[task_id] = kind
-        return kinds
-
-    def _fixable_failure_task_ids(
+    def _fixable_failure_kinds(
         self,
         failure_observations: dict[str, object],
-    ) -> tuple[str, ...]:
-        """Narrow fix authority without removing historical diagnostic referents."""
+    ) -> dict[str, str | None]:
+        """Return current retained failures and their typed repair route, if known."""
         resolver = getattr(self.task_history, "fixable_failure_task_ids", None)
-        if not callable(resolver):
-            return tuple(failure_observations)
         try:
-            task_ids = tuple(resolver(self.session.conversation_id))
-            if any(task_id not in failure_observations for task_id in task_ids):
-                raise ArtifactIntegrityError("fixable task is not an eligible durable failure")
-            return task_ids
+            task_ids = (
+                tuple(resolver(self.session.conversation_id))
+                if callable(resolver)
+                else tuple(failure_observations)
+            )
         except (ArtifactIntegrityError, ContextRefusal, KeyError, TypeError, ValueError):
             self.events.emit("conversation.task_history_unavailable", {"reason": "integrity"})
-            return ()
+            return {}
+        retained = tuple(task_id for task_id in task_ids if task_id in failure_observations)
+        kind_for = getattr(self.task_history, "failure_kind", None)
+        return {
+            task_id: kind_for(task_id) if callable(kind_for) else None
+            for task_id in retained
+        }
 
     def _messages(self, said: str) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": SYSTEM}]
@@ -709,8 +702,7 @@ class ConversationGateway:
                 explicit_mode=explicit_mode,
                 active_repo_count=1,
                 eligible_task_ids=tuple(failure_observations),
-                fixable_task_ids=self._fixable_failure_task_ids(failure_observations),
-                failure_kinds=self._failure_kinds(failure_observations),
+                fixable_failure_kinds=self._fixable_failure_kinds(failure_observations),
             )
 
             if decision.action == RouteAction.CONTROL:

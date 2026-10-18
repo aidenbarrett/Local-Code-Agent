@@ -240,8 +240,10 @@ def test_select_earlier_failure_explains_and_fixes_exact_task_without_copying_id
             assert commands == [(f"Why did task {first} fail?", False), (f"Fix task {first}", False)]
             assert composer.value == "unfinished user message"
             for text, _ in commands:
-                decision = decide_route(text, active_repo_count=1, eligible_task_ids=(first, second),
-                                        failure_kinds={first: "build", second: "test"})
+                decision = decide_route(
+                    text, active_repo_count=1, eligible_task_ids=(first, second),
+                    fixable_failure_kinds={first: "build", second: "test"},
+                )
                 assert decision.action == RouteAction.WORK and decision.reference_ids == (first,)
             selector.value = second
             await pilot.pause()
@@ -249,7 +251,7 @@ def test_select_earlier_failure_explains_and_fixes_exact_task_without_copying_id
             await pilot.pause()
             decision = decide_route(commands[-1][0], active_repo_count=1,
                                     eligible_task_ids=(first, second),
-                                    failure_kinds={first: "build", second: "test"})
+                                    fixable_failure_kinds={first: "build", second: "test"})
             assert decision.reference_ids == (second,) and decision.skill == "fix-test-failure"
             app.replace_state(HubViewState(tasks=(a, b)))
             await pilot.pause()
@@ -331,7 +333,8 @@ def test_the_only_failed_check_is_selectable_and_explained_without_new_work():
             assert commands == [(f"Why did task {task_id} fail?", False), (f"Fix task {task_id}", False)]
             assert composer.value == "unfinished user message"
             decision = decide_route(commands[1][0], active_repo_count=1,
-                                    eligible_task_ids=(task_id,), failure_kinds={task_id: "build"})
+                                    eligible_task_ids=(task_id,),
+                                    fixable_failure_kinds={task_id: "build"})
             assert decision.action == RouteAction.WORK and decision.reference_ids == (task_id,)
     asyncio.run(scenario())
 
