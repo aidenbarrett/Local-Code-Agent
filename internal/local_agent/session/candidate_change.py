@@ -249,15 +249,32 @@ class CandidateOutcome:
         }
 
 
+@dataclass(frozen=True)
+class CandidateProof:
+    """What a retained candidate's summary says about its proof.
+
+    ``kind`` names the proof the skill requires. ``controller_check`` is the
+    controller's statement of its own check on the candidate: it replaces the default
+    proof line when the candidate is verified and follows the plain "NOT proven" line
+    when it is not. ``worker_summary`` is the worker's prose, placed after the patch
+    and labelled as not being proof.
+    """
+
+    kind: str = "full build"
+    controller_check: str | None = None
+    worker_summary: str | None = None
+
+
 def settle_candidate(
     manager: GitWorkspaceManager,
     workspace: Workspace,
     *,
     task_id: str,
     verified: bool,
-    proof: str = "full build",
+    proof: CandidateProof | None = None,
 ) -> tuple[CandidateOutcome, CandidatePatch | None]:
     """Retain a candidate with changes for review and import; discard an empty one."""
+    proof = proof or CandidateProof()
     try:
         candidate = manager.candidate_patch(workspace)
     except CandidateRefusedError as exc:
@@ -277,11 +294,12 @@ def settle_candidate(
     # The proof is recorded; the candidate's build output is now only disk use.
     manager.prune_instrument_dirs(workspace)
     listed = ", ".join(candidate.paths[:8]) + (" …" if len(candidate.paths) > 8 else "")
-    proof_line = (
-        f"A {proof} of the candidate passed."
-        if verified
-        else f"The candidate is NOT proven: no {proof} passed after the last edit."
-    )
+    if verified:
+        proof_line = proof.controller_check or f"A {proof.kind} of the candidate passed."
+    else:
+        proof_line = f"The candidate is NOT proven: no {proof.kind} passed after the last edit."
+        if proof.controller_check:
+            proof_line += "\n" + proof.controller_check
     lines = [
         "Candidate change prepared in an isolated copy. Your checkout has not been modified.",
         f"Changed: {listed}",
@@ -306,6 +324,8 @@ def settle_candidate(
     lines.append(preview)
     if cut or len(preview_lines) > _PREVIEW_LINES:
         lines.append(f"(preview truncated; full diff: /diff {task_id})")
+    if proof.worker_summary and proof.worker_summary.strip():
+        lines.append("Worker's summary (not proof): " + proof.worker_summary.strip())
     lines.append(f"Candidate patch sha256 {candidate.sha256}. Task {task_id}.")
     lines.append(f"Review: /diff {task_id}   Apply: /apply {task_id}")
     return (
@@ -419,17 +439,17 @@ def apply_candidate(
     if matches is True:
         proof_line = (
             "Your tracked files now match the candidate tree exactly, so the candidate's "
-            "build proof covers them."
+            "proof covers them."
         )
     elif matches is False:
         proof_line = (
             "Your checkout also differs from the candidate in other tracked files, so the "
-            "candidate's build proof does not cover it. Ask me to build it to verify."
+            "candidate's proof does not cover it. Ask me to build it to verify."
         )
     else:
         proof_line = (
             "The candidate tree could not be compared with your checkout, so the "
-            "candidate's build proof is not claimed for it. Ask me to build it to verify."
+            "candidate's proof is not claimed for it. Ask me to build it to verify."
         )
     return TaskResult(
         task_id, TaskOutcome.PASS,
