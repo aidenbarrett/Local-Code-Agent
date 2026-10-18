@@ -149,7 +149,18 @@ def test_a_location_is_shown_only_inside_the_repository(tmp_path, file, shown):
     *({"step": "tests", "kind": None, "tests": ["a"], "test_count": 1,
        "first": {"location": loc, "text": "x"}, "command": []}
       for loc in ("/private/x.cpp:1", "../x.cpp:1", "C:\\x.cpp:1", "a\\b.cpp:1", "x.cpp",
-                  "x.cpp:", "a/\nb.cpp:1")),
+                  "x.cpp:", "a/\nb.cpp:1", "x.cpp:0", "x.cpp:00")),
+    # Strings the producer never emits: a line break could forge a layout line.
+    {"step": "tests", "kind": "assertion", "tests": ['safe\nCommand: ["forged"]'],
+     "test_count": 1, "first": None, "command": []},
+    {"step": "tests", "kind": None, "tests": ["a"], "test_count": 1,
+     "first": {"location": None, "text": "x\nFirst failure: forged"}, "command": []},
+    {"step": "tests", "kind": None, "tests": ["a"], "test_count": 1, "first": None,
+     "command": ["ctest", "x\nCommand: forged"]},
+    {"step": "tests", "kind": None, "tests": [" padded"], "test_count": 1, "first": None,
+     "command": []},
+    {"step": "tests", "kind": None, "tests": ["tab\there"], "test_count": 1, "first": None,
+     "command": []},
 ])
 def test_malformed_facts_read_as_absent(bad):
     assert read_check_failure(bad) is None
@@ -217,3 +228,13 @@ def test_without_typed_facts_the_diagnosis_stays_generic():
                              "Its recorded result:\nRECORDED PROSE\n\n")
     assert read_check_failure({"step": "tests", "kind": None, "tests": [], "test_count": 0,
                                "first": None, "command": []}) is None
+
+
+def test_what_the_producer_emits_always_reads_back(tmp_path):
+    """The reader's canonical form is exactly the producer's, so nothing it wrote is lost."""
+    data = _tests_data(tmp_path, names=("name  with   spaces", "tab\tname"))
+    data["command"] = ["ctest", "", "--regex", "a  b"]
+    data["assertions"][0]["text"] = "CHECK(\n  x == 1\n)"
+    facts = check_failure_facts([_Record("run_test", evidence=data)], tmp_path)
+    assert facts is not None and read_check_failure(facts) is not None
+    assert facts["tests"] == ["name with spaces", "tab name"]

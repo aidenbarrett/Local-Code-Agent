@@ -92,7 +92,8 @@ def _valid_location(location: object) -> bool:
     if not isinstance(location, str) or not location.isprintable():
         return False
     path, sep, line = location.rpartition(":")
-    if not sep or not line.isdigit() or not path or len(path) > MAX_LOCATION_CHARS:
+    if (not sep or not line.isdigit() or int(line) < 1 or not path
+            or len(path) > MAX_LOCATION_CHARS):
         return False
     parts = path.lstrip("…").split("/")
     return (not path.startswith(("/", "\\")) and ":" not in path and "\\" not in path
@@ -186,18 +187,27 @@ def project_check_failure(metrics: Mapping[str, Any]) -> dict[str, Any] | None:
     return None if facts is None else facts.as_payload()
 
 
+def _canonical(value: object, limit: int, *, allow_empty: bool = False) -> bool:
+    """Exactly the form the producer's ``_bounded`` emits: printable, single-spaced,
+    trimmed and within ``limit``. Anything else (a line break, a tab, padding) is
+    malformed state that could reshape the fixed diagnosis layout."""
+    return (isinstance(value, str) and (allow_empty or len(value) > 0)
+            and len(value) <= limit and value.isprintable()
+            and value == _bounded(value, limit))
+
+
 def _str(value: object, limit: int) -> str | None:
-    return value if isinstance(value, str) and 0 < len(value) <= limit else None
+    return value if isinstance(value, str) and _canonical(value, limit) else None
 
 
 def _valid_lists(value: Mapping[str, Any]) -> bool:
     tests, count, command = value["tests"], value["test_count"], value["command"]
     return (
         isinstance(tests, list) and len(tests) <= MAX_TESTS
-        and all(_str(name, MAX_NAME_CHARS) is not None for name in tests)
+        and all(_canonical(name, MAX_NAME_CHARS) for name in tests)
         and isinstance(count, int) and not isinstance(count, bool) and count >= len(tests)
         and isinstance(command, list) and len(command) <= MAX_ARGV
-        and all(isinstance(arg, str) and len(arg) <= MAX_ARG_CHARS for arg in command)
+        and all(_canonical(arg, MAX_ARG_CHARS, allow_empty=True) for arg in command)
     )
 
 
