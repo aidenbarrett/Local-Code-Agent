@@ -172,6 +172,15 @@ def render_task_reply(task: TaskSnapshot) -> str:
     return f"LCA · {verdict}{reason}\n{body}"
 
 
+def admitting_entry(
+    entries: Sequence[ConversationEntry], task: TaskSnapshot,
+) -> ConversationEntry | None:
+    """The conversation entry ``task`` was admitted from, or None: the only binding rule."""
+    if task.origin_turn is None:
+        return None
+    return next((entry for entry in entries if entry.turn == task.origin_turn), None)
+
+
 def _conversation_blocks(
     entries: Sequence[ConversationEntry], tasks: Sequence[TaskSnapshot],
 ) -> list[tuple[str, str]]:
@@ -370,7 +379,23 @@ def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
     return () if label is None else (label,)
 
 
-def render_activity(state: HubViewState) -> str:
+def _tool_text(task: TaskSnapshot) -> str:
+    open_tools = task.frozen_open_tools()
+    if open_tools:
+        return "running " + ", ".join(tool.tool_name for tool in open_tools)
+    if task.last_tool is not None:
+        return f"{task.last_tool.tool_name} · {task.last_tool.execution or 'finished'}"
+    return "none"
+
+
+def render_activity(state: HubViewState, *, compact: bool = False) -> str:
+    """The selected task's controller detail.
+
+    ``compact`` is for a view that already shows the result, evidence and next action
+    above this detail: identity collapses to one line, the controller's verdict lines
+    stay verbatim but are not restated, and a retained answer already shown beneath
+    its admitting turn in the conversation is not repeated.
+    """
     task = _active_task(state.tasks)
     lines: list[str] = []
     if state.route_summary:
@@ -380,6 +405,23 @@ def render_activity(state: HubViewState) -> str:
                       "Work you start appears here: what is running, the verdict and the "
                       "proof behind it."))
         return "\n".join(lines)
+    if compact:
+        lines.append(f"Task: {task.task_id}")
+        lines.append(f"{task.skill or 'no skill'} · {task.state} · {task.origin_kind}"
+                     f" · tool {_tool_text(task)}")
+        if task.endpoint is not None:
+            endpoint = task.endpoint
+            queue = "" if endpoint.queue_position is None else f" · queue {endpoint.queue_position}"
+            lines.append(f"Endpoint: {endpoint.role} {endpoint.state}{queue}")
+        if task.cancel_requested:
+            lines.append("Cancellation: requested")
+        if task.verdict_lines:
+            # Deterministic controller output.  Do not rewrite it.
+            lines.extend(("Controller verdict:", *(f"  {line}" for line in task.verdict_lines)))
+        lines.extend(_candidate_lines(task))
+        if admitting_entry(state.conversation, task) is None:
+            lines.extend(_retained_result_lines(task))
+        return "\n".join(lines + _activity_tail(state, task))
 
     lines.append(f"Task: {task.task_id}")
     lines.append(f"Route: {task.origin_kind}" if not state.route_summary else f"Origin: {task.origin_kind}")
@@ -415,7 +457,11 @@ def render_activity(state: HubViewState) -> str:
     lines.extend(_candidate_lines(task))
 
     lines.extend(_retained_result_lines(task))
+    return "\n".join(lines + _activity_tail(state, task))
 
+
+def _activity_tail(state: HubViewState, task: TaskSnapshot) -> list[str]:
+    lines: list[str] = []
     if task.faults:
         reason, message = task.faults[-1]
         lines.append(f"Fault: {reason} · {message}")
@@ -428,7 +474,7 @@ def render_activity(state: HubViewState) -> str:
             lines.append(f"{prior.task_id} · {prior.state} · {verdict}")
             if prior.result_answer is not None:
                 lines.append(_recent_result_line(prior, prior.result_answer))
-    return "\n".join(lines)
+    return lines
 
 
 def _watch_row(watch: WatchSnapshot) -> str:
