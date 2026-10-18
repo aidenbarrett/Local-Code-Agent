@@ -396,10 +396,10 @@ def test_running_task_next_action_names_stop_for_the_task_stop_targets():
     state = HubViewState(tasks=(older, newer))
     assert not newer.terminal
     assert render_result_next_action(newer) == (
-        "Next action: wait for the verdict, or type stop to cancel this task."
+        "Next action: wait for the verdict, or press Esc to stop this task."
     )
-    # The card describes exactly the task the composer's "stop" would end.
+    # The card describes exactly the task Esc (or a typed "stop") would end.
     rendered = render_live_activity(state)
     assert _active_task(state) is newer
     assert "Requested outcome: newer request" in rendered
-    assert "type stop to cancel this task" in rendered
+    assert "press Esc to stop this task" in rendered

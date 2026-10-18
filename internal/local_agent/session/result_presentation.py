@@ -153,8 +153,9 @@ def render_result_next_action(task: TaskSnapshot) -> str:
     ):
         action = f"review the retained candidate with /diff {candidate.candidate_task_id}."
     elif not task.terminal:
-        # The live Hub's "stop" targets exactly this task: the latest one not yet ended.
-        action = "wait for the verdict, or type stop to cancel this task."
+        # The live Hub's Esc (and typed "stop") ends exactly this task: the latest one
+        # not yet ended, which is also the task the live card shows.
+        action = "wait for the verdict, or press Esc to stop this task."
     elif task.verdict_reason == "endpoint_unavailable":
         action = "restore the configured local endpoint, then retry this request."
     elif task.verdict == "REFUSED":
