@@ -90,7 +90,7 @@ def test_start_replays_to_exact_handoff_boundary_and_projects_conversation(tmp_p
         assert feed.cursor == 2
         assert [event["sequence"] for event in feed.events] == [1, 2]
         assert [entry.text for entry in state.conversation] == ["hello", "hi"]
-        assert state.status == "Live · durable seq 2"
+        assert state.status == "Live · 2 events recorded"
     finally:
         service.close()
 
@@ -106,7 +106,7 @@ def test_live_poll_accepts_only_new_committed_events(tmp_path):
         _opened(service, "live")
         assert feed.poll() is True
         assert feed.cursor == 2
-        assert feed.state().status == "Live · durable seq 2"
+        assert feed.state().status == "Live · 2 events recorded"
     finally:
         service.close()
 

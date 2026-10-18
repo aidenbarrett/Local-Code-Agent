@@ -259,7 +259,7 @@ class DurableHubFeed:
             ):
                 status = "Decision required · reply work to accept · chat to keep conversation-only"
             else:
-                status = f"Live · durable seq {self._cursor}"
+                status = f"Live · {self._cursor} event{'' if self._cursor == 1 else 's'} recorded"
                 if self._recovered_gap:
                     status += " · replay recovered"
                 if self._retained_results_degraded:
