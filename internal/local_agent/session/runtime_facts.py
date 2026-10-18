@@ -95,12 +95,12 @@ class RuntimeFacts:
         )
 
     def header(self) -> str:
+        """The model line of the Hub header. Execution permission is a repository fact
+        and is shown once, on the repository line."""
         model = self.observed_model or "unobserved"
-        execution = "enabled" if self.execution_enabled else "disabled"
         return (
             f"preset {self.preset} · model {model} (observed) · "
-            f"device {self.declared_device} (declared) · "
-            f"endpoint {self.endpoint} · execution {execution}"
+            f"device {self.declared_device} (declared) · endpoint {self.endpoint}"
         )
 
     def answer(self) -> str:
