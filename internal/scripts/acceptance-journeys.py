@@ -1211,7 +1211,7 @@ def j_continuous_engineering(s: Session) -> None:
     expect(diagnosed is None, "deterministic diagnosis admitted another task")
     expect(diagnosis.startswith(f"Task {built.task_id} (build it) failed."),
            "diagnosis did not retain the failed task identity")
-    expect("FAILED (" in diagnosis and " -- command: [" in diagnosis,
+    expect("The build failed (compile)." in diagnosis and "\nCommand: [" in diagnosis,
            "diagnosis omitted the failure evidence or exact command")
     _exercise_continuous_candidate(s, built, broken)
 
@@ -1752,9 +1752,9 @@ def _recorded_failure_diagnosis(s: Session, request: str, expected_kind: str) ->
     answer, diagnosis = s.turn("why did that fail?")
     expect(diagnosis is None, "the deterministic diagnosis admitted a new task")
     expect(len(s.journey.tasks) == task_count, "the deterministic diagnosis recorded a new task")
-    expect(f"FAILED ({expected_kind})" in answer,
+    expect(f"failed ({expected_kind})" in answer,
            f"diagnosis omitted the recorded {expected_kind} failure kind")
-    expect(" -- command: [" in answer, "diagnosis omitted the exact configured argv")
+    expect("\nCommand: [" in answer, "diagnosis omitted the exact configured argv")
     expect('say "fix it"' in answer, "diagnosis omitted the bounded repair next action")
     expect(_user_work_status(s.repo) == before,
            "diagnosing the failure changed tracked or unignored work")

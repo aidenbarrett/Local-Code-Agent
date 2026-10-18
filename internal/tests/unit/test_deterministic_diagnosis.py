@@ -87,8 +87,10 @@ def test_why_did_that_fail_reports_the_recorded_check_without_a_model_or_task(
 
         assert _admissions(service) == admitted_before, "the diagnosis admitted a task"
         assert answer.startswith(f"Task {failed.task_id} ({request_text}) failed.")
-        assert f"FAILED ({kind})" in answer
-        assert " -- command: [" in answer
+        # A fixed layout from the retained typed facts, not the recorded prose.
+        assert f"failed ({kind})" in answer
+        assert "\nCommand: [" in answer
+        assert " -- command:" not in answer
         assert "no task was run" in answer
         assert 'say "fix it"' in answer
     finally:
@@ -140,7 +142,7 @@ def test_selecting_a_real_retained_failure_explains_it_without_a_model_or_new_ta
                 await pilot.pause()
                 assert len(answers) == 1
                 assert answers[0].startswith(f"Task {earlier.task_id} (build it) failed.")
-                assert "FAILED (compile)" in answers[0] and "no task was run" in answers[0]
+                assert "The build failed (compile)." in answers[0] and "no task was run" in answers[0]
                 assert _admissions(service) == admitted_before
                 assert composer.value == "unfinished user message"
         asyncio.run(scenario())

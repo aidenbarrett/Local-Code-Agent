@@ -24,6 +24,7 @@ from .terminal_completion import validate_terminal_completion
 
 
 from .candidate_facts import RESULT_SCHEMA as _RESULT_SCHEMA, project_candidate
+from .check_failure import project_check_failure as _check_failure
 _RESULT_MEDIA_TYPE = "application/vnd.lca.task-result+json"
 
 
@@ -299,6 +300,7 @@ class DurableSessionService:
                 "evidence_ids": [],
                 "answer": "Controller restarted before a durable terminal result; cleanup is unknown.",
                 "candidate": None,
+                "check_failure": None,
             }, sort_keys=True, separators=(",", ":")).encode("utf-8")
             result_ref = self._result_ref(result_bytes)
             terminal = self.finalize_task(
@@ -539,6 +541,7 @@ class DurableTaskExecutor:
             "candidate": project_candidate(
                 result.task_id, result.outcome.succeeded, result.metrics,
             ),
+            "check_failure": _check_failure(result.metrics),
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return DurableSessionService._result_ref(payload), payload
 

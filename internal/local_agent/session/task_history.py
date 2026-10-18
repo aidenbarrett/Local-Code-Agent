@@ -15,6 +15,7 @@ from .session_store import ArtifactIntegrityError, SQLiteSessionStore
 
 
 from .candidate_facts import CandidateFacts, result_fields_for, validate_candidate
+from .check_failure import CheckFailure, read_check_failure
 _RESULT_MEDIA_TYPE = "application/vnd.lca.task-result+json"
 
 
@@ -57,6 +58,9 @@ class RetainedTaskResult:
     verified_at_completion: bool
     # Durable candidate facts (lca.task-result/2); None for /1 results and other tasks.
     candidate: CandidateFacts | None = None
+    # Typed facts of a failed configured check (lca.task-result/3); None when absent,
+    # malformed or from an older result.
+    check_failure: CheckFailure | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,7 @@ class TaskObservation:
     evidence_ids: tuple[str, ...]
     # The configured check the admission record names; None for every other task.
     configured_check: str | None = None
+    check_failure: CheckFailure | None = None
 
     def prompt_text(self) -> str:
         evidence = ", ".join(self.evidence_ids) or "none"
@@ -145,6 +150,7 @@ class DurableTaskHistory:
             verification_ran=bool(value["verification_ran"]),
             verified_at_completion=bool(value["verified_at_completion"]),
             candidate=validate_candidate(value.get("candidate")),
+            check_failure=read_check_failure(value.get("check_failure")),
         )
 
     def result_for_task(self, task_id: str) -> RetainedTaskResult | None:
@@ -179,6 +185,7 @@ class DurableTaskHistory:
             answer=result.answer,
             evidence_ids=result.evidence_ids,
             configured_check=configured_check,
+            check_failure=result.check_failure,
         )
 
     def latest(self, conversation_id: str) -> TaskObservation | None:
