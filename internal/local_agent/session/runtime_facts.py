@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import json
 from typing import Callable
 from urllib.parse import urlsplit
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from ..config import ModelConfig
 
@@ -28,6 +28,25 @@ def _models_url(base_url: str) -> str:
 def fetch_models_document(models_url: str) -> bytes:
     with urlopen(models_url, timeout=3) as response:  # noqa: S310 - configured local endpoint
         return response.read(256_000)
+
+
+_NO_KEY = frozenset({"", "unused", "unset"})
+
+
+def models_fetcher(api_key: str) -> ModelsFetcher:
+    """The model-list fetcher for an endpoint: anonymous for a local server, bearer
+    authenticated when the configured endpoint has a real key."""
+    if api_key in _NO_KEY:
+        return fetch_models_document
+
+    def fetch(models_url: str) -> bytes:
+        request = Request(  # noqa: S310 - the configured endpoint's model list
+            models_url, headers={"Authorization": f"Bearer {api_key}"})
+        with urlopen(request, timeout=3) as response:  # noqa: S310 - configured endpoint
+            document: bytes = response.read(256_000)
+        return document
+
+    return fetch
 
 
 def observed_model_id(base_url: str, *, fetch: ModelsFetcher = fetch_models_document) -> str | None:
@@ -95,4 +114,4 @@ class RuntimeFacts:
         )
 
 
-__all__ = ["RuntimeFacts", "fetch_models_document", "observed_model_id"]
+__all__ = ["RuntimeFacts", "fetch_models_document", "models_fetcher", "observed_model_id"]
