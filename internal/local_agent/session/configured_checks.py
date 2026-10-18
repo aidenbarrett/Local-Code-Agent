@@ -82,6 +82,17 @@ def _step_results(messages: Sequence[Mapping[str, Any]]) -> list[_StepResult]:
     return results
 
 
+# What a reader calls each step. The build tool's own summary already starts with
+# "build (<profile>)", so it needs no label of its own.
+_STEP_LABELS: Final = {"build_target": "", "run_test": "Tests: "}
+
+
+def _step_line(name: str, summary: str) -> str:
+    """One step of a configured check's answer, in the reader's words, not tool names."""
+    line = _STEP_LABELS.get(name, f"{name}: ") + summary
+    return line[:1].upper() + line[1:]
+
+
 class ConfiguredCheckPlan:
     """The worker for a configured check: runs each step in order, then reports.
 
@@ -116,7 +127,7 @@ class ConfiguredCheckPlan:
         else:
             # The check could not be run (blocked, errored, timed out): no verdict.
             claim = "diagnosis"
-        summary = "; ".join(f"{step.name}: {step.summary}" for step in done) or "nothing ran"
+        summary = "; ".join(_step_line(step.name, step.summary) for step in done) or "nothing ran"
         return ChatResponse(tool_calls=[tool_call("submit_answer", {
             "claim": claim, "summary": summary, "evidence_ids": evidence,
         }, f"check-{len(done)}")])
