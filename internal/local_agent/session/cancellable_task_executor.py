@@ -166,19 +166,37 @@ class CancellableDurableTaskExecutor(DurableTaskExecutor):
         The revoked worker result has no authority to commit, but leaving the admitted
         task non-terminal forever is also false. Persist an explicit unknown/no-verdict
         result whose cleanup field is still derived from durable activity for the revoked
-        epoch. This is not a `cancelled`/`stopped` claim.
+        epoch. This is not a `cancelled`/`stopped` terminal state.
+
+        When every command this epoch spawned either ended on its own or was stopped
+        and confirmed gone by the runner's typed answer, and no call is still open, the
+        Stop is reconciled: the verdict stays NO_VERDICT, with reason ``cancelled``.
         """
-        result = TaskResult(
-            handle.task_id,
-            TaskOutcome.NO_VERDICT,
-            (
-                "Stop requested; the execution epoch was revoked before its late result "
-                "could commit. Cleanup has not been fully reconciled."
-            ),
-            False,
-            verification_ran=False,
-            reason_code="cancel_unreconciled",
-        )
+        truth = self._terminal_truth(handle.task_id, execution_epoch)
+        if truth.cleanup == "confirmed" and not truth.open_call_ids:
+            result = TaskResult(
+                handle.task_id,
+                TaskOutcome.NO_VERDICT,
+                (
+                    "Stopped. The running command was ended and its process tree confirmed "
+                    "gone; the interrupted run is not a result."
+                ),
+                False,
+                verification_ran=False,
+                reason_code="cancelled",
+            )
+        else:
+            result = TaskResult(
+                handle.task_id,
+                TaskOutcome.NO_VERDICT,
+                (
+                    "Stop requested; the execution epoch was revoked before its late result "
+                    "could commit. Cleanup has not been fully reconciled."
+                ),
+                False,
+                verification_ran=False,
+                reason_code="cancel_unreconciled",
+            )
         self._finalize_result(
             handle,
             result,
