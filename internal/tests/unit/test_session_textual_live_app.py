@@ -36,12 +36,12 @@ def test_live_binding_starts_from_durable_replay_and_advances_on_commit(tmp_path
     try:
         _opened(service, "initial")
         binding = HubLiveBinding(DurableHubFeed(service))
-        assert binding.state.status == "Live · durable seq 1"
+        assert binding.state.status == "Live · 1 event recorded"
 
         _opened(service, "second")
         state = binding.poll()
         assert state is not None
-        assert state.status == "Live · durable seq 2"
+        assert state.status == "Live · 2 events recorded"
         assert binding.state == state
         assert binding.poll() is None
     finally:
@@ -71,7 +71,7 @@ def test_live_app_remains_a_presentation_subclass_and_validates_poll_interval(tm
         feed = DurableHubFeed(service)
         app = LiveSessionHubApp(feed, poll_interval=0.25)
         assert isinstance(app, SessionHubApp)
-        assert app.view_state.status == "Live · durable seq 0"
+        assert app.view_state.status == "Live · 0 events recorded"
         assert app.poll_interval == 0.25
     finally:
         service.close()

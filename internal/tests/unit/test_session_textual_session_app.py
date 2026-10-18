@@ -78,13 +78,13 @@ def test_completed_turn_refreshes_canonical_conversation_not_returned_prose(tmp_
             async with app.run_test(size=(100, 30)) as pilot:
                 app.post_message(HubInputSubmitted("hello exactly"))
                 await _wait_until(
-                    lambda: app.live_binding.state.status == "Live · durable seq 1"
+                    lambda: app.live_binding.state.status == "Live · 1 event recorded"
                     and [entry.text for entry in app.view_state.conversation]
                     == ["hello exactly", "persisted answer"]
                 )
                 assert _working(app.view_state.status)
                 release.set()
-                await _wait_until(lambda: app.view_state.status == "Live · durable seq 1")
+                await _wait_until(lambda: app.view_state.status == "Live · 1 event recorded")
                 await pilot.pause()
                 assert [entry.text for entry in app.view_state.conversation] == [
                     "hello exactly",
@@ -93,8 +93,8 @@ def test_completed_turn_refreshes_canonical_conversation_not_returned_prose(tmp_
                 assert "returned prose" not in "\n".join(
                     entry.text for entry in app.view_state.conversation
                 )
-                assert app.live_binding.state.status == "Live · durable seq 1"
-                assert app.view_state.status == "Live · durable seq 1"
+                assert app.live_binding.state.status == "Live · 1 event recorded"
+                assert app.view_state.status == "Live · 1 event recorded"
         finally:
             release.set()
             dispatcher.close()
@@ -132,16 +132,16 @@ def test_live_feed_advances_without_hiding_inflight_turn_status(tmp_path):
                 assert gateway.entered.wait(1)
                 _opened(service, "while-busy")
                 await _wait_until(
-                    lambda: app.live_binding.state.status == "Live · durable seq 1"
+                    lambda: app.live_binding.state.status == "Live · 1 event recorded"
                     and _working(app.view_state.status)
                 )
                 await pilot.pause()
-                assert app.live_binding.state.status == "Live · durable seq 1"
+                assert app.live_binding.state.status == "Live · 1 event recorded"
                 assert _working(app.view_state.status)
                 gateway.release.set()
-                await _wait_until(lambda: app.view_state.status == "Live · durable seq 1")
+                await _wait_until(lambda: app.view_state.status == "Live · 1 event recorded")
                 await pilot.pause()
-                assert app.view_state.status == "Live · durable seq 1"
+                assert app.view_state.status == "Live · 1 event recorded"
         finally:
             gateway.release.set()
             dispatcher.close()
