@@ -500,12 +500,12 @@ def j_tests_fail(s: Session) -> None:
 
 def j_ambiguous_fix(s: Session) -> None:
     s.turn("build it")
-    s.turn("build it")
+    s.turn("run the tests")
     tasks_before = len(s.admitted())
     answer, result = s.turn("fix it")
-    expect(result is None and len(s.admitted()) == tasks_before, "fix it guessed between two failures")
+    expect(result is None and len(s.admitted()) == tasks_before, "fix it guessed between current build and test failures")
     s.journey.measured["answer"] = answer[:600]
-    s.journey.passed("two failed tasks: fix it asked which, admitted nothing")
+    s.journey.passed("current build and test failures: fix it asked which, admitted nothing")
 
 
 def j_authority(s: Session) -> None:
@@ -1606,26 +1606,28 @@ def j_malformed_calls(s: Session) -> None:
 
 def j_test_truth(s: Session) -> None:
     """R07/J19: filtered, empty and stale runs retain their actual denominator."""
-    failures = []
-    for _ in range(3):
+    ScriptedTestTruth.modes = {}
+
+    def fail_then_fix(mode: int) -> tuple[str, TaskResult | None]:
         _, failed = s.turn("run the tests")
         expect(failed is not None and failed.outcome is TaskOutcome.FAIL,
                "fixture test failure was not observed")
-        failures.append(failed.task_id)
-    ScriptedTestTruth.modes = {task_id: mode for mode, task_id in enumerate(failures)}
+        task_id = failed.task_id
+        ScriptedTestTruth.modes[task_id] = mode
+        return s.turn(f"fix task {task_id}")
 
-    answer, matched = s.turn(f"fix task {failures[0]}")
+    answer, matched = fail_then_fix(0)
     expect(matched is not None, "filtered test admitted no task")
     expect("all tests passed (1 test(s))" in answer,
            "one-test filter did not report denominator 1")
 
-    answer, empty = s.turn(f"fix task {failures[1]}")
+    answer, empty = fail_then_fix(1)
     expect(empty is not None and empty.outcome is not TaskOutcome.PASS,
            "zero-test run manufactured a PASS")
     expect("ran 0 tests" in answer and "Nothing was verified" in answer,
            "zero-test result did not say that nothing was verified")
 
-    answer, stale = s.turn(f"fix task {failures[2]}")
+    answer, stale = fail_then_fix(2)
     expect(stale is not None and stale.outcome is not TaskOutcome.PASS,
            "stale test run manufactured a PASS")
     expect("STALE:" in answer and "OLD binary" in answer,
