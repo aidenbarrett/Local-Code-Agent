@@ -57,11 +57,13 @@ def render_live_activity(state: HubViewState) -> str:
         # The admitting turn is the user's own words; the retained request artifact
         # also carries the controller's routing provenance.
         task = replace(task, requested_outcome=entry.text)
+    # The next action follows the verdict directly, so it stays in view on a short
+    # projector-height card; the proof behind the verdict comes after it.
     return (
         f"{render_result_context(task)}\n"
         f"{render_result_summary(task)}\n"
-        f"{render_result_evidence(task)}\n"
-        f"{render_result_next_action(task)}\n\n{detail}"
+        f"{render_result_next_action(task)}\n"
+        f"{render_result_evidence(task)}\n\n{detail}"
     )
 
 
