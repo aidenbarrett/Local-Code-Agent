@@ -105,6 +105,10 @@ _CLARIFICATIONS = {
     "unfixable_failure_kind": "I can only fix a failed build or a failed test run, and that task did not record either failing. No task was run.",
     "invalid_task_reference": "That is not a full task ID. Use the complete task UUID. No task was run.",
     "ineligible_task_reference": "That task is not a failed task in this conversation. No task was run.",
+    "superseded_task_reference": (
+        "That failed check was replaced by a later executed run of the same check. "
+        "There is nothing current to fix for that task. No task was run."
+    ),
     "cpp_template_symbol_unsupported": (
         "Template-id symbol lookup is not supported by the bounded C++ search. "
         "Use a non-template qualified identifier or ask for a repository text search. "
@@ -277,6 +281,23 @@ class ConversationGateway:
             if kind is not None:
                 kinds[task_id] = kind
         return kinds
+
+    def _fixable_failure_task_ids(
+        self,
+        failure_observations: dict[str, object],
+    ) -> tuple[str, ...]:
+        """Narrow fix authority without removing historical diagnostic referents."""
+        resolver = getattr(self.task_history, "fixable_failure_task_ids", None)
+        if not callable(resolver):
+            return tuple(failure_observations)
+        try:
+            task_ids = tuple(resolver(self.session.conversation_id))
+            if any(task_id not in failure_observations for task_id in task_ids):
+                raise ArtifactIntegrityError("fixable task is not an eligible durable failure")
+            return task_ids
+        except (ArtifactIntegrityError, ContextRefusal, KeyError, TypeError, ValueError):
+            self.events.emit("conversation.task_history_unavailable", {"reason": "integrity"})
+            return ()
 
     def _messages(self, said: str) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": SYSTEM}]
@@ -688,6 +709,7 @@ class ConversationGateway:
                 explicit_mode=explicit_mode,
                 active_repo_count=1,
                 eligible_task_ids=tuple(failure_observations),
+                fixable_task_ids=self._fixable_failure_task_ids(failure_observations),
                 failure_kinds=self._failure_kinds(failure_observations),
             )
 
