@@ -164,6 +164,7 @@ def _check(check: str, verdict: str | None, *, sequence: int, repository: str = 
     task.closed_sequence = sequence if closed else None
     if verdict == "FAILED":
         task.verdict_reason = "verification_failed"
+    task.result_verification_ran = closed and verdict in {"VERIFIED", "FAILED"}
     return task
 
 
@@ -186,3 +187,14 @@ def test_a_failure_stays_until_that_same_check_finishes_again_in_that_repository
     fix = _task(verdict="VERIFIED")                                     # a fix is not a re-run
     fix.last_sequence = 9
     assert failed.task_id in render_attention((failed, fix))
+
+
+def test_a_later_run_that_did_not_execute_the_check_replaces_no_failure():
+    failed = _check("run-tests", "FAILED", sequence=2)
+    refused = _check("run-tests", "REFUSED", sequence=9)
+    refused.verdict_reason = "policy_denied"
+    cancelled = _check("run-tests", "NO_VERDICT", sequence=10)
+    unrecorded = _check("run-tests", "VERIFIED", sequence=11)
+    unrecorded.result_verification_ran = None
+    for later in (refused, cancelled, unrecorded):
+        assert failed.task_id in render_attention((failed, later)), later.verdict

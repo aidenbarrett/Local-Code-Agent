@@ -11,6 +11,13 @@ from collections.abc import Sequence
 from .task_read_model import TaskSnapshot
 
 
+def _executed_check(task: TaskSnapshot) -> bool:
+    """A finished configured-check run whose durable result says the check ran."""
+    return (task.configured_check is not None and task.terminal
+            and task.verdict in {"VERIFIED", "FAILED"}
+            and task.result_verification_ran is True)
+
+
 def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
     """Up to three durable facts that need the user, newest first; empty when none."""
     ordered = sorted(tasks, key=lambda item: item.last_sequence)
@@ -21,21 +28,21 @@ def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
     for task in ordered:
         if task.candidate is not None:
             latest[task.candidate.candidate_task_id] = task.last_sequence
-    # Likewise a configured check's state is its latest finished run in that
-    # repository: a failure that a later run of the same check has replaced no
-    # longer describes the checkout.
+    # Likewise a configured check's state is its latest run in that repository that
+    # actually executed the check: a failure that such a run has replaced no longer
+    # describes the checkout. A refused, cancelled or unrecorded run executed nothing
+    # and replaces nothing.
     latest_check: dict[tuple[str, str], int] = {}
     for task in ordered:
-        if task.configured_check is not None and task.terminal:
-            latest_check[(task.repository_id, task.configured_check)] = task.last_sequence
+        if _executed_check(task):
+            latest_check[(task.repository_id, str(task.configured_check))] = task.last_sequence
     items: list[str] = []
     for task in reversed(ordered):
         candidate = task.candidate
         if candidate is not None and latest[candidate.candidate_task_id] != task.last_sequence:
             continue
-        check = (None if task.configured_check is None or not task.terminal
-                 else (task.repository_id, task.configured_check))
-        if check is not None and latest_check[check] != task.last_sequence:
+        check = (task.repository_id, str(task.configured_check))
+        if _executed_check(task) and latest_check[check] != task.last_sequence:
             continue
         if (
             candidate is not None
