@@ -128,6 +128,24 @@ def test_unverified_candidate_actions_remain_unavailable():
     asyncio.run(scenario())
 
 
+def test_reviewed_activity_does_not_advertise_apply_without_prepared_proof():
+    async def scenario():
+        candidate_id = str(uuid4())
+        prepared = task(candidate_id, verified=False)
+        reviewed = task(candidate_id, sequence=2, role="reviewed", verified=False)
+        app = SessionHubApp(HubViewState(tasks=(prepared, reviewed)))
+        async with app.run_test() as pilot:
+            app.query_one("#task-select", Select).value = candidate_id
+            await pilot.pause()
+            activity = str(app.query_one("#activity", Static).render())
+            assert "Candidate: REVIEWED · NOT APPLIED" in activity
+            assert f"/apply {candidate_id}" not in activity
+            assert app.query_one("#review-candidate", Button).disabled
+            assert app.query_one("#apply-candidate", Button).disabled
+
+    asyncio.run(scenario())
+
+
 def test_commit_requires_verified_applied_candidate_and_disables_after_terminal_state():
     async def scenario():
         candidate_id = str(uuid4())
@@ -158,14 +176,16 @@ def test_commit_requires_verified_applied_candidate_and_disables_after_terminal_
 def test_candidate_menu_shows_literal_changed_files_without_changing_action_identity():
     async def scenario():
         first, second = str(uuid4()), str(uuid4())
+        third = str(uuid4())
         a, b = task(first), task(second, sequence=2)
+        reviewed = task(third, sequence=3, role="reviewed")
         a = replace(a, candidate=replace(a.candidate, paths=("src/[red]one\n.cpp", "include/one.hpp")))
         b = replace(b, candidate=replace(b.candidate, paths=("src/two.cpp",)))
         commands = []
         class App(SessionHubApp):
             def on_hub_input_submitted(self, message):
                 commands.append(message.text)
-        app = App(HubViewState(tasks=(a, b)))
+        app = App(HubViewState(tasks=(a, b, reviewed)))
         async with app.run_test(size=(120, 40)) as pilot:
             selector = app.query_one("#task-select", Select)
             selector.focus()
@@ -176,6 +196,8 @@ def test_candidate_menu_shows_literal_changed_files_without_changing_action_iden
             assert any("src/[red]one\\x0a.cpp (+1)" in prompt and first[:8] in prompt
                        for prompt in prompts)
             assert any("src/two.cpp" in prompt and second[:8] in prompt for prompt in prompts)
+            assert any("src/x.cpp · reviewed" in prompt and third[:8] in prompt
+                       for prompt in prompts)
             literal = next(options.get_option_at_index(i).prompt for i in range(options.option_count)
                            if "src/[red]one" in str(options.get_option_at_index(i).prompt))
             assert isinstance(literal, Text) and "[red]" in literal.plain and literal.spans == []

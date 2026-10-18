@@ -21,12 +21,13 @@ def _executed_check(task: TaskSnapshot) -> bool:
 def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
     """Up to three durable facts that need the user, newest first; empty when none."""
     ordered = sorted(tasks, key=lambda item: item.last_sequence)
-    # A candidate's state is its latest task: once it has been applied, refused,
-    # undone, committed or discarded, the task that prepared it (or an earlier
-    # refusal) no longer describes it.
+    # A candidate's lifecycle state is its latest state-changing task.  Review is
+    # read-only evidence about the prepared candidate, so it must not hide the
+    # still-unapplied prepared task (and its completion proof) from Attention.
+    # Apply, refusal, undo, commit and discard do supersede earlier lifecycle state.
     latest: dict[str, int] = {}
     for task in ordered:
-        if task.candidate is not None:
+        if task.candidate is not None and task.candidate.role != "reviewed":
             latest[task.candidate.candidate_task_id] = task.last_sequence
     # Likewise a configured check's state is its latest run in that repository that
     # actually executed the check: a failure that such a run has replaced no longer
@@ -39,7 +40,8 @@ def render_attention(tasks: Sequence[TaskSnapshot]) -> str:
     items: list[str] = []
     for task in reversed(ordered):
         candidate = task.candidate
-        if candidate is not None and latest[candidate.candidate_task_id] != task.last_sequence:
+        if (candidate is not None
+                and latest.get(candidate.candidate_task_id) != task.last_sequence):
             continue
         check = (task.repository_id, str(task.configured_check))
         if _executed_check(task) and latest_check[check] != task.last_sequence:

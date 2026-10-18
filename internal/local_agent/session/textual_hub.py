@@ -368,6 +368,12 @@ def _candidate_lines(task: TaskSnapshot) -> tuple[str, ...]:
             f"Undo: /undo {candidate_id}",
             f"Commit exact candidate: /commit {candidate_id}",
         )
+    if candidate.role == "reviewed":
+        # A review task records the read-only observation but does not own the
+        # prepared task's completion proof.  The action buttons consult that
+        # authoritative prepared receipt before enabling Apply; this projection
+        # must not advertise the command unconditionally.
+        return ("Candidate: REVIEWED · NOT APPLIED",)
     labels = {
         "apply_refused": "Candidate: NOT APPLIED · apply refused",
         "undone": "Candidate: UNDONE",
@@ -784,7 +790,8 @@ class SessionHubApp(App):
         prepared = next((item for item in self.view_state.tasks
                          if item.candidate_not_applied and item.candidate is not None
                          and item.candidate.candidate_task_id == str(selector.value)), None)
-        ready = (candidate is not None and candidate.role in {"prepared", "apply_refused"}
+        ready = (candidate is not None
+                 and candidate.role in {"prepared", "reviewed", "apply_refused"}
                  and prepared is not None and _retained_result_verified(prepared))
         applied = candidate is not None and candidate.role == "applied" and verified
         self.query_one("#review-candidate", Button).disabled = not ready

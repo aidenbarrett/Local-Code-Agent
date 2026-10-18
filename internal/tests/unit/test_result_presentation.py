@@ -168,6 +168,26 @@ def test_effect_proof_is_projected_from_candidate_receipt(role, patch, commit, e
     assert "Evidence IDs: none" not in rendered
 
 
+def test_diff_proof_is_projected_from_the_prepared_candidate_receipt():
+    task = _task(verdict="VERIFIED", reason="verification_passed", scope="none")
+    candidate_id = str(uuid4())
+    task.candidate = CandidateFacts(
+        role="reviewed", candidate_task_id=candidate_id, retained=False,
+        paths=("src/example.cpp", "include/example.hpp"),
+        patch_sha256="d" * 64, base_commit=None, commit=None,
+    )
+    task.result_verification_ran = True
+    task.result_verified_at_completion = True
+
+    rendered = render_result_evidence(task)
+
+    assert "Candidate owner: prepared candidate receipt (reviewed)" in rendered
+    assert f"Candidate task: {candidate_id}" in rendered
+    assert "Paths: src/example.cpp, include/example.hpp" in rendered
+    assert "Patch SHA-256: " + "d" * 64 in rendered
+    assert "Evidence IDs: none" not in rendered
+
+
 def test_answered_result_is_explicitly_read_only_and_not_unverified():
     task = _task(
         verdict="NOT_REQUIRED",

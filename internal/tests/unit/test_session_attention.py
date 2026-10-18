@@ -144,6 +144,17 @@ def test_a_candidate_that_was_applied_or_committed_is_no_longer_offered():
         assert f"/apply {ready.task_id}" not in rendered, role
 
 
+def test_read_only_review_does_not_hide_a_still_ready_candidate():
+    ready = _ready()
+    reviewed = _later(ready, "reviewed", sequence=5)
+    rendered = render_attention((ready, reviewed))
+    assert f"Verified candidate ready · {ready.task_id}" in rendered
+    assert f"/apply {ready.task_id}" in rendered
+
+    applied = _later(ready, "applied", sequence=7)
+    assert "Verified candidate ready" not in render_attention((ready, reviewed, applied))
+
+
 def test_an_apply_refusal_superseded_by_a_later_apply_is_dropped():
     ready = _ready()
     refused = _later(ready, "apply_refused", sequence=5, verdict="FAILED", reason="scope_changed")
