@@ -22,6 +22,7 @@ from .event_buffer import EventBuffer
 from .execution_source import TaskExecutionSource
 from .candidate_change import (
     APPLY_CANDIDATE_ACTION,
+    CandidateProof,
     UNDO_CANDIDATE_ACTION,
     undo_candidate,
     COMMIT_CANDIDATE_ACTION,
@@ -172,6 +173,27 @@ def _controller_check_line(skill: str, check: RunResult, *, verified: bool) -> s
         return f"The controller ran the configured {what} on the candidate: it failed."
     return (f"The controller could not complete the configured {what} on the candidate, "
             "so the change is not proven.")
+
+
+def _candidate_wording(
+    skill: str, run: RunResult, check: RunResult | None, *, verified: bool,
+) -> CandidateProof:
+    """The controller's own check, when it ran, is the candidate's statement of proof."""
+    return CandidateProof(
+        kind=CANDIDATE_PROOF[skill],
+        controller_check=(None if check is None
+                          else _controller_check_line(skill, check, verified=verified)),
+        worker_summary=run.answer,
+    )
+
+
+def _candidate_answer(summary: str, wording: CandidateProof, *, retained: bool) -> str:
+    """A retained candidate's summary already carries its proof line and the worker's
+    labelled summary ahead of the review commands; otherwise both follow it."""
+    if retained:
+        return summary
+    parts = [summary, wording.worker_summary or "", wording.controller_check or ""]
+    return "\n\n".join(part for part in parts if part)
 
 
 def _needs_controller_check(run: RunResult) -> bool:
@@ -747,11 +769,11 @@ class TaskController:
                 task, proof_run, workspace.root,
                 evidence_offset=len(run.state.history) if proof_run is check else 0,
             ).as_dict()
+            wording = _candidate_wording(resolved_skill, run, check, verified=verified)
             try:
                 with manager.stoppable(cancellation_probe):
                     outcome, _candidate = settle_candidate(
-                        manager, workspace, task_id=task_id, verified=verified,
-                        proof=CANDIDATE_PROOF[resolved_skill],
+                        manager, workspace, task_id=task_id, verified=verified, proof=wording,
                     )
             except WorkspaceStoppedError as exc:
                 settled = True
@@ -769,10 +791,8 @@ class TaskController:
                     "decided": proof_run is check,
                 }
             answer = self._answer_with_model_failure(
-                outcome.summary + ("\n\n" + run.answer if run.answer else ""), run,
+                _candidate_answer(outcome.summary, wording, retained=outcome.retained), run,
             )
-            if check is not None:
-                answer += "\n\n" + _controller_check_line(resolved_skill, check, verified=verified)
             return TaskResult(
                 task_id, task_outcome, answer, verified,
                 tuple(f"{h.name}:{i}" for i, h in enumerate(history)),
