@@ -167,14 +167,14 @@ def _record_refused_runtime(
 def _runtime_lifecycle_summary(ensured: RuntimeEnsureResult) -> str:
     """What opening this session did to the model server, from the owner's outcome only."""
     if ensured.lifecycle is RuntimeLifecycle.REUSED:
-        return "server reused"
+        return "model server reused"
     elapsed = ensured.launch_to_ready_ms
     ready = ("launch time not recorded" if elapsed is None
              else f"ready {elapsed / 1000:.1f}s after launch")
     if ensured.lifecycle is RuntimeLifecycle.REPLACED:
         changed = f": {', '.join(ensured.changed_fields)}" if ensured.changed_fields else ""
-        return f"server replaced ({ensured.replaced_reason}{changed}), {ready}"
-    return f"server started, {ready}"
+        return f"model server replaced ({ensured.replaced_reason}{changed}), {ready}"
+    return f"model server started, {ready}"
 
 
 def _resolve_model_configs(args: argparse.Namespace):

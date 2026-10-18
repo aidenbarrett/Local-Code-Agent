@@ -133,8 +133,9 @@ def test_runtime_header_uses_observed_models_response_and_marks_device_declared(
     assert facts.observed_model == "actually-served-model"
     assert facts.header() == (
         "preset ptl-npu-8b · model actually-served-model (observed) · device NPU (declared) · "
-        "endpoint http://127.0.0.1:9999/v3 · execution enabled"
+        "endpoint http://127.0.0.1:9999/v3"
     )
+    assert "execution" not in facts.header(), "execution belongs to the repository line"
 
 
 @pytest.mark.parametrize("question", [

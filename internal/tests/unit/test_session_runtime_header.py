@@ -56,7 +56,8 @@ def test_mounted_hub_header_reflects_observed_model_and_declared_device(tmp_path
                 assert "served-from-models (observed)" in title
                 assert "device NPU (declared)" in title
                 assert "endpoint http://127.0.0.1:9999/v3" in title
-                assert "execution disabled" in title
+                # Execution permission is shown on the repository line, not here.
+                assert "execution" not in title
         finally:
             dispatcher.close()
             service.close()
@@ -75,8 +76,8 @@ def test_every_header_fact_is_visible_at_120_columns(tmp_path):
     branch, execution) was clipped off screen."""
     summary = "\n".join((
         "preset ptl-gpu-30b · model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov (observed) "
-        "· device GPU (declared) · endpoint http://127.0.0.1:18001/v3 · execution enabled",
-        "server reused",
+        "· device GPU (declared) · endpoint http://127.0.0.1:18001/v3",
+        "model server reused",
         "repo cxxopts · root C:\\Users\\dev\\walkthroughs\\20261017T191500Z\\cxxopts "
         "· branch qualification (observed) · scope repository only · execution enabled",
     ))
@@ -96,7 +97,7 @@ def test_every_header_fact_is_visible_at_120_columns(tmp_path):
                 assert title.virtual_size.height <= title.content_region.height, \
                     "header text is clipped"
                 text = str(title.render())
-                for fact in ("device GPU (declared)", "server reused", "repo cxxopts",
+                for fact in ("device GPU (declared)", "model server reused", "repo cxxopts",
                              "branch qualification (observed)"):
                     assert fact in text
         finally:
