@@ -429,10 +429,17 @@ def test_next_action_stays_in_the_first_lines_of_the_live_card():
     assert lines[4] == "Evidence:"
 
 
-def test_missing_evidence_next_action_does_not_point_at_cleanup():
-    uncited = _task(verdict="NO_VERDICT", reason="missing_evidence")
-    uncited.closed_sequence = 2
-    action = render_result_next_action(uncited)
-    assert "cleanup" not in action
-    assert action == ("Next action: ask again, naming the file or symbol, for an answer "
-                      "that cites its sources.")
+def test_missing_evidence_next_action_is_true_for_answers_and_attempted_changes():
+    """missing_evidence closes read-only answers and unproven change attempts alike;
+    the action must fit both and never point at cleanup."""
+    navigation = _task(verdict="NO_VERDICT", reason="missing_evidence")
+    navigation.skill = "repo-navigation"
+    change = _task(verdict="NO_VERDICT", reason="missing_evidence")
+    change.skill = None
+    change.requested_outcome = "Can you create a .cpp file and add a print statement inside it"
+    for task in (navigation, change):
+        task.closed_sequence = 2
+        action = render_result_next_action(task)
+        assert "cleanup" not in action
+        assert action == ("Next action: nothing here is proven; repeat or narrow the "
+                          "request to get a result.")
