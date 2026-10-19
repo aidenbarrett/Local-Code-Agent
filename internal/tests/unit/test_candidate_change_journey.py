@@ -738,6 +738,10 @@ def test_commit_records_exactly_the_applied_change_and_leaves_other_staging_alon
     assert f"LCA-Task: {candidate_task}" in _git_out(sandbox.root, "log", "-1", "--format=%B")
     assert _git_out(sandbox.root, "diff", "--cached", "--name-only").split() == ["NOTES.md"]
     assert "Nothing was pushed" in result.answer
+    # The branch is named as a branch and the committed paths on their own line, so a
+    # branch name is never read as a label for the file list.
+    branch = _git_out(sandbox.root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    assert f"as {commit[:12]} on branch {branch}.\nCommitted files: {RING}.\n" in result.answer
 
     again = _commit(controller, candidate_task)
     assert again.outcome is TaskOutcome.BLOCKED, "commit is single-use"

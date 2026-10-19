@@ -605,7 +605,7 @@ def commit_candidate(
             return TaskResult(
                 task_id, TaskOutcome.NO_VERDICT,
                 f"Committed the exact change from task {referent} as {commit[:12]} on "
-                f"{branch}, but Git index reconciliation is incomplete for: "
+                f"branch {branch}, but Git index reconciliation is incomplete for: "
                 + ", ".join(index_left)
                 + ". Inspect git status before continuing. Nothing was pushed.",
                 False, metrics={"candidate_commit": facts},
@@ -615,7 +615,7 @@ def commit_candidate(
             return TaskResult(
                 task_id, TaskOutcome.PASS,
                 f"Committed the change from task {referent} as {commit[:12]} on "
-                f"{branch}: " + ", ".join(paths) + ".\n"
+                f"branch {branch}.\nCommitted files: " + ", ".join(paths) + ".\n"
                 "Only those files were committed; anything else you had staged is still "
                 "staged. Your git hooks were not run. Nothing was pushed.",
                 True,
