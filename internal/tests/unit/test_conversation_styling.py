@@ -91,3 +91,23 @@ def test_a_read_only_answer_is_labelled_answered_not_by_the_proof_it_skipped():
     assert "LCA · ANSWERED · read-only\nRingBuffer::full is defined" in text.plain
     assert "NOT REQUIRED" not in text.plain
     assert PALETTE["secondary"] in _style_of(text, "ANSWERED")
+
+
+def test_unverified_prose_keeps_the_missing_verdict_next_to_the_answer():
+    task = _task("NO_VERDICT", "I created the file and ran the tests.")
+    task.verdict_reason = "missing_evidence"
+    text = render_conversation_text((ConversationEntry("user", "create a file", TURN),),
+                                    (task,), PALETTE)
+    assert "LCA · NO VERDICT · missing evidence\n" in text.plain
+    assert "Unverified result detail (no verdict established):\n" \
+        "I created the file and ran the tests." in text.plain
+    assert PALETTE["warn"] in _style_of(text, "Unverified result detail")
+
+
+def test_controller_authored_cancelled_reply_is_not_labelled_unverified():
+    task = _task("NO_VERDICT", "Stopped. Every command it started has ended.")
+    task.verdict_reason = "cancelled"
+    text = render_conversation_text((ConversationEntry("user", "stop", TURN),),
+                                    (task,), PALETTE)
+    assert "LCA · NO VERDICT · cancelled\nStopped." in text.plain
+    assert "Unverified result detail" not in text.plain
