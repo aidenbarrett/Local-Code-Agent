@@ -517,13 +517,20 @@ class TaskController:
     def _is_grounded_read_only_answer(
         run: RunResult, skill: Skill | None, registry: ToolRegistry,
     ) -> bool:
-        """Whether a completed worker answer has a read-only evidence contract."""
+        """Whether a completed worker answer has a read-only evidence contract.
+
+        Grounding is that the answer cites calls it actually made. The worker's
+        "success needs a passing build or test" rule is not applied here: a read-only
+        skill has no build or test tool, so that citation is unearnable by
+        construction, and a model that labels a found answer "success" is not less
+        grounded than one that labels it "diagnosis".
+        """
         return bool(
             run.outcome.succeeded
             and run.state.halt_cause is None
             and run.state.mutation_epoch == 0
             and run.state.cited_evidence
-            and run.state.cited_correctly
+            and not run.state.cited_unknown
             and all(item.execution == "ok" and not item.blocked for item in run.state.history)
             and skill is not None
             and skill.tools

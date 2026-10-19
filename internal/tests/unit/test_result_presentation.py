@@ -427,3 +427,12 @@ def test_next_action_stays_in_the_first_lines_of_the_live_card():
     assert lines[2].startswith("Result: FAILED")
     assert lines[3] == "Next action: inspect the evidence and failure detail before retrying."
     assert lines[4] == "Evidence:"
+
+
+def test_missing_evidence_next_action_does_not_point_at_cleanup():
+    uncited = _task(verdict="NO_VERDICT", reason="missing_evidence")
+    uncited.closed_sequence = 2
+    action = render_result_next_action(uncited)
+    assert "cleanup" not in action
+    assert action == ("Next action: ask again, naming the file or symbol, for an answer "
+                      "that cites its sources.")
