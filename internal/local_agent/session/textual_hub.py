@@ -45,6 +45,7 @@ _REQUIRED_ROLES = frozenset(
 _LAYOUTS = ("wide", "medium", "compact")
 _RECENT_TASK_LIMIT = 3
 _RECENT_RESULT_PREVIEW_CHARS = 240
+_UNVERIFIED_DETAIL_LABEL = "Unverified result detail (no verdict established):"
 
 
 class PaletteError(RuntimeError):
@@ -169,6 +170,12 @@ def render_task_reply(task: TaskSnapshot) -> str:
         verdict = (task.verdict or "NO_VERDICT").replace("_", " ")
         reason = f" · {task.verdict_reason.replace('_', ' ')}" if task.verdict_reason else ""
     body = task.result_answer if task.result_answer else "(recorded result text unavailable)"
+    if (task.verdict == "NO_VERDICT" and task.verdict_reason == "missing_evidence"
+            and task.result_answer):
+        # A retained answer can contain the model's own account of what happened.
+        # Keep the controller's lack of a verdict adjacent to that prose even
+        # when the task detail card is out of view.
+        body = f"{_UNVERIFIED_DETAIL_LABEL}\n{body}"
     return f"LCA · {verdict}{reason}\n{body}"
 
 
@@ -239,8 +246,11 @@ def _style_task_reply(text: Text, reply: str, palette: Mapping[str, str]) -> Non
     if not body:
         return
     in_diff = False
-    for line in body.split("\n"):
+    for index, line in enumerate(body.split("\n")):
         text.append("\n")
+        if verdict == "NO VERDICT" and index == 0 and line == _UNVERIFIED_DETAIL_LABEL:
+            text.append(line, style=f"bold {palette['warn']}")
+            continue
         in_diff = (line.startswith("diff --git ")
                    or (in_diff and line.startswith(_DIFF_CONTINUATION)))
         style = ""
@@ -682,14 +692,31 @@ class SessionHubApp(App):
     def on_mount(self) -> None:
         # Anchored: the pane stays at the newest reply as content grows, until the
         # reader scrolls up; scrolling back to the bottom re-anchors it.
-        self.query_one("#conversation-pane", VerticalScroll).anchor()
+        self.call_after_refresh(self._follow_conversation, was_at_end=True)
         self._sync_task_actions()
         self._apply_layout(self.size.width)
         self._apply_watch_visibility()
         self._apply_attention_visibility()
 
     def on_resize(self, event: events.Resize) -> None:
+        pane = self.query_one("#conversation-pane", VerticalScroll)
+        was_at_end = pane.max_scroll_y == 0 or pane.scroll_y == pane.max_scroll_y
         self._apply_layout(event.size.width)
+        self.call_after_refresh(self._follow_conversation, was_at_end=was_at_end)
+
+    def _follow_conversation(self, *, was_at_end: bool) -> None:
+        """Follow new replies without bottom-aligning a short exchange.
+
+        Textual's bottom anchor can leave a negative scroll offset when the
+        conversation is shorter than its viewport. Only anchor when there is
+        content to scroll; a reader who scrolled up stays where they were.
+        """
+        pane = self.query_one("#conversation-pane", VerticalScroll)
+        if pane.max_scroll_y == 0:
+            pane.anchor(False)
+            pane.scroll_y = 0
+        elif was_at_end:
+            pane.anchor()
 
     def _apply_layout(self, width: int) -> None:
         mode = layout_mode(width)
@@ -726,8 +753,11 @@ class SessionHubApp(App):
         self._sync_task_actions()
         rendered = render_conversation_text(state.conversation, state.tasks, self._palette)
         if rendered != self._conversation_text:
+            pane = self.query_one("#conversation-pane", VerticalScroll)
+            was_at_end = pane.max_scroll_y == 0 or pane.scroll_y == pane.max_scroll_y
             self._conversation_text = rendered
             self.query_one("#conversation", Static).update(rendered)
+            self.call_after_refresh(self._follow_conversation, was_at_end=was_at_end)
         self.query_one("#attention", Static).update(render_attention(state.tasks))
         self._apply_attention_visibility()
         self._refresh_activity()
