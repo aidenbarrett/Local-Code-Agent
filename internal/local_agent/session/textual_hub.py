@@ -170,7 +170,8 @@ def render_task_reply(task: TaskSnapshot) -> str:
         verdict = (task.verdict or "NO_VERDICT").replace("_", " ")
         reason = f" · {task.verdict_reason.replace('_', ' ')}" if task.verdict_reason else ""
     body = task.result_answer if task.result_answer else "(recorded result text unavailable)"
-    if (task.verdict == "NO_VERDICT" and task.verdict_reason == "missing_evidence"\n            and task.result_answer):
+    if (task.verdict == "NO_VERDICT" and task.verdict_reason == "missing_evidence"
+            and task.result_answer):
         # A retained answer can contain the model's own account of what happened.
         # Keep the controller's lack of a verdict adjacent to that prose even
         # when the task detail card is out of view.
