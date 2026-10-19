@@ -221,3 +221,23 @@ def test_a_new_reply_stays_in_view_while_following_and_never_steals_a_scrolled_r
             await pilot.pause(0.2)
             assert pane.scroll_y == 0, "a reader who scrolled up was pulled to the bottom"
     asyncio.run(scenario())
+
+
+def test_a_short_conversation_starts_at_the_top_without_losing_follow_mode():
+    from local_agent.session.textual_hub import HubViewState, SessionHubApp
+    from textual.containers import VerticalScroll
+
+    async def scenario():
+        entries = (ConversationEntry("user", "Where is ParseResult?", _turn(0)),)
+        app = SessionHubApp(HubViewState(conversation=entries))
+        async with app.run_test(size=(120, 40)) as pilot:
+            pane = app.query_one("#conversation-pane", VerticalScroll)
+            conversation = app.query_one("#conversation", Static)
+            assert await _settled(pilot, lambda: conversation.region.y == pane.region.y + 1)
+            assert pane.scroll_y == 0
+
+            many, many_tasks = _long_conversation(12)
+            app.replace_state(HubViewState(conversation=many, tasks=many_tasks))
+            assert await _settled(pilot, lambda: pane.max_scroll_y > 0 and
+                                  pane.scroll_y == pane.max_scroll_y)
+    asyncio.run(scenario())
