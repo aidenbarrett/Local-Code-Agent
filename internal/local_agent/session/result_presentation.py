@@ -168,6 +168,10 @@ def render_result_next_action(task: TaskSnapshot) -> str:
         action = "inspect the evidence and failure detail before retrying."
     elif task.verdict == "NO_VERDICT" and task.verdict_reason == "cancelled":
         action = "repeat the request when you want a result."
+    elif task.verdict == "NO_VERDICT" and task.verdict_reason == "missing_evidence":
+        # Nothing was proven and no cleanup question arises: the worker ended without
+        # the evidence its request needed. True for answers and attempted changes alike.
+        action = "nothing here is proven; repeat or narrow the request to get a result."
     elif task.verdict == "NO_VERDICT":
         action = "inspect repository and cleanup state before retrying."
     else:

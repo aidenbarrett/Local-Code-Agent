@@ -9,14 +9,14 @@ from local_agent.session.event_buffer import EventBuffer
 from local_agent.session.task_controller import TaskController
 
 
-def _run_navigation(sandbox, evidence_ids: list[str], *, before_answer=()):
+def _run_navigation(sandbox, evidence_ids: list[str], *, before_answer=(), claim="diagnosis"):
     turns = [
         ChatResponse(tool_calls=[tool_call(
             "read_file", {"path": "include/sandbox/ring_buffer.hpp"}, "read",
         )]),
         *before_answer,
         ChatResponse(tool_calls=[tool_call("submit_answer", {
-            "claim": "diagnosis",
+            "claim": claim,
             "summary": "RingBuffer is declared in include/sandbox/ring_buffer.hpp.",
             "evidence_ids": evidence_ids,
         }, "answer")]),
@@ -84,3 +84,20 @@ def test_stopped_read_only_run_remains_no_verdict(sandbox):
 
     assert result.outcome is TaskOutcome.NO_VERDICT
     assert result.reason_code == "cancel_unreconciled"
+
+
+def test_a_read_only_answer_labelled_success_is_still_grounded_by_its_citations(sandbox):
+    """A read-only skill has no build or test to cite, so "success" with real
+    citations is the same grounded answer as "diagnosis"."""
+    for claim in ("success", "diagnosis", "failure", "needs_action"):
+        result = _run_navigation(sandbox, ["read_file:0"], claim=claim)
+        assert result.outcome is TaskOutcome.ANSWERED, claim
+        assert result.reason_code == "verification_not_required", claim
+        assert result.verified_at_completion is False, claim
+
+
+def test_a_success_label_does_not_rescue_uncited_or_unknown_citations(sandbox):
+    for cited in ([], ["read_file:99"], ["read_file:0", "build_target:7"]):
+        result = _run_navigation(sandbox, cited, claim="success")
+        assert result.outcome is TaskOutcome.NO_VERDICT, cited
+        assert result.reason_code == "missing_evidence", cited
